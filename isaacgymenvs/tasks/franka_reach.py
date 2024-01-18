@@ -466,18 +466,21 @@ class FrankaReach(VecTask):
         self._update_states()
 
     def compute_reward(self, actions):
-        self.rew_buf[:], self.reset_buf[:] = compute_franka_reward(
+        self.rew_buf[:], self.reset_buf[:], d = compute_franka_reward(
             self.reset_buf, self.progress_buf, self.actions, self.states, self.reward_settings, self.max_episode_length
         )
+
+        # In this policy, episode length is constant across all envs
+        is_last_step = (self.progress_buf[0] == self.max_episode_length - 1)
+
+        if is_last_step:
+            self.extras['successes'] = torch.mean(torch.where(d < 0.01, 1.0, 0.0)).item()
 
     def compute_observations(self):
         self._refresh()
         obs = ["cubeA_quat", "cubeA_pos", "cubeA_to_cubeB_pos", "eef_pos", "eef_quat"]
         obs += ["q_gripper"] if self.control_type == "osc" else ["q"]
         self.obs_buf = torch.cat([self.states[ob] for ob in obs], dim=-1)
-
-        maxs = {ob: torch.max(self.states[ob]).item() for ob in obs}
-
         return self.obs_buf
 
     def reset_idx(self, env_ids):
@@ -719,55 +722,31 @@ class FrankaReach(VecTask):
 ###=========================jit functions=========================###
 #####################################################################
 
+def quat_dist(q0, q1):
+    q0_minus_q1 = q0 - q1
+    q0_plus_q1  = q0 + q1
+    d_minus = torch.norm(q0_minus_q1)
+    d_plus  = torch.norm(q0_plus_q1)
+    if d_minus < d_plus:
+        return d_minus
+    else:
+        return d_plus
 
 @torch.jit.script
 def compute_franka_reward(
     reset_buf, progress_buf, actions, states, reward_settings, max_episode_length
 ):
-    # type: (Tensor, Tensor, Tensor, Dict[str, Tensor], Dict[str, float], float) -> Tuple[Tensor, Tensor]
+    # type: (Tensor, Tensor, Tensor, Dict[str, Tensor], Dict[str, float], float) -> Tuple[Tensor, Tensor, Tensor]
 
-    # Compute per-env physical parameters
-    target_height = states["cubeB_size"] + states["cubeA_size"] / 2.0
-    cubeA_size = states["cubeA_size"]
-    cubeB_size = states["cubeB_size"]
+    target_pos = torch.tensor([0.0, 0.0, 1.5]).to(states["eef_pos"].device).unsqueeze(0)
+    target_quat = torch.tensor([1.0, 0.0, 0.0, 0.0]).to(states["eef_quat"].device).unsqueeze(0)
+    pos_err = torch.norm(states["eef_pos"] - target_pos, dim=1)
+    quat_err = quat_dist(states["eef_quat"], target_quat)
 
-    # distance from hand to the cubeA
-    d = torch.norm(states["cubeA_pos_relative"], dim=-1)
-    d_lf = torch.norm(states["cubeA_pos"] - states["eef_lf_pos"], dim=-1)
-    d_rf = torch.norm(states["cubeA_pos"] - states["eef_rf_pos"], dim=-1)
-    dist_reward = 1 - torch.tanh(10.0 * (d + d_lf + d_rf) / 3)
+    dist_reward = 1.0 - torch.tanh(10.0 * pos_err) #+ 1.0 - 10*torch.tanh(10.0 * quat_err)
 
-    # reward for lifting cubeA
-    cubeA_height = states["cubeA_pos"][:, 2] - reward_settings["table_height"]
-    cubeA_lifted = (cubeA_height - cubeA_size) > 0.04
-    lift_reward = cubeA_lifted
-
-    # how closely aligned cubeA is to cubeB (only provided if cubeA is lifted)
-    offset = torch.zeros_like(states["cubeA_to_cubeB_pos"])
-    offset[:, 2] = (cubeA_size + cubeB_size) / 2
-    d_ab = torch.norm(states["cubeA_to_cubeB_pos"] + offset, dim=-1)
-    align_reward = (1 - torch.tanh(10.0 * d_ab)) * cubeA_lifted
-
-    # Dist reward is maximum of dist and align reward
-    dist_reward = torch.max(dist_reward, align_reward)
-
-    # final reward for stacking successfully (only if cubeA is close to target height and corresponding location, and gripper is not grasping)
-    cubeA_align_cubeB = (torch.norm(states["cubeA_to_cubeB_pos"][:, :2], dim=-1) < 0.02)
-    cubeA_on_cubeB = torch.abs(cubeA_height - target_height) < 0.02
-    gripper_away_from_cubeA = (d > 0.04)
-    stack_reward = cubeA_align_cubeB & cubeA_on_cubeB & gripper_away_from_cubeA
-
-    # Compose rewards
-
-    # We either provide the stack reward or the align + dist reward
-    rewards = torch.where(
-        stack_reward,
-        reward_settings["r_stack_scale"] * stack_reward,
-        reward_settings["r_dist_scale"] * dist_reward + reward_settings["r_lift_scale"] * lift_reward + reward_settings[
-            "r_align_scale"] * align_reward,
-    )
-
+    rewards = dist_reward
     # Compute resets
-    reset_buf = torch.where((progress_buf >= max_episode_length - 1) | (stack_reward > 0), torch.ones_like(reset_buf), reset_buf)
+    reset_buf = torch.where((progress_buf >= max_episode_length - 1), torch.ones_like(reset_buf), reset_buf)
 
-    return rewards, reset_buf
+    return rewards, reset_buf, pos_err
