@@ -32,8 +32,9 @@ import torch
 
 from isaacgym import gymtorch
 from isaacgym import gymapi
+from isaacgym.torch_utils import *
 
-from isaacgymenvs.utils.torch_jit_utils import quat_mul, to_torch, tensor_clamp  
+from isaacgymenvs.utils.torch_jit_utils import *
 from isaacgymenvs.tasks.base.vec_task import VecTask
 
 
@@ -72,7 +73,7 @@ def axisangle2quat(vec, eps=1e-6):
     return quat
 
 
-class FrankaCubeStack(VecTask):
+class FrankaReach(VecTask):
 
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
         self.cfg = cfg
@@ -97,8 +98,8 @@ class FrankaCubeStack(VecTask):
 
         # Controller type
         self.control_type = self.cfg["env"]["controlType"]
-        assert self.control_type in {"osc", "joint_tor"},\
-            "Invalid control type specified. Must be one of: {osc, joint_tor}"
+        assert self.control_type in {"osc", "joint_position"},\
+            "Invalid control type specified. Must be one of: {osc, joint_position}"
 
         # dimensions
         # obs include: cubeA_pose (7) + cubeB_pos (3) + eef_pose (7) + q_gripper (2)
@@ -202,9 +203,15 @@ class FrankaCubeStack(VecTask):
         asset_options.default_dof_drive_mode = gymapi.DOF_MODE_EFFORT
         asset_options.use_mesh_materials = True
         franka_asset = self.gym.load_asset(self.sim, asset_root, franka_asset_file, asset_options)
+        self.franka_asset = franka_asset
 
-        franka_dof_stiffness = to_torch([0, 0, 0, 0, 0, 0, 0, 5000., 5000.], dtype=torch.float, device=self.device)
-        franka_dof_damping = to_torch([0, 0, 0, 0, 0, 0, 0, 1.0e2, 1.0e2], dtype=torch.float, device=self.device)
+        # todo modify this for joint position control vs. osc
+        if self.control_type == "osc":
+            franka_dof_stiffness = to_torch([0, 0, 0, 0, 0, 0, 0, 5000., 5000.], dtype=torch.float, device=self.device)
+            franka_dof_damping = to_torch([0, 0, 0, 0, 0, 0, 0, 1.0e2, 1.0e2], dtype=torch.float, device=self.device)
+        elif self.control_type == "joint_position":
+            franka_dof_stiffness = to_torch([1000.0]*7 + [800., 800.], dtype=torch.float, device=self.device)
+            franka_dof_damping = to_torch([50]* 7 + [40., 40.], dtype=torch.float, device=self.device)
 
         # Create table asset
         table_pos = [0.0, 0.0, 1.0]
@@ -245,7 +252,10 @@ class FrankaCubeStack(VecTask):
         self.franka_dof_upper_limits = []
         self._franka_effort_limits = []
         for i in range(self.num_franka_dofs):
-            franka_dof_props['driveMode'][i] = gymapi.DOF_MODE_POS if i > 6 else gymapi.DOF_MODE_EFFORT
+            if self.control_type == "joint_position":
+                franka_dof_props['driveMode'][i] = gymapi.DOF_MODE_POS
+            else:
+                franka_dof_props['driveMode'][i] = gymapi.DOF_MODE_POS if i > 6 else gymapi.DOF_MODE_EFFORT
             if self.physics_engine == gymapi.SIM_PHYSX:
                 franka_dof_props['stiffness'][i] = franka_dof_stiffness[i]
                 franka_dof_props['damping'][i] = franka_dof_damping[i]

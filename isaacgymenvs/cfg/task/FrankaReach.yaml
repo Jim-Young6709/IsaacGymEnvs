@@ -27,7 +27,7 @@ env:
   alignRewardScale: 2.0
   stackRewardScale: 16.0
 
-  controlType: osc  # options are {joint_tor, osc}
+  controlType: osc  # options are {joint_position, osc}
 
   asset:
     assetRoot: "../../assets"
