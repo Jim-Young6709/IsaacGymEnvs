@@ -200,7 +200,7 @@ class FrankaReach(VecTask):
         asset_options.collapse_fixed_joints = False
         asset_options.disable_gravity = True
         asset_options.thickness = 0.001
-        asset_options.default_dof_drive_mode = gymapi.DOF_MODE_EFFORT
+        asset_options.default_dof_drive_mode = gymapi.DOF_MODE_POS
         asset_options.use_mesh_materials = True
         franka_asset = self.gym.load_asset(self.sim, asset_root, franka_asset_file, asset_options)
         self.franka_asset = franka_asset
@@ -226,6 +226,12 @@ class FrankaReach(VecTask):
         table_stand_opts = gymapi.AssetOptions()
         table_stand_opts.fix_base_link = True
         table_stand_asset = self.gym.create_box(self.sim, *[0.2, 0.2, table_stand_height], table_opts)
+
+        table_block_height = 0.2
+        table_block_pos = [-0.25, 0.0, 1.0 + table_thickness / 2 + table_block_height / 2]
+        table_block_opts = gymapi.AssetOptions()
+        table_block_opts.fix_base_link = True
+        table_block_asset = self.gym.create_box(self.sim, *[0.2, 0.2, table_block_height], table_opts)
 
         self.cubeA_size = 0.050
         self.cubeB_size = 0.070
@@ -291,6 +297,11 @@ class FrankaReach(VecTask):
         table_stand_start_pose = gymapi.Transform()
         table_stand_start_pose.p = gymapi.Vec3(*table_stand_pos)
         table_stand_start_pose.r = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
+
+        # Define start pose for table block
+        table_block_start_pose = gymapi.Transform()
+        table_block_start_pose.p = gymapi.Vec3(*table_block_pos)
+        table_block_start_pose.r = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
 
         # Define start pose for cubes (doesn't really matter since they're get overridden during reset() anyways)
         cubeA_start_pose = gymapi.Transform()
@@ -638,31 +649,34 @@ class FrankaReach(VecTask):
 
     def pre_physics_step(self, actions):
         self.actions = actions.clone().to(self.device)
-
-        # Split arm and gripper command
-        u_arm, u_gripper = self.actions[:, :-1], self.actions[:, -1]
-
-        # print(u_arm, u_gripper)
-        # print(self.cmd_limit, self.action_scale)
-
-        # Control arm (scale value first)
-        u_arm = u_arm * self.cmd_limit / self.action_scale
-        if self.control_type == "osc":
-            u_arm = self._compute_osc_torques(dpose=u_arm)
-        self._arm_control[:, :] = u_arm
-
-        # Control gripper
-        u_fingers = torch.zeros_like(self._gripper_control)
-        u_fingers[:, 0] = torch.where(u_gripper >= 0.0, self.franka_dof_upper_limits[-2].item(),
-                                      self.franka_dof_lower_limits[-2].item())
-        u_fingers[:, 1] = torch.where(u_gripper >= 0.0, self.franka_dof_upper_limits[-1].item(),
-                                      self.franka_dof_lower_limits[-1].item())
-        # Write gripper command to appropriate tensor buffer
-        self._gripper_control[:, :] = u_fingers
-
         # Deploy actions
-        self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(self._pos_control))
-        self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(self._effort_control))
+        if self.control_type == 'osc':
+            # Split arm and gripper command
+            u_arm, u_gripper = self.actions[:, :-1], self.actions[:, -1]
+
+            # print(u_arm, u_gripper)
+            # print(self.cmd_limit, self.action_scale)
+
+            # Control arm (scale value first)
+            u_arm = u_arm * self.cmd_limit / self.action_scale
+            if self.control_type == "osc":
+                u_arm = self._compute_osc_torques(dpose=u_arm)
+            self._arm_control[:, :] = u_arm
+
+            # Control gripper: discretize to open/close
+            u_fingers = torch.zeros_like(self._gripper_control)
+            u_fingers[:, 0] = torch.where(u_gripper >= 0.0, self.franka_dof_upper_limits[-2].item(),
+                                        self.franka_dof_lower_limits[-2].item())
+            u_fingers[:, 1] = torch.where(u_gripper >= 0.0, self.franka_dof_upper_limits[-1].item(),
+                                        self.franka_dof_lower_limits[-1].item())
+            # Write gripper command to appropriate tensor buffer
+            self._gripper_control[:, :] = u_fingers
+            # Deploy actions
+            self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(self._pos_control))
+            self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(self._effort_control))
+        else:
+            #TODO: fix -> this doesn't correctly reach the position as of now
+            self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(self.actions))
 
     def post_physics_step(self):
         self.progress_buf += 1
