@@ -104,8 +104,8 @@ class FrankaReach(VecTask):
         # dimensions
         # obs include: cubeA_pose (7) + cubeB_pos (3) + eef_pose (7) + q_gripper (2)
         self.cfg["env"]["numObservations"] = 19 if self.control_type == "osc" else 26
-        # actions include: delta EEF if OSC (6) or joint torques (7) + bool gripper (1)
-        self.cfg["env"]["numActions"] = 7 if self.control_type == "osc" else 8
+        # actions include: delta EEF if OSC (6) or joint torques (7) + bool gripper (1) or q_gripper (2)
+        self.cfg["env"]["numActions"] = 7 if self.control_type == "osc" else 9
 
         # Values to be filled in at runtime
         self.states = {}                        # will be dict filled with relevant states to use for reward calculation
@@ -701,14 +701,10 @@ class FrankaReach(VecTask):
             # Grab relevant states to visualize
             eef_pos = self.states["eef_pos"]
             eef_rot = self.states["eef_quat"]
-            cubeA_pos = self.states["cubeA_pos"]
-            cubeA_rot = self.states["cubeA_quat"]
-            cubeB_pos = self.states["cubeB_pos"]
-            cubeB_rot = self.states["cubeB_quat"]
 
             # Plot visualizations
             for i in range(self.num_envs):
-                for pos, rot in zip((eef_pos, cubeA_pos, cubeB_pos), (eef_rot, cubeA_rot, cubeB_rot)):
+                for pos, rot in zip((eef_pos), (eef_rot)):
                     px = (pos[i] + quat_apply(rot[i], to_torch([1, 0, 0], device=self.device) * 0.2)).cpu().numpy()
                     py = (pos[i] + quat_apply(rot[i], to_torch([0, 1, 0], device=self.device) * 0.2)).cpu().numpy()
                     pz = (pos[i] + quat_apply(rot[i], to_torch([0, 0, 1], device=self.device) * 0.2)).cpu().numpy()
@@ -738,12 +734,12 @@ def compute_franka_reward(
 ):
     # type: (Tensor, Tensor, Tensor, Dict[str, Tensor], Dict[str, float], float) -> Tuple[Tensor, Tensor, Tensor]
 
-    target_pos = torch.tensor([0.0, 0.0, 1.5]).to(states["eef_pos"].device).unsqueeze(0)
+    target_pos = torch.tensor([0.2, 0.0, 1.5]).to(states["eef_pos"].device).unsqueeze(0)
     target_quat = torch.tensor([1.0, 0.0, 0.0, 0.0]).to(states["eef_quat"].device).unsqueeze(0)
     pos_err = torch.norm(states["eef_pos"] - target_pos, dim=1)
     quat_err = quat_dist(states["eef_quat"], target_quat)
 
-    dist_reward = 1.0 - torch.tanh(10.0 * pos_err) #+ 1.0 - 10*torch.tanh(10.0 * quat_err)
+    dist_reward = 1.0 - torch.tanh(10.0 * pos_err) + 10*(1.0 - 1.1*torch.tanh(10.0 * quat_err))
 
     rewards = dist_reward
     # Compute resets
