@@ -180,32 +180,9 @@ class FrankaReach(VecTask):
         lower = gymapi.Vec3(-spacing, -spacing, 0.0)
         upper = gymapi.Vec3(spacing, spacing, spacing)
 
-        asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../assets")
-        franka_asset_file = "urdf/franka_description/robots/franka_panda_gripper.urdf"
-
-        if "asset" in self.cfg["env"]:
-            asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), self.cfg["env"]["asset"].get("assetRoot", asset_root))
-            franka_asset_file = self.cfg["env"]["asset"].get("assetFileNameFranka", franka_asset_file)
-
-        # load franka asset
-        asset_options = gymapi.AssetOptions()
-        asset_options.flip_visual_attachments = True
-        asset_options.fix_base_link = True
-        asset_options.collapse_fixed_joints = False
-        asset_options.disable_gravity = True
-        asset_options.thickness = 0.001
-        asset_options.default_dof_drive_mode = gymapi.DOF_MODE_POS
-        asset_options.use_mesh_materials = True
-        franka_asset = self.gym.load_asset(self.sim, asset_root, franka_asset_file, asset_options)
-        self.franka_asset = franka_asset
-
-        # todo modify this for joint position control vs. osc
-        if self.control_type == "osc":
-            franka_dof_stiffness = to_torch([0, 0, 0, 0, 0, 0, 0, 5000., 5000.], dtype=torch.float, device=self.device)
-            franka_dof_damping = to_torch([0, 0, 0, 0, 0, 0, 0, 1.0e2, 1.0e2], dtype=torch.float, device=self.device)
-        elif self.control_type == "joint_position":
-            franka_dof_stiffness = to_torch([1000.0]*7 + [800., 800.], dtype=torch.float, device=self.device)
-            franka_dof_damping = to_torch([50]* 7 + [40., 40.], dtype=torch.float, device=self.device)
+        # setup franka
+        franka_dof_props = self._create_franka()
+        franka_asset = self.franka_asset
 
         # Create table asset
         table_pos = [0.0, 0.0, 1.0]
@@ -226,41 +203,6 @@ class FrankaReach(VecTask):
         table_block_opts = gymapi.AssetOptions()
         table_block_opts.fix_base_link = True
         table_block_asset = self.gym.create_box(self.sim, *[0.2, 0.2, table_block_height], table_opts)
-
-        self.num_franka_bodies = self.gym.get_asset_rigid_body_count(franka_asset)
-        self.num_franka_dofs = self.gym.get_asset_dof_count(franka_asset)
-
-        print("num franka bodies: ", self.num_franka_bodies)
-        print("num franka dofs: ", self.num_franka_dofs)
-
-        # set franka dof properties
-        franka_dof_props = self.gym.get_asset_dof_properties(franka_asset)
-        self.franka_dof_lower_limits = []
-        self.franka_dof_upper_limits = []
-        self._franka_effort_limits = []
-        for i in range(self.num_franka_dofs):
-            if self.control_type == "joint_position":
-                franka_dof_props['driveMode'][i] = gymapi.DOF_MODE_POS
-            else:
-                franka_dof_props['driveMode'][i] = gymapi.DOF_MODE_POS if i > 6 else gymapi.DOF_MODE_EFFORT
-            if self.physics_engine == gymapi.SIM_PHYSX:
-                franka_dof_props['stiffness'][i] = franka_dof_stiffness[i]
-                franka_dof_props['damping'][i] = franka_dof_damping[i]
-            else:
-                franka_dof_props['stiffness'][i] = 7000.0
-                franka_dof_props['damping'][i] = 50.0
-
-            self.franka_dof_lower_limits.append(franka_dof_props['lower'][i])
-            self.franka_dof_upper_limits.append(franka_dof_props['upper'][i])
-            self._franka_effort_limits.append(franka_dof_props['effort'][i])
-
-        self.franka_dof_lower_limits = to_torch(self.franka_dof_lower_limits, device=self.device)
-        self.franka_dof_upper_limits = to_torch(self.franka_dof_upper_limits, device=self.device)
-        self._franka_effort_limits = to_torch(self._franka_effort_limits, device=self.device)
-        self.franka_dof_speed_scales = torch.ones_like(self.franka_dof_lower_limits)
-        self.franka_dof_speed_scales[[7, 8]] = 0.1
-        franka_dof_props['effort'][7] = 200
-        franka_dof_props['effort'][8] = 200
 
         # Define start pose for franka
         franka_start_pose = gymapi.Transform()
@@ -339,6 +281,70 @@ class FrankaReach(VecTask):
 
         # Setup data
         self.init_data()
+
+    def _create_franka(self, ):
+        asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../assets")
+        franka_asset_file = "urdf/franka_description/robots/franka_panda_gripper.urdf"
+
+        if "asset" in self.cfg["env"]:
+            asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), self.cfg["env"]["asset"].get("assetRoot", asset_root))
+            franka_asset_file = self.cfg["env"]["asset"].get("assetFileNameFranka", franka_asset_file)
+
+        # load franka asset
+        asset_options = gymapi.AssetOptions()
+        asset_options.flip_visual_attachments = True
+        asset_options.fix_base_link = True
+        asset_options.collapse_fixed_joints = False
+        asset_options.disable_gravity = True
+        asset_options.thickness = 0.001
+        asset_options.default_dof_drive_mode = gymapi.DOF_MODE_POS
+        asset_options.use_mesh_materials = True
+        franka_asset = self.gym.load_asset(self.sim, asset_root, franka_asset_file, asset_options)
+        self.franka_asset = franka_asset
+
+        # todo modify this for joint position control vs. osc
+        if self.control_type == "osc":
+            franka_dof_stiffness = to_torch([0, 0, 0, 0, 0, 0, 0, 5000., 5000.], dtype=torch.float, device=self.device)
+            franka_dof_damping = to_torch([0, 0, 0, 0, 0, 0, 0, 1.0e2, 1.0e2], dtype=torch.float, device=self.device)
+        elif self.control_type == "joint_position":
+            franka_dof_stiffness = to_torch([1000.0]*7 + [800., 800.], dtype=torch.float, device=self.device)
+            franka_dof_damping = to_torch([50]* 7 + [40., 40.], dtype=torch.float, device=self.device)
+
+        self.num_franka_bodies = self.gym.get_asset_rigid_body_count(franka_asset)
+        self.num_franka_dofs = self.gym.get_asset_dof_count(franka_asset)
+
+        print("num franka bodies: ", self.num_franka_bodies)
+        print("num franka dofs: ", self.num_franka_dofs)
+
+        # set franka dof properties
+        franka_dof_props = self.gym.get_asset_dof_properties(franka_asset)
+        self.franka_dof_lower_limits = []
+        self.franka_dof_upper_limits = []
+        self._franka_effort_limits = []
+        for i in range(self.num_franka_dofs):
+            if self.control_type == "joint_position":
+                franka_dof_props['driveMode'][i] = gymapi.DOF_MODE_POS
+            else:
+                franka_dof_props['driveMode'][i] = gymapi.DOF_MODE_POS if i > 6 else gymapi.DOF_MODE_EFFORT
+            if self.physics_engine == gymapi.SIM_PHYSX:
+                franka_dof_props['stiffness'][i] = franka_dof_stiffness[i]
+                franka_dof_props['damping'][i] = franka_dof_damping[i]
+            else:
+                franka_dof_props['stiffness'][i] = 7000.0
+                franka_dof_props['damping'][i] = 50.0
+
+            self.franka_dof_lower_limits.append(franka_dof_props['lower'][i])
+            self.franka_dof_upper_limits.append(franka_dof_props['upper'][i])
+            self._franka_effort_limits.append(franka_dof_props['effort'][i])
+
+        self.franka_dof_lower_limits = to_torch(self.franka_dof_lower_limits, device=self.device)
+        self.franka_dof_upper_limits = to_torch(self.franka_dof_upper_limits, device=self.device)
+        self._franka_effort_limits = to_torch(self._franka_effort_limits, device=self.device)
+        self.franka_dof_speed_scales = torch.ones_like(self.franka_dof_lower_limits)
+        self.franka_dof_speed_scales[[7, 8]] = 0.1
+        franka_dof_props['effort'][7] = 200
+        franka_dof_props['effort'][8] = 200
+        return franka_dof_props
 
     def init_data(self):
         # Setup sim handles
