@@ -234,9 +234,7 @@ class FrankaReach(VecTask):
 
         self.frankas = []
         self.envs = []
-        global_env_indices = []
-        actor_idx = 0
-        num_objs = 1 + 2
+
         # Create environments
         for i in range(self.num_envs):
             # create env instance
@@ -280,11 +278,9 @@ class FrankaReach(VecTask):
             # Store the created env pointers
             self.envs.append(env_ptr)
             self.frankas.append(franka_actor)
-            global_env_indices.append(actor_idx)
-            actor_idx += num_objs
 
         # Setup data
-        self.init_data(torch.tensor(global_env_indices, dtype=torch.int32, device=self.device))
+        self.init_data(actor_num=3)
 
     def _create_franka(self, ):
         asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../assets")
@@ -350,7 +346,7 @@ class FrankaReach(VecTask):
         franka_dof_props['effort'][8] = 200
         return franka_dof_props
 
-    def init_data(self, global_env_indices):
+    def init_data(self, actor_num):
         # Setup sim handles
         env_ptr = self.envs[0]
         franka_handle = 0
@@ -394,7 +390,8 @@ class FrankaReach(VecTask):
         self._gripper_control = self._pos_control[:, 7:9]
 
         # Initialize indices
-        self._global_indices = global_env_indices
+        self._global_indices = torch.arange(self.num_envs * actor_num, dtype=torch.int32,
+                                           device=self.device).view(self.num_envs, -1) # 3 actors, franka, table, table_stand
 
     def _update_states(self):
         self.states.update({
@@ -459,7 +456,7 @@ class FrankaReach(VecTask):
         self._effort_control[env_ids, :] = torch.zeros_like(pos)
 
         # Deploy updates
-        multi_env_ids_int32 = self._global_indices
+        multi_env_ids_int32 = self._global_indices[env_ids, 0].flatten()
         self.gym.set_dof_position_target_tensor_indexed(self.sim,
                                                         gymtorch.unwrap_tensor(self._pos_control),
                                                         gymtorch.unwrap_tensor(multi_env_ids_int32),
