@@ -362,6 +362,8 @@ class FrankaReach(VecTask):
         self.num_dofs = self.gym.get_sim_dof_count(self.sim) // self.num_envs
 
         # Setup tensor buffers
+        _net_contact_forces = self.gym.acquire_net_contact_force_tensor(self.sim)
+        self.contact_forces = gymtorch.wrap_tensor(_net_contact_forces).view(self.num_envs, -1, 3)
         _actor_root_state_tensor = self.gym.acquire_actor_root_state_tensor(self.sim)
         _dof_state_tensor = self.gym.acquire_dof_state_tensor(self.sim)
         _rigid_body_state_tensor = self.gym.acquire_rigid_body_state_tensor(self.sim)
@@ -411,6 +413,7 @@ class FrankaReach(VecTask):
         self.gym.refresh_rigid_body_state_tensor(self.sim)
         self.gym.refresh_jacobian_tensors(self.sim)
         self.gym.refresh_mass_matrix_tensors(self.sim)
+        self.gym.refresh_net_contact_force_tensor(self.sim)
 
         # Refresh states
         self._update_states()
