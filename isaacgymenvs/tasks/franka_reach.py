@@ -432,7 +432,7 @@ class FrankaReach(VecTask):
     def compute_observations(self):
         self._refresh()
         obs = ["eef_pos", "eef_quat"]
-        obs += ["q_gripper"] if self.control_type == "osc" else ["q"]
+        obs += ["q_gripper"] if self.control_type == "" else ["q"]
         self.obs_buf = torch.cat([self.states[ob] for ob in obs], dim=-1)
         return self.obs_buf
 
@@ -538,8 +538,8 @@ class FrankaReach(VecTask):
         self.progress_buf += 1
 
         env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
-        if len(env_ids) > 0:
-            self.reset_idx(env_ids)
+        # if len(env_ids) > 0:
+        #     self.reset_idx(env_ids)
 
         self.compute_observations()
         self.compute_reward(self.actions)
