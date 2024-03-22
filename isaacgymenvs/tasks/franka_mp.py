@@ -311,53 +311,6 @@ class FrankaMP(FrankaReach):
         ) + lower_limits
         return unnormalized
 
-    def step(
-        self,
-        action: torch.Tensor,
-        isDeta=True,
-        isInterpolation=False,
-        exe_steps=10,
-        detect_collision=True,
-        render=False,
-        debug=False,
-    ):
-        """
-        Step in the environment with an action.
-        Args:
-            action (np.array): (num_envs, 7) action to take
-        Returns:
-            observation (dict): new observation dictionary
-            reward (float): reward for this step
-            done (bool): whether the task is done
-            info (dict): extra information
-        """
-
-        gripper_state = torch.Tensor([[0.035, 0.035]] * self.num_envs).to(self.device)
-        done = self.is_done()
-        start_angles = self.get_joint_angles()
-        start_state = torch.cat((start_angles, gripper_state), dim=1)
-        if isDeta:
-            target_state = start_state + action
-        else:
-            target_state = action
-
-        for step in range(exe_steps):
-            action = start_state + (target_state - start_state) * (step + 1) / exe_steps
-            if isInterpolation:
-                self.set_robot_joint_state(action)
-            else:
-                super().step(action)
-                if detect_collision:
-                    self.check_robot_collision()
-                    self.num_collisions += self.collision
-                if debug:
-                    self.print_collision_info()
-            if render:
-                self.render()
-
-        if debug:
-            print("step errors: ", torch.norm(target_state[:, :7] - self.get_joint_angles(), dim=1))
-
     def get_info(self):
         return None
 
@@ -712,6 +665,54 @@ class FrankaMP(FrankaReach):
         else:
             super().render()
 
+    def execute_action(
+        self,
+        action: torch.Tensor,
+        isDeta=True,
+        isInterpolation=False,
+        exe_steps=10,
+        detect_collision=True,
+        render=False,
+        debug=False,
+    ):
+        """
+        Step in the environment with an action.
+        Args:
+            action (np.array): (num_envs, 7) action to take
+        Returns:
+            observation (dict): new observation dictionary
+            reward (float): reward for this step
+            done (bool): whether the task is done
+            info (dict): extra information
+        """
+
+        gripper_state = torch.Tensor([[0.035, 0.035]] * self.num_envs).to(self.device)
+        done = self.is_done()
+        start_angles = self.get_joint_angles()
+        start_state = torch.cat((start_angles, gripper_state), dim=1)
+        if isDeta:
+            target_angles = start_angles + action
+        else:
+            target_angles = action
+        target_state = torch.cat((target_angles, gripper_state), dim=1)
+
+        for step in range(exe_steps):
+            action = start_state + (target_state - start_state) * (step + 1) / exe_steps
+            if isInterpolation:
+                self.set_robot_joint_state(action)
+            else:
+                super().step(action)
+                if detect_collision:
+                    self.check_robot_collision()
+                    self.num_collisions += self.collision
+                if debug:
+                    self.print_collision_info()
+            if render:
+                self.render()
+
+        if debug:
+            print("step errors: ", torch.norm(target_state[:, :7] - self.get_joint_angles(), dim=1))
+
     def execute_plan(
         self, plan, exe_steps, set_intermediate_states=False, render=False, debug=False
     ):
@@ -725,12 +726,11 @@ class FrankaMP(FrankaReach):
         print(f"Plan length: {len(plan)}")
         self.check_robot_collision()
         assert not sum(self.collision) > 0, "Robot in collision!"
-        assert plan[0].size(1) == 9, "each plan step should have 9 elements (7 joint angles, 2 gripper states)"
 
         # now take path and execute
         self.num_collisions = torch.zeros(self.num_envs, device=self.device)
         for plan_idx, action in enumerate(plan):
-            self.step(
+            self.execute_action(
                 action=action,
                 isDeta=False,
                 isInterpolation=set_intermediate_states,
@@ -741,7 +741,7 @@ class FrankaMP(FrankaReach):
             )
 
         achieved_joint_angles = self.get_joint_angles()
-        joint_error = torch.norm(achieved_joint_angles - plan[-1][:,:7], dim=1)
+        joint_error = torch.norm(achieved_joint_angles - plan[-1], dim=1)
         if debug:
             print(f"execution results:\njoint_err: {joint_error} deg")
             print(f"{torch.sum(self.num_collisions!=0)} / {self.num_envs} envs has collided")
