@@ -334,12 +334,12 @@ class FrankaMP(FrankaReach):
 
         gripper_state = torch.Tensor([[0.035, 0.035]] * self.num_envs).to(self.device)
         done = self.is_done()
-        if isDeta:
-            action = self.get_joint_angles() + action
-
         start_angles = self.get_joint_angles()
         start_state = torch.cat((start_angles, gripper_state), dim=1)
-        target_state = torch.cat((action, gripper_state), dim=1)
+        if isDeta:
+            target_state = start_state + action
+        else:
+            target_state = action
 
         for step in range(exe_steps):
             action = start_state + (target_state - start_state) * (step + 1) / exe_steps
@@ -574,8 +574,9 @@ class FrankaMP(FrankaReach):
             env_ids = np.arange(self.num_envs)
         assert len(joint_state) == len(env_ids)
 
-        gripper_state = torch.Tensor([[0.035, 0.035]] * len(env_ids)).to(self.device)
-        state_tensor = torch.cat((joint_state, gripper_state), dim=1).unsqueeze(2)
+        if joint_state.size(1) == 7:
+            gripper_state = torch.Tensor([[0.035, 0.035]] * len(env_ids)).to(self.device)
+            state_tensor = torch.cat((joint_state, gripper_state), dim=1).unsqueeze(2)
         state_tensor = torch.cat((state_tensor, torch.zeros_like(state_tensor)), dim=2)
         pos = state_tensor[:, :, 0].contiguous()
 
@@ -716,7 +717,7 @@ class FrankaMP(FrankaReach):
     ):
         """
         Args:
-            plan (List[torch.Tensor]): list of joint angles, including initial starting state
+            plan (List[torch.Tensor]): list of joint & gripper states [num_envs, 9] , including initial starting state
         Returns:
             error (float): error in final joint angles
         """
@@ -724,6 +725,7 @@ class FrankaMP(FrankaReach):
         print(f"Plan length: {len(plan)}")
         self.check_robot_collision()
         assert not sum(self.collision) > 0, "Robot in collision!"
+        assert plan[0].size(1) == 9, "each plan step should have 9 elements (7 joint angles, 2 gripper states)"
 
         # now take path and execute
         self.num_collisions = torch.zeros(self.num_envs, device=self.device)
@@ -739,7 +741,7 @@ class FrankaMP(FrankaReach):
             )
 
         achieved_joint_angles = self.get_joint_angles()
-        joint_error = torch.norm(achieved_joint_angles - plan[-1], dim=1)
+        joint_error = torch.norm(achieved_joint_angles - plan[-1][:,:7], dim=1)
         if debug:
             print(f"execution results:\njoint_err: {joint_error} deg")
             print(f"{torch.sum(self.num_collisions!=0)} / {self.num_envs} envs has collided")
