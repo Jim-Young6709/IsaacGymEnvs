@@ -75,9 +75,6 @@ def test_ik(env):
 
 class FrankaMP(FrankaReach):
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
-        graphics_device_id = 0
-        virtual_screen_capture = False
-        force_render = False
         super().__init__(
             cfg,
             rl_device,
