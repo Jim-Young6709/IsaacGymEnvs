@@ -335,41 +335,6 @@ class FrankaMP(FrankaReach):
         """
         return torch.cat((self.get_proprio()[0], self.get_proprio()[1]), dim=1)
 
-    def setup_camera(
-        self,
-        image_size=(512, 512),
-        fov=75,
-        camera_position=(1.5, 0.0, 2.0),
-        camera_target=(0.0, 0.0, 1.5),
-    ):
-        """
-        Setup the camera for all environments.
-        Args:
-            image_size (tuple): (height, width) of the image
-            fov (float): field of view of the camera
-            camera_position (tuple): (x, y, z) position of the camera
-            camera_target (tuple): (x, y, z) position of the camera target
-        Returns:
-            list: list of camera handles
-        """
-        camera_properties = gymapi.CameraProperties()
-        camera_properties.height, camera_properties.width = image_size
-        camera_properties.horizontal_fov = fov
-        self.camera_properties = camera_properties
-
-        camera_handles = []
-        for i in range(self.num_envs):
-            camera_handle = self.gym.create_camera_sensor(self.envs[i], camera_properties)
-            # TODO (mdalal): set the camera location appropriately for each vec env, currently just hardcoded to the best spot for env 0
-            self.gym.set_camera_location(
-                camera_handle,
-                self.envs[i],
-                gymapi.Vec3(*camera_position),
-                gymapi.Vec3(*camera_target),
-            )
-            camera_handles.append(camera_handle)
-        return camera_handles
-
     def get_proprio(self):
         """
         Get the proprioceptive states of the robot: ee_pos, ee_quat, joint_angles
@@ -631,36 +596,6 @@ class FrankaMP(FrankaReach):
             cam_target = gymapi.Vec3(0.0, 0.0, 1.5)
 
             self.gym.viewer_camera_look_at(self.viewer, None, cam_pos, cam_target)
-
-    def render(self, image_type="rgb"):
-        """
-        Render the scene.
-        """
-        if self.headless:
-            self.gym.step_graphics(self.sim)
-            self.gym.render_all_camera_sensors(self.sim)
-
-            images = []
-            for i in range(self.num_envs):
-                image = self.gym.get_camera_image(
-                    self.sim,
-                    self.envs[i],
-                    self.camera_handles[i],
-                    IMAGE_TYPES[image_type],
-                )
-
-                if image_type == "depth":
-                    max_depth = 5
-                    image = np.clip(image * -1, a_min=0, a_max=max_depth) / max_depth
-                    image = (image * 255).astype(np.uint8)
-                image = image.reshape(
-                    (self.camera_properties.height, self.camera_properties.width, -1)
-                )[..., :3]
-                images.append(np.expand_dims(image, 0))
-            image = np.concatenate(images, axis=0)
-            return image
-        else:
-            super().render()
 
     def execute_action(
         self,
