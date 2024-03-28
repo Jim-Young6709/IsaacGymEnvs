@@ -105,7 +105,10 @@ class FrankaReach(VecTask):
         # obs include: cubeA_pose (7) + cubeB_pos (3) + eef_pose (7) + q_gripper (2)
         self.cfg["env"]["numObservations"] = 9 if self.control_type == "osc" else 16
         # actions include: delta EEF if OSC (6) or joint torques (7) + bool gripper (1) or q_gripper (2)
-        self.cfg["env"]["numActions"] = 7 if self.control_type == "osc" else 9
+        if self.cfg["env"]["disable_eef"]:
+            self.cfg["env"]["numActions"] = 6 if self.control_type == "osc" else 7
+        else:
+            self.cfg["env"]["numActions"] = 7 if self.control_type == "osc" else 9
 
         # Values to be filled in at runtime
         self.states = {}                        # will be dict filled with relevant states to use for reward calculation
@@ -432,7 +435,7 @@ class FrankaReach(VecTask):
     def compute_observations(self):
         self._refresh()
         obs = ["eef_pos", "eef_quat"]
-        obs += ["q_gripper"] if self.control_type == "" else ["q"]
+        obs += ["q_gripper"] if self.control_type == "osc" else ["q"]
         self.obs_buf = torch.cat([self.states[ob] for ob in obs], dim=-1)
         return self.obs_buf
 
@@ -508,8 +511,10 @@ class FrankaReach(VecTask):
         # Deploy actions
         if self.control_type == 'osc':
             # Split arm and gripper command
-            u_arm, u_gripper = self.actions[:, :-1], self.actions[:, -1]
-
+            if self.actions.shape[-1] == 7:
+                u_arm, u_gripper = self.actions[:, :-1], self.actions[:, -1]
+            else:
+                u_arm, u_gripper = self.actions, torch.ones(self.num_envs, device=self.device)
             # print(u_arm, u_gripper)
             # print(self.cmd_limit, self.action_scale)
 
@@ -532,14 +537,17 @@ class FrankaReach(VecTask):
             self.gym.set_dof_actuation_force_tensor(self.sim, gymtorch.unwrap_tensor(self._effort_control))
         else:
             #TODO: fix -> this doesn't correctly reach the position as of now
+            gripper_state = torch.Tensor([[0.035, 0.035]] * self.num_envs).to(self.device)
+            if self.actions.shape[-1] == 7:
+                self.actions = torch.cat((self.actions, gripper_state), dim=1)
             self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(self.actions))
 
     def post_physics_step(self):
         self.progress_buf += 1
 
         env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
-        # if len(env_ids) > 0:
-        #     self.reset_idx(env_ids)
+        if len(env_ids) > 0:
+            self.reset_idx(env_ids)
 
         self.compute_observations()
         self.compute_reward(self.actions)
@@ -577,12 +585,15 @@ def compute_franka_reward(
 
     target_pos = torch.tensor([0.2, 0.0, 1.5]).to(states["eef_pos"].device).unsqueeze(0)
     target_quat = torch.tensor([1.0, 0.0, 0.0, 0.0]).to(states["eef_quat"].device).unsqueeze(0)
+    target_angles = torch.tensor([0.5, 0.7, 0., -1.0, 0., 0.95, 0.8]).to(states["eef_quat"].device).unsqueeze(0)
     pos_err = torch.norm(states["eef_pos"] - target_pos, dim=1)
     quat_err = torch.norm(states["eef_quat"] - target_quat, dim=1)
+    joint_err = torch.norm(states["q"][:, :7] - target_angles, dim=1)
+    
+    osc_reward = 1.0 - torch.tanh(10.0 * pos_err) + 1.0 - torch.tanh(10.0 * quat_err) # doesn't work well with joint_position ctrl
+    joint_reward = 1.0 - joint_err
 
-    dist_reward = 1.0 - torch.tanh(10.0 * pos_err) + 1.0 - torch.tanh(10.0 * quat_err)
-
-    rewards = dist_reward
+    rewards = joint_reward
     # Compute resets
     reset_buf = torch.where((progress_buf >= max_episode_length - 1), torch.ones_like(reset_buf), reset_buf)
 

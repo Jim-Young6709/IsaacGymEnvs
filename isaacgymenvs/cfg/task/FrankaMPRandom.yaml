@@ -37,6 +37,7 @@ env:
   enableCameraSensors: False
   image_height: 224
   image_width: 224
+  disable_eef: True
 
 sim:
   dt: 0.01667 # 1/60

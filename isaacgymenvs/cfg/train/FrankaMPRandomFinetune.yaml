@@ -4,10 +4,10 @@ params:
     name: a2c_continuous
 
   model:
-    name: continuous_a2c_logstd
+    name: robomimic_a2c
 
   network:
-    name: actor_critic
+    name: robomimic_finetune
     separate: False
 
     space:
