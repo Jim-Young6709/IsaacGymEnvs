@@ -156,13 +156,13 @@ class FrankaReach(VecTask):
 
         # Set control limits
         self.cmd_limit = to_torch([0.1, 0.1, 0.1, 0.5, 0.5, 0.5], device=self.device).unsqueeze(0) if \
-        self.control_type == "osc" else self._franka_effort_limits[:7].unsqueeze(0)
-
-        # Reset all environments
-        self.reset_idx(torch.arange(self.num_envs, device=self.device))
+        self.control_type == "osc" else to_torch([0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1], device=self.device).unsqueeze(0)
 
         # Refresh tensors
         self._refresh()
+    
+        # Reset all environments
+        self.reset_idx(torch.arange(self.num_envs, device=self.device))
 
     def create_sim(self):
         self.sim_params.up_axis = gymapi.UP_AXIS_Z

@@ -16,7 +16,8 @@ from isaacgymenvs.tasks.franka_reach import FrankaReach
 from isaacgymenvs.utils.reformat import omegaconf_to_dict, print_dict
 from omegaconf import DictConfig, OmegaConf
 from tqdm import tqdm
-
+from neural_mp.utils.geometry import construct_mixed_point_cloud_ig
+from robofin.pointcloud.torch import FrankaSampler
 
 IMAGE_TYPES = {
     "rgb": gymapi.IMAGE_COLOR,
@@ -84,12 +85,14 @@ class FrankaMP(FrankaReach):
             virtual_screen_capture,
             force_render,
         )
+        self.pcd_spec_dict = cfg['pcd_spec']
         self.goal_tolerance = cfg["env"].get("goal_tolerance", 0.05)
         self.canonical_joint_config = torch.Tensor(
             [[0, 0.1963, 0, -2.6180, 0, 2.9416, 0.7854]] * self.num_envs
         ).to(self.device)
         self.seed_joint_angles = self.get_proprio()[2].clone()
         self.num_collisions = torch.zeros(self.num_envs, device=self.device)
+        self.gpu_fk_sampler = FrankaSampler(self.device, use_cache=True)
 
     def _create_envs(self, spacing, num_per_row):
         """
@@ -345,8 +348,9 @@ class FrankaMP(FrankaReach):
         TODO: maybe add in gripper position support as well
         """
         self.gym.fetch_results(self.sim, True)
-        obs = self.compute_observations()
-        ee_pos, ee_quat, joint_angles = obs[:, :3], obs[:, 3:7], obs[:, 7:14]
+        ee_pos = self.states['eef_pos']
+        ee_quat = self.states['eef_quat']
+        joint_angles = self.states['q'][:, :7]
         return ee_pos, ee_quat, joint_angles
 
     def get_joint_from_ee(self, target_ee_pose):
@@ -679,7 +683,7 @@ class FrankaMP(FrankaReach):
             print(f"{torch.sum(self.num_collisions!=0)} / {self.num_envs} envs has collided")
         return joint_error
 
-    def reset_env(self):
+    def reset_idx(self, env_ids=None):
         """
         Reset the environment.
         """
@@ -693,6 +697,10 @@ class FrankaMP(FrankaReach):
                 break
             self._reset_obstacle(self.invalid_scene_idx)
             print("setup_configs failed, reset obstacles and retry")
+
+        # currently doesn't support reset selected envs
+        self.progress_buf[:] = 0
+        self.reset_buf[:] = 0
 
     def decompose_pcd_params(self):
         num_obs = int(self.max_num_obstacles / 3)
@@ -737,6 +745,35 @@ class FrankaMP(FrankaReach):
             sphere_radii,
         )
 
+    def compute_scene_pcd(self):
+        scene_params = self.decompose_pcd_params()
+        scene_pcd = construct_mixed_point_cloud_ig(
+            *scene_params,
+            num_points=self.pcd_spec_dict['num_obstacle_points'],
+            num_extra_points=self.pcd_spec_dict['num_extra_points_per_obj'],
+            num_gp_points=self.pcd_spec_dict['num_ground_plane_points'],
+        )
+        return scene_pcd
+
+    def compute_combined_pcds(self):
+        num_robot_points = self.pcd_spec_dict['num_robot_points']
+        num_scene_points = self.pcd_spec_dict['num_obstacle_points']
+        num_target_points = self.pcd_spec_dict['num_target_points']
+
+        scene_pcd = self.compute_scene_pcd()
+        z_shift = torch.Tensor([0, 0, self.cuboid_dims[0][2]]).to(self.device).reshape(1, 1, -1)
+        robot_pcd = self.gpu_fk_sampler.sample(self.get_joint_angles(), num_robot_points) + z_shift
+        target_pcd = self.gpu_fk_sampler.sample(self.goal_config, num_target_points) + z_shift
+        point_cloud = torch.cat((robot_pcd, scene_pcd, target_pcd), dim=1)
+        mask_id = torch.cat(
+            (
+                torch.zeros(self.num_envs, num_robot_points, 1),
+                torch.ones(self.num_envs, num_scene_points, 1),
+                2 * torch.ones(self.num_envs, num_target_points, 1),
+            ),
+            dim=1,
+        ).to(self.device)
+        return torch.cat((point_cloud, mask_id), dim=2)        
 
 @hydra.main(config_name="config", config_path="../cfg/")
 def launch_test(cfg: DictConfig):
