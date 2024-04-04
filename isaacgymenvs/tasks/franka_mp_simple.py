@@ -181,12 +181,17 @@ def launch_test(cfg: DictConfig):
     print(f"Average Error: {total_error / num_plans}")
     print(f"Percentage of failed plans: {num_failed_plans / num_plans * 100} ")
 
-
+def orientation_error(desired, current):
+    batch_diff = int(current.shape[0] / desired.shape[0])
+    desired = desired.repeat(batch_diff, 1)
+    cc = quat_conjugate(current)
+    q_r = quat_mul(desired, cc)
+    return torch.abs((q_r[:, 0:3] * torch.sign(q_r[:, 3]).unsqueeze(-1)).mean(dim=1))
 #####################################################################
 ###=========================jit functions=========================###
 #####################################################################
 
-# @torch.jit.script
+@torch.jit.script
 def compute_franka_reward(
     reset_buf, progress_buf, states, goal, collision_status, max_episode_length
 ):
@@ -194,14 +199,20 @@ def compute_franka_reward(
     target_pos = torch.tensor([0.3858, 0.3525, 0.2422]).to(states["eef_pos"].device).unsqueeze(0)
     target_quat = torch.tensor([0.6524, 0.7514, -0.0753, 0.0641]).to(states["eef_quat"].device).unsqueeze(0)
     pos_err = torch.norm(states["eef_pos"] - target_pos, dim=1)
-    quat_err = torch.norm(states["eef_quat"] - target_quat, dim=1)
+    quat_err = orientation_error(target_quat, states["eef_quat"])
     joint_err = torch.norm(states["q"][:, :7] - goal, dim=1)
 
-    eef_reward = 2.0 - pos_err - quat_err
-    joint_reward = 2.0 - joint_err
-    collision_reward = 1.0 - collision_status
-
-    rewards = joint_reward + collision_reward
+    exp_r = True
+    if exp_r:
+        exp_eef = torch.exp(-pos_err) + torch.exp(-10*pos_err) + torch.exp(-100*pos_err) + torch.exp(-quat_err) + torch.exp(-10*quat_err) + torch.exp(-100*quat_err)
+        exp_joint = torch.exp(-joint_err) + torch.exp(-10*joint_err) + torch.exp(-100*joint_err)
+        exp_colli = torch.exp(-collision_status) + torch.exp(-10*collision_status) + torch.exp(-100*collision_status)
+        rewards = exp_eef + exp_joint + exp_colli
+    else:
+        eef_reward = 1.0 - (torch.tanh(10*pos_err)+torch.tanh(10*quat_err))/2.0
+        joint_reward = 1.0 - torch.tanh(10*joint_err)
+        collision_reward = 1.0 - collision_status
+        rewards = eef_reward + joint_reward + collision_reward
     # Compute resets
     reset_buf = torch.where((progress_buf >= max_episode_length - 1), torch.ones_like(reset_buf), reset_buf)
 
