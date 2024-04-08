@@ -92,6 +92,7 @@ class FrankaMP(FrankaReach):
         ).to(self.device)
         self.seed_joint_angles = self.get_proprio()[2].clone()
         self.num_collisions = torch.zeros(self.num_envs, device=self.device)
+        self.successes = torch.zeros(self.num_envs, device=self.device)
         self.gpu_fk_sampler = FrankaSampler(self.device, use_cache=True)
 
     def _create_envs(self, spacing, num_per_row):
@@ -265,6 +266,7 @@ class FrankaMP(FrankaReach):
         self.goal_config, valid_scene = self.sample_valid_joint_configs(
             initial_configs=self.goal_config, check_not_in_collision=True
         )
+        self.goal_pose = self.get_eef_pose() # (:, 7) xyz, wxyz
         if not valid_scene:
             print("Failed to sample valid goal config")
             return False
@@ -637,7 +639,7 @@ class FrankaMP(FrankaReach):
             if isInterpolation:
                 self.set_robot_joint_state(action)
             else:
-                super().step(action)
+                self.step(action)
                 if detect_collision:
                     self.check_robot_collision()
                     self.num_collisions += self.collision

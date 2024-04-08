@@ -209,6 +209,70 @@ class FrankaMPRandom(FrankaMP):
         # format of _obstacle_state: (num_envs, max_num_obstacles<max_num_cuboids, max_num_capsules, max_num_spheres>, 13)
         self._obstacle_state = self._root_state[:, 2:, :]
 
+    def compute_reward(self, actions):
+        self.check_robot_collision()
+        self.rew_buf[:], self.reset_buf[:], successes = compute_franka_reward(
+            self.reset_buf, self.progress_buf, self.states, self.goal_config, self.goal_pose, self.collision, self.max_episode_length
+        )
+
+        # In this policy, episode length is constant across all envs
+        is_last_step = (self.progress_buf[0] == self.max_episode_length - 1)
+
+        self.successes += successes
+        self.num_collisions += self.collision
+        if is_last_step:
+            self.extras['successes'] = torch.mean(torch.where(self.successes >= 1, 1.0, 0.0)).item()
+            self.extras['has_collisions'] = torch.mean(torch.where(self.num_collisions >= 1, 1.0, 0.0)).item()
+            self.successes = torch.zeros_like(self.successes)
+            self.num_collisions = torch.zeros_like(self.num_collisions)
+
+    def pre_physics_step(self, actions):
+        """
+            takes in delta actions
+        """
+        delta_actions = actions.clone().to(self.device)
+        gripper_state = torch.Tensor([[0.035, 0.035]] * self.num_envs).to(self.device)
+        delta_actions = torch.clamp(delta_actions, -self.cmd_limit, self.cmd_limit) / self.action_scale
+        abs_actions = self.get_joint_angles() + delta_actions
+        if abs_actions.shape[-1] == 7:
+            abs_actions = torch.cat((abs_actions, gripper_state), dim=1)
+
+        self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(abs_actions))
+
+def orientation_error(desired, current):
+    batch_diff = int(current.shape[0] / desired.shape[0])
+    desired = desired.repeat(batch_diff, 1)
+    cc = quat_conjugate(current)
+    q_r = quat_mul(desired, cc)
+    return torch.abs((q_r[:, 0:3] * torch.sign(q_r[:, 3]).unsqueeze(-1)).mean(dim=1))
+
+@torch.jit.script
+def compute_franka_reward(
+    reset_buf, progress_buf, states, goal_config, goal_pose, collision_status, max_episode_length
+):
+    # type: (Tensor, Tensor, Dict[str, Tensor], Tensor, Tensor, Tensor, float) -> Tuple[Tensor, Tensor, Tensor]
+    pos_err = torch.norm(goal_pose[:,:3] - states["eef_pos"], dim=1)
+    quat_err = orientation_error(goal_pose[:, 3:], states["eef_quat"])
+    joint_err = torch.norm(goal_config - states["q"][:, :7], dim=1)
+
+    exp_r = True
+    if exp_r:
+        exp_eef = 0#torch.exp(-pos_err) + torch.exp(-10*pos_err) + torch.exp(-100*pos_err) + torch.exp(-quat_err) + torch.exp(-10*quat_err) + torch.exp(-100*quat_err)
+        exp_joint = torch.exp(-joint_err) + torch.exp(-10*joint_err) + torch.exp(-100*joint_err)
+        exp_colli = 3*torch.exp(-100*collision_status)
+        rewards = exp_eef + exp_joint + exp_colli
+    else:
+        eef_reward = 0#1.0 - (torch.tanh(10*pos_err)+torch.tanh(10*quat_err))/2.0
+        joint_reward = 1.0 - torch.tanh(10*joint_err)
+        collision_reward = 1.0 - collision_status
+        rewards = eef_reward + joint_reward + collision_reward
+    # Compute resets
+    reset_buf = torch.where((progress_buf >= max_episode_length - 1), torch.ones_like(reset_buf), reset_buf)
+
+    # Compute successes
+    successes = torch.where( (pos_err*100 <= 1) * (quat_err*180./torch.pi <=15) , 1.0, 0.0)
+
+    return rewards, reset_buf, successes
 
 @hydra.main(config_name="config", config_path="../cfg/")
 def launch_test(cfg: DictConfig):

@@ -156,7 +156,7 @@ class FrankaReach(VecTask):
 
         # Set control limits
         self.cmd_limit = to_torch([0.1, 0.1, 0.1, 0.5, 0.5, 0.5], device=self.device).unsqueeze(0) if \
-        self.control_type == "osc" else to_torch([0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1], device=self.device).unsqueeze(0)
+        self.control_type == "osc" else to_torch([0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5], device=self.device).unsqueeze(0)
 
         # Refresh tensors
         self._refresh()
@@ -507,6 +507,9 @@ class FrankaReach(VecTask):
         return u
 
     def pre_physics_step(self, actions):
+        """
+            Takes in absolute joint angles
+        """
         self.actions = actions.clone().to(self.device)
         # Deploy actions
         if self.control_type == 'osc':

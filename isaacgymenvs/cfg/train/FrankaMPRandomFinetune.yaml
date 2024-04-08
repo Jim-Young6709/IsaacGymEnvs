@@ -18,7 +18,7 @@ params:
           name: default
         sigma_init:
           name: const_initializer
-          val: 0
+          val: -3
         fixed_sigma: True
     mlp:
       units: [256, 128, 64]
@@ -70,5 +70,7 @@ params:
     mini_epochs: 5
     critic_coef: 4
     clip_value: True
+    clip_actions: False # added
     seq_length: 2
     bounds_loss_coef: 0.0001
+    warmup_epochs: 1000
