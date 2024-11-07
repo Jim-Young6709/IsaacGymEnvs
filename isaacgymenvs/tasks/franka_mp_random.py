@@ -257,10 +257,11 @@ def compute_franka_reward(
 
     exp_r = True
     if exp_r:
-        exp_eef = 0#torch.exp(-pos_err) + torch.exp(-10*pos_err) + torch.exp(-100*pos_err) + torch.exp(-quat_err) + torch.exp(-10*quat_err) + torch.exp(-100*quat_err)
-        exp_joint = torch.exp(-joint_err) + torch.exp(-10*joint_err) + torch.exp(-100*joint_err)
+        exp_eef = 3*torch.exp(-100*pos_err) + 3*torch.exp(-100*quat_err)
+        exp_joint = 3*torch.exp(-10*joint_err)
         exp_colli = 3*torch.exp(-100*collision_status)
-        rewards = exp_eef + exp_joint + exp_colli
+        rewards = 3*exp_eef + exp_joint + exp_colli
+        print(f"rewards: {exp_eef.mean()}|{exp_joint.mean()}|{exp_colli.mean()}|{rewards.mean()}")
     else:
         eef_reward = 0#1.0 - (torch.tanh(10*pos_err)+torch.tanh(10*quat_err))/2.0
         joint_reward = 1.0 - torch.tanh(10*joint_err)
