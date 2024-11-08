@@ -808,7 +808,7 @@ def launch_test(cfg: DictConfig):
     num_plans = 1000
     for i in tqdm(range(num_plans)):
         t1 = time.time()
-        env.reset_env()
+        env.reset_idx()
         t2 = time.time()
         print(f"Reset time: {t2 - t1}")
         env.set_robot_joint_state(env.start_config)
