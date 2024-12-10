@@ -44,7 +44,7 @@ multi_gpu: False
 wandb_activate: False
 wandb_group: ''
 wandb_name: ${train.params.config.name}
-wandb_entity: ''
+wandb_entity: 'jimyoung6709' # specify your personal wandb entity here
 wandb_project: 'isaacgymenvs'
 wandb_tags: []
 wandb_logcode_dir: '' 
@@ -59,7 +59,7 @@ headless: False
 
 # set default task and default training config based on task
 defaults:
-  - task: Ant
+  - task: FrankaMPSimple
   - train: ${task}PPO
   - pbt: no_pbt
   - override hydra/job_logging: disabled
