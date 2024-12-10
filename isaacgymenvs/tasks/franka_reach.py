@@ -103,12 +103,15 @@ class FrankaReach(VecTask):
 
         # dimensions
         # obs include: cubeA_pose (7) + cubeB_pos (3) + eef_pose (7) + q_gripper (2)
-        self.cfg["env"]["numObservations"] = 9 if self.control_type == "osc" else 16
+        if "numObservations" not in self.cfg["env"]:
+            self.cfg["env"]["numObservations"] = 9 if self.control_type == "osc" else 16
+
         # actions include: delta EEF if OSC (6) or joint torques (7) + bool gripper (1) or q_gripper (2)
-        if self.cfg["env"]["disable_eef"]:
-            self.cfg["env"]["numActions"] = 6 if self.control_type == "osc" else 7
-        else:
-            self.cfg["env"]["numActions"] = 7 if self.control_type == "osc" else 9
+        if "numActions" not in self.cfg["env"]:
+            if self.cfg["env"]["disable_eef"]:
+                self.cfg["env"]["numActions"] = 6 if self.control_type == "osc" else 7
+            else:
+                self.cfg["env"]["numActions"] = 7 if self.control_type == "osc" else 9
 
         # Values to be filled in at runtime
         self.states = {}                        # will be dict filled with relevant states to use for reward calculation
@@ -420,6 +423,7 @@ class FrankaReach(VecTask):
 
         # Refresh states
         self._update_states()
+        self.check_robot_collision()
 
     def compute_reward(self, actions):
         self.rew_buf[:], self.reset_buf[:], d = compute_franka_reward(
@@ -434,10 +438,20 @@ class FrankaReach(VecTask):
 
     def compute_observations(self):
         self._refresh()
-        obs = ["eef_pos", "eef_quat"]
-        obs += ["q_gripper"] if self.control_type == "osc" else ["q"]
-        self.obs_buf = torch.cat([self.states[ob] for ob in obs], dim=-1)
+        # Note this will only work for robomimic checkpoints, the encoded pcd_feats dim is (pcd_feat+current_angles+goal_angles = 1024+7+7)
+        pcd_feats = self.base_model.policy.nets['policy'].model.encoded_feats.clone()
+        pcd_feats = pcd_feats.contiguous().view(pcd_feats.size(0), -1)
+        self.obs_buf = pcd_feats
         return self.obs_buf
+
+    def check_robot_collision(self):
+        self.gym.refresh_net_contact_force_tensor(self.sim)
+        self.scene_collision = torch.where(
+            torch.norm(torch.sum(self.contact_forces[:, :16, :], dim=1), dim=1) > 1.0, 1.0, 0.0
+        )  # the first 16 elements belong to franka robot
+        self.collision = torch.where(
+            torch.sum(torch.norm(self.contact_forces[:, :16, :], dim=2), dim=1) > 1.0, 1.0, 0.0
+        )  # the first 16 elements belong to franka robot, this includes self collision
 
     def reset_idx(self, env_ids):
         env_ids_int32 = env_ids.to(dtype=torch.int32)

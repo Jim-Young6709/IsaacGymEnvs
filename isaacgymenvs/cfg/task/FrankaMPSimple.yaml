@@ -7,7 +7,7 @@ physics_engine: ${..physics_engine}
 env:
   numEnvs: ${resolve_default:8192,${...num_envs}}
   envSpacing: 1.5
-  episodeLength: 300
+  episodeLength: 500
   enableDebugVis: False
 
   clipObservations: 5.0
@@ -38,6 +38,9 @@ env:
   image_height: 224
   image_width: 224
   disable_eef: True
+
+  numObservations: 1038 # match the output dim of pointnet encoder, note this only works for residual RL with robomimic ckpts
+  numActions: 7
 
 sim:
   dt: 0.01667 # 1/60

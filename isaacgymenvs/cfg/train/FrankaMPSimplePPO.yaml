@@ -1,3 +1,5 @@
+"TODO (Jim): cleanup"
+
 params:
   seed: ${...seed}
   algo:
@@ -8,7 +10,7 @@ params:
 
   network:
     name: actor_critic
-    separate: True
+    separate: False
 
     space:
       continuous:
@@ -29,13 +31,13 @@ params:
         name: default
       regularizer:
         name: None
-    rnn: # added
-      name: lstm
-      units: 1024
-      layers: 1
-      before_mlp: False #True
-      concat_input: False
-      layer_norm: False
+    # rnn: # added
+    #   name: lstm
+    #   units: 1024
+    #   layers: 1
+    #   before_mlp: False #True
+    #   concat_input: False
+    #   layer_norm: False
 
   load_checkpoint: ${if:${...checkpoint},True,False} # flag which sets whether to load the checkpoint
   load_path: ${...checkpoint} # path to the checkpoint to load
@@ -69,12 +71,12 @@ params:
     truncate_grads: True
     e_clip: 0.2
     horizon_length: 32
-    minibatch_size: 16384
+    minibatch_size: 8192 #16384
     mini_epochs: 5
     critic_coef: 4
     clip_value: True
     clip_actions: True # added
-    seq_length: 2
+    seq_length: 4
     bounds_loss_coef: 0.0001
 
     player: # added

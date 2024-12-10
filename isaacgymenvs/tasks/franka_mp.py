@@ -16,7 +16,9 @@ from isaacgymenvs.tasks.franka_reach import FrankaReach
 from isaacgymenvs.utils.reformat import omegaconf_to_dict, print_dict
 from omegaconf import DictConfig, OmegaConf
 from tqdm import tqdm
+from scipy.spatial.transform import Rotation
 from neural_mp.utils.geometry import construct_mixed_point_cloud_ig
+from neural_mp.real_utils.model import NeuralMPModel
 from robofin.pointcloud.torch import FrankaSampler
 
 IMAGE_TYPES = {
@@ -76,6 +78,8 @@ def test_ik(env):
 
 class FrankaMP(FrankaReach):
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
+        self.pcd_spec_dict = cfg['pcd_spec']
+        self.gpu_fk_sampler = FrankaSampler(sim_device, use_cache=True)
         super().__init__(
             cfg,
             rl_device,
@@ -85,7 +89,6 @@ class FrankaMP(FrankaReach):
             virtual_screen_capture,
             force_render,
         )
-        self.pcd_spec_dict = cfg['pcd_spec']
         self.goal_tolerance = cfg["env"].get("goal_tolerance", 0.05)
         self.canonical_joint_config = torch.Tensor(
             [[0, 0.1963, 0, -2.6180, 0, 2.9416, 0.7854]] * self.num_envs
@@ -93,7 +96,8 @@ class FrankaMP(FrankaReach):
         self.seed_joint_angles = self.get_proprio()[2].clone()
         self.num_collisions = torch.zeros(self.num_envs, device=self.device)
         self.successes = torch.zeros(self.num_envs, device=self.device)
-        self.gpu_fk_sampler = FrankaSampler(self.device, use_cache=True)
+        self.base_model = NeuralMPModel.from_pretrained("mihdalal/NeuralMP")
+        self.base_model.policy.set_eval()
 
     def _create_envs(self, spacing, num_per_row):
         """
@@ -197,7 +201,7 @@ class FrankaMP(FrankaReach):
     def _create_cube(self, pos, size, quat=[0, 0, 0, 1]):
         """
         Args:
-            position (np.ndarray): (3,) xyz position of the cube center
+            position (np.ndarray): (3,) xyz position of the cube center, z is the distance between the bottom surface and ground
             size (np.ndarray): (3,) length along xyz direction of the cube
             quat (np.ndarray): (4,), [x, y, z, w]
         Returns:
@@ -336,7 +340,7 @@ class FrankaMP(FrankaReach):
         """
         Get the end effector pose of the robot.
         Returns:
-            eef_pose (torch.Tensor): (num_envs, 7) 7-dof end effector pose. quaternion in wxyz format
+            eef_pose (torch.Tensor): (num_envs, 7) 7-dof end effector pose. quaternion in xyzw format
         """
         return torch.cat((self.get_proprio()[0], self.get_proprio()[1]), dim=1)
 
@@ -381,6 +385,23 @@ class FrankaMP(FrankaReach):
             print(error)
         self.set_robot_joint_state(start_angles)
         return joint_angles
+
+    def get_ee_from_joint(self, joint_angles,  frame="right_gripper"):
+        """
+        Get the end effector pose from the joint angles.
+        Args:
+            joint_angles (torch.Tensor): 7-dof joint angles. (B, 7)
+        Returns:
+            ee_pose (torch.Tensor)): 7D end effector pose. xyz, xyzw
+        """
+        eef_tranforms = self.gpu_fk_sampler.end_effector_pose(joint_angles, frame)
+        eef_xyz = eef_tranforms[:, :3, 3]
+
+        eef_rotations = eef_tranforms[:, :3, :3].cpu().numpy()
+        eef_xyzw = Rotation.from_matrix(eef_rotations).as_quat()
+        eef_xyzw = torch.Tensor(eef_xyzw).to(self.device)
+
+        return torch.cat((eef_xyz, eef_xyzw), dim=1)
 
     def set_joint_pos_from_ee_pos(self, target_ee_pose):
         """
@@ -455,15 +476,6 @@ class FrankaMP(FrankaReach):
                 self.invalid_scene_idx = resampling_idx
                 return joint_configs, False
         return joint_configs, True
-
-    def check_robot_collision(self):
-        self.gym.refresh_net_contact_force_tensor(self.sim)
-        self.scene_collision = torch.where(
-            torch.norm(torch.sum(self.contact_forces[:, :16, :], dim=1), dim=1) > 1.0, 1.0, 0.0
-        )  # the first 16 elements belong to franka robot
-        self.collision = torch.where(
-            torch.sum(torch.norm(self.contact_forces[:, :16, :], dim=2), dim=1) > 1.0, 1.0, 0.0
-        )  # the first 16 elements belong to franka robot
 
     def print_collision_info(self):
         self.check_robot_collision()
