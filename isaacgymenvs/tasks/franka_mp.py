@@ -87,14 +87,27 @@ class FrankaMP(FrankaReach):
         )
         self.pcd_spec_dict = cfg['pcd_spec']
         self.goal_tolerance = cfg["env"].get("goal_tolerance", 0.05)
-        self.canonical_joint_config = torch.Tensor(
-            [[0, 0.1963, 0, -2.6180, 0, 2.9416, 0.7854]] * self.num_envs
-        ).to(self.device)
-        self.seed_joint_angles = self.get_proprio()[2].clone()
+        # self.canonical_joint_config = torch.tensor(
+        #     [[0, 0.1963, 0, -2.6180, 0, 2.9416, 0.7854]] * self.num_envs, 
+        #     device=self.device
+        # )
+        if not hasattr(self, 'canonical_joint_config'):
+            self.canonical_joint_config = torch.tensor(
+                [[0, 0.1963, 0, -2.6180, 0, 2.9416, 0.7854]] * self.num_envs
+            ).to(self.device)
+
+        # self.canonical_joint_config = torch.tensor(
+        #     [[0, 0.1963, 0, -2.6180, 0, 2.9416, 0.7854]] * self.num_envs
+        # ).to(self.device)
+        # self.seed_joint_angles = self.get_proprio()[2].clone()
+        # self.num_collisions = torch.zeros(self.num_envs, device=self.device)
+        # self.successes = torch.zeros(self.num_envs, device=self.device)
+        # self.gpu_fk_sampler = FrankaSampler(self.device, use_cache=True)
+        self.seed_joint_angles = self.canonical_joint_config.clone()
         self.num_collisions = torch.zeros(self.num_envs, device=self.device)
         self.successes = torch.zeros(self.num_envs, device=self.device)
         self.gpu_fk_sampler = FrankaSampler(self.device, use_cache=True)
-
+    
     def _create_envs(self, spacing, num_per_row):
         """
         loading obstacles and franka robot in the environment
@@ -531,17 +544,18 @@ class FrankaMP(FrankaReach):
         if debug:
             self.render()
 
-        if not torch.allclose(joint_state, self.get_proprio()[2][env_ids]) and debug:
-            print("------------")
-            print("set state failed due to collision")
-            err = torch.norm(joint_state - self.get_proprio()[2][env_ids], dim=1)
-            num_err = int(sum(torch.where(err > 1e-2, 1.0, 0.0)))
-            if num_err <= 5:
-                print(torch.nonzero(err)[:, 0])
-            else:
-                print(f"num_err: {num_err}/{self.num_envs}")
-            self.print_resampling_info(joint_state)
-            print("------------")
+        if debug:
+            if not torch.allclose(joint_state, self.get_proprio()[2][env_ids]):
+                print("------------")
+                print("set state failed due to collision")
+                err = torch.norm(joint_state - self.get_proprio()[2][env_ids], dim=1)
+                num_err = int(sum(torch.where(err > 1e-2, 1.0, 0.0)))
+                if num_err <= 5:
+                    print(torch.nonzero(err)[:, 0])
+                else:
+                    print(f"num_err: {num_err}/{self.num_envs}")
+                self.print_resampling_info(joint_state)
+                print("------------")
 
     def step_sim_multi(self, num_steps=1):
         """
@@ -598,8 +612,10 @@ class FrankaMP(FrankaReach):
             )
 
             # set the camera position based on up axis
-            cam_pos = gymapi.Vec3(1.5, 0.0, 2)
-            cam_target = gymapi.Vec3(0.0, 0.0, 1.5)
+            centre = self.cfg["env"]['envSpacing'] + int(np.sqrt(self.num_envs))
+            
+            cam_pos = gymapi.Vec3(-1.5, -1.5, 5)
+            cam_target = gymapi.Vec3(centre, centre, 0)
 
             self.gym.viewer_camera_look_at(self.viewer, None, cam_pos, cam_target)
 
