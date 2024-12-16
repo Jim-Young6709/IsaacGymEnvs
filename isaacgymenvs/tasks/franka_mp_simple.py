@@ -69,7 +69,9 @@ def decompose_scene_pcd_params_obs(scene_pcd_params):
 
 class FrankaMPSimple(FrankaMP):
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
-        self.MAX_OBSTACLES = 20 
+        # self.MAX_CUBES = 20  
+        # self.MAX_CYLINDERS = 20
+        self.MAX_OBSTACLES = 40
         self.device = sim_device
         print("Before super init:")
         print("self.device:", self.device)
@@ -113,18 +115,11 @@ class FrankaMPSimple(FrankaMP):
         franka_start_pose.p = gymapi.Vec3(0.0, 0.0, 0.01)
         franka_start_pose.r = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
 
-        # Setup plane
-        plane_size = [2, 2, 0.01]
-        plane_asset, plane_start_pose = self._create_cube(
-            pos=[0.0, 0.0, 0.0],
-            size=plane_size,
-        )
-
         # Compute aggregate size
         num_franka_bodies = self.gym.get_asset_rigid_body_count(franka_asset)
         num_franka_shapes = self.gym.get_asset_rigid_shape_count(franka_asset)
-        max_agg_bodies = num_franka_bodies + 1 + self.MAX_OBSTACLES  # franka + plane + obstacles
-        max_agg_shapes = num_franka_shapes + 1 + self.MAX_OBSTACLES
+        max_agg_bodies = num_franka_bodies + self.MAX_OBSTACLES  # franka + obstacles
+        max_agg_shapes = num_franka_shapes + self.MAX_OBSTACLES
 
         self.frankas = []
         self.envs = []
@@ -145,22 +140,21 @@ class FrankaMPSimple(FrankaMP):
             if self.aggregate_mode == 2:
                 self.gym.begin_aggregate(env_ptr, max_agg_bodies, max_agg_shapes, True)
 
-            # Create table
-            self.cuboid_dims.append(plane_size)
-            plane_actor = self.gym.create_actor(
-                env_ptr, plane_asset, plane_start_pose, "plane", i, 1, 0
-            )
-
             # Create obstacles using initial demo data
             env_obstacles = []
             (
                 cuboid_dims, 
                 cuboid_centers, 
                 cuboid_quats,
+                cylinder_radii, 
+                cylinder_heights,
+                cylinder_centers,
+                cylinder_quats,
                 *_
             ) = self.initial_obstacle_configs[i]
             
             num_cubes = len(cuboid_dims)
+            # num_cylinders = len(cylinder_radii) #pausing cylinders due to incorrect spawning. Likely an actor indexing issue.
             
             # Create actual obstacles with proper sizes
             for j in range(self.MAX_OBSTACLES):
@@ -202,107 +196,80 @@ class FrankaMPSimple(FrankaMP):
             self.frankas.append(franka_actor)
 
         # Setup data
-        actor_num = 1 + 1 + self.MAX_OBSTACLES  # franka + plane + obstacles
+        actor_num = 1 + self.MAX_OBSTACLES  # franka  + obstacles
         self.init_data(actor_num=actor_num)
     
+    def update_obstacle_configs_from_batch(self, batch_data):
+        """Update obstacle configurations from a new batch of demos."""
+        self.initial_obstacle_configs = []
+        for demo in batch_data:
+            pcd_params = demo['states'][0][15:]
+            obstacle_config = decompose_scene_pcd_params_obs(pcd_params)
+            self.initial_obstacle_configs.append(obstacle_config)
+            
     def reset_idx(self, env_ids=None):
         if env_ids is None:
+            # print("env ids passed as none")
             env_ids = torch.arange(self.num_envs, device=self.device)
             
-            if len(env_ids) == self.num_envs and self.demo_loader is not None and self.demo_loader.has_more_data():
-                batch_data = self.demo_loader.get_next_batch()
-                if batch_data is not None:
-                    for env_idx, demo in enumerate(batch_data):
-                        self.start_config[env_idx] = torch.tensor(demo['states'][0][:7], device=self.device)
-                        self.goal_config[env_idx] = torch.tensor(demo['states'][0][7:14], device=self.device)
-                        
-                        obstacle_config = self.initial_obstacle_configs[env_idx]
-                        cuboid_dims, cuboid_centers, cuboid_quats = obstacle_config[:3]
-                        
-                        obstacle_start_idx = 2
-                        for i in range(self.MAX_OBSTACLES):
-                            actor_idx = obstacle_start_idx + i
-                            if i < len(cuboid_centers):
-                                self._root_state[env_idx, actor_idx, 0:3] = torch.tensor(cuboid_centers[i], device=self.device)
-                                self._root_state[env_idx, actor_idx, 3:7] = torch.tensor(cuboid_quats[i], device=self.device)
-                                self._root_state[env_idx, actor_idx, 7:13] = 0
-                            else:
-                                self._root_state[env_idx, actor_idx] = torch.tensor([100.0, 100.0, 100.0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0], device=self.device)
+        if len(env_ids) == self.num_envs and self.demo_loader is not None and self.demo_loader.has_more_data():
+            print("initiating reset")
+            batch_data = self.demo_loader.get_next_batch()
+            if batch_data is not None:
+                # TODO After first update the cubes get messed up. 
+                # self.update_obstacle_configs_from_batch(batch_data)
+                for env_idx, demo in enumerate(batch_data):
+                    self.start_config[env_idx] = torch.tensor(demo['states'][0][:7], device=self.device)
+                    self.goal_config[env_idx] = torch.tensor(demo['states'][0][7:14], device=self.device)
                     
-                    env_indices = self._global_indices[env_ids].flatten()
-                    self.gym.set_actor_root_state_tensor_indexed(
-                        self.sim,
-                        gymtorch.unwrap_tensor(self._root_state),
-                        gymtorch.unwrap_tensor(env_indices),
-                        len(env_indices)
-                    )
+                    obstacle_config = self.initial_obstacle_configs[env_idx]
+                    (
+                        cuboid_dims, 
+                        cuboid_centers, 
+                        cuboid_quats,
+                        *_
+                    ) = obstacle_config
+                    
+                    obstacle_start_idx = 1
+                    num_actors = self._root_state.shape[1]  # Get total available actor slots
+                    # print(f"Shape of _root_state: {self._root_state.shape}")
+                    # print(f"Number of cubes: {len(cuboid_centers)}")
+                    # print(f"Number of cylinders: {len(cylinder_centers)}")
 
+
+                    for i in range(self.MAX_OBSTACLES):
+                        
+                        actor_idx = obstacle_start_idx + i
+                        
+                        if actor_idx >= num_actors:
+                            # print(f"Warning: Trying to access actor_idx {actor_idx} but only have {num_actors} slots")
+                            break
+    
+                        if i < len(cuboid_centers):
+                            self._root_state[env_idx, actor_idx, 0:3] = torch.tensor(cuboid_centers[i], device=self.device)
+                            self._root_state[env_idx, actor_idx, 3:7] = torch.tensor(cuboid_quats[i], device=self.device)
+                            self._root_state[env_idx, actor_idx, 7:13] = 0
+                        else:
+                            if actor_idx < num_actors:
+                                self._root_state[env_idx, actor_idx] = torch.tensor([100.0, 100.0, 100.0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0], device=self.device)
+                
+                env_indices = self._global_indices[env_ids].flatten()
+                self.gym.set_actor_root_state_tensor_indexed(
+                    self.sim,
+                    gymtorch.unwrap_tensor(self._root_state),
+                    gymtorch.unwrap_tensor(env_indices),
+                    len(env_indices)
+                )
+        else:
+            print("reset not successful")
         reset_noise = torch.rand((self.num_envs, 7), device=self.device)
         pos = tensor_clamp(
             self.start_config + 
-            self.franka_dof_noise * 2.0 * (reset_noise - 0.5),
+            self.franka_dof_noise*0,
             self.franka_dof_lower_limits[:7], self.franka_dof_upper_limits[:7])
-        self.set_robot_joint_state(pos, debug=False)
-        self.progress_buf[:] = 0 
-        self.reset_buf[:] = 0
-    # def reset_idx(self, env_ids=None):
-    #     if env_ids is None:
-    #         env_ids = torch.arange(self.num_envs, device=self.device)
-            
-    #         if len(env_ids) == self.num_envs and self.demo_loader is not None and self.demo_loader.has_more_data():
-    #             batch_data = self.demo_loader.get_next_batch()
-    #             if batch_data is not None:
-    #                 for env_idx, demo in enumerate(batch_data):
-    #                     # Set robot configurations
-    #                     self.start_config[env_idx] = torch.tensor(demo['states'][0][:7], device=self.device)
-    #                     self.goal_config[env_idx] = torch.tensor(demo['states'][0][7:14], device=self.device)
-                        
-    #                     # Process obstacle data
-    #                     pcd_params = demo['states'][0][15:]
-    #                     (
-    #                         cuboid_dims, 
-    #                         cuboid_centers, 
-    #                         cuboid_quats,
-    #                         *_
-    #                     ) = decompose_scene_pcd_params_obs(pcd_params)
-                        
-    #                     num_cubes = len(cuboid_dims)
-                        
-    #                     # Only update positions and orientations in root state
-    #                     obstacle_start_idx = 2  # Skip Franka and plane
-    #                     for i in range(self.MAX_OBSTACLES):
-    #                         actor_idx = obstacle_start_idx + i
-    #                         if i < num_cubes:
-    #                             self._root_state[env_idx, actor_idx, 0:3] = torch.tensor(cuboid_centers[i], device=self.device)
-    #                             self._root_state[env_idx, actor_idx, 3:7] = torch.tensor(cuboid_quats[i], device=self.device)
-    #                         else:
-    #                             # Move unused obstacles far away
-    #                             self._root_state[env_idx, actor_idx, 0:3] = torch.tensor([100.0, 100.0, 100.0], device=self.device)
-    #                         # Zero out velocities
-    #                         self._root_state[env_idx, actor_idx, 7:13] = 0
-                    
-    #                 # Update all root states at once
-    #                 env_indices = self._global_indices[env_ids].flatten()
-    #                 self.gym.set_actor_root_state_tensor_indexed(
-    #                     self.sim,
-    #                     gymtorch.unwrap_tensor(self._root_state),
-    #                     gymtorch.unwrap_tensor(env_indices),
-    #                     len(env_indices)
-    #                 )
-
-    #     # Reset robot state with noise
-    #     reset_noise = torch.rand((len(env_ids), 7), device=self.device)
-    #     pos = tensor_clamp(
-    #         self.start_config[env_ids] +
-    #         self.franka_dof_noise * 2.0 * (reset_noise - 0.5),
-    #         self.franka_dof_lower_limits[:7],
-    #         self.franka_dof_upper_limits[:7]
-    #     )
-        
-    #     self.set_robot_joint_state(pos, env_ids=env_ids, debug=False)
-    #     self.progress_buf[env_ids] = 0
-    #     self.reset_buf[env_ids] = 0
-            
+        self.set_robot_joint_state(pos, debug=True)
+        self.progress_buf[env_ids] = 0 
+        self.reset_buf[env_ids] = 0
 
     def compute_reward(self, actions):
         self.check_robot_collision()
@@ -317,6 +284,7 @@ class FrankaMPSimple(FrankaMP):
             self.extras['successes'] = torch.mean(torch.where(d < 0.01, 1.0, 0.0)).item()
 
     def pre_physics_step(self, actions):
+        print("pre")
         delta_actions = actions.clone().to(self.device)
         gripper_state = torch.Tensor([[0.035, 0.035]] * self.num_envs).to(self.device)
         delta_actions = delta_actions * self.cmd_limit / self.action_scale
@@ -325,6 +293,21 @@ class FrankaMPSimple(FrankaMP):
             abs_actions = torch.cat((abs_actions, gripper_state), dim=1)
 
         self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(abs_actions))
+        
+    # def post_physics_step(self):
+    #     super().post_physics_step()
+        
+        # Only print environment #0 every 10 ticks
+        env_to_track = 0  # Change this to track a different environment
+        # if self.progress_buf[0] % 10 == 0:
+        joint_angles = self.get_joint_angles()
+        current_angles = [f"{a:.3f}" for a in joint_angles[env_to_track].cpu().numpy()]
+        start_angles = [f"{a:.3f}" for a in self.start_config[env_to_track].cpu().numpy()]
+        print(f"\nEnv {env_to_track} - Tick {self.progress_buf[0]}:")
+        print(f"Current angles: [{', '.join(current_angles)}]")
+        print(f"Start config:   [{', '.join(start_angles)}]")
+        diff = torch.norm(joint_angles[env_to_track] - self.start_config[env_to_track])
+        print(f"Difference magnitude: {diff:.3f}")
 
 @hydra.main(config_name="config", config_path="../cfg/")
 def launch_test(cfg: DictConfig):
@@ -359,6 +342,26 @@ def launch_test(cfg: DictConfig):
         t1 = time.time()
         env.reset_idx()
         t2 = time.time()
+        current_angles = env.get_joint_angles()
+        diff = current_angles - env.start_config
+        
+        # Print start configs for first few envs
+        en = min(20, env.num_envs)
+        # print(f"\nStart configs for first {en} environments:")
+        # for env_idx in range(min(20, env.num_envs)):
+            # print(f"Env {env_idx} start config: [{', '.join(f'{x:.6f}' for x in env.start_config[env_idx])}]")
+            # print(f"Env {env_idx} current angles: [{', '.join(f'{x:.6f}' for x in current_angles[env_idx])}]")
+            # print(f"Env {env_idx} differences: [{', '.join(f'{x:.6f}' for x in diff[env_idx])}]")
+            # print()
+        # current_angles = env.get_joint_angles()
+        # diff = current_angles - env.start_config
+        # print(f"current Angles: [{', '.join(f'{d:.6f}' for d in current_angles[0])}]")  # Format each joint difference
+        # print(f"start diff: [{', '.join(f'{d:.6f}' for d in env.start_config[0])}]")  # Format each joint difference
+        # print(f"Joint differences: [{', '.join(f'{d:.6f}' for d in diff[0])}]")  # Format each joint difference
+
+        # env.set_robot_joint_state(env.start_config)
+        # env.print_resampling_info(env.start_config)
+        # env.render()
         # print(f"Reset time: {t2 - t1}")
         # print("\nvalidation checking:")
         # env.set_robot_joint_state(env.start_config)
