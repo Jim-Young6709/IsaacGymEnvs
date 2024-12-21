@@ -87,27 +87,15 @@ class FrankaMP(FrankaReach):
         )
         self.pcd_spec_dict = cfg['pcd_spec']
         self.goal_tolerance = cfg["env"].get("goal_tolerance", 0.05)
-        # self.canonical_joint_config = torch.tensor(
-        #     [[0, 0.1963, 0, -2.6180, 0, 2.9416, 0.7854]] * self.num_envs, 
-        #     device=self.device
-        # )
         if not hasattr(self, 'canonical_joint_config'):
             self.canonical_joint_config = torch.tensor(
                 [[0, 0.1963, 0, -2.6180, 0, 2.9416, 0.7854]] * self.num_envs
             ).to(self.device)
-
-        # self.canonical_joint_config = torch.tensor(
-        #     [[0, 0.1963, 0, -2.6180, 0, 2.9416, 0.7854]] * self.num_envs
-        # ).to(self.device)
-        # self.seed_joint_angles = self.get_proprio()[2].clone()
-        # self.num_collisions = torch.zeros(self.num_envs, device=self.device)
-        # self.successes = torch.zeros(self.num_envs, device=self.device)
-        # self.gpu_fk_sampler = FrankaSampler(self.device, use_cache=True)
         self.seed_joint_angles = self.canonical_joint_config.clone()
         self.num_collisions = torch.zeros(self.num_envs, device=self.device)
         self.successes = torch.zeros(self.num_envs, device=self.device)
         self.gpu_fk_sampler = FrankaSampler(self.device, use_cache=True)
-    
+
     def _create_envs(self, spacing, num_per_row):
         """
         loading obstacles and franka robot in the environment
@@ -544,7 +532,6 @@ class FrankaMP(FrankaReach):
         if debug:
             self.render()
 
-        if debug:
             if not torch.allclose(joint_state, self.get_proprio()[2][env_ids]):
                 print("------------")
                 print("set state failed due to collision")
