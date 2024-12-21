@@ -20,7 +20,7 @@ class DemoLoader:
         try:
             self.hdf5_file = h5py.File(file_path, 'r')
             self.demos = self.hdf5_file['data']
-            self.total_demos = self.demos.attrs.get('total', 0)
+            self.total_demos = len(self.demos)
             print(f"Loaded HDF5 file with {self.total_demos} demonstrations")
             return True
         except Exception as e:
