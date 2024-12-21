@@ -67,7 +67,7 @@ def decompose_scene_pcd_params_obs(scene_pcd_params):
         ).astype(np.float32),
     )
 
-class FrankaMPSimple(FrankaMP):
+class FrankaMPFull(FrankaMP):
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
         # self.MAX_CUBES = 20  
         # self.MAX_CYLINDERS = 20
