@@ -40,6 +40,7 @@ from .franka_cabinet import FrankaCabinet
 from .franka_cube_stack import FrankaCubeStack
 from .franka_reach import FrankaReach
 from .franka_mp import FrankaMP
+from .franka_mp_full import FrankaMPFull
 from .franka_mp_simple import FrankaMPSimple
 from .franka_mp_random import FrankaMPRandom
 from .humanoid import Humanoid
@@ -110,6 +111,7 @@ isaacgym_task_map = {
     "FrankaCabinet": FrankaCabinet,
     "FrankaCubeStack": FrankaCubeStack,
     "FrankaReach": FrankaReach,
+    "FrankaMPFull": FrankaMPFull,
     "FrankaMPSimple": FrankaMPSimple,
     "FrankaMPRandom": FrankaMPRandom,
     "Humanoid": Humanoid,

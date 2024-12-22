@@ -17,7 +17,6 @@ from neural_mp.utils.geometry import construct_mixed_point_cloud
 
 class FrankaMPSimple(FrankaMP):
     def _create_envs(self, spacing, num_per_row):
-        # setup params
         lower = gymapi.Vec3(-spacing, -spacing, 0.0)
         upper = gymapi.Vec3(spacing, spacing, spacing)
 
