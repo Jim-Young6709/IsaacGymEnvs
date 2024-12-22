@@ -1,4 +1,4 @@
-"TODO (Jim): cleanup"
+# TODO (Jim): cleanup
 
 params:
   seed: ${...seed}
