@@ -202,7 +202,7 @@ class FrankaMP(FrankaReach):
     def _create_cube(self, pos, size, quat=[0, 0, 0, 1]):
         """
         Args:
-            position (np.ndarray): (3,) xyz position of the cube center, z is the distance between the bottom surface and ground
+            position (np.ndarray): (3,) xyz position of the cube center
             size (np.ndarray): (3,) length along xyz direction of the cube
             quat (np.ndarray): (4,), [x, y, z, w]
         Returns:
@@ -214,7 +214,6 @@ class FrankaMP(FrankaReach):
         opts.fix_base_link = True
         asset = self.gym.create_box(self.sim, *size, opts)
         # Define start pose
-        pos[2] = pos[2] + size[2] / 2
         start_pose = gymapi.Transform()
         start_pose.p = gymapi.Vec3(*pos)
         start_pose.r = gymapi.Quat(*quat)  # quat in xyzw order
@@ -235,7 +234,6 @@ class FrankaMP(FrankaReach):
         opts.fix_base_link = True
         asset = self.gym.create_sphere(self.sim, size, opts)
         # Define start pose
-        pos[2] = pos[2] + size
         start_pose = gymapi.Transform()
         start_pose.p = gymapi.Vec3(*pos)
         self.sphere_radii.append(size)
@@ -257,7 +255,6 @@ class FrankaMP(FrankaReach):
         opts.fix_base_link = True
         asset = self.gym.create_capsule(self.sim, size[0], size[1], opts)
         # Define start pose
-        pos[2] = pos[2] + size[0] + size[1]
         start_pose = gymapi.Transform()
         start_pose.p = gymapi.Vec3(*pos)
         start_pose.r = gymapi.Quat(*[0.0, -0.707, 0.0, 0.707])  # quat in xyzw order
@@ -564,6 +561,13 @@ class FrankaMP(FrankaReach):
             self.gym.simulate(self.sim)
             self.render()
             self._refresh()
+
+    def render_multi(self, num_steps=1):
+        """
+        Render the simulation. (for debugging purposes)
+        """
+        for _ in range(num_steps):
+            self.render()
 
     def get_joint_limits(self):
         """
