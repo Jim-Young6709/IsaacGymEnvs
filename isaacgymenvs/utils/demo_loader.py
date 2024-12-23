@@ -43,14 +43,10 @@ class DemoLoader:
         for demo_idx in range(start_idx, end_idx):
             demo_key = f"demo_{demo_idx}"
             try:
+                # TODO: Support multiple configs in one env, ideally have one valid config for each support volume, or can even just load cuboids
                 # Get all necessary data from the demo
                 demo_data = {
-                    'compute_pcd_params': self.demos[f"{demo_key}/obs/compute_pcd_params"][:],
-                    'current_angles': self.demos[f"{demo_key}/obs/current_angles"][:],
-                    'goal_angles': self.demos[f"{demo_key}/obs/goal_angles"][:],
-                    'goal_ee': self.demos[f"{demo_key}/obs/goal_ee"][:],
                     'states': self.demos[f"{demo_key}/states"][:],
-                    'actions': self.demos[f"{demo_key}/actions"][:]
                 }
                 batch_data.append(demo_data)
             except Exception as e:
