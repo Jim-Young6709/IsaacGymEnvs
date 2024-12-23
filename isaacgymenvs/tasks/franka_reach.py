@@ -179,7 +179,9 @@ class FrankaReach(VecTask):
 
     def _create_ground_plane(self):
         plane_params = gymapi.PlaneParams()
+        plane_params.flags = 0  # Disable collision
         plane_params.normal = gymapi.Vec3(0.0, 0.0, 1.0)
+        plane_params.distance = -0.3 # according to current randomization params, -0.275 would be the lowest surface from the env
         self.gym.add_ground(self.sim, plane_params)
 
     def _create_envs(self, spacing, num_per_row):
