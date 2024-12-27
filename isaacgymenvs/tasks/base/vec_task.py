@@ -52,6 +52,8 @@ import sys
 import abc
 from abc import ABC
 
+from fabrics_sim.utils.utils import initialize_warp
+
 EXISTING_SIM = None
 SCREEN_CAPTURE_RESOLUTION = (1027, 768)
 
@@ -219,6 +221,10 @@ class VecTask(Env):
             virtual_screen_capture: Set to True to allow the users get captured screen in RGB array via `env.render(mode='rgb_array')`. 
             force_render: Set to True to always force rendering in the steps (if the `control_freq_inv` is greater than 1 we suggest stting this arg to True)
         """
+        
+        warp_cache_dir = rl_device
+        initialize_warp(warp_cache_dir)
+        
         # super().__init__(config, rl_device, sim_device, graphics_device_id, headless, use_dict_obs)
         super().__init__(config, rl_device, sim_device, graphics_device_id, headless)
         self.virtual_screen_capture = virtual_screen_capture

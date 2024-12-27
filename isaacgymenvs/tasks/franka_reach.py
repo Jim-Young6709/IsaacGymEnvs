@@ -559,6 +559,11 @@ class FrankaReach(VecTask):
             if self.actions.shape[-1] == 7:
                 self.actions = torch.cat((self.actions, gripper_state), dim=1)
             self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(self.actions))
+            
+            
+            
+            
+            
 
     def post_physics_step(self):
         self.progress_buf += 1

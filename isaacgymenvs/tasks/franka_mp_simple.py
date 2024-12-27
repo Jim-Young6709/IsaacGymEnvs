@@ -39,7 +39,7 @@ class FrankaMPSimple(FrankaMP):
         )
 
         obs_asset, obs_start_pose = self._create_cube(
-            pos=[0.6, 0.0, 0.0],
+            pos=[0.6, 0.0, 0.25],
             size=[0.6, 0.2, 0.5],
         )
 
@@ -227,8 +227,8 @@ class FrankaMPSimple(FrankaMP):
 
     def post_physics_step(self):
         super().post_physics_step()
-        # reset the robot to start if collision occurs
-        if sum(self.collision) > 0:
+        # reset the robot to start if it collides with the obstacles
+        if sum(self.scene_collision) > 0:
             collision_env_idx = self.collision.nonzero(as_tuple=False).flatten()
             self.set_robot_joint_state(self.start_config[collision_env_idx], env_ids=collision_env_idx)
 

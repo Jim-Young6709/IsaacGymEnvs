@@ -535,6 +535,13 @@ class FrankaMP(FrankaReach):
             gymtorch.unwrap_tensor(multi_env_ids_int32),
             len(multi_env_ids_int32),
         )
+        
+        
+        self.fabric_q[env_ids, :] = torch.clone(pos[:, :7])
+        self.fabric_qd[env_ids, :] = torch.clone(pos[:, :7])
+        self.fabric_qdd[env_ids, :] = torch.zeros_like(pos[:, :7])
+        
+        
         self.gym.simulate(self.sim)
         self._refresh()
 
