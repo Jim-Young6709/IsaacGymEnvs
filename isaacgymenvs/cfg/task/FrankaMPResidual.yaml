@@ -13,19 +13,11 @@ env:
   clipObservations: 5.0
   clipActions: 1.0
 
-  startPositionNoise: 0.25
-  startRotationNoise: 0.785
-  frankaPositionNoise: 0.0
-  frankaRotationNoise: 0.0
   frankaDofNoise: 0.2
 
   aggregateMode: 3
 
   actionScale: 1.0
-  distRewardScale: 0.1
-  liftRewardScale: 1.5
-  alignRewardScale: 2.0
-  stackRewardScale: 16.0
 
   controlType: joint_position  # options are {joint_position, osc}
 
@@ -39,7 +31,7 @@ env:
   image_width: 224
   disable_eef: True
 
-  numObservations: 1038 # match the output dim of pointnet encoder, note this only works for residual RL with robomimic ckpts
+  numObservations: 1038 # match the output dim of pointnet encoder, note this only works for residual RL with robomimic ckpts (1024 pcd_feats + 7 joint angles + 7 goal angles)
   numActions: 7
 
 sim:
