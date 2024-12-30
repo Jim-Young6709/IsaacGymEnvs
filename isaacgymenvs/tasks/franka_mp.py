@@ -1,5 +1,5 @@
 """
-Try to incorporate this file with FrankaReach later
+Residual RL for motion planning
 """
 import os
 import time
@@ -10,14 +10,15 @@ import imageio
 import isaacgym
 import numpy as np
 import torch
+import abc
 from isaacgym import gymapi, gymtorch
 from isaacgym.torch_utils import *
-from isaacgymenvs.tasks.franka_reach import FrankaReach
-from isaacgymenvs.utils.reformat import omegaconf_to_dict, print_dict
-from omegaconf import DictConfig, OmegaConf
+from isaacgymenvs.tasks.base.vec_task import VecTask
+from isaacgymenvs.utils.reformat import omegaconf_to_dict
+from omegaconf import DictConfig
+from collections import OrderedDict
 from tqdm import tqdm
 from scipy.spatial.transform import Rotation
-from neural_mp.utils.geometry import construct_mixed_point_cloud_ig
 from neural_mp.real_utils.model import NeuralMPModel
 from robofin.pointcloud.torch import FrankaSampler
 
@@ -55,41 +56,71 @@ def orientation_error(desired, current):
     return q_r[:, 0:3] * torch.sign(q_r[:, 3]).unsqueeze(-1)
 
 
-def test_ik(env):
-    ik_failures = 0
-    error_bound = 1e-4
-    for _ in tqdm(range(25)):
-        for _ in range(1000):
-            env.execute_joint_action(np.random.uniform(-10, 10, 7).reshape(1, -1))
-        ee_pos, ee_quat, target_angles = env.get_proprio()
-        target_ee_pose = np.concatenate((ee_pos, ee_quat), axis=1).copy()
-        env.reset_idx(torch.zeros(1).long())
-        new_joint_angles = env.get_joint_from_ee(torch.from_numpy(target_ee_pose))
-        env.set_robot_joint_state(new_joint_angles)
-        new_ee_pos, new_ee_quat, joint_angles = env.get_proprio()
-        new_ee_pose = np.concatenate((new_ee_pos, new_ee_quat), axis=1)
-        error = np.linalg.norm(new_ee_pose - target_ee_pose)
-        print("delta error: ", new_ee_pose - target_ee_pose)
-        if error > error_bound:
-            ik_failures += 1
-    env.reset_idx(torch.zeros(1).long())
-    print("percentage of IK failures: ", ik_failures / 25)
-
-
-class FrankaMP(FrankaReach):
+class FrankaMP(VecTask):
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
+        self.cfg = cfg
+        self.device = sim_device
+        self.max_episode_length = self.cfg["env"]["episodeLength"]
+        self.action_scale = self.cfg["env"]["actionScale"]
+        self.franka_dof_noise = self.cfg["env"]["frankaDofNoise"]
+        self.aggregate_mode = self.cfg["env"]["aggregateMode"]
+
+        # Controller type
+        self.control_type = self.cfg["env"]["controlType"]
+        assert self.control_type in {"osc", "joint_position"},\
+            "Invalid control type specified. Must be one of: {osc, joint_position}"
+
+        assert "numObservations" in self.cfg["env"], "numObservations must be specified in the config"
+        assert "numActions" in self.cfg["env"], "numActions must be specified in the config"
+
+        # Values to be filled in at runtime
+        self.states = {}                        # will be dict filled with relevant states to use for reward calculation
+        self.handles = {}                       # will be dict mapping names to relevant sim handles
+        self.num_dofs = None                    # Total number of DOFs per env
+        self.actions = None                     # Current actions to be deployed
+
+        # Tensor placeholders
+        self._root_state = None                 # State of root body        (n_envs, 13)
+        self._dof_state = None                  # State of all joints       (n_envs, n_dof)
+        self._q = None                          # Joint positions           (n_envs, n_dof)
+        self._qd = None                         # Joint velocities          (n_envs, n_dof)
+        self._rigid_body_state = None           # State of all rigid bodies (n_envs, n_bodies, 13)
+        self._contact_forces = None             # Contact forces in sim
+        self._eef_state = None                  # end effector state        (at grasping point)
+        self._eef_lf_state = None               # end effector state        (at left fingertip)
+        self._eef_rf_state = None               # end effector state        (at left fingertip)
+        self._j_eef = None                      # Jacobian for end effector
+        self._mm = None                         # Mass matrix
+        self._arm_control = None                # Tensor buffer for controlling arm
+        self._gripper_control = None            # Tensor buffer for controlling gripper
+        self._pos_control = None                # Position actions
+        self._effort_control = None             # Torque actions
+        self._franka_effort_limits = None       # Actuator effort limits for franka
+        self._global_indices = None             # Unique indices corresponding to all envs in flattened array
+
+        self.debug_viz = self.cfg["env"]["enableDebugVis"]
+
+        self.up_axis = "z"
+        self.up_axis_idx = 2
+
+        # Set control limits
+        self.cmd_limit = to_torch([0.1, 0.1, 0.1, 0.5, 0.5, 0.5], device=self.device).unsqueeze(0) if \
+        self.control_type == "osc" else to_torch([0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5], device=self.device).unsqueeze(0)
+
         self.pcd_spec_dict = cfg['pcd_spec']
         self.gpu_fk_sampler = FrankaSampler(sim_device, use_cache=True)
-        super().__init__(
-            cfg,
-            rl_device,
-            sim_device,
-            graphics_device_id,
-            headless,
-            virtual_screen_capture,
-            force_render,
-        )
         self.goal_tolerance = cfg["env"].get("goal_tolerance", 0.05)
+
+        super().__init__(
+            config=self.cfg,
+            rl_device=rl_device,
+            sim_device=sim_device,
+            graphics_device_id=graphics_device_id,
+            headless=headless,
+            virtual_screen_capture=virtual_screen_capture,
+            force_render=force_render
+        )
+
         if not hasattr(self, 'canonical_joint_config'):
             self.canonical_joint_config = torch.tensor(
                 [[0, 0.1963, 0, -2.6180, 0, 2.9416, 0.7854]] * self.num_envs
@@ -99,6 +130,26 @@ class FrankaMP(FrankaReach):
         self.successes = torch.zeros(self.num_envs, device=self.device)
         self.base_model = NeuralMPModel.from_pretrained("mihdalal/NeuralMP")
         self.base_model.policy.set_eval()
+
+        # Refresh tensors & Reset all environments
+        self._refresh()
+        self.reset_idx(torch.arange(self.num_envs, device=self.device))
+
+    def create_sim(self):
+        self.sim_params.up_axis = gymapi.UP_AXIS_Z
+        self.sim_params.gravity.x = 0
+        self.sim_params.gravity.y = 0
+        self.sim_params.gravity.z = -9.81
+        self.sim = super().create_sim(
+            self.device_id, self.graphics_device_id, self.physics_engine, self.sim_params)
+        self._create_ground_plane()
+        self._create_envs(self.cfg["env"]['envSpacing'], int(np.sqrt(self.num_envs)))
+
+    def _create_ground_plane(self):
+        plane_params = gymapi.PlaneParams()
+        plane_params.normal = gymapi.Vec3(0.0, 0.0, 1.0)
+        plane_params.distance = 0.3 # according to current randomization params, -0.275 would be the lowest surface from the env
+        self.gym.add_ground(self.sim, plane_params)
 
     def _create_envs(self, spacing, num_per_row):
         """
@@ -117,6 +168,7 @@ class FrankaMP(FrankaReach):
         self.cuboid_dims = []  # xyz
         self.capsule_dims = []  # r, l
         self.sphere_radii = []  # r
+        self.combined_pcds = None
 
         # setup franka
         franka_dof_props = self._create_franka()
@@ -199,6 +251,119 @@ class FrankaMP(FrankaReach):
         actor_num = 1 + 1 + 3
         self.init_data(actor_num=actor_num)
 
+    def _create_franka(self, ):
+        asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../assets")
+        franka_asset_file = "urdf/franka_description/robots/franka_panda_gripper.urdf"
+
+        if "asset" in self.cfg["env"]:
+            asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), self.cfg["env"]["asset"].get("assetRoot", asset_root))
+            franka_asset_file = self.cfg["env"]["asset"].get("assetFileNameFranka", franka_asset_file)
+
+        # load franka asset
+        asset_options = gymapi.AssetOptions()
+        asset_options.flip_visual_attachments = True
+        asset_options.fix_base_link = True
+        asset_options.collapse_fixed_joints = False
+        asset_options.disable_gravity = True
+        asset_options.thickness = 0.001
+        asset_options.default_dof_drive_mode = gymapi.DOF_MODE_POS
+        asset_options.use_mesh_materials = True
+        franka_asset = self.gym.load_asset(self.sim, asset_root, franka_asset_file, asset_options)
+        self.franka_asset = franka_asset
+
+        # todo modify this for joint position control vs. osc
+        if self.control_type == "osc":
+            franka_dof_stiffness = to_torch([0, 0, 0, 0, 0, 0, 0, 5000., 5000.], dtype=torch.float, device=self.device)
+            franka_dof_damping = to_torch([0, 0, 0, 0, 0, 0, 0, 1.0e2, 1.0e2], dtype=torch.float, device=self.device)
+        elif self.control_type == "joint_position":
+            franka_dof_stiffness = to_torch([1000.0]*7 + [800., 800.], dtype=torch.float, device=self.device)
+            franka_dof_damping = to_torch([50]* 7 + [40., 40.], dtype=torch.float, device=self.device)
+
+        self.num_franka_bodies = self.gym.get_asset_rigid_body_count(franka_asset)
+        self.num_franka_dofs = self.gym.get_asset_dof_count(franka_asset)
+
+        print("num franka bodies: ", self.num_franka_bodies)
+        print("num franka dofs: ", self.num_franka_dofs)
+
+        # set franka dof properties
+        franka_dof_props = self.gym.get_asset_dof_properties(franka_asset)
+        self.franka_dof_lower_limits = []
+        self.franka_dof_upper_limits = []
+        self._franka_effort_limits = []
+        for i in range(self.num_franka_dofs):
+            if self.control_type == "joint_position":
+                franka_dof_props['driveMode'][i] = gymapi.DOF_MODE_POS
+            else:
+                franka_dof_props['driveMode'][i] = gymapi.DOF_MODE_POS if i > 6 else gymapi.DOF_MODE_EFFORT
+            if self.physics_engine == gymapi.SIM_PHYSX:
+                franka_dof_props['stiffness'][i] = franka_dof_stiffness[i]
+                franka_dof_props['damping'][i] = franka_dof_damping[i]
+            else:
+                franka_dof_props['stiffness'][i] = 7000.0
+                franka_dof_props['damping'][i] = 50.0
+
+            self.franka_dof_lower_limits.append(franka_dof_props['lower'][i])
+            self.franka_dof_upper_limits.append(franka_dof_props['upper'][i])
+            self._franka_effort_limits.append(franka_dof_props['effort'][i])
+
+        self.franka_dof_lower_limits = to_torch(self.franka_dof_lower_limits, device=self.device)
+        self.franka_dof_upper_limits = to_torch(self.franka_dof_upper_limits, device=self.device)
+        self._franka_effort_limits = to_torch(self._franka_effort_limits, device=self.device)
+        self.franka_dof_speed_scales = torch.ones_like(self.franka_dof_lower_limits)
+        self.franka_dof_speed_scales[[7, 8]] = 0.1
+        franka_dof_props['effort'][7] = 200
+        franka_dof_props['effort'][8] = 200
+        return franka_dof_props
+
+    def init_data(self, actor_num):
+        # Setup sim handles
+        env_ptr = self.envs[0]
+        franka_handle = 0
+        self.handles = {
+            # Franka
+            "hand": self.gym.find_actor_rigid_body_handle(env_ptr, franka_handle, "panda_hand"),
+            "leftfinger_tip": self.gym.find_actor_rigid_body_handle(env_ptr, franka_handle, "panda_leftfinger_tip"),
+            "rightfinger_tip": self.gym.find_actor_rigid_body_handle(env_ptr, franka_handle, "panda_rightfinger_tip"),
+            "grip_site": self.gym.find_actor_rigid_body_handle(env_ptr, franka_handle, "panda_grip_site"),
+        }
+
+        # Get total DOFs
+        self.num_dofs = self.gym.get_sim_dof_count(self.sim) // self.num_envs
+
+        # Setup tensor buffers
+        _net_contact_forces = self.gym.acquire_net_contact_force_tensor(self.sim)
+        self.contact_forces = gymtorch.wrap_tensor(_net_contact_forces).view(self.num_envs, -1, 3)
+        _actor_root_state_tensor = self.gym.acquire_actor_root_state_tensor(self.sim)
+        _dof_state_tensor = self.gym.acquire_dof_state_tensor(self.sim)
+        _rigid_body_state_tensor = self.gym.acquire_rigid_body_state_tensor(self.sim)
+        self._root_state = gymtorch.wrap_tensor(_actor_root_state_tensor).view(self.num_envs, -1, 13)
+        self._dof_state = gymtorch.wrap_tensor(_dof_state_tensor).view(self.num_envs, -1, 2)
+        self._rigid_body_state = gymtorch.wrap_tensor(_rigid_body_state_tensor).view(self.num_envs, -1, 13)
+        self._q = self._dof_state[..., 0]
+        self._qd = self._dof_state[..., 1]
+        self._eef_state = self._rigid_body_state[:, self.handles["grip_site"], :]
+        self._eef_lf_state = self._rigid_body_state[:, self.handles["leftfinger_tip"], :]
+        self._eef_rf_state = self._rigid_body_state[:, self.handles["rightfinger_tip"], :]
+        _jacobian = self.gym.acquire_jacobian_tensor(self.sim, "franka")
+        jacobian = gymtorch.wrap_tensor(_jacobian)
+        hand_joint_index = self.gym.get_actor_joint_dict(env_ptr, franka_handle)['panda_hand_joint']
+        self._j_eef = jacobian[:, hand_joint_index, :, :7]
+        _massmatrix = self.gym.acquire_mass_matrix_tensor(self.sim, "franka")
+        mm = gymtorch.wrap_tensor(_massmatrix)
+        self._mm = mm[:, :7, :7]
+
+        # Initialize actions
+        self._pos_control = torch.zeros((self.num_envs, self.num_dofs), dtype=torch.float, device=self.device)
+        self._effort_control = torch.zeros_like(self._pos_control)
+
+        # Initialize control
+        self._arm_control = self._effort_control[:, :7]
+        self._gripper_control = self._pos_control[:, 7:9]
+
+        # Initialize indices
+        self._global_indices = torch.arange(self.num_envs * actor_num, dtype=torch.int32,
+                                           device=self.device).view(self.num_envs, -1) # 3 actors, franka, table, table_stand
+
     def _create_cube(self, pos, size, quat=[0, 0, 0, 1]):
         """
         Args:
@@ -264,6 +429,51 @@ class FrankaMP(FrankaReach):
     def _reset_obstacle(self):
         pass
 
+    def _refresh(self):
+        self.gym.refresh_actor_root_state_tensor(self.sim)
+        self.gym.refresh_dof_state_tensor(self.sim)
+        self.gym.refresh_rigid_body_state_tensor(self.sim)
+        self.gym.refresh_jacobian_tensors(self.sim)
+        self.gym.refresh_mass_matrix_tensors(self.sim)
+        self.gym.refresh_net_contact_force_tensor(self.sim)
+
+        # Refresh states
+        self.states.update({
+            # Franka
+            "q": self._q[:, :],
+            "q_gripper": self._q[:, -2:],
+            "eef_pos": self._eef_state[:, :3],
+            "eef_quat": self._eef_state[:, 3:7],
+            "eef_vel": self._eef_state[:, 7:],
+            "eef_lf_pos": self._eef_lf_state[:, :3],
+            "eef_rf_pos": self._eef_rf_state[:, :3],
+        })
+        self.check_robot_collision()
+
+    def compute_observations(self):
+        self._refresh()
+        # Note this will only work for robomimic checkpoints, the encoded pcd_feats dim is (pcd_feat+current_angles+goal_angles = 1024+7+7)
+        self.update_robot_pcds()
+        obs_base = OrderedDict()
+        obs_base["current_angles"] = self.states['q'][:, :7].clone()
+        obs_base["goal_angles"] = self.goal_config.clone()
+        obs_base["compute_pcd_params"] = self.combined_pcds.clone()
+        self.base_action = self.base_model.policy.get_action(obs_dict=obs_base)
+        pcd_feats = self.base_model.policy.nets['policy'].model.encoded_feats.clone()
+        pcd_feats = pcd_feats.contiguous().view(pcd_feats.size(0), -1)
+        self.obs_buf = pcd_feats
+
+        return self.obs_buf
+
+    def check_robot_collision(self):
+        self.gym.refresh_net_contact_force_tensor(self.sim)
+        self.scene_collision = torch.where(
+            torch.norm(torch.sum(self.contact_forces[:, :16, :], dim=1), dim=1) > 1.0, 1.0, 0.0
+        )  # the first 16 elements belong to franka robot
+        self.collision = torch.where(
+            torch.sum(torch.norm(self.contact_forces[:, :16, :], dim=2), dim=1) > 1.0, 1.0, 0.0
+        )  # the first 16 elements belong to franka robot, this includes self collision
+
     def setup_configs(self):
         self.goal_config, valid_scene = self.sample_valid_joint_configs(
             initial_configs=self.goal_config, check_not_in_collision=True
@@ -314,17 +524,6 @@ class FrankaMP(FrankaReach):
             desired_upper_limits - desired_lower_limits
         ) + lower_limits
         return unnormalized
-
-    def get_info(self):
-        return None
-
-    def is_done(self):
-        """
-        Compute done for env.
-        Returns:
-            done (bool): whether the task is done
-        """
-        return False
 
     def get_joint_angles(self) -> torch.Tensor:
         """
@@ -537,10 +736,10 @@ class FrankaMP(FrankaReach):
         )
         
         
-        self.fabric_q[env_ids, :] = torch.clone(pos[:, :7])
-        self.fabric_qd[env_ids, :] = torch.clone(pos[:, :7])
-        self.fabric_qdd[env_ids, :] = torch.zeros_like(pos[:, :7])
-        
+        # self.fabric_q[env_ids, :] = torch.clone(pos[:, :7])
+        # self.fabric_qd[env_ids, :] = torch.zeros_like(pos[:, :7])
+        # self.fabric_qdd[env_ids, :] = torch.zeros_like(pos[:, :7])
+        # self.voxel_counter.zero_voxels(env_ids)
         
         self.gym.simulate(self.sim)
         self._refresh()
@@ -559,22 +758,6 @@ class FrankaMP(FrankaReach):
                     print(f"num_err: {num_err}/{self.num_envs}")
                 self.print_resampling_info(joint_state)
                 print("------------")
-
-    def step_sim_multi(self, num_steps=1):
-        """
-        Step the simulation. (for debugging purposes)
-        """
-        for _ in range(num_steps):
-            self.gym.simulate(self.sim)
-            self.render()
-            self._refresh()
-
-    def render_multi(self, num_steps=1):
-        """
-        Render the simulation. (for debugging purposes)
-        """
-        for _ in range(num_steps):
-            self.render()
 
     def get_joint_limits(self):
         """
@@ -629,88 +812,6 @@ class FrankaMP(FrankaReach):
 
             self.gym.viewer_camera_look_at(self.viewer, None, cam_pos, cam_target)
 
-    def execute_action(
-        self,
-        action: torch.Tensor,
-        isDeta=True,
-        isInterpolation=False,
-        exe_steps=10,
-        detect_collision=True,
-        render=False,
-        debug=False,
-    ):
-        """
-        Step in the environment with an action.
-        Args:
-            action (np.array): (num_envs, 7) action to take
-        Returns:
-            observation (dict): new observation dictionary
-            reward (float): reward for this step
-            done (bool): whether the task is done
-            info (dict): extra information
-        """
-
-        gripper_state = torch.Tensor([[0.035, 0.035]] * self.num_envs).to(self.device)
-        done = self.is_done()
-        start_angles = self.get_joint_angles()
-        start_state = torch.cat((start_angles, gripper_state), dim=1)
-        if isDeta:
-            target_angles = start_angles + action
-        else:
-            target_angles = action
-        target_state = torch.cat((target_angles, gripper_state), dim=1)
-
-        for step in range(exe_steps):
-            action = start_state + (target_state - start_state) * (step + 1) / exe_steps
-            if isInterpolation:
-                self.set_robot_joint_state(action)
-            else:
-                self.step(action)
-                if detect_collision:
-                    self.check_robot_collision()
-                    self.num_collisions += self.collision
-                if debug:
-                    self.print_collision_info()
-            if render:
-                self.render()
-
-        if debug:
-            print("step errors: ", torch.norm(target_state[:, :7] - self.get_joint_angles(), dim=1))
-
-    def execute_plan(
-        self, plan, exe_steps, set_intermediate_states=False, render=False, debug=False
-    ):
-        """
-        Args:
-            plan (List[torch.Tensor]): list of joint & gripper states [num_envs, 9] , including initial starting state
-        Returns:
-            error (float): error in final joint angles
-        """
-        print("Executing plan...")
-        print(f"Plan length: {len(plan)}")
-        self.check_robot_collision()
-        assert not sum(self.collision) > 0, "Robot in collision!"
-
-        # now take path and execute
-        self.num_collisions = torch.zeros(self.num_envs, device=self.device)
-        for plan_idx, action in enumerate(plan):
-            self.execute_action(
-                action=action,
-                isDeta=False,
-                isInterpolation=set_intermediate_states,
-                exe_steps=exe_steps,
-                detect_collision=True,
-                render=render,
-                debug=debug,
-            )
-
-        achieved_joint_angles = self.get_joint_angles()
-        joint_error = torch.norm(achieved_joint_angles - plan[-1], dim=1)
-        if debug:
-            print(f"execution results:\njoint_err: {joint_error} deg")
-            print(f"{torch.sum(self.num_collisions!=0)} / {self.num_envs} envs has collided")
-        return joint_error
-
     def reset_idx(self, env_ids=None):
         """
         Reset the environment.
@@ -729,93 +830,136 @@ class FrankaMP(FrankaReach):
         # currently doesn't support reset selected envs
         self.progress_buf[:] = 0
         self.reset_buf[:] = 0
+        self.base_model.start_episode()
+        self.compute_observations()
 
-    def decompose_pcd_params(self):
-        num_obs = int(self.max_num_obstacles / 3)
-        # need to exclude the extra counted ground plane at the beginning
-        cuboid_all_dims = torch.Tensor(
-            np.asarray(self.cuboid_dims[1:]).reshape(self.num_envs, num_obs + 1, 3)
-        ).to(self.device)
-        # format of _root_state: (num_envs, actor_num<franka_actor, plane_actor, obstacle_actor>, 13)
-        # format of _obstacle_state: (num_envs, max_num_obstacles<max_num_cuboids, max_num_capsules, max_num_spheres>, 13)
-        gp_dim = cuboid_all_dims[:, 0:1, :]
-        gp_center = self._root_state[:, 1:2, :3]
-        gp_quaternion = self._root_state[:, 1:2, 3:7]
+    def pre_physics_step(self, actions):
+        delta_actions = actions.clone().to(self.device)
+        gripper_state = torch.Tensor([[0.035, 0.035]] * self.num_envs).to(self.device)
 
-        cuboid_dims = cuboid_all_dims[:, 1:, :]
-        cuboid_centers = self._root_state[:, 2 : num_obs + 2, :3]
-        cuboid_quaternions = self._root_state[:, 2 : num_obs + 2, 3:7]
+        delta_actions = torch.clamp(delta_actions, -self.cmd_limit, self.cmd_limit) / self.action_scale
+        abs_actions = self.get_joint_angles() + delta_actions + self.base_action
+        if abs_actions.shape[-1] == 7:
+            abs_actions = torch.cat((abs_actions, gripper_state), dim=1)
 
-        capsule_dims = torch.Tensor(
-            np.asarray(self.capsule_dims).reshape(self.num_envs, num_obs, 2)
-        ).to(self.device)
-        capsule_radii = capsule_dims[:, :, 0:1]
-        capsule_heights = capsule_dims[:, :, 1:2] * 2
-        capsule_centers = self._root_state[:, num_obs + 2 : num_obs * 2 + 2, :3]
-        capsule_quaternions = self._root_state[:, num_obs + 2 : num_obs * 2 + 2, 3:7]
+        self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(abs_actions))
 
-        sphere_radii = torch.Tensor(
-            np.asarray(self.sphere_radii).reshape(self.num_envs, num_obs, 1)
-        ).to(self.device)
-        sphere_centers = self._root_state[:, num_obs * 2 + 2 :, :3]
-        return (
-            gp_dim,
-            gp_center,
-            gp_quaternion,
-            cuboid_dims,
-            cuboid_centers,
-            cuboid_quaternions,
-            capsule_radii,
-            capsule_heights,
-            capsule_centers,
-            capsule_quaternions,
-            sphere_centers,
-            sphere_radii,
-        )
+    def post_physics_step(self):
+        self.progress_buf += 1
 
-    def compute_scene_pcd(self):
-        scene_params = self.decompose_pcd_params()
-        scene_pcd = construct_mixed_point_cloud_ig(
-            *scene_params,
-            num_points=self.pcd_spec_dict['num_obstacle_points'],
-            num_extra_points=self.pcd_spec_dict['num_extra_points_per_obj'],
-            num_gp_points=self.pcd_spec_dict['num_ground_plane_points'],
-        )
-        return scene_pcd
+        env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
+        if len(env_ids) > 0:
+            self.reset_idx(env_ids)
 
-    def compute_combined_pcds(self):
+        self.compute_observations()
+        self.compute_reward(self.actions)
+
+        # reset the robot to start if it collides with the obstacles
+        if sum(self.scene_collision) > 0:
+            collision_env_idx = self.collision.nonzero(as_tuple=False).flatten()
+            self.set_robot_joint_state(self.start_config[collision_env_idx], env_ids=collision_env_idx)
+
+        # debug viz
+        if self.viewer and self.debug_viz:
+            self.gym.clear_lines(self.viewer)
+            self.gym.refresh_rigid_body_state_tensor(self.sim)
+
+            # Grab relevant states to visualize
+            eef_pos = self.states["eef_pos"]
+            eef_rot = self.states["eef_quat"]
+
+            # Plot visualizations
+            for i in range(self.num_envs):
+                for pos, rot in zip((eef_pos), (eef_rot)):
+                    px = (pos[i] + quat_apply(rot[i], to_torch([1, 0, 0], device=self.device) * 0.2)).cpu().numpy()
+                    py = (pos[i] + quat_apply(rot[i], to_torch([0, 1, 0], device=self.device) * 0.2)).cpu().numpy()
+                    pz = (pos[i] + quat_apply(rot[i], to_torch([0, 0, 1], device=self.device) * 0.2)).cpu().numpy()
+
+                    p0 = pos[i].cpu().numpy()
+                    self.gym.add_lines(self.viewer, self.envs[i], 1, [p0[0], p0[1], p0[2], px[0], px[1], px[2]], [0.85, 0.1, 0.1])
+                    self.gym.add_lines(self.viewer, self.envs[i], 1, [p0[0], p0[1], p0[2], py[0], py[1], py[2]], [0.1, 0.85, 0.1])
+                    self.gym.add_lines(self.viewer, self.envs[i], 1, [p0[0], p0[1], p0[2], pz[0], pz[1], pz[2]], [0.1, 0.1, 0.85])
+
+    def update_robot_pcds(self):
         num_robot_points = self.pcd_spec_dict['num_robot_points']
-        num_scene_points = self.pcd_spec_dict['num_obstacle_points']
         num_target_points = self.pcd_spec_dict['num_target_points']
+        robot_pcd = self.gpu_fk_sampler.sample(self.get_joint_angles(), num_robot_points)
+        target_pcd = self.gpu_fk_sampler.sample(self.goal_config, num_target_points)
+        self.combined_pcds[:, :num_robot_points, :3] = robot_pcd
+        self.combined_pcds[:, -num_target_points:, :3] = target_pcd
 
-        scene_pcd = self.compute_scene_pcd()
-        z_shift = torch.Tensor([0, 0, self.cuboid_dims[0][2]]).to(self.device).reshape(1, 1, -1)
-        robot_pcd = self.gpu_fk_sampler.sample(self.get_joint_angles(), num_robot_points) + z_shift
-        target_pcd = self.gpu_fk_sampler.sample(self.goal_config, num_target_points) + z_shift
-        point_cloud = torch.cat((robot_pcd, scene_pcd, target_pcd), dim=1)
-        mask_id = torch.cat(
-            (
-                torch.zeros(self.num_envs, num_robot_points, 1),
-                torch.ones(self.num_envs, num_scene_points, 1),
-                2 * torch.ones(self.num_envs, num_target_points, 1),
-            ),
-            dim=1,
-        ).to(self.device)
-        return torch.cat((point_cloud, mask_id), dim=2)        
+    # debug utils
+    def plan_open_loop(self, use_controller=True):
+        """
+        debug base policy
+        """
+        obs_base = OrderedDict()
+
+        for i in range(150):
+            self.update_robot_pcds()
+            obs_base["current_angles"] = self.states['q'][:, :7].clone()
+            obs_base["goal_angles"] = self.goal_config.clone()
+            obs_base["compute_pcd_params"] = self.combined_pcds.clone()
+            base_action = self.base_model.policy.get_action(obs_dict=obs_base)
+            abs_action = base_action + self.get_joint_angles()
+            if use_controller:
+                self.step(base_action)
+                self._refresh()
+            else:
+                self.set_robot_joint_state(abs_action)
+                self.gym.simulate(self.sim)
+                self.render()
+                self._refresh()
+
+    def visualize_pcd_meshcat(self, env_idx: int=0):
+        "for debug purposes"
+        import meshcat
+        import urchin
+        from robofin.robots import FrankaRobot
+        self.viz = meshcat.Visualizer()
+        self.urdf = urchin.URDF.load(FrankaRobot.urdf)
+        for idx, (k, v) in enumerate(self.urdf.visual_trimesh_fk(np.zeros(8)).items()):
+            self.viz[f"robot/{idx}"].set_object(
+                meshcat.geometry.TriangularMeshGeometry(k.vertices, k.faces),
+                meshcat.geometry.MeshLambertMaterial(wireframe=False),
+            )
+            self.viz[f"robot/{idx}"].set_transform(v)
+        pcd_rgb = np.zeros((3, 8192))
+        pcd_rgb[0, :2048] = 1
+        pcd_rgb[1, 2048:6144] = 1
+        pcd_rgb[2, 6144:] = 1
+        
+        self.viz['pcd'].set_object(
+            meshcat.geometry.PointCloud(
+                position=self.combined_pcds[env_idx, :, :3].cpu().numpy().T,
+                color=pcd_rgb,
+                size=0.005,
+            )
+        )
+
+    def step_sim_multi(self, num_steps=1):
+        """
+        Step the simulation. (for debugging purposes)
+        """
+        for _ in range(num_steps):
+            self.gym.simulate(self.sim)
+            self.render()
+            self._refresh()
+
+    def render_multi(self, num_steps=1):
+        """
+        Render the simulation. (for debugging purposes)
+        """
+        for _ in range(num_steps):
+            self.render()
+
+    @abc.abstractmethod
+    def compute_reward(self, actions):
+        pass
+
 
 @hydra.main(config_name="config", config_path="../cfg/")
 def launch_test(cfg: DictConfig):
-    import isaacgymenvs
-    from isaacgymenvs.learning import amp_continuous, amp_models, amp_network_builder, amp_players
-    from isaacgymenvs.utils.rlgames_utils import (
-        RLGPUAlgoObserver,
-        RLGPUEnv,
-        get_rlgames_env_creator,
-    )
-    from rl_games.algos_torch import model_builder
-    from rl_games.common import env_configurations, vecenv
-    from rl_games.torch_runner import Runner
-
     np.random.seed(0)
     torch.manual_seed(0)
     cfg_dict = omegaconf_to_dict(cfg)
