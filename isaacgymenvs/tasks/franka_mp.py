@@ -458,7 +458,7 @@ class FrankaMP(VecTask):
         obs_base["current_angles"] = self.states['q'][:, :7].clone()
         obs_base["goal_angles"] = self.goal_config.clone()
         obs_base["compute_pcd_params"] = self.combined_pcds.clone()
-        self.base_action = self.base_model.policy.get_action(obs_dict=obs_base)
+        self.base_delta_action = self.base_model.policy.get_action(obs_dict=obs_base)
         pcd_feats = self.base_model.policy.nets['policy'].model.encoded_feats.clone()
         pcd_feats = pcd_feats.contiguous().view(pcd_feats.size(0), -1)
         self.obs_buf = pcd_feats
@@ -838,7 +838,7 @@ class FrankaMP(VecTask):
         gripper_state = torch.Tensor([[0.035, 0.035]] * self.num_envs).to(self.device)
 
         delta_actions = torch.clamp(delta_actions, -self.cmd_limit, self.cmd_limit) / self.action_scale
-        abs_actions = self.get_joint_angles() + delta_actions + self.base_action
+        abs_actions = self.get_joint_angles() + delta_actions + self.base_delta_action
         if abs_actions.shape[-1] == 7:
             abs_actions = torch.cat((abs_actions, gripper_state), dim=1)
 

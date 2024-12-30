@@ -65,3 +65,6 @@ pcd_spec:
   num_ground_plane_points: 500
   num_target_points: 2048
   max_rollout_length: 150
+
+fabric:
+  enable: False
