@@ -122,20 +122,22 @@ class FrankaMPSimple(FrankaMP):
     def reset_idx(self, env_ids: np.ndarray = None):
         if env_ids is None:
             env_ids = np.arange(self.num_envs)
-        self.start_config = to_torch(
-            [[1.5315238, -0.52429098, -2.3127201, -1.6001221, -0.35851285, 1.9580338, -0.97504485]]*self.num_envs, device=self.device
+        start_config = to_torch(
+            [[1.5315238, -0.52429098, -2.3127201, -1.6001221, -0.35851285, 1.9580338, -0.97504485]]*len(env_ids), device=self.device
         )
-        self.goal_config = to_torch(
-            [[0.84051591, 0.11769871, -0.060447611, -2.1588054, -0.15564187, 2.1291728, -0.05379761]]*self.num_envs, device=self.device
+        goal_config = to_torch(
+            [[0.84051591, 0.11769871, -0.060447611, -2.1588054, -0.15564187, 2.1291728, -0.05379761]]*len(env_ids), device=self.device
         )
+
         reset_noise = torch.rand((self.num_envs, 7), device=self.device)
-        self.start_config = tensor_clamp(
-            self.start_config +
+        self.start_config[env_ids] = tensor_clamp(
+            start_config +
             self.franka_dof_noise * 2.0 * (reset_noise - 0.5),
             self.franka_dof_lower_limits[:7], self.franka_dof_upper_limits[:7])
+
         reset_noise = torch.rand((self.num_envs, 7), device=self.device)
-        self.goal_config = tensor_clamp(
-            self.goal_config +
+        self.goal_config[env_ids] = tensor_clamp(
+            goal_config +
             self.franka_dof_noise * 2.0 * (reset_noise - 0.5),
             self.franka_dof_lower_limits[:7], self.franka_dof_upper_limits[:7])
 

@@ -4,6 +4,7 @@ import hydra
 import isaacgym
 import numpy as np
 import torch
+from typing import Tuple
 from isaacgym import gymapi, gymtorch, gymutil
 from isaacgym.torch_utils import *
 from isaacgymenvs.tasks.franka_mp import FrankaMP
@@ -28,6 +29,7 @@ class FrankaMPFull(FrankaMP):
         self.MAX_OBSTACLES = 40
         self.device = sim_device
         self.enable_fabric = cfg["fabric"]["enable"]
+        self.vis_basis_points = cfg["fabric"]["vis_basis_points"]
 
         # Demo loading
         hdf5_path = '/home/jimyoung/Neural_MP_Proj/neural_mp/datasets/hybrid1000.hdf5'
@@ -219,40 +221,41 @@ class FrankaMPFull(FrankaMP):
             self.obstacle_signed_dir_robot_frame = torch.zeros((self.num_envs, self.num_points_on_franka, 3), dtype=torch.float, device=self.device)
             self.obstacle_signed_distances = torch.zeros((self.num_envs, self.num_points_on_franka), dtype=torch.float, device=self.device)
 
-            # # instantiate basis points 
-            # basis_points_per_dim = np.array([16, 16, 16]) # 16
-            # # basis_points_per_dim = np.array([20, 20, 20])
+            if self.vis_basis_points:
+                # instantiate basis points 
+                basis_points_per_dim = np.array([16, 16, 16]) # 16
+                # basis_points_per_dim = np.array([20, 20, 20])
 
-            # # basis_coord_limits = np.array([[-0.75, -0.75, 0.], [0.75, 0.75, 1.]])
-            # basis_coord_limits = np.array([[-0.75, -1., -0.1], [1.5, 1., 1.25]]) 
-            # basis_points = BasisPoints(
-            #     points_per_dim=basis_points_per_dim,
-            #     coord_mins=basis_coord_limits[0],
-            #     coord_maxs=basis_coord_limits[1],
-            #     object_ids=self.fabrics_object_ids,
-            #     object_indicator=self.fabrics_object_indicator,
-            #     device=self.device,
-            # )
+                # basis_coord_limits = np.array([[-0.75, -0.75, 0.], [0.75, 0.75, 1.]])
+                basis_coord_limits = np.array([[-0.75, -1., -0.1], [1.5, 1., 1.25]]) 
+                basis_points = BasisPoints(
+                    points_per_dim=basis_points_per_dim,
+                    coord_mins=basis_coord_limits[0],
+                    coord_maxs=basis_coord_limits[1],
+                    object_ids=self.fabrics_object_ids,
+                    object_indicator=self.fabrics_object_indicator,
+                    device=self.device,
+                )
 
-            # basis_max_distance = max((basis_coord_limits[1] - basis_coord_limits[0]) / basis_points_per_dim)
-            
-            # # performs the distance queries once since obstacles are static
-            # basis_points.query()
-            # # (num_points, 3) 
-            # self.basis_point_locations = basis_points.points()
-            # self.basis_point_signed_distances = basis_points.signed_distance()
-            # self.basis_point_dir_robot_frame = basis_points.direction()
+                basis_max_distance = max((basis_coord_limits[1] - basis_coord_limits[0]) / basis_points_per_dim)
+                
+                # performs the distance queries once since obstacles are static
+                basis_points.query()
+                # (num_points, 3) 
+                self.basis_point_locations = basis_points.points()
+                self.basis_point_signed_distances = basis_points.signed_distance()
+                self.basis_point_dir_robot_frame = basis_points.direction()
 
 
-            # # Method 1: No local max distance limits
-            # self.basis_point_signed_distances = torch.clamp(self.basis_point_signed_distances, max=1.0)
-            # self.basis_point_signed_dir_robot_frame = self.basis_point_dir_robot_frame * self.basis_point_signed_distances.unsqueeze(-1)
+                # Method 1: No local max distance limits
+                self.basis_point_signed_distances = torch.clamp(self.basis_point_signed_distances, max=1.0)
+                self.basis_point_signed_dir_robot_frame = self.basis_point_dir_robot_frame * self.basis_point_signed_distances.unsqueeze(-1)
 
-            # # # Method 2: Local max distance limits
-            # # exceed_distance_indices = self.basis_point_signed_distances > basis_max_distance
-            # # self.basis_point_signed_distances[exceed_distance_indices] = 1.0
-            # # self.basis_point_dir_robot_frame[exceed_distance_indices, :] = 0.0
-            # # self.basis_point_signed_dir_robot_frame = self.basis_point_dir_robot_frame * self.basis_point_signed_distances.unsqueeze(-1)
+                # # Method 2: Local max distance limits
+                # exceed_distance_indices = self.basis_point_signed_distances > basis_max_distance
+                # self.basis_point_signed_distances[exceed_distance_indices] = 1.0
+                # self.basis_point_dir_robot_frame[exceed_distance_indices, :] = 0.0
+                # self.basis_point_signed_dir_robot_frame = self.basis_point_dir_robot_frame * self.basis_point_signed_distances.unsqueeze(-1)
 
             # Setting up voxel counter
             voxel_size = 0.15
@@ -295,12 +298,10 @@ class FrankaMPFull(FrankaMP):
 
     def _debug_viz_draw(self):
         draw_obstacle_vectors = False
-        draw_basis_point_vectors = False
 
         self.gym.clear_lines(self.viewer)
         # self.gym.refresh_rigid_body_state_tensor(self.sim)
         repulsion_points_robot_frame = self.franka_fabric.get_taskmap_position("body_points").reshape(self.num_envs, self.num_points_on_franka, 3)
-
 
         for i in range(self.num_envs):
             # draw hand frame
@@ -378,7 +379,7 @@ class FrankaMPFull(FrankaMP):
                         [1 - dist, dist, 0.0],
                     )
 
-            if draw_basis_point_vectors:
+            if self.vis_basis_points:
                 # basis point geometry
                 sphere_pose = gymapi.Transform()
                 sphere_geom = gymutil.WireframeSphereGeometry(0.01, 1, 1, sphere_pose, color=(0, 0, 1))
@@ -432,8 +433,14 @@ class FrankaMPFull(FrankaMP):
 
         self.goal_ee = self.get_ee_from_joint(self.goal_config)
 
-        self.set_robot_joint_state(self.start_config, debug=True)
-        
+        self.set_robot_joint_state(self.start_config[env_ids], env_ids=env_ids, debug=True)
+
+        if self.enable_fabric:
+            self.fabric_q[env_ids, :] = torch.clone(self.start_config[env_ids])
+            self.fabric_qd[env_ids, :] = torch.zeros_like(self.start_config[env_ids])
+            self.fabric_qdd[env_ids, :] = torch.zeros_like(self.start_config[env_ids])
+            self.voxel_counter.zero_voxels(env_ids)
+
         self.progress_buf[env_ids] = 0
         self.reset_buf[env_ids] = 0
         self.compute_observations()
@@ -451,11 +458,7 @@ class FrankaMPFull(FrankaMP):
             self.reset_buf, self.progress_buf, joint_err, pos_err, quat_err, self.collision, self.max_episode_length
         )
 
-        # In this policy, episode length is constant across all envs
-        is_last_step = (self.progress_buf[0] == self.max_episode_length - 1)
-
-        if is_last_step:
-            self.extras['successes'] = torch.mean(torch.where(d < 0.1, 1.0, 0.0)).item()
+        self.extras['training_successes'] = torch.mean(torch.where(d < 0.1, 1.0, 0.0)).item()
 
     def fabric_forward_kinematics(self, q):
         gripper_map = self.franka_fabric.get_taskmap("gripper")
@@ -547,17 +550,6 @@ class FrankaMPFull(FrankaMP):
 
 @hydra.main(config_name="config", config_path="../cfg/")
 def launch_test(cfg: DictConfig):
-    import isaacgymenvs
-    from isaacgymenvs.learning import amp_continuous, amp_models, amp_network_builder, amp_players
-    from isaacgymenvs.utils.rlgames_utils import (
-        RLGPUAlgoObserver,
-        RLGPUEnv,
-        get_rlgames_env_creator,
-    )
-    from rl_games.algos_torch import model_builder
-    from rl_games.common import env_configurations, vecenv
-    from rl_games.torch_runner import Runner
-
     np.random.seed(0)
     torch.manual_seed(0)
     cfg_dict = omegaconf_to_dict(cfg)
@@ -598,20 +590,20 @@ def orientation_error(desired, current):
 
 @torch.jit.script
 def compute_franka_reward(
-    reset_buf, progress_buf, joint_err, pos_err, quat_err, collision_status, max_episode_length
-):
-    # type: (Tensor, Tensor, Tensor, Tensor, Tensor, Tensor, float) -> Tuple[Tensor, Tensor, Tensor]
-    exp_r = True
-    if exp_r:
-        exp_eef = torch.exp(-100*pos_err) + torch.exp(-100*quat_err)
-        exp_joint = torch.exp(-100*joint_err)
-        # exp_colli = 3*torch.exp(-100*collision_status)
-        rewards = exp_eef + exp_joint # + exp_colli
-    else:
-        eef_reward = 1.0 - (torch.tanh(10*pos_err)+torch.tanh(10*quat_err))/2.0
-        joint_reward = 1.0 - torch.tanh(10*joint_err)
-        collision_reward = 1.0 - collision_status
-        rewards = eef_reward + joint_reward + collision_reward
+    reset_buf: torch.Tensor,
+    progress_buf: torch.Tensor,
+    joint_err: torch.Tensor,
+    pos_err: torch.Tensor,
+    quat_err: torch.Tensor,
+    collision_status: torch.Tensor,
+    max_episode_length: float,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+
+    exp_eef = torch.exp(-100*pos_err) + torch.exp(-100*quat_err)
+    exp_joint = torch.exp(-100*joint_err)
+    # exp_colli = 3*torch.exp(-100*collision_status)
+    rewards = exp_eef + exp_joint # + exp_colli
+
     # Compute resets
     reset_buf = torch.where((progress_buf >= max_episode_length - 1), torch.ones_like(reset_buf), reset_buf)
 

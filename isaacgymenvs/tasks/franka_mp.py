@@ -734,13 +734,7 @@ class FrankaMP(VecTask):
             gymtorch.unwrap_tensor(multi_env_ids_int32),
             len(multi_env_ids_int32),
         )
-        
-        
-        # self.fabric_q[env_ids, :] = torch.clone(pos[:, :7])
-        # self.fabric_qd[env_ids, :] = torch.zeros_like(pos[:, :7])
-        # self.fabric_qdd[env_ids, :] = torch.zeros_like(pos[:, :7])
-        # self.voxel_counter.zero_voxels(env_ids)
-        
+
         self.gym.simulate(self.sim)
         self._refresh()
 
@@ -857,7 +851,7 @@ class FrankaMP(VecTask):
         # reset the robot to start if it collides with the obstacles
         if sum(self.scene_collision) > 0:
             collision_env_idx = self.collision.nonzero(as_tuple=False).flatten()
-            self.set_robot_joint_state(self.start_config[collision_env_idx], env_ids=collision_env_idx)
+            self.reset_idx(collision_env_idx)
 
         # debug viz
         if self.viewer and self.debug_viz:
