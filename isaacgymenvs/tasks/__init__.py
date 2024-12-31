@@ -109,7 +109,6 @@ isaacgym_task_map = {
     "IndustRealTaskGearsInsert": IndustRealTaskGearsInsert,
     "FrankaCabinet": FrankaCabinet,
     "FrankaCubeStack": FrankaCubeStack,
-    "FrankaReach": FrankaReach,
     "FrankaMPFull": FrankaMPFull,
     "FrankaMPSimple": FrankaMPSimple,
     "FrankaMPRandom": FrankaMPRandom,
