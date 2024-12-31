@@ -682,10 +682,10 @@ class FrankaMP(VecTask):
             if num_collision <= 5:
                 print(f"env_incollision: {torch.nonzero(self.collision)[:, 0]}")
 
-    def print_resampling_info(self, joint_configs):
+    def print_resampling_info(self, joint_configs, env_ids):
         self.check_robot_collision()
         resampling_idx = torch.nonzero(
-            (torch.sum(self._q[:, :7] - joint_configs, axis=1) != 0) + self.collision
+            (torch.sum(self._q[env_ids, :7] - joint_configs, axis=1) != 0) + self.scene_collision[env_ids]
         )[:, 0]
         num_resampling = len(resampling_idx)
         print(f"num_resampling: {num_resampling}/{self.num_envs}")
@@ -750,7 +750,9 @@ class FrankaMP(VecTask):
                     print(torch.nonzero(err)[:, 0])
                 else:
                     print(f"num_err: {num_err}/{self.num_envs}")
-                self.print_resampling_info(joint_state)
+                self.print_resampling_info(joint_state, env_ids)
+                num_scene_collision = int(sum(self.scene_collision))
+                print(f"num_scene_collision: {num_scene_collision}/{self.num_envs}")
                 print("------------")
 
     def get_joint_limits(self):
