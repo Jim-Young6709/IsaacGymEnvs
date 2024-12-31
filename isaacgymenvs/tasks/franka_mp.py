@@ -129,7 +129,7 @@ class FrankaMP(VecTask):
         self.num_collisions = torch.zeros(self.num_envs, device=self.device)
         self.successes = torch.zeros(self.num_envs, device=self.device)
         self.base_model = NeuralMPModel.from_pretrained("mihdalal/NeuralMP")
-        self.base_model.policy.set_eval()
+        self.base_model.eval()
 
         # Refresh tensors & Reset all environments
         self._refresh()
@@ -458,7 +458,8 @@ class FrankaMP(VecTask):
         obs_base["current_angles"] = self.states['q'][:, :7].clone()
         obs_base["goal_angles"] = self.goal_config.clone()
         obs_base["compute_pcd_params"] = self.combined_pcds.clone()
-        self.base_delta_action = self.base_model.policy.get_action(obs_dict=obs_base)
+        with torch.no_grad():
+            self.base_delta_action = self.base_model.policy.get_action(obs_dict=obs_base)
         pcd_feats = self.base_model.policy.nets['policy'].model.encoded_feats.clone()
         pcd_feats = pcd_feats.contiguous().view(pcd_feats.size(0), -1)
         self.obs_buf = pcd_feats

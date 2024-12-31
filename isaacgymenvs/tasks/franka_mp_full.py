@@ -33,7 +33,7 @@ class FrankaMPFull(FrankaMP):
         self.base_policy_only = cfg["env"]["base_policy_only"]
 
         # Demo loading
-        hdf5_path = '/home/jimyoung/Neural_MP_Proj/neural_mp/datasets/hybrid1000.hdf5'
+        hdf5_path = '/home/jimyoung/Neural_MP_Proj/neural_mp/datasets/final1M_15_14k.hdf5'
         self.demo_loader = DemoLoader(hdf5_path, cfg["env"]["numEnvs"])
 
         # need to change the logic here (2 layers of reset ; multiple start & goal in one env ; relaunch IG)
