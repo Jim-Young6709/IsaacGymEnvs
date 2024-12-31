@@ -30,6 +30,7 @@ class FrankaMPFull(FrankaMP):
         self.device = sim_device
         self.enable_fabric = cfg["fabric"]["enable"]
         self.vis_basis_points = cfg["fabric"]["vis_basis_points"]
+        self.base_policy_only = cfg["env"]["base_policy_only"]
 
         # Demo loading
         hdf5_path = '/home/jimyoung/Neural_MP_Proj/neural_mp/datasets/hybrid1000.hdf5'
@@ -482,7 +483,10 @@ class FrankaMPFull(FrankaMP):
         gripper_state = torch.Tensor([[0.035, 0.035]] * self.num_envs).to(self.device)
 
         delta_actions = torch.clamp(delta_actions, -self.cmd_limit, self.cmd_limit) / self.action_scale
-        abs_actions = self.get_joint_angles() + delta_actions + self.base_delta_action
+        if self.base_policy_only:
+            abs_actions = self.get_joint_angles() + self.base_delta_action
+        else:
+            abs_actions = self.get_joint_angles() + delta_actions + self.base_delta_action
         if abs_actions.shape[-1] == 7:
             abs_actions = torch.cat((abs_actions, gripper_state), dim=1)
 
