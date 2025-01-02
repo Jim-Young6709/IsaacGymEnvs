@@ -26,14 +26,14 @@ from fabrics_sim.worlds.voxels import VoxelCounter
 
 class FrankaMPFull(FrankaMP):
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render, num_env_per_env=1):
-        self.MAX_OBSTACLES = 40
+        self.MAX_OBSTACLES = 100
         self.device = sim_device
         self.enable_fabric = cfg["fabric"]["enable"]
         self.vis_basis_points = cfg["fabric"]["vis_basis_points"]
         self.base_policy_only = cfg["env"]["base_policy_only"]
 
         # Demo loading
-        hdf5_path = '/home/jimyoung/Neural_MP_Proj/neural_mp/datasets/final1M_15_14k.hdf5'
+        hdf5_path = cfg["env"]["hdf5_path"]
         self.demo_loader = DemoLoader(hdf5_path, cfg["env"]["numEnvs"])
 
         # need to change the logic here (2 layers of reset ; multiple start & goal in one env ; relaunch IG)
@@ -152,14 +152,13 @@ class FrankaMPFull(FrankaMP):
                         )
 
                 else:
-                    pass 
                     # Create minimal placeholder obstacles far away
-                    # obstacle_asset, obstacle_pose = self._create_cube(
-                    #     pos=[100.0, 100.0, 100.0],
-                    #     size=[0.001, 0.001, 0.001],
-                    #     quat=[0, 0, 0, 1]
-                    # )
-                
+                    obstacle_asset, obstacle_pose = self._create_cube(
+                        pos=[0., 0., -100.0],
+                        size=[0.001, 0.001, 0.001],
+                        quat=[0, 0, 0, 1]
+                    )
+
                 obstacle_actor = self.gym.create_actor(
                     env_ptr,
                     obstacle_asset,
@@ -510,7 +509,7 @@ class FrankaMPFull(FrankaMP):
             timestep = 1/60.
             # Integrate fabric layer forward at 60 Hz. If policy action rate gets downsampled in the future, 
             # then change the value of 1 below to the downsample factor
-            for i in range(1):
+            for i in range(1): # TODO: step fabric multiple times so the delta action is not too small
                 self.fabric_q, self.fabric_qd, self.fabric_qdd = self.franka_integrator.step(
                     self.fabric_q.detach(), self.fabric_qd.detach(), timestep # should be 1/60
                 )
@@ -607,6 +606,7 @@ def compute_franka_reward(
     exp_joint = torch.exp(-100*joint_err)
     # exp_colli = 3*torch.exp(-100*collision_status)
     rewards = exp_eef + exp_joint # + exp_colli
+    # TODO: intrinsic reward
 
     # Compute resets
     reset_buf = torch.where((progress_buf >= max_episode_length - 1), torch.ones_like(reset_buf), reset_buf)

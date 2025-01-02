@@ -35,6 +35,7 @@ env:
   numActions: 7
 
   base_policy_only: False
+  hdf5_path: null
 
 sim:
   dt: 0.01667 # 1/60
