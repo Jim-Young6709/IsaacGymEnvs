@@ -853,8 +853,7 @@ class FrankaMP(VecTask):
 
         # reset the robot to start if it collides with the obstacles
         if sum(self.scene_collision) > 0:
-            collision_env_idx = self.collision.nonzero(as_tuple=False).flatten()
-            self.reset_idx(collision_env_idx)
+            self.reset_buf = torch.where(self.scene_collision > 0, torch.ones_like(self.reset_buf), self.reset_buf)
 
         # debug viz
         if self.viewer and self.debug_viz:
