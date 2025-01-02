@@ -17,7 +17,7 @@ env:
 
   aggregateMode: 3
 
-  actionScale: 1.0
+  actionScale: 10.0 # rescale actions to 1/actionScale
 
   controlType: joint_position  # options are {joint_position, osc}
 
