@@ -26,7 +26,6 @@ from fabrics_sim.worlds.voxels import VoxelCounter
 
 class FrankaMPFull(FrankaMP):
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render, num_env_per_env=1):
-        self.MAX_OBSTACLES = 100
         self.device = sim_device
         self.enable_fabric = cfg["fabric"]["enable"]
         self.vis_basis_points = cfg["fabric"]["vis_basis_points"]
@@ -42,6 +41,7 @@ class FrankaMPFull(FrankaMP):
         self.start_config = torch.zeros((cfg["env"]["numEnvs"], 7), device=self.device)
         self.goal_config = torch.zeros((cfg["env"]["numEnvs"], 7), device=self.device)
         self.obstacle_configs = []
+        self.max_obstacles = 0
 
         for env_idx, demo in enumerate(self.batch):
             self.start_config[env_idx] = torch.tensor(demo['states'][0][:7], device=self.device)
@@ -50,6 +50,7 @@ class FrankaMPFull(FrankaMP):
             pcd_params = demo['states'][0][15:]
             obstacle_config = decompose_scene_pcd_params_obs(pcd_params)
             self.obstacle_configs.append(obstacle_config)
+            self.max_obstacles = max(len(obstacle_config[0]), self.max_obstacles)
 
         self.obstacle_handles = []
 
@@ -73,8 +74,8 @@ class FrankaMPFull(FrankaMP):
         # compute aggregate size
         num_franka_bodies = self.gym.get_asset_rigid_body_count(franka_asset)
         num_franka_shapes = self.gym.get_asset_rigid_shape_count(franka_asset)
-        max_agg_bodies = num_franka_bodies + self.MAX_OBSTACLES  # franka + obstacles
-        max_agg_shapes = num_franka_shapes + self.MAX_OBSTACLES
+        max_agg_bodies = num_franka_bodies + self.max_obstacles  # franka + obstacles
+        max_agg_shapes = num_franka_shapes + self.max_obstacles
         self.frankas = []
         self.envs = []
 
@@ -134,7 +135,7 @@ class FrankaMPFull(FrankaMP):
             num_cubes = len(cuboid_dims)
 
             # Create actual obstacles with proper sizes
-            for j in range(self.MAX_OBSTACLES):
+            for j in range(self.max_obstacles):
                 if j < num_cubes:
                     # Create obstacle with actual size and position
                     obstacle_asset, obstacle_pose = self._create_cube(
@@ -279,7 +280,7 @@ class FrankaMPFull(FrankaMP):
             self.voxel_visit_binary = torch.zeros((self.num_envs, num_voxels_x*num_voxels_y*num_voxels_z), device=self.device)
 
         # Setup data
-        actor_num = 1 + self.MAX_OBSTACLES  # franka  + obstacles
+        actor_num = 1 + self.max_obstacles  # franka  + obstacles
         self.init_data(actor_num=actor_num)
 
     def _create_fabric_cube(self, pos, size, quat, env_id):
