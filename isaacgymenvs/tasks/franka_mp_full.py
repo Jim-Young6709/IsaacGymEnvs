@@ -257,26 +257,28 @@ class FrankaMPFull(FrankaMP):
                 # self.basis_point_dir_robot_frame[exceed_distance_indices, :] = 0.0
                 # self.basis_point_signed_dir_robot_frame = self.basis_point_dir_robot_frame * self.basis_point_signed_distances.unsqueeze(-1)
 
-            # Setting up voxel counter
-            voxel_size = 0.15
-            num_voxels_x = 20
-            num_voxels_y = 20
-            num_voxels_z = 20
-            x_min = -0.5
-            y_min = -0.75
-            z_min = -0.25
-            # basis_coord_limits = np.array([[-0.75, -1., -0.1], [1.5, 1., 1.25]]) 
+        # Setting up voxel counter
+        voxel_size = 0.15
+        num_voxels_x = 20
+        num_voxels_y = 20
+        num_voxels_z = 20
+        x_min = -0.5
+        y_min = -0.75
+        z_min = -0.25
+        # basis_coord_limits = np.array([[-0.75, -1., -0.1], [1.5, 1., 1.25]])
 
-            self.voxel_counter = VoxelCounter(batch_size=self.num_envs,
-                                            device=self.device,
-                                            voxel_size=voxel_size,
-                                            num_voxels_x=num_voxels_x,
-                                            num_voxels_y=num_voxels_y,
-                                            num_voxels_z=num_voxels_z,
-                                            x_min=x_min,
-                                            y_min=y_min,
-                                            z_min=z_min)
-            self.voxel_visit_binary = torch.zeros((self.num_envs, num_voxels_x*num_voxels_y*num_voxels_z), device=self.device)
+        self.voxel_counter = VoxelCounter(batch_size=self.num_envs,
+                                        device=self.device,
+                                        voxel_size=voxel_size,
+                                        num_voxels_x=num_voxels_x,
+                                        num_voxels_y=num_voxels_y,
+                                        num_voxels_z=num_voxels_z,
+                                        x_min=x_min,
+                                        y_min=y_min,
+                                        z_min=z_min)
+
+        self.voxel_visit_binary = torch.zeros((self.num_envs, num_voxels_x*num_voxels_y*num_voxels_z), device=self.device)
+        self.num_visited_voxels_t0 = torch.zeros((self.num_envs), device=self.device)
 
         # Setup data
         actor_num = 1 + self.max_obstacles  # franka  + obstacles
@@ -402,8 +404,8 @@ class FrankaMPFull(FrankaMP):
                     p1 = basis_point_to_obstacle_robot_frame[j].cpu().numpy()
                     dist = basis_point_signed_dists[j].item()
                     self.gym.add_lines(
-                        self.viewer, self.envs[i], 1, 
-                        [p0[0], p0[1], p0[2], p1[0], p1[1], p1[2]], 
+                        self.viewer, self.envs[i], 1,
+                        [p0[0], p0[1], p0[2], p1[0], p1[1], p1[2]],
                         # colour gradient where the line goes from green to red as dist approaches zero
                         [1 - dist, dist, 0.0],
                     )
@@ -436,7 +438,9 @@ class FrankaMPFull(FrankaMP):
             self.fabric_q[env_ids, :] = torch.clone(self.start_config[env_ids])
             self.fabric_qd[env_ids, :] = torch.zeros_like(self.start_config[env_ids])
             self.fabric_qdd[env_ids, :] = torch.zeros_like(self.start_config[env_ids])
-            self.voxel_counter.zero_voxels(env_ids)
+        self.voxel_counter.zero_voxels(env_ids)
+        self.voxel_visit_binary[env_ids] = torch.zeros_like(self.voxel_visit_binary[env_ids])
+        self.num_visited_voxels_t0[env_ids] = torch.zeros_like(self.num_visited_voxels_t0[env_ids])
 
         self.progress_buf[env_ids] = 0
         self.reset_buf[env_ids] = 0
@@ -451,12 +455,25 @@ class FrankaMPFull(FrankaMP):
         pos_err = torch.norm(current_ee[:, :3] - self.goal_ee[:, :3], dim=1)
         quat_err = orientation_error(self.goal_ee[:, 3:], current_ee[:, 3:])
 
-        self.rew_buf[:], self.reset_buf[:], d = compute_franka_reward(
-            self.reset_buf, self.progress_buf, joint_err, pos_err, quat_err, self.collision, self.max_episode_length
+        num_visited_voxels_t1 = torch.sum(self.voxel_visit_binary, dim=1)
+
+        self.rew_buf[:], self.reset_buf[:], reaching_rewards, intrinsic_rewards = compute_franka_reward(
+            self.reset_buf, self.progress_buf,
+            joint_err, pos_err, quat_err,
+            self.num_visited_voxels_t0, num_visited_voxels_t1,
+            self.collision, self.max_episode_length
         )
 
-        self.success_flags[d < 0.1] = 1
-        self.extras['training_success'] = torch.mean(torch.where(d < 0.1, 1.0, 0.0)).item()
+        self.num_visited_voxels_t0 = num_visited_voxels_t1
+
+        self.extras['reaching_rewards'] = torch.mean(reaching_rewards).item()
+        self.extras['intrinsic_rewards'] = torch.mean(intrinsic_rewards).item()
+
+        self.success_flags[joint_err < 0.1] = 1
+        failures = torch.sum(self.success_flags == 0).item()
+        successes = torch.sum(self.success_flags == 1).item()
+        success_rate_ave = successes / (successes + failures + 1e-6)
+        self.extras['training_success'] = success_rate_ave
 
     def fabric_forward_kinematics(self, q):
         gripper_map = self.franka_fabric.get_taskmap("gripper")
@@ -503,7 +520,7 @@ class FrankaMPFull(FrankaMP):
                 self.fabrics_object_ids,
                 self.fabrics_object_indicator
             )
-            
+
             timestep = 1/60.
             # Integrate fabric layer forward at 60 Hz. If policy action rate gets downsampled in the future, 
             # then change the value of 1 below to the downsample factor
@@ -514,12 +531,11 @@ class FrankaMPFull(FrankaMP):
 
             abs_actions[:, :7] = torch.clone(self.fabric_q[:, 0:7]).contiguous()
             self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(abs_actions))
-                    
+
             vel_targets = torch.zeros_like(abs_actions, device=self.device)
             vel_targets[:, :7] = self.fabric_qd[:, 0:7]
             self.gym.set_dof_velocity_target_tensor(self.sim, gymtorch.unwrap_tensor(vel_targets))
-            
-            
+
             # update obstacle vectors
             self.obstacle_dir_robot_frame[:, :, :] = self.franka_fabric.base_fabric_repulsion.accel_dir
             self.obstacle_signed_distances[:, :] = self.franka_fabric.base_fabric_repulsion.signed_distance
@@ -530,23 +546,25 @@ class FrankaMPFull(FrankaMP):
             self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(abs_actions))
 
     def post_physics_step(self):
-        super().post_physics_step()
-
         if self.enable_fabric:
             self._debug_viz_draw()
-            gripper_pos = self.fabric_forward_kinematics(self.states["q"][:, 0:7])[:, 0:3]
-            voxel_counts, _ = self.voxel_counter.get_count(gripper_pos)
-            # voxel_counts (num_envs, ) -> number of times the voxel at gripper_pos has been visited
 
-            # voxels (num_envs, 20*20*20)
-            voxels = self.voxel_counter.voxel_counter.view(self.num_envs, -1)
-            self.voxel_visit_binary = torch.where(
-                voxels >= 1.,
-                1.,
-                0.,
-            )
-            # (num_envs,)
-            num_visited_voxels = torch.sum(self.voxel_visit_binary, dim=1)
+        # TODO: note, there are differences between fabric fk and direct eef_pos from IG, not sure how much this will affect
+        # gripper_pos = self.fabric_forward_kinematics(self.states["q"][:, 0:7])[:, 0:3]
+        gripper_pos = self.get_eef_pose()[:, :3]
+
+        # voxel_counts (num_envs, ) -> number of times the voxel at the specified gripper_pos has been visited
+        voxel_counts, _ = self.voxel_counter.get_count(gripper_pos)
+
+        # voxels (num_envs, 20*20*20) -> number of times each voxel has been visited
+        voxels = self.voxel_counter.voxel_counter.view(self.num_envs, -1)
+        self.voxel_visit_binary = torch.where(
+            voxels >= 1.,
+            1.,
+            0.,
+        )
+
+        super().post_physics_step()
 
 
 @hydra.main(config_name="config", config_path="../cfg/")
@@ -591,25 +609,28 @@ def orientation_error(desired, current):
 
 @torch.jit.script
 def compute_franka_reward(
-    reset_buf: torch.Tensor,
-    progress_buf: torch.Tensor,
-    joint_err: torch.Tensor,
-    pos_err: torch.Tensor,
-    quat_err: torch.Tensor,
+    reset_buf: torch.Tensor, progress_buf: torch.Tensor,
+    joint_err: torch.Tensor, pos_err: torch.Tensor, quat_err: torch.Tensor,
+    num_visited_voxels_t0: torch.Tensor, num_visited_voxels_t1: torch.Tensor,
     collision_status: torch.Tensor,
     max_episode_length: float,
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
 
+    # Sparse reaching reward (TODO: change to use key points)
     exp_eef = torch.exp(-100*pos_err) + torch.exp(-100*quat_err)
     exp_joint = torch.exp(-100*joint_err)
-    # exp_colli = 3*torch.exp(-100*collision_status)
-    rewards = exp_eef + exp_joint # + exp_colli
-    # TODO: intrinsic reward
+
+    reaching_rewards = 10*exp_eef + 10*exp_joint
+
+    # intrinsic reward
+    intrinsic_rewards = num_visited_voxels_t1 - num_visited_voxels_t0
+
+    rewards = reaching_rewards + intrinsic_rewards
 
     # Compute resets
     reset_buf = torch.where((progress_buf >= max_episode_length - 1), torch.ones_like(reset_buf), reset_buf)
 
-    return rewards, reset_buf, joint_err
+    return rewards, reset_buf, reaching_rewards, intrinsic_rewards
 
 
 if __name__ == "__main__":
