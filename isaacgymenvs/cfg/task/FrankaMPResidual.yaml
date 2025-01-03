@@ -1,5 +1,5 @@
 # used to create the object
-name: FrankaMPSimple
+name: FrankaMPResidual
 
 physics_engine: ${..physics_engine}
 
