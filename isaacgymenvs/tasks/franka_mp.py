@@ -127,8 +127,8 @@ class FrankaMP(VecTask):
             ).to(self.device)
         self.seed_joint_angles = self.canonical_joint_config.clone()
         self.num_collisions = torch.zeros(self.num_envs, device=self.device)
-        self.success_flags = -1*torch.ones(cfg["env"]["numEnvs"], device=self.device) # -1 for init, 0 for failed, 1 for success
-        self.base_model = NeuralMPModel.from_pretrained("mihdalal/NeuralMP")
+        self.success_flags = torch.zeros(cfg["env"]["numEnvs"], device=self.device) # 0 for failure, 1 for success
+        self.base_model = NeuralMPModel.from_pretrained("jimyoung6709/DRP")
         self.base_model.eval()
 
         # Refresh tensors & Reset all environments

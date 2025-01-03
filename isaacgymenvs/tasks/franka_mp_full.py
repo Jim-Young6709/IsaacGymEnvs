@@ -469,11 +469,11 @@ class FrankaMPFull(FrankaMP):
         self.extras['reaching_rewards'] = torch.mean(reaching_rewards).item()
         self.extras['intrinsic_rewards'] = torch.mean(intrinsic_rewards).item()
 
-        self.success_flags[joint_err < 0.1] = 1
-        failures = torch.sum(self.success_flags == 0).item()
-        successes = torch.sum(self.success_flags == 1).item()
-        success_rate_ave = successes / (successes + failures + 1e-6)
-        self.extras['training_success'] = success_rate_ave
+        self.success_flags[(joint_err < 0.1) & (self.reset_buf == 1)] = 1
+        self.success_flags[(joint_err >= 0.1) & (self.reset_buf == 1)] = 0
+
+        self.extras['training_success'] = torch.mean(self.success_flags.float())
+        # print(f"Training success rate: {self.extras['training_success']}")
 
     def fabric_forward_kinematics(self, q):
         gripper_map = self.franka_fabric.get_taskmap("gripper")
