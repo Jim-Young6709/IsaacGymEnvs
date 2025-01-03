@@ -41,6 +41,7 @@ class FrankaMPFull(FrankaMP):
         self.start_config = torch.zeros((cfg["env"]["numEnvs"], 7), device=self.device)
         self.goal_config = torch.zeros((cfg["env"]["numEnvs"], 7), device=self.device)
         self.obstacle_configs = []
+        self.obstacle_handles = []
         self.max_obstacles = 0
 
         for env_idx, demo in enumerate(self.batch):
@@ -51,8 +52,6 @@ class FrankaMPFull(FrankaMP):
             obstacle_config = decompose_scene_pcd_params_obs(pcd_params)
             self.obstacle_configs.append(obstacle_config)
             self.max_obstacles = max(len(obstacle_config[0]), self.max_obstacles)
-
-        self.obstacle_handles = []
 
         super().__init__(cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render)
 
@@ -422,9 +421,6 @@ class FrankaMPFull(FrankaMP):
             self.obstacle_configs.append(obstacle_config)
 
     def reset_idx(self, env_ids=None):
-        """
-        TODO: need to re-write completely
-        """
         if env_ids is None:
             env_ids = torch.arange(self.num_envs, device=self.device)
 
@@ -459,7 +455,8 @@ class FrankaMPFull(FrankaMP):
             self.reset_buf, self.progress_buf, joint_err, pos_err, quat_err, self.collision, self.max_episode_length
         )
 
-        self.extras['training_successes'] = torch.mean(torch.where(d < 0.1, 1.0, 0.0)).item()
+        self.success_flags[d < 0.1] = 1
+        self.extras['training_success'] = torch.mean(torch.where(d < 0.1, 1.0, 0.0)).item()
 
     def fabric_forward_kinematics(self, q):
         gripper_map = self.franka_fabric.get_taskmap("gripper")

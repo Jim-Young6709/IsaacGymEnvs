@@ -127,7 +127,7 @@ class FrankaMP(VecTask):
             ).to(self.device)
         self.seed_joint_angles = self.canonical_joint_config.clone()
         self.num_collisions = torch.zeros(self.num_envs, device=self.device)
-        self.successes = torch.zeros(self.num_envs, device=self.device)
+        self.success_flags = -1*torch.ones(cfg["env"]["numEnvs"], device=self.device) # -1 for init, 0 for failed, 1 for success
         self.base_model = NeuralMPModel.from_pretrained("mihdalal/NeuralMP")
         self.base_model.eval()
 
@@ -755,6 +755,8 @@ class FrankaMP(VecTask):
                 num_scene_collision = int(sum(self.scene_collision))
                 print(f"num_scene_collision: {num_scene_collision}/{self.num_envs}")
                 print("------------")
+            else:
+                print("set state success")
 
     def get_joint_limits(self):
         """
@@ -854,6 +856,7 @@ class FrankaMP(VecTask):
         # reset the robot to start if it collides with the obstacles
         if sum(self.scene_collision) > 0:
             self.reset_buf = torch.where(self.scene_collision > 0, torch.ones_like(self.reset_buf), self.reset_buf)
+            self.success_flags[self.scene_collision.bool()] = 0
 
         # debug viz
         if self.viewer and self.debug_viz:
