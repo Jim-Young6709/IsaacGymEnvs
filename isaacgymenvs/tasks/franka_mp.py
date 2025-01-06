@@ -463,8 +463,8 @@ class FrankaMP(VecTask):
         pcd_feats = self.base_model.policy.nets['policy'].model.encoded_feats.clone()
         pcd_feats = pcd_feats.contiguous().view(pcd_feats.size(0), -1) # (num_envs, 1038) , 1038 = 1024 (pointnet++_feat) + 7 (current) + 7 (goal)
 
-        obs_residual = torch.cat([pcd_feats, self.base_delta_action], dim=1)
-        # obs_residual[:, -14:-7] += self.base_delta_action
+        obs_residual = pcd_feats
+        obs_residual[:, -14:-7] += self.base_delta_action
 
         self.obs_buf = pcd_feats
 
