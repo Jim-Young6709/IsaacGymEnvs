@@ -432,7 +432,7 @@ class FrankaMPFull(FrankaMP):
 
         self.goal_ee = self.get_ee_from_joint(self.goal_config)
 
-        self.set_robot_joint_state(self.start_config[env_ids], env_ids=env_ids, debug=True)
+        self.set_robot_joint_state(self.start_config[env_ids], env_ids=env_ids, debug=False)
 
         if self.enable_fabric:
             self.fabric_q[env_ids, :] = torch.clone(self.start_config[env_ids])
@@ -468,11 +468,12 @@ class FrankaMPFull(FrankaMP):
 
         self.extras['reaching_rewards'] = torch.mean(reaching_rewards).item()
         self.extras['intrinsic_rewards'] = torch.mean(intrinsic_rewards).item()
+        self.extras['num_visited_voxels_ave'] = torch.mean(num_visited_voxels_t1).item()
 
         self.success_flags[(joint_err < 0.1) & (self.reset_buf == 1)] = 1
         self.success_flags[(joint_err >= 0.1) & (self.reset_buf == 1)] = 0
 
-        self.extras['training_success'] = torch.mean(self.success_flags.float())
+        self.extras['training_success'] = torch.mean(self.success_flags.float()).item()
         # print(f"Training success rate: {self.extras['training_success']}")
 
     def fabric_forward_kinematics(self, q):
@@ -618,9 +619,9 @@ def compute_franka_reward(
 
     # Sparse reaching reward (TODO: change to use key points)
     exp_eef = torch.exp(-100*pos_err) + torch.exp(-100*quat_err)
-    exp_joint = torch.exp(-100*joint_err)
+    exp_joint = torch.exp(-10*joint_err)
 
-    reaching_rewards = 10*exp_eef + 10*exp_joint
+    reaching_rewards = 50*exp_joint
 
     # intrinsic reward
     intrinsic_rewards = num_visited_voxels_t1 - num_visited_voxels_t0
