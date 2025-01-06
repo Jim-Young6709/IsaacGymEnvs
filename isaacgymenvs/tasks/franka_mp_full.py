@@ -474,7 +474,9 @@ class FrankaMPFull(FrankaMP):
         self.success_flags[(joint_err >= 0.1) & (self.reset_buf == 1)] = 0
 
         self.extras['training_success'] = torch.mean(self.success_flags.float()).item()
-        # print(f"Training success rate: {self.extras['training_success']}")
+
+        self.extras['actions/residual_action_magnitude'] = actions.norm(dim=1).mean()
+        self.extras['actions/base_action_magnitude'] = self.base_delta_action.norm(dim=1).mean()
 
     def fabric_forward_kinematics(self, q):
         gripper_map = self.franka_fabric.get_taskmap("gripper")
@@ -497,7 +499,8 @@ class FrankaMPFull(FrankaMP):
         delta_actions = actions.clone().to(self.device)
         gripper_state = torch.Tensor([[0.035, 0.035]] * self.num_envs).to(self.device)
 
-        delta_actions = torch.clamp(delta_actions, -self.cmd_limit, self.cmd_limit) / self.action_scale
+        delta_actions = delta_actions * self.action_scale
+        self.actions = delta_actions
         if self.base_policy_only:
             abs_actions = self.get_joint_angles() + self.base_delta_action
         else:

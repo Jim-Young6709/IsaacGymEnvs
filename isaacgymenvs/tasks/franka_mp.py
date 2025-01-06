@@ -103,10 +103,6 @@ class FrankaMP(VecTask):
         self.up_axis = "z"
         self.up_axis_idx = 2
 
-        # Set control limits
-        self.cmd_limit = to_torch([0.1, 0.1, 0.1, 0.5, 0.5, 0.5], device=self.device).unsqueeze(0) if \
-        self.control_type == "osc" else to_torch([0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5], device=self.device).unsqueeze(0)
-
         self.pcd_spec_dict = cfg['pcd_spec']
         self.gpu_fk_sampler = FrankaSampler(sim_device, use_cache=True)
         self.goal_tolerance = cfg["env"].get("goal_tolerance", 0.05)
@@ -843,7 +839,8 @@ class FrankaMP(VecTask):
         delta_actions = actions.clone().to(self.device)
         gripper_state = torch.Tensor([[0.035, 0.035]] * self.num_envs).to(self.device)
 
-        delta_actions = torch.clamp(delta_actions, -self.cmd_limit, self.cmd_limit) / self.action_scale
+        delta_actions = delta_actions * self.action_scale
+        self.actions = delta_actions
         abs_actions = self.get_joint_angles() + delta_actions + self.base_delta_action
         if abs_actions.shape[-1] == 7:
             abs_actions = torch.cat((abs_actions, gripper_state), dim=1)
