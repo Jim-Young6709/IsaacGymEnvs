@@ -618,10 +618,7 @@ def compute_franka_reward(
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
 
     # Sparse reaching reward (TODO: change to use key points)
-    exp_eef = torch.exp(-100*pos_err) + torch.exp(-100*quat_err)
-    exp_joint = torch.exp(-10*joint_err)
-
-    reaching_rewards = 50*exp_joint
+    reaching_rewards = 50*torch.exp(-10*joint_err)
 
     # intrinsic reward
     intrinsic_rewards = num_visited_voxels_t1 - num_visited_voxels_t0
