@@ -31,7 +31,7 @@ env:
   image_width: 224
   disable_eef: True
 
-  numObservations: 1045 # match the output dim of pointnet encoder, note this only works for residual RL with robomimic ckpts (1024 pcd_feats + 7 joint angles + 7 goal angles)
+  numObservations: 1038 # match the output dim of pointnet encoder, note this only works for residual RL with robomimic ckpts (1024 pcd_feats + 7 joint angles + 7 goal angles)
   numActions: 7
 
   base_policy_only: False
