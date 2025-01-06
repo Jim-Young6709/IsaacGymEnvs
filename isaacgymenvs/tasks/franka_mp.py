@@ -466,7 +466,7 @@ class FrankaMP(VecTask):
         obs_residual = pcd_feats
         obs_residual[:, -14:-7] += self.base_delta_action
 
-        self.obs_buf = pcd_feats
+        self.obs_buf = obs_residual
 
         return self.obs_buf
 
