@@ -36,7 +36,7 @@ env:
   numActions: 7
 
   base_policy_url: "jimyoung6709/DRP"
-  base_policy_sub_steps: 5
+  base_policy_sub_steps: 2 # set to ~5 if using fabric
   base_policy_only: False
   hdf5_path: null
 
