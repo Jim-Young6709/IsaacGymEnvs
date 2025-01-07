@@ -80,4 +80,4 @@ params:
     bounds_loss_coef: 0.0001
 
     player: # added
-      games_num: 512
+      games_num: 2000

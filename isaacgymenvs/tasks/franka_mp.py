@@ -64,6 +64,8 @@ class FrankaMP(VecTask):
         self.action_scale = self.cfg["env"]["actionScale"]
         self.franka_dof_noise = self.cfg["env"]["frankaDofNoise"]
         self.aggregate_mode = self.cfg["env"]["aggregateMode"]
+        self.base_policy_url = self.cfg["env"]["base_policy_url"]
+        self.base_policy_sub_steps = self.cfg["env"]["base_policy_sub_steps"]
 
         # Controller type
         self.control_type = self.cfg["env"]["controlType"]
@@ -124,7 +126,7 @@ class FrankaMP(VecTask):
         self.seed_joint_angles = self.canonical_joint_config.clone()
         self.num_collisions = torch.zeros(self.num_envs, device=self.device)
         self.success_flags = torch.zeros(cfg["env"]["numEnvs"], device=self.device) # 0 for failure, 1 for success
-        self.base_model = NeuralMPModel.from_pretrained("jimyoung6709/DRP")
+        self.base_model = NeuralMPModel.from_pretrained(self.base_policy_url)
         self.base_model.eval()
 
         # Refresh tensors & Reset all environments
@@ -449,13 +451,21 @@ class FrankaMP(VecTask):
     def compute_observations(self):
         self._refresh()
         # Note this will only work for robomimic checkpoints, the encoded pcd_feats dim is (pcd_feat+current_angles+goal_angles = 1024+7+7)
-        self.update_robot_pcds()
-        obs_base = OrderedDict()
-        obs_base["current_angles"] = self.states['q'][:, :7].clone()
-        obs_base["goal_angles"] = self.goal_config.clone()
-        obs_base["compute_pcd_params"] = self.combined_pcds.clone()
-        with torch.no_grad():
-            self.base_delta_action = self.base_model.policy.get_action(obs_dict=obs_base)
+
+        robot_config = self.states['q'][:, :7].clone()
+        for _ in range(self.base_policy_sub_steps):
+            self.update_robot_pcds(robot_config)
+            obs_base = OrderedDict()
+            obs_base["current_angles"] = robot_config
+            obs_base["goal_angles"] = self.goal_config.clone()
+            obs_base["compute_pcd_params"] = self.combined_pcds.clone()
+            with torch.no_grad():
+                sub_delta_action = self.base_model.policy.get_action(obs_dict=obs_base)
+
+            robot_config += sub_delta_action
+
+        self.base_delta_action = robot_config - self.states['q'][:, :7]
+
         pcd_feats = self.base_model.policy.nets['policy'].model.encoded_feats.clone()
         pcd_feats = pcd_feats.contiguous().view(pcd_feats.size(0), -1) # (num_envs, 1038) , 1038 = 1024 (pointnet++_feat) + 7 (current) + 7 (goal)
 
@@ -883,22 +893,28 @@ class FrankaMP(VecTask):
                     self.gym.add_lines(self.viewer, self.envs[i], 1, [p0[0], p0[1], p0[2], py[0], py[1], py[2]], [0.1, 0.85, 0.1])
                     self.gym.add_lines(self.viewer, self.envs[i], 1, [p0[0], p0[1], p0[2], pz[0], pz[1], pz[2]], [0.1, 0.1, 0.85])
 
-    def update_robot_pcds(self):
+    def update_robot_pcds(self, robot_config=None):
         num_robot_points = self.pcd_spec_dict['num_robot_points']
         num_target_points = self.pcd_spec_dict['num_target_points']
-        robot_pcd = self.gpu_fk_sampler.sample(self.get_joint_angles(), num_robot_points)
-        target_pcd = self.gpu_fk_sampler.sample(self.goal_config, num_target_points)
+        if robot_config is None:
+            robot_pcd = self.gpu_fk_sampler.sample(self.get_joint_angles(), num_robot_points)
+        else:
+            robot_pcd = self.gpu_fk_sampler.sample(robot_config, num_robot_points)
+        target_pcd = self.gpu_fk_sampler.sample(self.goal_config, num_target_points) # TODO: don't need to calculate this everytime
         self.combined_pcds[:, :num_robot_points, :3] = robot_pcd
         self.combined_pcds[:, -num_target_points:, :3] = target_pcd
 
     # debug utils
-    def plan_open_loop(self, use_controller=True):
+    def plan_open_loop(self, use_controller=True, num_steps=150, restart_base_model=False):
         """
         debug base policy
         """
         obs_base = OrderedDict()
 
-        for i in range(150):
+        if restart_base_model:
+            self.base_model.start_episode()
+
+        for i in range(num_steps):
             self.update_robot_pcds()
             obs_base["current_angles"] = self.states['q'][:, :7].clone()
             obs_base["goal_angles"] = self.goal_config.clone()

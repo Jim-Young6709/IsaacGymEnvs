@@ -20,6 +20,7 @@ env:
   actionScale: 0.01
 
   controlType: joint_position  # options are {joint_position, osc}
+  controlFrequencyInv: 1
 
   asset:
     assetRoot: "../../assets"
@@ -34,6 +35,8 @@ env:
   numObservations: 1038 # match the output dim of pointnet encoder, note this only works for residual RL with robomimic ckpts (1024 pcd_feats + 7 joint angles + 7 goal angles)
   numActions: 7
 
+  base_policy_url: "jimyoung6709/DRP"
+  base_policy_sub_steps: 5
   base_policy_only: False
   hdf5_path: null
 
