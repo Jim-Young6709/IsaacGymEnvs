@@ -79,7 +79,8 @@ class FrankaMPSimple(FrankaMP):
         print("rl_device:", rl_device)
         
         # Demo loading
-        hdf5_path = '/home/jimyoung/Neural_MP_Proj/neural_mp/datasets/lerobot_debug100.hdf5'
+        # hdf5_path = '/home/jimyoung/Neural_MP_Proj/neural_mp/datasets/lerobot_debug100.hdf5'
+        hdf5_path = '/home/ykhaky/neural_mp/init_states/hybridx1000.hdf5'
         self.demo_loader = DemoLoader(hdf5_path, cfg["env"]["numEnvs"])
         self.initial_batch = self.demo_loader.get_next_batch()
         
@@ -94,6 +95,7 @@ class FrankaMPSimple(FrankaMP):
             pcd_params = demo['states'][0][15:]
             obstacle_config = decompose_scene_pcd_params_obs(pcd_params)
             self.initial_obstacle_configs.append(obstacle_config)
+            
         
         super().__init__(cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render)
         
@@ -219,8 +221,19 @@ class FrankaMPSimple(FrankaMP):
                 # TODO After first update the cubes get messed up. 
                 # self.update_obstacle_configs_from_batch(batch_data)
                 for env_idx, demo in enumerate(batch_data):
+                    # print("next batch")
+                    # print(demo["tight_config"])
                     self.start_config[env_idx] = torch.tensor(demo['states'][0][:7], device=self.device)
                     self.goal_config[env_idx] = torch.tensor(demo['states'][0][7:14], device=self.device)
+                    
+                    
+                    num_configs = len(demo["tight_config"])
+                    indices = torch.randperm(num_configs)[:2]  # Get 2 different random indices
+                    start_idx, goal_idx = indices[0].item(), indices[1].item()
+
+                    # Assign the configurations
+                    self.start_config[env_idx] = torch.tensor(demo["tight_config"][start_idx], device=self.device)
+                    self.goal_config[env_idx] = torch.tensor(demo["tight_config"][goal_idx], device=self.device)
                     
                     obstacle_config = self.initial_obstacle_configs[env_idx]
                     (

@@ -45,12 +45,8 @@ class DemoLoader:
             try:
                 # Get all necessary data from the demo
                 demo_data = {
-                    'compute_pcd_params': self.demos[f"{demo_key}/obs/compute_pcd_params"][:],
-                    'current_angles': self.demos[f"{demo_key}/obs/current_angles"][:],
-                    'goal_angles': self.demos[f"{demo_key}/obs/goal_angles"][:],
-                    'goal_ee': self.demos[f"{demo_key}/obs/goal_ee"][:],
                     'states': self.demos[f"{demo_key}/states"][:],
-                    'actions': self.demos[f"{demo_key}/actions"][:]
+                    'tight_config': self.demos[f"{demo_key}/tight_config"][:],
                 }
                 batch_data.append(demo_data)
             except Exception as e:
