@@ -33,10 +33,13 @@ class FrankaMPFull(FrankaMP):
 
         # Demo loading
         hdf5_path = cfg["env"]["hdf5_path"]
-        self.demo_loader = DemoLoader(hdf5_path, cfg["env"]["numEnvs"])
+        self.demo_loader = DemoLoader(hdf5_path, 512)#cfg["env"]["numEnvs"])
 
         # need to change the logic here (2 layers of reset ; multiple start & goal in one env ; relaunch IG)
-        self.batch = self.demo_loader.get_next_batch()
+        self.batch = []
+        batch = self.demo_loader.get_next_batch()
+        for i in [17,  22,  32,  48,  49,  89, 127, 234, 239]:
+            self.batch.append(batch[i])
 
         self.start_config = torch.zeros((cfg["env"]["numEnvs"], 7), device=self.device)
         self.goal_config = torch.zeros((cfg["env"]["numEnvs"], 7), device=self.device)
@@ -470,6 +473,7 @@ class FrankaMPFull(FrankaMP):
         self.extras['intrinsic_rewards'] = torch.mean(intrinsic_rewards).item()
         self.extras['num_visited_voxels_ave'] = torch.mean(num_visited_voxels_t1).item()
 
+        self.has_success[(joint_err < 0.1)] = 1
         self.success_flags[(joint_err < 0.1) & (self.reset_buf == 1)] = 1
         self.success_flags[(joint_err >= 0.1) & (self.reset_buf == 1)] = 0
 

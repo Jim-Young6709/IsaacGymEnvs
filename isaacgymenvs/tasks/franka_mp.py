@@ -125,6 +125,8 @@ class FrankaMP(VecTask):
             ).to(self.device)
         self.seed_joint_angles = self.canonical_joint_config.clone()
         self.num_collisions = torch.zeros(self.num_envs, device=self.device)
+        self.has_collided = torch.zeros(self.num_envs, device=self.device) # 0 means the env has never collided so far ; only useful for fixed envs
+        self.has_success = torch.zeros(self.num_envs, device=self.device) # 0 means the env has never succeeded so far ; only useful for fixed envs
         self.success_flags = torch.zeros(cfg["env"]["numEnvs"], device=self.device) # 0 for failure, 1 for success
         self.base_model = NeuralMPModel.from_pretrained(self.base_policy_url)
         self.base_model.eval()
@@ -132,6 +134,7 @@ class FrankaMP(VecTask):
         # Refresh tensors & Reset all environments
         self._refresh()
         self.reset_idx(torch.arange(self.num_envs, device=self.device))
+        import ipdb ; ipdb.set_trace()
 
     def create_sim(self):
         self.sim_params.up_axis = gymapi.UP_AXIS_Z
@@ -862,6 +865,8 @@ class FrankaMP(VecTask):
 
         env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
         if len(env_ids) > 0:
+            # if torch.any(self.progress_buf>490).item():
+            #     import ipdb ; ipdb.set_trace()
             self.reset_idx(env_ids)
 
         self.compute_observations()
@@ -871,6 +876,7 @@ class FrankaMP(VecTask):
         if sum(self.scene_collision) > 0:
             self.reset_buf = torch.where(self.scene_collision > 0, torch.ones_like(self.reset_buf), self.reset_buf)
             self.success_flags[self.scene_collision.bool()] = 0
+            self.has_collided[self.scene_collision.bool()] += 1
 
         # debug viz
         if self.viewer and self.debug_viz:
