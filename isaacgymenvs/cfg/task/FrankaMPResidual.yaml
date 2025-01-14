@@ -75,3 +75,5 @@ pcd_spec:
 fabric:
   enable: False
   vis_basis_points: False
+  lock_in_pos_err: 0.01 # m
+  lock_in_rot_err: 15 # deg, set to 180 to remove rotation constraint

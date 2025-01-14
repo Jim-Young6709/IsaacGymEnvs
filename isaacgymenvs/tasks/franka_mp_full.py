@@ -41,6 +41,8 @@ class FrankaMPFull(FrankaMP):
         self.start_config = torch.zeros((cfg["env"]["numEnvs"], 7), device=self.device)
         self.goal_config = torch.zeros((cfg["env"]["numEnvs"], 7), device=self.device)
         self.lock_in = torch.zeros((cfg["env"]["numEnvs"], ), dtype=torch.bool, device=self.device)
+        self.lock_in_pos_err = cfg["fabric"]["lock_in_pos_err"] # meters
+        self.lock_in_rot_err = cfg["fabric"]["lock_in_rot_err"] # degrees
         self.obstacle_configs = []
         self.obstacle_handles = []
         self.max_obstacles = 0
@@ -456,7 +458,7 @@ class FrankaMPFull(FrankaMP):
         joint_err = torch.norm(current_angles - self.goal_config, dim=1)
         pos_err = torch.norm(current_ee[:, :3] - self.goal_ee[:, :3], dim=1)
         quat_err = orientation_error(self.goal_ee[:, 3:], current_ee[:, 3:])
-        goal_reaching = (pos_err < 0.01) & (quat_err < 15)
+        goal_reaching = (pos_err < self.lock_in_pos_err) & (quat_err < self.lock_in_rot_err)
         self.lock_in[goal_reaching] = True
 
         num_visited_voxels_t1 = torch.sum(self.voxel_visit_binary, dim=1)
