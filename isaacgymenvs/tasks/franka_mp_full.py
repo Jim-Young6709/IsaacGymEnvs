@@ -40,6 +40,7 @@ class FrankaMPFull(FrankaMP):
 
         self.start_config = torch.zeros((cfg["env"]["numEnvs"], 7), device=self.device)
         self.goal_config = torch.zeros((cfg["env"]["numEnvs"], 7), device=self.device)
+        self.lock_in = torch.zeros((cfg["env"]["numEnvs"], ), dtype=torch.bool, device=self.device)
         self.obstacle_configs = []
         self.obstacle_handles = []
         self.max_obstacles = 0
@@ -444,6 +445,7 @@ class FrankaMPFull(FrankaMP):
 
         self.progress_buf[env_ids] = 0
         self.reset_buf[env_ids] = 0
+        self.lock_in[env_ids] = False
         self.compute_observations()
 
     def compute_reward(self, actions):
@@ -454,6 +456,8 @@ class FrankaMPFull(FrankaMP):
         joint_err = torch.norm(current_angles - self.goal_config, dim=1)
         pos_err = torch.norm(current_ee[:, :3] - self.goal_ee[:, :3], dim=1)
         quat_err = orientation_error(self.goal_ee[:, 3:], current_ee[:, 3:])
+        goal_reaching = (pos_err < 0.01) & (quat_err < 15)
+        self.lock_in[goal_reaching] = True
 
         num_visited_voxels_t1 = torch.sum(self.voxel_visit_binary, dim=1)
 
@@ -470,8 +474,8 @@ class FrankaMPFull(FrankaMP):
         self.extras['intrinsic_rewards'] = torch.mean(intrinsic_rewards).item()
         self.extras['num_visited_voxels_ave'] = torch.mean(num_visited_voxels_t1).item()
 
-        self.success_flags[(joint_err < 0.1) & (self.reset_buf == 1)] = 1
-        self.success_flags[(joint_err >= 0.1) & (self.reset_buf == 1)] = 0
+        self.success_flags[goal_reaching & (self.reset_buf == 1)] = 1
+        self.success_flags[(~goal_reaching) & (self.reset_buf == 1)] = 0
 
         self.extras['training_success'] = torch.mean(self.success_flags.float()).item()
 
@@ -509,11 +513,12 @@ class FrankaMPFull(FrankaMP):
             abs_actions = torch.cat((abs_actions, gripper_state), dim=1)
 
         if self.enable_fabric:
-            cspace_target = abs_actions[:, 0:7]        
+            cspace_target = abs_actions[:, 0:7]
+            cspace_target[self.lock_in] = self.goal_config[self.lock_in] # if lock in, then switch to pure fabric mode and set the target to the goal
             # cspace_target = self.goal_config # if you want to only use fabric
-            gripper_target = self.fabric_forward_kinematics(cspace_target) 
-            
-            cspace_toggle = torch.ones(self.num_envs, 1, device=self.device)           
+            gripper_target = self.fabric_forward_kinematics(cspace_target)
+
+            cspace_toggle = torch.ones(self.num_envs, 1, device=self.device)
             self.franka_fabric.set_features(
                 gripper_target,
                 "quaternion",
@@ -600,12 +605,21 @@ def launch_test(cfg: DictConfig):
     print(f"Average Error: {total_error / num_plans}")
     print(f"Percentage of failed plans: {num_failed_plans / num_plans * 100} ")
 
-def orientation_error(desired, current):
-    batch_diff = int(current.shape[0] / desired.shape[0])
-    desired = desired.repeat(batch_diff, 1)
-    cc = quat_conjugate(current)
-    q_r = quat_mul(desired, cc)
-    return torch.abs((q_r[:, 0:3] * torch.sign(q_r[:, 3]).unsqueeze(-1)).mean(dim=1))
+def orientation_error(q1, q2):
+    """
+    batched orientation error computation
+    input shape [B, 4(xyzw)], input ordering doesn't matter
+    return absolute difference in degrees
+    """
+    assert q1.shape == q2.shape, "Desired and current orientations must have the same shape"
+
+    cc = quat_conjugate(q2)
+    q_r = quat_mul(q1, cc)
+
+    # Compute the angle difference using the scalar part (w) of q_r
+    w = torch.abs(q_r[:, 3])
+    err = 2 * torch.acos(torch.clamp(w, -1.0, 1.0)) / torch.pi * 180  # Clamp for numerical stability, return in degrees
+    return err
 
 #####################################################################
 ###=========================jit functions=========================###
