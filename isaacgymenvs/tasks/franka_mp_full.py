@@ -427,15 +427,14 @@ class FrankaMPFull(FrankaMP):
         if env_ids is None:
             env_ids = torch.arange(self.num_envs, device=self.device)
 
-        probability_tight_start = 0.5
-        probability_tight_goal = 0.5
+
+        # HOW TO USE the dydra variable here?
+        probability_tight_start = self.cfg["env"].get("probability_tight_start", 1.0)
+        probability_tight_goal = self.cfg["env"].get("probability_tight_goal", 1.0)
+
         for env_idx, demo in enumerate(self.batch):
             self.start_config[env_idx] = torch.tensor(demo['states'][0][:7], device=self.device)
             self.goal_config[env_idx] = torch.tensor(demo['states'][0][7:14], device=self.device)
-            
-            # Get number of configs for each type
-            num_tight_configs = len(demo["tight_config"])
-            num_open_configs = len(demo["open_config"])
             
             # Determine config types based on probabilities
             use_tight_start = torch.rand(1).item() < probability_tight_start
