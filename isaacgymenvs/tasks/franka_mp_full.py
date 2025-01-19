@@ -48,8 +48,6 @@ class FrankaMPFull(FrankaMP):
         self.max_obstacles = 0
 
         for env_idx, demo in enumerate(self.batch):
-            self.start_config[env_idx] = torch.tensor(demo['states'][0][:7], device=self.device)
-            self.goal_config[env_idx] = torch.tensor(demo['states'][0][7:14], device=self.device)
 
             pcd_params = demo['states'][0][15:]
             obstacle_config = decompose_scene_pcd_params_obs(pcd_params)
@@ -429,10 +427,36 @@ class FrankaMPFull(FrankaMP):
         if env_ids is None:
             env_ids = torch.arange(self.num_envs, device=self.device)
 
-        self.start_config = tensor_clamp(self.start_config, self.franka_dof_lower_limits[:7], self.franka_dof_upper_limits[:7])
 
-        self.goal_config = tensor_clamp(self.goal_config, self.franka_dof_lower_limits[:7], self.franka_dof_upper_limits[:7])
+        # HOW TO USE the dydra variable here?
+        probability_tight_start = self.cfg["env"].get("probability_tight_start", 1.0)
+        probability_tight_goal = self.cfg["env"].get("probability_tight_goal", 1.0)
 
+        for env_idx, demo in enumerate(self.batch):
+            self.start_config[env_idx] = torch.tensor(demo['states'][0][:7], device=self.device)
+            self.goal_config[env_idx] = torch.tensor(demo['states'][0][7:14], device=self.device)
+            
+            # Determine config types based on probabilities
+            use_tight_start = torch.rand(1).item() < probability_tight_start
+            use_tight_goal = torch.rand(1).item() < probability_tight_goal
+            
+            # Select appropriate config lists and get random indices
+            start_configs = demo["tight_config"] if use_tight_start else demo["open_config"]
+            goal_configs = demo["tight_config"] if use_tight_goal else demo["open_config"]
+            
+            if start_configs is goal_configs:  # If same config type, ensure different indices
+                indices = torch.randperm(len(start_configs))[:2]
+                start_idx, goal_idx = indices[0].item(), indices[1].item()
+            else:  # If different config types, can use any indices
+                start_idx = torch.randint(len(start_configs), (1,)).item()
+                goal_idx = torch.randint(len(goal_configs), (1,)).item()
+            
+            # Assign configurations
+            self.start_config[env_idx] = torch.tensor(start_configs[start_idx], device=self.device)
+            self.goal_config[env_idx] = torch.tensor(goal_configs[goal_idx], device=self.device)
+
+            
+        
         self.goal_ee = self.get_ee_from_joint(self.goal_config)
 
         self.set_robot_joint_state(self.start_config[env_ids], env_ids=env_ids, debug=False)
@@ -578,6 +602,8 @@ class FrankaMPFull(FrankaMP):
         super().post_physics_step()
 
 
+import sys
+import select
 @hydra.main(config_name="config", config_path="../cfg/")
 def launch_test(cfg: DictConfig):
     np.random.seed(0)
@@ -596,13 +622,22 @@ def launch_test(cfg: DictConfig):
     total_error = 0
     num_failed_plans = 0
     num_plans = 1000
+    def check_input():
+        # Check if there's any input available
+        if select.select([sys.stdin], [], [], 0)[0]:
+            # Read the input (including the newline character)
+            line = sys.stdin.readline()
+            return True
+        return False
     for i in tqdm(range(num_plans)):
-        import ipdb ; ipdb.set_trace()
         t1 = time.time()
         env.reset_idx()
         t2 = time.time()
-
-        env.render()
+        
+        while True:
+            env.render()
+            if check_input():  # Check if Enter key was pressed
+                break
 
     print(f"Average Error: {total_error / num_plans}")
     print(f"Percentage of failed plans: {num_failed_plans / num_plans * 100} ")

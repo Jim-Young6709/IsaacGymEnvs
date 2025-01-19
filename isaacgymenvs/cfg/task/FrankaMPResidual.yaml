@@ -39,6 +39,8 @@ env:
   base_policy_sub_steps: 2 # set to ~5 if using fabric
   base_policy_only: False
   hdf5_path: null
+  probability_tight_start:  0.5
+  probability_tight_goal: 0.5
 
 sim:
   dt: 0.01667 # 1/60
