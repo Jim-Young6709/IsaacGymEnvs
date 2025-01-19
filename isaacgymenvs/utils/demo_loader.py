@@ -45,8 +45,11 @@ class DemoLoader:
             try:
                 # TODO: Support multiple configs in one env, ideally have one valid config for each support volume, or can even just load cuboids
                 # Get all necessary data from the demo
+                # import ipdb ; ipdb.set_trace()
                 demo_data = {
                     'states': self.demos[f"{demo_key}/states"][:],
+                    'tight_config': self.demos[f"{demo_key}/tight_config"][:],
+                    'open_config': self.demos[f"{demo_key}/open_config"][:],
                 }
                 batch_data.append(demo_data)
             except Exception as e:
