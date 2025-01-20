@@ -484,6 +484,37 @@ class FrankaMPFull(FrankaMP):
         self.extras['actions/residual_action_magnitude'] = actions.norm(dim=1).mean()
         self.extras['actions/base_action_magnitude'] = self.base_delta_action.norm(dim=1).mean()
 
+    def compute_fabric_action(self, abs_actions):
+        cspace_target = abs_actions[:, 0:7]
+        cspace_target[self.lock_in] = self.goal_config[self.lock_in] # if lock in, then switch to pure fabric mode and set the target to the goal
+        # cspace_target = self.goal_config # if you want to only use fabric
+        gripper_target = self.fabric_forward_kinematics(cspace_target)
+
+        cspace_toggle = torch.ones(self.num_envs, 1, device=self.device)
+        self.franka_fabric.set_features(
+            gripper_target,
+            "quaternion",
+            cspace_target,
+            cspace_toggle,
+            self.fabric_q.detach(),
+            self.fabric_qd.detach(),
+            self.fabrics_object_ids,
+            self.fabrics_object_indicator
+        )
+
+        timestep = 1/60.
+        # Integrate fabric layer forward at 60 Hz. If policy action rate gets downsampled in the future, 
+        # then change the value of 1 below to the downsample factor
+        for i in range(1): # TODO: step fabric multiple times so the delta action is not too small
+            self.fabric_q, self.fabric_qd, self.fabric_qdd = self.franka_integrator.step(
+                self.fabric_q.detach(), self.fabric_qd.detach(), timestep # should be 1/60
+            )
+
+        abs_fabric_actions = torch.clone(self.fabric_q[:, 0:7]).contiguous()
+        # saving final delta actions for dagger
+        self.delta_fabric_actions = abs_actions[:, :7] - self.get_joint_angles()
+        return abs_fabric_actions
+
     def fabric_forward_kinematics(self, q):
         gripper_map = self.franka_fabric.get_taskmap("gripper")
         gripper_pos, _ = gripper_map(q, None)
@@ -501,46 +532,22 @@ class FrankaMPFull(FrankaMP):
         ee_pose = torch.cat((gripper_pos[:, 0:3], q), dim=1)
         return ee_pose
 
-    def pre_physics_step(self, actions):
+    def pre_physics_step(self, actions, force_no_fabric=False):
         delta_actions = actions.clone().to(self.device)
         gripper_state = torch.Tensor([[0.035, 0.035]] * self.num_envs).to(self.device)
-
+        current_joint_state = self.get_joint_angles()
         delta_actions = delta_actions * self.action_scale
         self.actions = delta_actions
         if self.base_policy_only:
-            abs_actions = self.get_joint_angles() + self.base_delta_action
+            abs_actions = current_joint_state + self.base_delta_action
         else:
-            abs_actions = self.get_joint_angles() + delta_actions + self.base_delta_action
+            abs_actions = current_joint_state + delta_actions + self.base_delta_action
         if abs_actions.shape[-1] == 7:
             abs_actions = torch.cat((abs_actions, gripper_state), dim=1)
 
-        if self.enable_fabric:
-            cspace_target = abs_actions[:, 0:7]
-            cspace_target[self.lock_in] = self.goal_config[self.lock_in] # if lock in, then switch to pure fabric mode and set the target to the goal
-            # cspace_target = self.goal_config # if you want to only use fabric
-            gripper_target = self.fabric_forward_kinematics(cspace_target)
+        if self.enable_fabric and (not force_no_fabric):
+            abs_actions[:, :7] = self.compute_fabric_action(abs_actions)
 
-            cspace_toggle = torch.ones(self.num_envs, 1, device=self.device)
-            self.franka_fabric.set_features(
-                gripper_target,
-                "quaternion",
-                cspace_target,
-                cspace_toggle,
-                self.fabric_q.detach(),
-                self.fabric_qd.detach(),
-                self.fabrics_object_ids,
-                self.fabrics_object_indicator
-            )
-
-            timestep = 1/60.
-            # Integrate fabric layer forward at 60 Hz. If policy action rate gets downsampled in the future, 
-            # then change the value of 1 below to the downsample factor
-            for i in range(1): # TODO: step fabric multiple times so the delta action is not too small
-                self.fabric_q, self.fabric_qd, self.fabric_qdd = self.franka_integrator.step(
-                    self.fabric_q.detach(), self.fabric_qd.detach(), timestep # should be 1/60
-                )
-
-            abs_actions[:, :7] = torch.clone(self.fabric_q[:, 0:7]).contiguous()
             self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(abs_actions))
 
             vel_targets = torch.zeros_like(abs_actions, device=self.device)

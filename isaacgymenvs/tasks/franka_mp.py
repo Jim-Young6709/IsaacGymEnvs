@@ -469,13 +469,15 @@ class FrankaMP(VecTask):
         pcd_feats = self.base_model.policy.nets['policy'].model.encoded_feats.clone()
         pcd_feats = pcd_feats.contiguous().view(pcd_feats.size(0), -1) # (num_envs, 1038) , 1038 = 1024 (pointnet++_feat) + 7 (current) + 7 (goal)
 
-        obs_residual = pcd_feats
-        if self.obs_buf.size(1) == 1038:
-            obs_residual[:, -14:-7] += self.base_delta_action
+        obs = pcd_feats
+        if self.obs_buf.size(1) == 14:
+            obs = torch.cat((robot_config, self.goal_config), dim=1)
+        elif self.obs_buf.size(1) == 1038:
+            obs[:, -14:-7] += self.base_delta_action
         elif self.obs_buf.size(1) == 1045:
-            obs_residual = torch.cat((obs_residual, self.base_delta_action), dim=1)
+            obs = torch.cat((obs, self.base_delta_action), dim=1)
 
-        self.obs_buf = obs_residual
+        self.obs_buf = obs
 
         return self.obs_buf
 
