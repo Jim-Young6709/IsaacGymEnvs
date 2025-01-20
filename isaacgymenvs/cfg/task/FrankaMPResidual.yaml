@@ -7,7 +7,7 @@ physics_engine: ${..physics_engine}
 env:
   numEnvs: ${resolve_default:8192,${...num_envs}}
   envSpacing: 1.5
-  episodeLength: 500
+  episodeLength: 1000
   enableDebugVis: False
 
   clipObservations: 5.0
@@ -32,7 +32,10 @@ env:
   image_width: 224
   disable_eef: True
 
-  numObservations: 1038 # match the output dim of pointnet encoder, note this only works for residual RL with robomimic ckpts (1024 pcd_feats + 7 joint angles + 7 goal angles)
+  # 14: for Dagger (7 joint angles + 7 goal angles)
+  # 1038: for residual RL match the output dim of pointnet encoder, note this only works with robomimic ckpts (1024 pcd_feats + 7 (joint angles + base_policy_delta) + 7 goal angles)
+  # 1045: for residual RL (1024 pcd_feats + 7 joint angles + 7 goal angles + 7 base policy delta)
+  numObservations: 14
   numActions: 7
 
   base_policy_url: "jimyoung6709/DRP"
@@ -73,7 +76,7 @@ pcd_spec:
   max_rollout_length: 150
 
 fabric:
-  enable: False
+  enable: True
   vis_basis_points: False
-  lock_in_pos_err: 0.01 # m
-  lock_in_rot_err: 15 # deg, set to 180 to remove rotation constraint
+  lock_in_pos_err: 0.1 # m
+  lock_in_rot_err: 180 # deg, set to 180 to remove rotation constraint

@@ -18,6 +18,7 @@ from isaacgymenvs.utils.utils import set_seed
 from isaacgymenvs.utils.reformat import omegaconf_to_dict
 from isaacgymenvs.utils.torch_jit_utils import quat_mul, quat_conjugate
 from isaacgymenvs.tasks.factory.factory_control import axis_angle_from_quat
+from isaacgymenvs.tasks import FrankaMPFull
 
 import hydra
 from omegaconf import DictConfig
@@ -27,7 +28,7 @@ from robomimic.utils.log_utils import custom_tqdm as tqdm  # use robomimic tqdm 
 from skills_planning.envs import environments
 import skills_planning.utils.robomimic_utils as RMUtils
 from skills_planning.utils.obs_utils import get_visual_obs_handler, get_seg_obs_handler
-from skills_planning.utils.media_utils import camera_shot, vis_depth, apply_mask
+
 
 def make_video(frames, logdir, epoch, name=None):
     filename = os.path.join(logdir, f"viz_{epoch}.mp4" if name is None else name)
@@ -36,76 +37,13 @@ def make_video(frames, logdir, epoch, name=None):
         for frame in frames:
             writer.append_data(frame)
 
-def get_delta_proprioception(current_proprio, prev_proprio, scale=60.0):
-    """ Compute delta proprioception to approximate velocity information. """
-    proprio_shape = current_proprio.shape
-
-    current_proprio = current_proprio.reshape(-1, 7)
-    prev_proprio = prev_proprio.reshape(-1, 7)
-
-    delta_pos = (current_proprio[:, :3] - prev_proprio[:, :3]) * scale
-    delta_quat = quat_mul(
-        current_proprio[:, 3:],
-        quat_conjugate(prev_proprio[:, 3:])
-    )
-
-    axis_angle = axis_angle_from_quat(delta_quat)
-    delta_rot = axis_angle * scale
-
-    delta_proprio = torch.cat([delta_pos, delta_rot], dim=-1)
-    return delta_proprio.reshape(*proprio_shape[:-1], 6)
-
-def get_student_obs(
-        state_obs, 
-        visual_obs, 
-        state_frame0_obs, 
-        visual_frame0_obs, 
-        prev_state_obs, 
-        visual_obs_type, 
-        seg_frame0_obs=None,
-        offset_eef_pos_by_frame0=True
-    ):
-    """ Concatenate current and first frame observations. """
-    delta_proprio = get_delta_proprioception(state_obs.clone(), prev_state_obs.clone())
-    concat_obs = torch.cat([state_obs, state_frame0_obs, delta_proprio], dim=-1)
-    
-    if offset_eef_pos_by_frame0:
-        concat_obs[..., :3] -= state_frame0_obs[..., :3]
-        concat_obs[..., 7:10] = 0.0
-
-    if visual_obs_type == "pcd":
-        # add semantic label to visual obs
-        cur_frame_label = torch.zeros(*visual_obs.shape[:-1], 1, device=state_obs.device)
-        first_frame_label = torch.ones(*visual_frame0_obs.shape[:-1], 1, device=state_obs.device)
-        visual_obs = torch.cat([visual_obs, cur_frame_label], dim=-1)
-        visual_frame0_obs = torch.cat([visual_frame0_obs, first_frame_label], dim=-1)
-        concat_visual_obs = torch.cat([visual_obs, visual_frame0_obs], dim=-2)
-    elif visual_obs_type == "depth":
-        # two depths as two channels
-        obs_list = [visual_obs, visual_frame0_obs]
-        if seg_frame0_obs is not None:
-            obs_list.append(seg_frame0_obs.clone())
-        concat_visual_obs = torch.cat(obs_list, dim=-3)
-    else:
-        raise ValueError(f"Invalid visual_obs_type: {visual_obs_type}")
-    
-    return concat_obs, concat_visual_obs
-
-def get_rollout_action(model, state_obs, visual_obs):
-    return model.get_action(
-        obs_dict={
-            "state": state_obs, 
-            "visual": visual_obs,
-        },
-    )
 
 def get_obs_shape_meta(cfg):
     if cfg.dagger.visual_obs_type == "pcd":
-        num_points = cfg.pcd_handler.downsample
         obs_shape_meta = {
-            'ac_dim': 6, 
-            'all_shapes': OrderedDict([('state', [20]), ('visual', [num_points * 2, 4])]),
-            'all_obs_keys': ['state', 'visual'],
+            'ac_dim': 7,
+            'all_shapes': OrderedDict([('compute_pcd_params', [1]), ('current_angles', [7]), ('goal_angles', [7])]),
+            'all_obs_keys': ['compute_pcd_params', 'current_angles', 'goal_angles'],
             'use_images': False,
             'use_depths': False,
         }
@@ -120,6 +58,7 @@ def get_obs_shape_meta(cfg):
             'use_depths': True,
         }
     return obs_shape_meta
+
 
 class Storage(object):
     def __init__(
@@ -149,9 +88,9 @@ class Storage(object):
         self.buffer_size = buffer_size
         self.num_envs = num_envs
         self.visual_obs_type = visual_obs_type
-        self.visual_obs_handler = visual_obs_handler
+        # self.visual_obs_handler = visual_obs_handler
         self.use_seg_obs = use_seg_obs
-        self.seg_obs_handler = seg_obs_handler
+        # self.seg_obs_handler = seg_obs_handler
         traj_length = traj_length
         self.traj_length = traj_length
         self.seq_length = seq_length
@@ -205,12 +144,12 @@ class Storage(object):
         if self.ep_step == self.frame_stack and self.frame_stack > 0:
             # pad the start of the trajectory according to frame_stack
             # padding is repeating the first element of the trajectory
-            self.obs[current_device][start:end, :self.ep_step] = obs[:, :7].unsqueeze(1)
+            self.obs[current_device][start:end, :self.ep_step] = obs.unsqueeze(1)
             self.visual_obs[current_device][start:end, :self.ep_step] = visual_obs.unsqueeze(1)
             self.rewards[current_device][start:end, :self.ep_step] = rewards.unsqueeze(1)
             self.dones[current_device][start:end, :self.ep_step] = dones.unsqueeze(1)
             self.actions[current_device][start:end, :self.ep_step] = actions.unsqueeze(1)
-        self.obs[self.current_device_idx][start:end, self.ep_step].copy_(obs[:, :7])
+        self.obs[self.current_device_idx][start:end, self.ep_step].copy_(obs)
         self.visual_obs[self.current_device_idx][start:end, self.ep_step].copy_(visual_obs)
         self.rewards[self.current_device_idx][start:end, self.ep_step].copy_(rewards)
         self.dones[self.current_device_idx][start:end, self.ep_step].copy_(dones)
@@ -328,11 +267,11 @@ class Storage(object):
             first_seg_obs = None
         
         # apply noise to visual obs
-        visual_obs = self.visual_obs_handler.apply_noise(visual_obs)
-        first_visual_obs = self.visual_obs_handler.apply_noise(first_visual_obs)
-        first_seg_obs = self.seg_obs_handler.apply_noise(first_seg_obs)
-        
-        obs, visual_obs = get_student_obs(obs, visual_obs, first_obs, first_visual_obs, prev_obs, self.visual_obs_type, seg_frame0_obs=first_seg_obs)
+        # visual_obs = self.visual_obs_handler.apply_noise(visual_obs)
+        # first_visual_obs = self.visual_obs_handler.apply_noise(first_visual_obs)
+        # first_seg_obs = self.seg_obs_handler.apply_noise(first_seg_obs)
+
+        # obs, visual_obs = get_student_obs(obs, visual_obs, first_obs, first_visual_obs, prev_obs, self.visual_obs_type, seg_frame0_obs=first_seg_obs)
         
         return obs.clone(), visual_obs.clone(), actions.clone()
     
@@ -395,11 +334,28 @@ class Dagger(object):
         self.seg_obs_handler = get_seg_obs_handler(self.cfg)
 
         # robomimic init
-        robomimic_cfg = RMUtils.load_config(
-            algo_cfg_path=config.dagger.student_cfg_path,
-            override_cfg=config,
-        )
-        RMUtils.initialize(robomimic_cfg)
+        # TODO: check the details later
+        import json
+        from robomimic.config import config_factory
+        import robomimic.utils.obs_utils as ObsUtils
+        ext_cfg = json.load(open("../robomimic/robomimic/exps/mp/neural_mp_rnn.json", 'r'))
+        robomimic_cfg = config_factory(ext_cfg["algo_name"])
+        # update config with external json - this will throw errors if
+        # the external config has keys not present in the base algo config
+        with robomimic_cfg.values_unlocked():
+            robomimic_cfg.update(ext_cfg)
+        robomimic_cfg.experiment.name = "debug"
+        robomimic_cfg.lock()
+        # first set seeds
+        np.random.seed(robomimic_cfg.train.seed)
+        torch.manual_seed(robomimic_cfg.train.seed)
+        ObsUtils.initialize_obs_utils_with_config(robomimic_cfg)
+
+        # robomimic_cfg = RMUtils.load_config(
+        #     algo_cfg_path=config.dagger.student_cfg_path,
+        #     override_cfg=config,
+        # )
+        # RMUtils.initialize(robomimic_cfg)
         self.seq_length = robomimic_cfg.train.seq_length
         self.frame_stack = robomimic_cfg.train.frame_stack
 
@@ -457,26 +413,32 @@ class Dagger(object):
 
     def setup_rl_env_and_expert(self):
         """Set up the environment & expert model."""
-        assert self.cfg.init_states != "", "Please specify path to initial states"
-        init_states = torch.load(self.cfg.init_states)
-        idx = torch.randperm(len(list(init_states.values())[0]))
-        for key in init_states.keys():
-            init_states[key] = init_states[key][idx]
-        self.env = environments[self.cfg.task_name](
-            self.cfg,
-            init_states
-        )
+        # assert self.cfg.init_states != "", "Please specify path to initial states"
+        # init_states = torch.load(self.cfg.init_states)
+        # idx = torch.randperm(len(list(init_states.values())[0]))
+        # for key in init_states.keys():
+        #     init_states[key] = init_states[key][idx]
+
+        cfg_dict = omegaconf_to_dict(self.cfg)
+        cfg_task = cfg_dict["task"]
+        rl_device = cfg_dict["rl_device"]
+        sim_device = cfg_dict["sim_device"]
+        headless = cfg_dict["headless"]
+        graphics_device_id = 0
+        virtual_screen_capture = False
+        force_render = cfg_dict["force_render"]
+        self.env = FrankaMPFull(cfg_task, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render)
         self.env.disable_automatic_reset = True
         self.env.disable_hardcode_control = True
 
-        if not self.cfg.eval_mode:
-            self.expert_player = load_model(
-                actions_num=self.env.num_actions,
-                obs_shape=(self.env.num_obs,),
-                device=self.cfg.device,
-                checkpoint_path=self.cfg.checkpoint,
-                rl_config=omegaconf_to_dict(self.cfg.train),
-            )
+        # if not self.cfg.eval_mode:
+        #     self.expert_player = load_model(
+        #         actions_num=self.env.num_actions,
+        #         obs_shape=(self.env.num_obs,),
+        #         device=self.cfg.device,
+        #         checkpoint_path=self.cfg.checkpoint,
+        #         rl_config=omegaconf_to_dict(self.cfg.train),
+        #     )
             
     def setup_rl_env_and_expert_multitask(self):
         """Set up the environment & expert model."""
@@ -521,13 +483,15 @@ class Dagger(object):
     def setup_storage(self):
         # get visual obs shape
         state_obs = self.env.compute_observations()
-        visual_obs = self.get_visual_obs(prev_vis_obs=None)
-        visual_obs_shape = visual_obs.shape[1:]
+
+        # visual_obs = self.get_visual_obs(prev_vis_obs=None)
+        # visual_obs_shape = visual_obs.shape[1:]
+        visual_obs_shape = () # save index of the pcd instead of pcd itself
 
         # build eval storage: data collected with expert
         self.eval_storage = Storage(
             1, self.env.num_envs,
-            obs_shape=(7,),
+            obs_shape=(14,),
             visual_obs_shape=visual_obs_shape,
             visual_obs_handler=self.visual_obs_handler,
             actions_shape=self.env.action_space.shape, 
@@ -542,7 +506,7 @@ class Dagger(object):
         # build training storage
         self.train_storage = Storage(
             self.cfg.dagger.buffer_size, self.env.num_envs, 
-            obs_shape=(7,),
+            obs_shape=(14,),
             visual_obs_shape=visual_obs_shape,
             visual_obs_handler=self.visual_obs_handler,
             actions_shape=self.env.action_space.shape, 
@@ -580,7 +544,7 @@ class Dagger(object):
         print("\n============= Model Summary =============")
         print(self.student_player)  # print model summary
         num_policy_params = sum(p.numel() for p in self.student_player.nets['policy'].parameters())
-        num_enc_params = sum(p.numel() for p in self.student_player.nets['policy'].nets['encoder'].parameters())
+        num_enc_params = sum(p.numel() for p in self.student_player.nets['policy'].model.nets['encoder'].parameters())
         print("Policy params:", format_parameters(num_policy_params))
         print("Encoder params:", format_parameters(num_enc_params))
         print("")
@@ -602,13 +566,13 @@ class Dagger(object):
             self.setup_expert_multitask()
         self.env.reset_idx(env_ids)
 
-    def get_visual_obs(self, prev_vis_obs, **kwargs):
-        return self.visual_obs_handler.get_visual_obs(
-            envs=self.env,
-            prev_vis_obs=prev_vis_obs,
-            device=self.device,
-            **kwargs,
-        )
+    # def get_visual_obs(self, prev_vis_obs, **kwargs):
+    #     return self.visual_obs_handler.get_visual_obs(
+    #         envs=self.env,
+    #         prev_vis_obs=prev_vis_obs,
+    #         device=self.device,
+    #         **kwargs,
+    #     )
     
     def get_seg_obs(self, **kwargs):
         if self.cfg.dagger.use_seg_obs:
@@ -620,7 +584,9 @@ class Dagger(object):
     def collect_data(self, split="train"):
         """Collect trajectories for evaluation with the expert."""
         state_obs = self.env.compute_observations()
-        visual_obs = self.get_visual_obs(prev_vis_obs=None)
+        # visual_obs = self.get_visual_obs(prev_vis_obs=None)
+        visual_obs = torch.arange(self.env.num_envs, device=self.device)
+
         seg_frame0_obs = self.get_seg_obs()
 
         if split == "train":
@@ -629,13 +595,17 @@ class Dagger(object):
             storage = self.eval_storage
 
         for iter_id in tqdm(range(storage.buffer_size*self.env.max_episode_length), desc=f"{split} data collection"):
-            actions_expert = get_actions(
-                {"obs": state_obs}, self.expert_player, 
-                is_deterministic=self.cfg.dagger.deterministic_expert,
-            )
+            # actions_expert = get_actions(
+            #     {"obs": state_obs}, self.expert_player, 
+            #     is_deterministic=self.cfg.dagger.deterministic_expert,
+            # )
 
             # take a step
-            obs_dict, rews, dones, infos = self.env.step(actions_expert, get_camera_images=False)
+            dummy_actions = torch.zeros((self.env.num_envs, self.env.num_actions), device=self.env.device)
+            obs_dict, rews, dones, infos = self.env.step(dummy_actions)
+
+            actions_expert = self.env.delta_fabric_actions
+
             if (iter_id + 1) % self.env.max_episode_length == 0:
                 dones[:] = True
 
@@ -649,7 +619,8 @@ class Dagger(object):
                 state_obs = self.env.compute_observations()
                 visual_obs = None  # reset prev visual obs
                 seg_frame0_obs = self.get_seg_obs()
-            visual_obs = self.get_visual_obs(prev_vis_obs=visual_obs)
+            # visual_obs = self.get_visual_obs(prev_vis_obs=visual_obs)
+            visual_obs = torch.arange(self.env.num_envs, device=self.device)
 
         self.reset_envs()
 
@@ -671,7 +642,8 @@ class Dagger(object):
         print("Training DAgger...")
         state_obs = self.env.compute_observations()
         
-        visual_obs = self.get_visual_obs(prev_vis_obs=None)
+        # visual_obs = self.get_visual_obs(prev_vis_obs=None)
+        visual_obs = torch.arange(self.env.num_envs, device=self.device)
         seg_frame0_obs = self.get_seg_obs()
         state_frame0_obs, visual_frame0_obs = state_obs.clone(), visual_obs.clone()
         prev_state_obs = state_obs.clone()
@@ -683,7 +655,7 @@ class Dagger(object):
                 mse=f"{0.0:.4f}",
                 l1=f"{0.0:.4f}",
                 gmm=f"{0.0:.4f}",
-                test_success=f"{test_success['success']:.4f}",
+                test_success=f"{test_success['training_success']:.4f}",
             )
             for iter_id in pbar:
                 wandb_log_dict = {}
@@ -692,37 +664,52 @@ class Dagger(object):
                 with torch.inference_mode():
                     self.student_player.set_eval()
                     for _ in range(self.num_transitions_per_iter):
-                        actions_expert = get_actions(
-                            {"obs": state_obs}, self.expert_player, 
-                            is_deterministic=self.cfg.dagger.deterministic_expert,
-                        )
+                        # TODO: get action from (base_policy + fabric), kinda messy, cleanup later
+                        abs_base_policy_action = self.env.base_delta_action + self.env.get_joint_angles()
+                        self.env.compute_fabric_action(abs_base_policy_action)
+                        actions_expert = self.env.delta_fabric_actions
 
-                        concat_state_obs, concat_visual_obs = get_student_obs(
-                            state_obs[..., :7], 
-                            self.visual_obs_handler.apply_noise(visual_obs), 
-                            state_frame0_obs[..., :7], 
-                            self.visual_obs_handler.apply_noise(visual_frame0_obs), 
-                            prev_state_obs[..., :7],
-                            self.cfg.dagger.visual_obs_type,
-                            seg_frame0_obs=self.seg_obs_handler.apply_noise(seg_frame0_obs),
-                        )
-                        if self.frame_stack > 0:
-                            if self.storage.ep_step == self.frame_stack:
-                                state_obs_history = deque([concat_state_obs.clone().unsqueeze(1) for _ in range(self.frame_stack)], maxlen=self.frame_stack)
-                                visual_obs_history = deque([concat_visual_obs.clone().unsqueeze(1) for _ in range(self.frame_stack)], maxlen=self.frame_stack)
-                            else:
-                                state_obs_history.append(concat_state_obs.clone().unsqueeze(1))
-                                visual_obs_history.append(concat_visual_obs.clone().unsqueeze(1))
-                            concat_state_obs = torch.cat(tuple(state_obs_history), dim=1)
-                            concat_visual_obs = torch.cat(tuple(visual_obs_history), dim=1)
-                        actions = get_rollout_action(
-                            model=self.student_player,
-                            state_obs=concat_state_obs.clone(),
-                            visual_obs=concat_visual_obs.clone(),
-                        )
+                        # # get student obs
+                        # current_config_obs = self.env.get_joint_angles()
+                        # goal_config_obs = self.env.goal_config
+                        # pcd_obs = self.env.combined_pcds
+                        
+                        # # concat_state_obs, concat_visual_obs = get_student_obs(
+                        # #     state_obs[..., :7], 
+                        # #     self.visual_obs_handler.apply_noise(visual_obs), 
+                        # #     state_frame0_obs[..., :7], 
+                        # #     self.visual_obs_handler.apply_noise(visual_frame0_obs), 
+                        # #     prev_state_obs[..., :7],
+                        # #     self.cfg.dagger.visual_obs_type,
+                        # #     seg_frame0_obs=self.seg_obs_handler.apply_noise(seg_frame0_obs),
+                        # # )
+                        # if self.frame_stack > 0:
+                        #     if self.storage.ep_step == self.frame_stack:
+                        #         # state_obs_history = deque([concat_state_obs.clone().unsqueeze(1) for _ in range(self.frame_stack)], maxlen=self.frame_stack)
+                        #         # visual_obs_history = deque([concat_visual_obs.clone().unsqueeze(1) for _ in range(self.frame_stack)], maxlen=self.frame_stack)
+                        #         current_config_obs_history = deque([current_config_obs.clone().unsqueeze(1) for _ in range(self.frame_stack)], maxlen=self.frame_stack)
+                        #         goal_config_obs_history = deque([goal_config_obs.clone().unsqueeze(1) for _ in range(self.frame_stack)], maxlen=self.frame_stack)
+                        #         pcd_obs_history = deque([pcd_obs.clone().unsqueeze(1) for _ in range(self.frame_stack)], maxlen=self.frame_stack)
+                        #     else:
+                        #         # state_obs_history.append(concat_state_obs.clone().unsqueeze(1))
+                        #         # visual_obs_history.append(concat_visual_obs.clone().unsqueeze(1))
+                        #         current_config_obs_history.append(current_config_obs.clone().unsqueeze(1))
+                        #         goal_config_obs_history.append(goal_config_obs.clone().unsqueeze(1))
+                        #         pcd_obs_history.append(pcd_obs.clone().unsqueeze(1))
+                        #     # concat_state_obs = torch.cat(tuple(state_obs_history), dim=1)
+                        #     # concat_visual_obs = torch.cat(tuple(visual_obs_history), dim=1)
+                        #     stack_current_config_obs = torch.cat(tuple(current_config_obs_history), dim=1)
+                        #     stack_goal_config_obs = torch.cat(tuple(goal_config_obs_history), dim=1)
+                        #     stack_pcd_obs = torch.cat(tuple(pcd_obs_history), dim=1)
+
+                        obs_student = OrderedDict()
+                        obs_student["current_angles"] = self.env.get_joint_angles()
+                        obs_student["goal_angles"] = self.env.goal_config.clone()
+                        obs_student["compute_pcd_params"] = self.env.combined_pcds
+                        actions = self.student_player.get_action(obs_dict=obs_student)
 
                         # take a step
-                        obs_dict, rews, dones, infos = self.env.step(actions, get_camera_images=False)
+                        obs_dict, rews, dones, infos = self.env.step(actions)
                         if (self.total_steps + 1) % self.env.max_episode_length == 0:
                             dones[:] = True
 
@@ -743,7 +730,7 @@ class Dagger(object):
 
                             if self.total_episodes % self.cfg.test_frequency == 0:
                                 test_success = self.test(num_test_iterations=self.cfg.test_episodes, run=run)
-                                self.save_checkpoint(f"checkpoint_{self.total_episodes}_success_{test_success['success']:.4f}.pth", save_storage=False)
+                                self.save_checkpoint(f"checkpoint_{self.total_episodes}_success_{test_success['training_success']:.4f}.pth", save_storage=False)
                                 for k in test_success:
                                     wandb_log_dict[f"distillation/test_{k}"] = test_success[k]
 
@@ -752,18 +739,18 @@ class Dagger(object):
                                 mse=f"{avg_mse_loss:.4f}",
                                 l1=f"{avg_l1_loss:.4f}",
                                 gmm=f"{avg_gmm_loss:.4f}",
-                                test_success=f"{test_success['success']:.4f}",
+                                test_success=f"{test_success['training_success']:.4f}",
                             )
 
                             self.reset_envs()
                             self.student_player.reset()
                             state_obs = self.env.compute_observations()
                             prev_state_obs = state_obs.clone()
-                            visual_obs = self.get_visual_obs(prev_vis_obs=None)
+                            visual_obs = torch.arange(self.env.num_envs, device=self.device)
                             seg_frame0_obs = self.get_seg_obs()
                             state_frame0_obs, visual_frame0_obs = state_obs.clone(), visual_obs.clone()
                         else:
-                            visual_obs = self.get_visual_obs(prev_vis_obs=visual_obs)
+                            visual_obs = torch.arange(self.env.num_envs, device=self.device)
 
                         self.total_steps += 1
                 t2 = time.time()
@@ -801,8 +788,9 @@ class Dagger(object):
                 batch = {
                     "actions": actions_expert_batch,
                     "obs": {
-                        "state": obs_batch,
-                        "visual": self.visual_obs_handler.format_for_robomimic(visual_batch),
+                        "current_angles": obs_batch[..., :7],
+                        "goal_angles": obs_batch[..., 7:],
+                        "compute_pcd_params": self.env.combined_pcds[visual_batch.int()],
                     }
                 }
 
@@ -840,8 +828,9 @@ class Dagger(object):
             batch = {
                 "actions": actions_expert_batch,
                 "obs": {
-                    "state": obs_batch,
-                    "visual": self.visual_obs_handler.format_for_robomimic(visual_batch),
+                    "current_angles": obs_batch[..., :7],
+                    "goal_angles": obs_batch[..., 7:],
+                    "compute_pcd_params": self.env.combined_pcds[visual_batch.int()],
                 }
             }
 
@@ -874,7 +863,7 @@ class Dagger(object):
         self.student_player.set_eval()
 
         num_success = Counter()
-        total_runs_per_key = Counter()
+        total_iters_per_key = Counter()
         tik = time.time()
 
         total_runs = 0
@@ -886,93 +875,108 @@ class Dagger(object):
                 self.student_player.reset()
                 
                 state_obs = self.env.compute_observations()
-                visual_obs = self.get_visual_obs(prev_vis_obs=None)
+                visual_obs = torch.arange(self.env.num_envs, device=self.device)
                 seg_frame0_obs = self.get_seg_obs()
                 state_frame0_obs, visual_frame0_obs = state_obs.clone(), visual_obs.clone()
                 prev_state_obs = state_obs.clone()
 
                 for test_step in range(self.env.max_episode_length - 1):
-                    concat_state_obs, concat_visual_obs = get_student_obs(
-                        state_obs[..., :7], 
-                        self.visual_obs_handler.apply_noise(visual_obs), 
-                        state_frame0_obs[..., :7], 
-                        self.visual_obs_handler.apply_noise(visual_frame0_obs), 
-                        prev_state_obs[..., :7],
-                        self.cfg.dagger.visual_obs_type,
-                        seg_frame0_obs=self.seg_obs_handler.apply_noise(seg_frame0_obs),
-                    )
-                    if self.frame_stack > 0:
-                        if test_step == 0:
-                            state_obs_history = deque([concat_state_obs.clone().unsqueeze(1) for _ in range(self.frame_stack)], maxlen=self.frame_stack)
-                            visual_obs_history = deque([concat_visual_obs.clone().unsqueeze(1) for _ in range(self.frame_stack)], maxlen=self.frame_stack)
-                        else:
-                            state_obs_history.append(concat_state_obs.clone().unsqueeze(1))
-                            visual_obs_history.append(concat_visual_obs.clone().unsqueeze(1))
-                        concat_state_obs = torch.cat(tuple(state_obs_history), dim=1)
-                        concat_visual_obs = torch.cat(tuple(visual_obs_history), dim=1)
-                    actions = get_rollout_action(
-                        model=self.student_player,
-                        state_obs=concat_state_obs.clone(),
-                        visual_obs=concat_visual_obs.clone(),
-                    )
+                    # # get student obs
+                    # current_config_obs = self.env.get_joint_angles()
+                    # goal_config_obs = self.env.goal_config
+                    # pcd_obs = self.env.combined_pcds
+                    
+                    # concat_state_obs, concat_visual_obs = get_student_obs(
+                    #     state_obs[..., :7], 
+                    #     self.visual_obs_handler.apply_noise(visual_obs), 
+                    #     state_frame0_obs[..., :7], 
+                    #     self.visual_obs_handler.apply_noise(visual_frame0_obs), 
+                    #     prev_state_obs[..., :7],
+                    #     self.cfg.dagger.visual_obs_type,
+                    #     seg_frame0_obs=self.seg_obs_handler.apply_noise(seg_frame0_obs),
+                    # )
+                    # if self.frame_stack > 0:
+                    #     if self.storage.ep_step == self.frame_stack:
+                    #         # state_obs_history = deque([concat_state_obs.clone().unsqueeze(1) for _ in range(self.frame_stack)], maxlen=self.frame_stack)
+                    #         # visual_obs_history = deque([concat_visual_obs.clone().unsqueeze(1) for _ in range(self.frame_stack)], maxlen=self.frame_stack)
+                    #         current_config_obs_history = deque([current_config_obs.clone().unsqueeze(1) for _ in range(self.frame_stack)], maxlen=self.frame_stack)
+                    #         goal_config_obs_history = deque([goal_config_obs.clone().unsqueeze(1) for _ in range(self.frame_stack)], maxlen=self.frame_stack)
+                    #         pcd_obs_history = deque([pcd_obs.clone().unsqueeze(1) for _ in range(self.frame_stack)], maxlen=self.frame_stack)
+                    #     else:
+                    #         # state_obs_history.append(concat_state_obs.clone().unsqueeze(1))
+                    #         # visual_obs_history.append(concat_visual_obs.clone().unsqueeze(1))
+                    #         current_config_obs_history.append(current_config_obs.clone().unsqueeze(1))
+                    #         goal_config_obs_history.append(goal_config_obs.clone().unsqueeze(1))
+                    #         pcd_obs_history.append(pcd_obs.clone().unsqueeze(1))
+                    #     # concat_state_obs = torch.cat(tuple(state_obs_history), dim=1)
+                    #     # concat_visual_obs = torch.cat(tuple(visual_obs_history), dim=1)
+                    #     stack_current_config_obs = torch.cat(tuple(current_config_obs_history), dim=1)
+                    #     stack_goal_config_obs = torch.cat(tuple(goal_config_obs_history), dim=1)
+                    #     stack_pcd_obs = torch.cat(tuple(pcd_obs_history), dim=1)
 
-                    obs_dict, rews, dones, infos = self.env.step(actions, get_camera_images=False)
+                    obs_student = OrderedDict()
+                    obs_student["current_angles"] = self.env.get_joint_angles()
+                    obs_student["goal_angles"] = self.env.goal_config.clone()
+                    obs_student["compute_pcd_params"] = self.env.combined_pcds
+                    actions = self.student_player.get_action(obs_dict=obs_student)
+
+                    obs_dict, rews, dones, infos = self.env.step(actions)
                     prev_state_obs = state_obs.clone()
                     state_obs = obs_dict["obs"].clone()
-                    visual_obs = self.get_visual_obs(prev_vis_obs=visual_obs)
+                    visual_obs = torch.arange(self.env.num_envs, device=self.device)
 
-                    if self.env.capture_video:
-                        if "hardcode_images" not in infos or len(infos["hardcode_images"]) == 0:
-                            ims = np.array(camera_shot(
-                                self.env, env_ids=range(self.env.capture_envs), camera_ids=[0]
-                            )[0])[:, 0, :, :, :3]
-                            video_ims.append(ims)
-                        else:
-                            ims = np.array(infos["hardcode_images"])[:, :, 0, :, :, :3]
-                            ims = [ims[i] for i in range(ims.shape[0]) if i % 3 == 0]
-                            video_ims.extend(ims)
+                    # if self.env.capture_video:
+                    #     if "hardcode_images" not in infos or len(infos["hardcode_images"]) == 0:
+                    #         ims = np.array(camera_shot(
+                    #             self.env, env_ids=range(self.env.capture_envs), camera_ids=[0]
+                    #         )[0])[:, 0, :, :, :3]
+                    #         video_ims.append(ims)
+                    #     else:
+                    #         ims = np.array(infos["hardcode_images"])[:, :, 0, :, :, :3]
+                    #         ims = [ims[i] for i in range(ims.shape[0]) if i % 3 == 0]
+                    #         video_ims.extend(ims)
 
-                    if self.cfg.capture_local_obs:
-                        if self.cfg.dagger.visual_obs_type == "depth":
-                            depth = self.visual_obs_handler.apply_noise(visual_obs)[0, 0].cpu().numpy()
-                            depth *= -1.0       # flip depth for visualization
-                            depth = vis_depth(depth)
-                            if self.cfg.dagger.use_seg_obs and test_step < 10:   # include segmentation mask in the first few video frames
-                                mask = self.seg_obs_handler.apply_noise(seg_frame0_obs)[0, 0].cpu().numpy()
-                                depth = apply_mask(depth, mask)
-                            local_obs_ims.append(depth)
+                    # if self.cfg.capture_local_obs:
+                    #     if self.cfg.dagger.visual_obs_type == "depth":
+                    #         depth = self.visual_obs_handler.apply_noise(visual_obs)[0, 0].cpu().numpy()
+                    #         depth *= -1.0       # flip depth for visualization
+                    #         depth = vis_depth(depth)
+                    #         if self.cfg.dagger.use_seg_obs and test_step < 10:   # include segmentation mask in the first few video frames
+                    #             mask = self.seg_obs_handler.apply_noise(seg_frame0_obs)[0, 0].cpu().numpy()
+                    #             depth = apply_mask(depth, mask)
+                    #         local_obs_ims.append(depth)
                     
                     pbar.update()
 
                 for k in infos:
                     if k.endswith('success'):
-                        num_success[k] += infos[k].sum().item()
-                        total_runs_per_key[k] += self.env.num_envs
+                        num_success[k] += infos[k]
+                        total_iters_per_key[k] += 1
                 total_runs += self.env.num_envs
 
         self.env.disable_hardcode_control = True
         self.env.render_hardcode_control = False
 
-        if self.env.capture_video:
-            ims = []
-            for env_idx in range(self.env.capture_envs):
-                for im in video_ims:
-                    ims.append(im[env_idx])
-            make_video(ims, self.video_dir, epoch=self.total_epochs)
-            # log video to wandb:
-            if self.cfg.wandb_activate and run is not None:
-                run.log({"visualization/video": wandb.Video(os.path.join(self.video_dir, f"viz_{self.total_epochs}.mp4"))}, commit=False)
+        # if self.env.capture_video:
+        #     ims = []
+        #     for env_idx in range(self.env.capture_envs):
+        #         for im in video_ims:
+        #             ims.append(im[env_idx])
+        #     make_video(ims, self.video_dir, epoch=self.total_epochs)
+        #     # log video to wandb:
+        #     if self.cfg.wandb_activate and run is not None:
+        #         run.log({"visualization/video": wandb.Video(os.path.join(self.video_dir, f"viz_{self.total_epochs}.mp4"))}, commit=False)
 
-        if self.cfg.capture_local_obs:
-            make_video(local_obs_ims, self.video_dir, epoch=self.total_epochs, name=f"viz_local_obs_{self.total_epochs}.mp4")
-            # log video to wandb:
-            if self.cfg.wandb_activate and run is not None:
-                run.log({"visualization/local_obs": wandb.Video(os.path.join(self.video_dir, f"viz_local_obs_{self.total_epochs}.mp4"))}, commit=False)
+        # if self.cfg.capture_local_obs:
+        #     make_video(local_obs_ims, self.video_dir, epoch=self.total_epochs, name=f"viz_local_obs_{self.total_epochs}.mp4")
+        #     # log video to wandb:
+        #     if self.cfg.wandb_activate and run is not None:
+        #         run.log({"visualization/local_obs": wandb.Video(os.path.join(self.video_dir, f"viz_local_obs_{self.total_epochs}.mp4"))}, commit=False)
 
         if not self.cfg.logging.suppress_timing:
             print(f"Finished testing in {time.time() - tik:.2f}s")
 
-        return {k: v / total_runs_per_key[k] for k, v in num_success.items()}
+        return {k: v / total_iters_per_key[k] for k, v in num_success.items()}
 
 
     def save_checkpoint(self, prefix='checkpoint_latest', save_storage=True):
