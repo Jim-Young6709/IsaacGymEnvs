@@ -1,3 +1,7 @@
+"""
+This code is kinda messy for compatibility between Dagger and residual RL, TODO: cleanup later
+"""
+
 import time
 
 import hydra
@@ -29,6 +33,7 @@ class FrankaMPFull(FrankaMP):
         self.device = sim_device
         self.enable_fabric = cfg["fabric"]["enable"]
         self.force_no_fabric = False
+        self.no_base_action = False
         self.vis_basis_points = cfg["fabric"]["vis_basis_points"]
         self.base_policy_only = cfg["env"]["base_policy_only"]
 
@@ -541,12 +546,14 @@ class FrankaMPFull(FrankaMP):
         self.actions = delta_actions
         if self.base_policy_only:
             abs_actions = current_joint_state + self.base_delta_action
+        elif self.no_base_action:
+            abs_actions = current_joint_state + delta_actions
         else:
             abs_actions = current_joint_state + delta_actions + self.base_delta_action
         if abs_actions.shape[-1] == 7:
             abs_actions = torch.cat((abs_actions, gripper_state), dim=1)
 
-        if self.enable_fabric and not self.force_no_fabric:
+        if self.enable_fabric and (not self.force_no_fabric):
             abs_actions[:, :7] = self.compute_fabric_action(abs_actions)
 
             self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(abs_actions))
