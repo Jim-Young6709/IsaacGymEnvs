@@ -632,8 +632,8 @@ class Dagger(object):
                         obs_dict, rews, dones, infos = self.env.step(actions)
                         self.env.force_no_fabric = False
                         self.env.no_base_action = False
-                        if (self.total_steps + 1) % self.env.max_episode_length == 0:
-                            dones[:] = True
+                        # if (self.total_steps + 1) % self.env.max_episode_length == 0:
+                        #     dones[:] = True
 
                         # update storage
                         self.storage.add_transitions(state_obs, visual_obs, actions_expert, rews, dones, seg_obs=seg_frame0_obs)
@@ -650,11 +650,11 @@ class Dagger(object):
                                 "distillation/eval_gmm": avg_gmm_loss,
                             })
 
-                            if self.total_episodes % self.cfg.test_frequency == 0:
-                                test_success = self.test(num_test_iterations=self.cfg.test_episodes, run=run)
-                                self.save_checkpoint(f"checkpoint_{self.total_episodes}_success_{test_success['training_success']:.4f}.pth", save_storage=False)
-                                for k in test_success:
-                                    wandb_log_dict[f"distillation/test_{k}"] = test_success[k]
+                            # if self.total_episodes % self.cfg.test_frequency == 0:
+                            #     test_success = self.test(num_test_iterations=self.cfg.test_episodes, run=run)
+                            #     self.save_checkpoint(f"checkpoint_{self.total_episodes}_success_{test_success['training_success']:.4f}.pth", save_storage=False)
+                            #     for k in test_success:
+                            #         wandb_log_dict[f"distillation/test_{k}"] = test_success[k]
 
                             pbar.set_postfix(
                                 ep=self.total_episodes,
@@ -673,6 +673,12 @@ class Dagger(object):
                             state_frame0_obs, visual_frame0_obs = state_obs.clone(), visual_obs.clone()
                         else:
                             visual_obs = torch.arange(self.env.num_envs, device=self.device)
+
+                        if (self.total_steps + 1) % (self.env.max_episode_length * self.cfg.test_frequency) == 0:
+                            test_success = self.test(num_test_iterations=self.cfg.test_episodes, run=run)
+                            self.save_checkpoint(f"checkpoint_step{self.total_steps + 1}_success_{test_success['training_success']:.4f}.pth", save_storage=False)
+                            for k in test_success:
+                                wandb_log_dict[f"distillation/test_{k}"] = test_success[k]
 
                         self.total_steps += 1
                 t2 = time.time()
@@ -765,11 +771,11 @@ class Dagger(object):
                 predictions = model._forward_training(input_batch)
                 losses = model._compute_losses(predictions, input_batch)
 
-                if "l2_loss" in losses:             # not using GMM
-                    mse += losses["l2_loss"].detach().item()
-                    l1 += losses["l1_loss"].detach().item()
-                else:                               # using GMM
-                    gmm += losses["action_loss"].detach().item()
+                # if "l2_loss" in losses:             # not using GMM
+                mse += losses["l2_loss"].detach().item()
+                l1 += losses["l1_loss"].detach().item()
+                # else:                               # using GMM
+                gmm += losses["action_loss"].detach().item()
 
         mse /= num_batches
         l1 /= num_batches
