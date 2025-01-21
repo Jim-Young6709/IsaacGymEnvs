@@ -424,8 +424,8 @@ class Dagger(object):
         virtual_screen_capture = False
         force_render = cfg_dict["force_render"]
         self.env = FrankaMPFull(cfg_task, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render)
-        self.env.disable_automatic_reset = True
-        self.env.disable_hardcode_control = True
+        self.env.action_scale = 1.0
+        self.env.force_no_fabric = False
 
     def setup_storage(self):
         visual_obs_shape = () # save index of the pcd instead of pcd itself, no dim needed here
@@ -530,6 +530,7 @@ class Dagger(object):
 
         for iter_id in tqdm(range(storage.buffer_size*self.env.max_episode_length), desc=f"{split} data collection"):
             # take a step
+            self.env.force_no_fabric = False
             dummy_actions = torch.zeros((self.env.num_envs, self.env.num_actions), device=self.env.device)
             obs_dict, rews, dones, infos = self.env.step(dummy_actions)
 
@@ -624,7 +625,9 @@ class Dagger(object):
                         actions = self.student_player.get_action(obs_dict=obs_student)
 
                         # take a step
+                        self.env.force_no_fabric = False
                         obs_dict, rews, dones, infos = self.env.step(actions)
+                        self.env.force_no_fabric = True
                         if (self.total_steps + 1) % self.env.max_episode_length == 0:
                             dones[:] = True
 
@@ -835,7 +838,9 @@ class Dagger(object):
                     obs_student["compute_pcd_params"] = self.env.combined_pcds
                     actions = self.student_player.get_action(obs_dict=obs_student)
 
+                    self.env.force_no_fabric = True
                     obs_dict, rews, dones, infos = self.env.step(actions)
+                    self.env.force_no_fabric = False
                     prev_state_obs = state_obs.clone()
                     state_obs = obs_dict["obs"].clone()
                     visual_obs = torch.arange(self.env.num_envs, device=self.device)

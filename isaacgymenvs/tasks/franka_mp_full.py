@@ -28,6 +28,7 @@ class FrankaMPFull(FrankaMP):
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render, num_env_per_env=1):
         self.device = sim_device
         self.enable_fabric = cfg["fabric"]["enable"]
+        self.force_no_fabric = False
         self.vis_basis_points = cfg["fabric"]["vis_basis_points"]
         self.base_policy_only = cfg["env"]["base_policy_only"]
 
@@ -532,7 +533,7 @@ class FrankaMPFull(FrankaMP):
         ee_pose = torch.cat((gripper_pos[:, 0:3], q), dim=1)
         return ee_pose
 
-    def pre_physics_step(self, actions, force_no_fabric=False):
+    def pre_physics_step(self, actions):
         delta_actions = actions.clone().to(self.device)
         gripper_state = torch.Tensor([[0.035, 0.035]] * self.num_envs).to(self.device)
         current_joint_state = self.get_joint_angles()
@@ -545,7 +546,7 @@ class FrankaMPFull(FrankaMP):
         if abs_actions.shape[-1] == 7:
             abs_actions = torch.cat((abs_actions, gripper_state), dim=1)
 
-        if self.enable_fabric and (not force_no_fabric):
+        if self.enable_fabric and not self.force_no_fabric:
             abs_actions[:, :7] = self.compute_fabric_action(abs_actions)
 
             self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(abs_actions))
