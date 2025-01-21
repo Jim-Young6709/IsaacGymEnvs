@@ -9,11 +9,11 @@ import wandb
 from collections import OrderedDict
 from isaacgym import gymapi, gymutil, gymtorch  # must import isaacgym before pytorch
 import numpy as np
-from skills_planning.utils.rlgames_utils import load_model, get_actions
 
 import torch
 from torch.utils.data import DataLoader
 
+import isaacgymenvs.utils.robomimic_utils as RMUtils
 from isaacgymenvs.utils.utils import set_seed
 from isaacgymenvs.utils.reformat import omegaconf_to_dict
 from isaacgymenvs.utils.torch_jit_utils import quat_mul, quat_conjugate
@@ -24,10 +24,6 @@ import hydra
 from omegaconf import DictConfig
 
 from robomimic.utils.log_utils import custom_tqdm as tqdm  # use robomimic tqdm that prints to stdout
-
-from skills_planning.envs import environments
-import skills_planning.utils.robomimic_utils as RMUtils
-from skills_planning.utils.obs_utils import get_visual_obs_handler, get_seg_obs_handler
 
 
 def make_video(frames, logdir, epoch, name=None):
@@ -330,8 +326,8 @@ class Dagger(object):
         self.device = self.cfg.device
         self.cfg.seed = set_seed(self.cfg.seed)
 
-        self.visual_obs_handler = get_visual_obs_handler(self.cfg.dagger.visual_obs_type, self.cfg)
-        self.seg_obs_handler = get_seg_obs_handler(self.cfg)
+        # self.visual_obs_handler = get_visual_obs_handler(self.cfg.dagger.visual_obs_type, self.cfg)
+        # self.seg_obs_handler = get_seg_obs_handler(self.cfg)
 
         # robomimic init
         # TODO: check the details later
@@ -374,7 +370,7 @@ class Dagger(object):
         else:
             self.setup_rl_env_and_expert()
 
-        self.obs_handler = get_visual_obs_handler(self.cfg.dagger.visual_obs_type, self.cfg)
+        # self.obs_handler = get_visual_obs_handler(self.cfg.dagger.visual_obs_type, self.cfg)
         self.setup_storage()
         # load obs-specific robomimic data
         obs_shape_meta = get_obs_shape_meta(self.cfg)
@@ -431,73 +427,19 @@ class Dagger(object):
         self.env.disable_automatic_reset = True
         self.env.disable_hardcode_control = True
 
-        # if not self.cfg.eval_mode:
-        #     self.expert_player = load_model(
-        #         actions_num=self.env.num_actions,
-        #         obs_shape=(self.env.num_obs,),
-        #         device=self.cfg.device,
-        #         checkpoint_path=self.cfg.checkpoint,
-        #         rl_config=omegaconf_to_dict(self.cfg.train),
-        #     )
-            
-    def setup_rl_env_and_expert_multitask(self):
-        """Set up the environment & expert model."""
-        assert self.cfg.init_states != "", "Please specify path to initial states"
-        self.env = environments[self.cfg.task_name](
-            self.cfg,
-            self.cfg.init_states
-        )
-        self.env.disable_automatic_reset = True
-        self.env.disable_hardcode_control = True
-        self.setup_expert_multitask()
-        
-    def setup_expert_multitask(self):
-        # assume self.cfg.checkpoint is now a directory of checkpoints
-        # assume that the current env is the right multitask one
-        start_time = time.time()
-        for path in os.listdir(self.cfg.checkpoint):
-            trimmed_path = path[:-len(".pth")]
-            split_path = trimmed_path.split("_")
-            if len(split_path) == 2:
-                object_code, object_scale = split_path
-                curr_scale = f"{int(100 * self.env.object_scale):03d}"
-                curr_object_code = self.env.object_code.replace('/', '-')
-                is_current_expert = object_code == curr_object_code and object_scale == curr_scale
-            else:
-                object_path = split_path[-1]
-                object_code = object_path
-                is_current_expert = object_code == self.env.object_code
-            if is_current_expert:
-                expert_player = load_model(
-                    actions_num=self.env.num_actions,
-                    obs_shape=(self.env.num_obs,),
-                    device=self.cfg.device,
-                    checkpoint_path=os.path.join(self.cfg.checkpoint, path),
-                    rl_config=omegaconf_to_dict(self.cfg.train),
-                )
-                self.expert_player = expert_player
-                break
-        if not self.cfg.logging.suppress_timing:
-            print(f"Loaded expert in {time.time() - start_time:.2f}s")
-        
     def setup_storage(self):
-        # get visual obs shape
-        state_obs = self.env.compute_observations()
-
-        # visual_obs = self.get_visual_obs(prev_vis_obs=None)
-        # visual_obs_shape = visual_obs.shape[1:]
-        visual_obs_shape = () # save index of the pcd instead of pcd itself
+        visual_obs_shape = () # save index of the pcd instead of pcd itself, no dim needed here
 
         # build eval storage: data collected with expert
         self.eval_storage = Storage(
             1, self.env.num_envs,
             obs_shape=(14,),
             visual_obs_shape=visual_obs_shape,
-            visual_obs_handler=self.visual_obs_handler,
+            # visual_obs_handler=self.visual_obs_handler,
             actions_shape=self.env.action_space.shape, 
             visual_obs_type=self.cfg.dagger.visual_obs_type, 
             use_seg_obs=self.cfg.dagger.use_seg_obs,
-            seg_obs_handler=self.seg_obs_handler,
+            # seg_obs_handler=self.seg_obs_handler,
             traj_length=self.env.max_episode_length,
             seq_length=self.seq_length,
             frame_stack=self.frame_stack,
@@ -508,11 +450,11 @@ class Dagger(object):
             self.cfg.dagger.buffer_size, self.env.num_envs, 
             obs_shape=(14,),
             visual_obs_shape=visual_obs_shape,
-            visual_obs_handler=self.visual_obs_handler,
+            # visual_obs_handler=self.visual_obs_handler,
             actions_shape=self.env.action_space.shape, 
             visual_obs_type=self.cfg.dagger.visual_obs_type, 
             use_seg_obs=self.cfg.dagger.use_seg_obs,
-            seg_obs_handler=self.seg_obs_handler,
+            # seg_obs_handler=self.seg_obs_handler,
             traj_length=self.env.max_episode_length,
             seq_length=self.seq_length,
             frame_stack=self.frame_stack,
@@ -565,14 +507,6 @@ class Dagger(object):
             self.env.reset_idx(env_ids, switch_object=True, init_states=self.cfg.init_states)
             self.setup_expert_multitask()
         self.env.reset_idx(env_ids)
-
-    # def get_visual_obs(self, prev_vis_obs, **kwargs):
-    #     return self.visual_obs_handler.get_visual_obs(
-    #         envs=self.env,
-    #         prev_vis_obs=prev_vis_obs,
-    #         device=self.device,
-    #         **kwargs,
-    #     )
     
     def get_seg_obs(self, **kwargs):
         if self.cfg.dagger.use_seg_obs:
@@ -595,11 +529,6 @@ class Dagger(object):
             storage = self.eval_storage
 
         for iter_id in tqdm(range(storage.buffer_size*self.env.max_episode_length), desc=f"{split} data collection"):
-            # actions_expert = get_actions(
-            #     {"obs": state_obs}, self.expert_player, 
-            #     is_deterministic=self.cfg.dagger.deterministic_expert,
-            # )
-
             # take a step
             dummy_actions = torch.zeros((self.env.num_envs, self.env.num_actions), device=self.env.device)
             obs_dict, rews, dones, infos = self.env.step(dummy_actions)
@@ -669,20 +598,6 @@ class Dagger(object):
                         self.env.compute_fabric_action(abs_base_policy_action)
                         actions_expert = self.env.delta_fabric_actions
 
-                        # # get student obs
-                        # current_config_obs = self.env.get_joint_angles()
-                        # goal_config_obs = self.env.goal_config
-                        # pcd_obs = self.env.combined_pcds
-                        
-                        # # concat_state_obs, concat_visual_obs = get_student_obs(
-                        # #     state_obs[..., :7], 
-                        # #     self.visual_obs_handler.apply_noise(visual_obs), 
-                        # #     state_frame0_obs[..., :7], 
-                        # #     self.visual_obs_handler.apply_noise(visual_frame0_obs), 
-                        # #     prev_state_obs[..., :7],
-                        # #     self.cfg.dagger.visual_obs_type,
-                        # #     seg_frame0_obs=self.seg_obs_handler.apply_noise(seg_frame0_obs),
-                        # # )
                         # if self.frame_stack > 0:
                         #     if self.storage.ep_step == self.frame_stack:
                         #         # state_obs_history = deque([concat_state_obs.clone().unsqueeze(1) for _ in range(self.frame_stack)], maxlen=self.frame_stack)
