@@ -572,7 +572,7 @@ class FrankaMPFull(FrankaMP):
             self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(abs_actions))
 
     def post_physics_step(self):
-        if self.enable_fabric:
+        if self.enable_fabric and (not self.force_no_fabric):
             self._debug_viz_draw()
 
         # TODO: note, there are differences between fabric fk and direct eef_pos from IG, not sure how much this will affect
