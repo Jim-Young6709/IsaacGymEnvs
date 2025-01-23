@@ -27,10 +27,16 @@ env:
     assetFileNameFranka: "urdf/franka_description/robots/franka_panda_gripper.urdf"
 
   # set to True if you use camera sensors in the environment
+  # TODO: is this used? delete?
   enableCameraSensors: False
   image_height: 224
   image_width: 224
   disable_eef: True
+
+  # camera properties
+  camera:
+    width: 640
+    height: 480
 
   # 14: for Dagger (7 joint angles + 7 goal angles)
   # 1038: for residual RL match the output dim of pointnet encoder, note this only works with robomimic ckpts (1024 pcd_feats + 7 (joint angles + base_policy_delta) + 7 goal angles)
@@ -42,6 +48,9 @@ env:
   base_policy_sub_steps: 5 # set to ~5 if using fabric
   base_policy_only: False
   hdf5_path: null
+
+  capture_video: False
+  capture_envs: 1
 
 sim:
   dt: 0.01667 # 1/60
