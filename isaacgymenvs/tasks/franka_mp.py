@@ -66,6 +66,8 @@ class FrankaMP(VecTask):
         self.aggregate_mode = self.cfg["env"]["aggregateMode"]
         self.base_policy_url = self.cfg["env"]["base_policy_url"]
         self.base_policy_sub_steps = self.cfg["env"]["base_policy_sub_steps"]
+        self.capture_video = self.cfg["env"]["capture_video"]
+        self.capture_envs = self.cfg["env"]["capture_envs"]
 
         # Controller type
         self.control_type = self.cfg["env"]["controlType"]
@@ -200,7 +202,7 @@ class FrankaMP(VecTask):
         max_agg_shapes = num_franka_shapes + 4  # 1 for table, table stand
 
         self.frankas = []
-        self.envs = []
+        self.env_ptrs = []
 
         # Create environments
         for i in range(self.num_envs):
@@ -242,7 +244,7 @@ class FrankaMP(VecTask):
                 self.gym.end_aggregate(env_ptr)
 
             # Store the created env pointers
-            self.envs.append(env_ptr)
+            self.env_ptrs.append(env_ptr)
             self.frankas.append(franka_actor)
 
         # Setup data
@@ -315,7 +317,7 @@ class FrankaMP(VecTask):
 
     def init_data(self, actor_num):
         # Setup sim handles
-        env_ptr = self.envs[0]
+        env_ptr = self.env_ptrs[0]
         franka_handle = 0
         self.handles = {
             # Franka
@@ -826,6 +828,31 @@ class FrankaMP(VecTask):
 
             self.gym.viewer_camera_look_at(self.viewer, None, cam_pos, cam_target)
 
+        if self.capture_video:
+            self.camera_handles = []
+            self.obs_camera_handles = []
+            # camera_properties = gymapi.CameraProperties()
+            # camera_properties.width = self.cfg["env"]["camera"]["width"]
+            # camera_properties.height = self.cfg["env"]["camera"]["height"]
+            camera_props = gymapi.CameraProperties()
+            camera_props.width = 640
+            camera_props.height = 480
+            camera_props.horizontal_fov = 90.0
+            for i in range(self.capture_envs):
+                self.camera_handles.append([])
+                self.obs_camera_handles.append([])
+                # global
+                # TODO: bugfix here, now handle is returning -1
+                camera_handle = self.gym.create_camera_sensor(
+                    self.env_ptrs[i], camera_props
+                )
+                camera_position = gymapi.Vec3(1.5, 0.0, 1.4)
+                camera_target = gymapi.Vec3(0.0, 0.0, 0.0)
+                self.gym.set_camera_location(
+                    camera_handle, self.env_ptrs[i], camera_position, camera_target
+                )
+                self.camera_handles[i].append(camera_handle)
+
     def reset_idx(self, env_ids=None):
         """
         Reset the environment.
@@ -891,9 +918,9 @@ class FrankaMP(VecTask):
                     pz = (pos[i] + quat_apply(rot[i], to_torch([0, 0, 1], device=self.device) * 0.2)).cpu().numpy()
 
                     p0 = pos[i].cpu().numpy()
-                    self.gym.add_lines(self.viewer, self.envs[i], 1, [p0[0], p0[1], p0[2], px[0], px[1], px[2]], [0.85, 0.1, 0.1])
-                    self.gym.add_lines(self.viewer, self.envs[i], 1, [p0[0], p0[1], p0[2], py[0], py[1], py[2]], [0.1, 0.85, 0.1])
-                    self.gym.add_lines(self.viewer, self.envs[i], 1, [p0[0], p0[1], p0[2], pz[0], pz[1], pz[2]], [0.1, 0.1, 0.85])
+                    self.gym.add_lines(self.viewer, self.env_ptrs[i], 1, [p0[0], p0[1], p0[2], px[0], px[1], px[2]], [0.85, 0.1, 0.1])
+                    self.gym.add_lines(self.viewer, self.env_ptrs[i], 1, [p0[0], p0[1], p0[2], py[0], py[1], py[2]], [0.1, 0.85, 0.1])
+                    self.gym.add_lines(self.viewer, self.env_ptrs[i], 1, [p0[0], p0[1], p0[2], pz[0], pz[1], pz[2]], [0.1, 0.1, 0.85])
 
     def update_robot_pcds(self, robot_config=None):
         num_robot_points = self.pcd_spec_dict['num_robot_points']

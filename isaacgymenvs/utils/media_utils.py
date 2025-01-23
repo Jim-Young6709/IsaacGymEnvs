@@ -72,10 +72,10 @@ def camera_shot(env, env_ids=None, camera_ids=None, use_depth=False, use_seg=Fal
         env_ids = range(min(env.num_envs, len(env.camera_handles)))
     if camera_ids is None:
         camera_ids = range(len(env.camera_handles[0]))
-    if not env.render_viewer:
-        if env.device != "cpu":
-            env.gym.fetch_results(env.sim, True)
-        env.gym.step_graphics(env.sim)
+    # if not env.render_viewer:
+    if env.device != "cpu":
+        env.gym.fetch_results(env.sim, True)
+    env.gym.step_graphics(env.sim)
     env.gym.render_all_camera_sensors(env.sim)
 
     images = []
@@ -95,35 +95,35 @@ def camera_shot(env, env_ids=None, camera_ids=None, use_depth=False, use_seg=Fal
             camera_image = camera_image.reshape(shape[0], -1, 4)
             images[-1].append(camera_image)
 
-            if use_depth:
-                depth_image = env.gym.get_camera_image(
-                    env.sim, env.env_ptrs[env_id], camera_handle, gymapi.IMAGE_DEPTH
-                )
+            # if use_depth:
+            #     depth_image = env.gym.get_camera_image(
+            #         env.sim, env.env_ptrs[env_id], camera_handle, gymapi.IMAGE_DEPTH
+            #     )
 
-                depth_image[depth_image == -np.inf] = -255.0
-                depth_image[depth_image == np.inf] = -255.0
-                depth_image[depth_image < -255.0] = -255.0
-                depth_image[depth_image > 0.0] = 0.0
+            #     depth_image[depth_image == -np.inf] = -255.0
+            #     depth_image[depth_image == np.inf] = -255.0
+            #     depth_image[depth_image < -255.0] = -255.0
+            #     depth_image[depth_image > 0.0] = 0.0
 
-                # relative depth
-                depth_image = (depth_image - np.min(depth_image)) / (
-                    np.max(depth_image) - np.min(depth_image + 1e-4)
-                )
+            #     # relative depth
+            #     depth_image = (depth_image - np.min(depth_image)) / (
+            #         np.max(depth_image) - np.min(depth_image + 1e-4)
+            #     )
 
-                # visualize
-                depth_image = (255.0 * depth_image).astype(np.uint8)
-                depth_image = cv2.applyColorMap(depth_image, cv2.COLORMAP_INFERNO)
-                depth_image = depth_image[:, :, ::-1]
+            #     # visualize
+            #     depth_image = (255.0 * depth_image).astype(np.uint8)
+            #     depth_image = cv2.applyColorMap(depth_image, cv2.COLORMAP_INFERNO)
+            #     depth_image = depth_image[:, :, ::-1]
 
-                depth_images[-1].append(depth_image)
+            #     depth_images[-1].append(depth_image)
 
-            if use_seg:
-                seg_image = env.gym.get_camera_image(
-                    env.sim, env.env_ptrs[env_id], camera_handle, gymapi.IMAGE_SEGMENTATION
-                )
-                seg_image = color_group[seg_image].astype(np.uint8)
+            # if use_seg:
+            #     seg_image = env.gym.get_camera_image(
+            #         env.sim, env.env_ptrs[env_id], camera_handle, gymapi.IMAGE_SEGMENTATION
+            #     )
+            #     seg_image = color_group[seg_image].astype(np.uint8)
 
-                seg_images[-1].append(seg_image)
+            #     seg_images[-1].append(seg_image)
 
     return images, depth_images, seg_images
 

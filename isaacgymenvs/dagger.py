@@ -14,6 +14,7 @@ import torch
 from torch.utils.data import DataLoader
 
 import isaacgymenvs.utils.robomimic_utils as RMUtils
+from isaacgymenvs.utils.media_utils import camera_shot, vis_depth, apply_mask
 from isaacgymenvs.utils.utils import set_seed
 from isaacgymenvs.utils.reformat import omegaconf_to_dict
 from isaacgymenvs.utils.torch_jit_utils import quat_mul, quat_conjugate
@@ -857,16 +858,16 @@ class Dagger(object):
                     state_obs = obs_dict["obs"].clone()
                     visual_obs = torch.arange(self.env.num_envs, device=self.device)
 
-                    # if self.env.capture_video:
-                    #     if "hardcode_images" not in infos or len(infos["hardcode_images"]) == 0:
-                    #         ims = np.array(camera_shot(
-                    #             self.env, env_ids=range(self.env.capture_envs), camera_ids=[0]
-                    #         )[0])[:, 0, :, :, :3]
-                    #         video_ims.append(ims)
-                    #     else:
-                    #         ims = np.array(infos["hardcode_images"])[:, :, 0, :, :, :3]
-                    #         ims = [ims[i] for i in range(ims.shape[0]) if i % 3 == 0]
-                    #         video_ims.extend(ims)
+                    if self.env.capture_video:
+                        if "hardcode_images" not in infos or len(infos["hardcode_images"]) == 0:
+                            ims = np.array(camera_shot(
+                                self.env, env_ids=range(self.env.capture_envs), camera_ids=[0]
+                            )[0])[:, 0, :, :, :3]
+                            video_ims.append(ims)
+                        else:
+                            ims = np.array(infos["hardcode_images"])[:, :, 0, :, :, :3]
+                            ims = [ims[i] for i in range(ims.shape[0]) if i % 3 == 0]
+                            video_ims.extend(ims)
 
                     # if self.cfg.capture_local_obs:
                     #     if self.cfg.dagger.visual_obs_type == "depth":
@@ -889,15 +890,15 @@ class Dagger(object):
         self.env.disable_hardcode_control = True
         self.env.render_hardcode_control = False
 
-        # if self.env.capture_video:
-        #     ims = []
-        #     for env_idx in range(self.env.capture_envs):
-        #         for im in video_ims:
-        #             ims.append(im[env_idx])
-        #     make_video(ims, self.video_dir, epoch=self.total_epochs)
-        #     # log video to wandb:
-        #     if self.cfg.wandb_activate and run is not None:
-        #         run.log({"visualization/video": wandb.Video(os.path.join(self.video_dir, f"viz_{self.total_epochs}.mp4"))}, commit=False)
+        if self.env.capture_video:
+            ims = []
+            for env_idx in range(self.env.capture_envs):
+                for im in video_ims:
+                    ims.append(im[env_idx])
+            make_video(ims, self.video_dir, epoch=self.total_epochs)
+            # log video to wandb:
+            if self.cfg.wandb_activate and run is not None:
+                run.log({"visualization/video": wandb.Video(os.path.join(self.video_dir, f"viz_{self.total_epochs}.mp4"))}, commit=False)
 
         # if self.cfg.capture_local_obs:
         #     make_video(local_obs_ims, self.video_dir, epoch=self.total_epochs, name=f"viz_local_obs_{self.total_epochs}.mp4")

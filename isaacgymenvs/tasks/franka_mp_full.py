@@ -85,7 +85,7 @@ class FrankaMPFull(FrankaMP):
         max_agg_bodies = num_franka_bodies + self.max_obstacles  # franka + obstacles
         max_agg_shapes = num_franka_shapes + self.max_obstacles
         self.frankas = []
-        self.envs = []
+        self.env_ptrs = []
 
         num_robot_points = self.pcd_spec_dict['num_robot_points']
         num_scene_points = self.pcd_spec_dict['num_obstacle_points']
@@ -192,7 +192,7 @@ class FrankaMPFull(FrankaMP):
                 self.gym.end_aggregate(env_ptr)
 
             # Store the created env pointers
-            self.envs.append(env_ptr)
+            self.env_ptrs.append(env_ptr)
             self.frankas.append(franka_actor)
 
             # compute the static scene pcd (currently only consider static scenes)
@@ -328,17 +328,17 @@ class FrankaMPFull(FrankaMP):
 
             p0 = fabric_ee_pose[:, 0:3][i].cpu().numpy()
             self.gym.add_lines(
-                self.viewer, self.envs[i], 1, 
+                self.viewer, self.env_ptrs[i], 1, 
                 [p0[0], p0[1], p0[2], px[0], px[1], px[2]], 
                 [0.85, 0.1, 0.1]
             )
             self.gym.add_lines(
-                self.viewer, self.envs[i], 1, 
+                self.viewer, self.env_ptrs[i], 1, 
                 [p0[0], p0[1], p0[2], py[0], py[1], py[2]], 
                 [0.1, 0.85, 0.1]
             )
             self.gym.add_lines(
-                self.viewer, self.envs[i], 1, 
+                self.viewer, self.env_ptrs[i], 1, 
                 [p0[0], p0[1], p0[2], pz[0], pz[1], pz[2]], 
                 [0.1, 0.1, 0.85]
             )
@@ -356,17 +356,17 @@ class FrankaMPFull(FrankaMP):
 
             p0 = fabric_goal_pose[:, 0:3][i].cpu().numpy()
             self.gym.add_lines(
-                self.viewer, self.envs[i], 1, 
+                self.viewer, self.env_ptrs[i], 1, 
                 [p0[0], p0[1], p0[2], px[0], px[1], px[2]], 
                 [0.85, 0.1, 0.1]
             )
             self.gym.add_lines(
-                self.viewer, self.envs[i], 1, 
+                self.viewer, self.env_ptrs[i], 1, 
                 [p0[0], p0[1], p0[2], py[0], py[1], py[2]], 
                 [0.1, 0.85, 0.1]
             )
             self.gym.add_lines(
-                self.viewer, self.envs[i], 1, 
+                self.viewer, self.env_ptrs[i], 1, 
                 [p0[0], p0[1], p0[2], pz[0], pz[1], pz[2]], 
                 [0.1, 0.1, 0.85]
             )
@@ -384,7 +384,7 @@ class FrankaMPFull(FrankaMP):
                     p1 = nearest_obstacle_pts_robot_frame[j].cpu().numpy()
                     dist = obstacle_signed_dists[j].item()
                     self.gym.add_lines(
-                        self.viewer, self.envs[i], 1, 
+                        self.viewer, self.env_ptrs[i], 1, 
                         [p0[0], p0[1], p0[2], p1[0], p1[1], p1[2]], 
                         # colour gradient where the line goes from green to red as dist approaches zero
                         [1 - dist, dist, 0.0],
@@ -413,7 +413,7 @@ class FrankaMPFull(FrankaMP):
                     p1 = basis_point_to_obstacle_robot_frame[j].cpu().numpy()
                     dist = basis_point_signed_dists[j].item()
                     self.gym.add_lines(
-                        self.viewer, self.envs[i], 1,
+                        self.viewer, self.env_ptrs[i], 1,
                         [p0[0], p0[1], p0[2], p1[0], p1[1], p1[2]],
                         # colour gradient where the line goes from green to red as dist approaches zero
                         [1 - dist, dist, 0.0],
@@ -421,7 +421,7 @@ class FrankaMPFull(FrankaMP):
 
                     basis_point_transform = gymapi.Transform()
                     basis_point_transform.p = gymapi.Vec3(*self.basis_point_locations[j])
-                    gymutil.draw_lines(sphere_geom, self.gym, self.viewer, self.envs[i], basis_point_transform)
+                    gymutil.draw_lines(sphere_geom, self.gym, self.viewer, self.env_ptrs[i], basis_point_transform)
 
     def update_obstacle_configs_from_batch(self, batch_data):
         """Update obstacle configurations from a new batch of demos."""
