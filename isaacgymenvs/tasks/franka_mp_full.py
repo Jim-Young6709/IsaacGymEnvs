@@ -428,7 +428,6 @@ class FrankaMPFull(FrankaMP):
             env_ids = torch.arange(self.num_envs, device=self.device)
 
 
-        # HOW TO USE the dydra variable here?
         probability_tight_start = self.cfg["env"].get("probability_tight_start", 1.0)
         probability_tight_goal = self.cfg["env"].get("probability_tight_goal", 1.0)
 
@@ -436,26 +435,34 @@ class FrankaMPFull(FrankaMP):
             self.start_config[env_idx] = torch.tensor(demo['states'][0][:7], device=self.device)
             self.goal_config[env_idx] = torch.tensor(demo['states'][0][7:14], device=self.device)
             
-            # Determine config types based on probabilities
-            use_tight_start = torch.rand(1).item() < probability_tight_start
-            use_tight_goal = torch.rand(1).item() < probability_tight_goal
+            tight_len = len(demo["tight_config"])
+            # Determine if we use tight configs based on probabilities
+            tight_start = torch.rand(1).item() < probability_tight_start
+            tight_goal = torch.rand(1).item() < probability_tight_goal
             
-            # Select appropriate config lists and get random indices
-            start_configs = demo["tight_config"] if use_tight_start else demo["open_config"]
-            goal_configs = demo["tight_config"] if use_tight_goal else demo["open_config"]
+            if tight_len == 0:
+                start_configs = demo["open_config"]
+                goal_configs = demo["open_config"]
+            elif tight_len == 1 and tight_start and tight_goal:
+                if torch.rand(1).item() < 0.5:
+                    start_configs = demo["tight_config"]
+                    goal_configs = demo["open_config"]
+                else:
+                    start_configs = demo["open_config"]
+                    goal_configs = demo["tight_config"]
+            else:
+                start_configs = demo["tight_config"] if tight_start else demo["open_config"]
+                goal_configs = demo["tight_config"] if tight_goal else demo["open_config"]
             
-            if start_configs is goal_configs:  # If same config type, ensure different indices
-                indices = torch.randperm(len(start_configs))[:2]
+            if start_configs is goal_configs:
+                indices = torch.randperm(len(start_configs))[:2] if len(start_configs) > 1 else torch.zeros(2, dtype=torch.long)
                 start_idx, goal_idx = indices[0].item(), indices[1].item()
-            else:  # If different config types, can use any indices
+            else:
                 start_idx = torch.randint(len(start_configs), (1,)).item()
                 goal_idx = torch.randint(len(goal_configs), (1,)).item()
             
-            # Assign configurations
             self.start_config[env_idx] = torch.tensor(start_configs[start_idx], device=self.device)
-            self.goal_config[env_idx] = torch.tensor(goal_configs[goal_idx], device=self.device)
-
-            
+            self.goal_config[env_idx] = torch.tensor(goal_configs[goal_idx], device=self.device)            
         
         self.goal_ee = self.get_ee_from_joint(self.goal_config)
 
@@ -633,7 +640,8 @@ def launch_test(cfg: DictConfig):
         t1 = time.time()
         env.reset_idx()
         t2 = time.time()
-        
+        print("press enter to reset")
+        # loop keeps rendering active so we can interact with the gui
         while True:
             env.render()
             if check_input():  # Check if Enter key was pressed
