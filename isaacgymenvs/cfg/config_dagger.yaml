@@ -59,11 +59,6 @@ wandb_run_name: dagger
 # control gripper
 gripper_control: False
 
-# unidexgrasp / partnet
-object_code: ''
-object_scale: 0.06  # only applicable for unidexgrasp
-object_list: ''     # format: [[object_code,object_scale],...] for unidexgrasp, [object_code,...] for partnet
-
 # (initial states sampling) number of samples to collect
 num_samples: 10000
 

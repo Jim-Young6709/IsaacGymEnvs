@@ -306,53 +306,25 @@ class Storage(object):
         self.ep_step = data["ep_step"]
         self.valid_buffers = data["valid_buffers"]
         self.current_device_idx = 0
-    
+
 class Dagger(object):
     def __init__(self, config):
-        # if config.object_list is a file
-        if os.path.isfile(str(config.object_list)):
-            object_list_file = config.object_list
-            object_list = []
-            with open(object_list_file, 'r') as file:
-                for line in file:
-                    parts = line.strip().split()
-                    if len(parts) == 2:
-                        object_id, scale = parts
-                        object_list.append((object_id, float(scale)))
-                    else:
-                        object_list.append(parts[0])
-            config.object_list = object_list
         self.cfg = config
         self.cfg_dict = omegaconf_to_dict(config)
         self.device = self.cfg.device
         self.cfg.seed = set_seed(self.cfg.seed)
 
-        # self.visual_obs_handler = get_visual_obs_handler(self.cfg.dagger.visual_obs_type, self.cfg)
-        # self.seg_obs_handler = get_seg_obs_handler(self.cfg)
-
         # robomimic init
-        # TODO: check the details later
         import json
         from robomimic.config import config_factory
         import robomimic.utils.obs_utils as ObsUtils
         ext_cfg = json.load(open("../robomimic/robomimic/exps/mp/neural_mp_rnn.json", 'r'))
         robomimic_cfg = config_factory(ext_cfg["algo_name"])
-        # update config with external json - this will throw errors if
-        # the external config has keys not present in the base algo config
         with robomimic_cfg.values_unlocked():
             robomimic_cfg.update(ext_cfg)
         robomimic_cfg.experiment.name = "debug"
         robomimic_cfg.lock()
-        # first set seeds
-        np.random.seed(robomimic_cfg.train.seed)
-        torch.manual_seed(robomimic_cfg.train.seed)
         ObsUtils.initialize_obs_utils_with_config(robomimic_cfg)
-
-        # robomimic_cfg = RMUtils.load_config(
-        #     algo_cfg_path=config.dagger.student_cfg_path,
-        #     override_cfg=config,
-        # )
-        # RMUtils.initialize(robomimic_cfg)
         self.seq_length = robomimic_cfg.train.seq_length
         self.frame_stack = robomimic_cfg.train.frame_stack
 
@@ -365,15 +337,8 @@ class Dagger(object):
         os.makedirs(self.video_dir, exist_ok=True)
         os.makedirs(self.checkpoint_dir, exist_ok=True)
 
-        # build environment & generate datasets
-        if self.cfg.dagger.multitask:
-            self.setup_rl_env_and_expert_multitask()
-        else:
-            self.setup_rl_env_and_expert()
-
-        # self.obs_handler = get_visual_obs_handler(self.cfg.dagger.visual_obs_type, self.cfg)
+        self.setup_rl_env_and_expert()
         self.setup_storage()
-        # load obs-specific robomimic data
         obs_shape_meta = get_obs_shape_meta(self.cfg)
 
         # set up training
@@ -463,8 +428,7 @@ class Dagger(object):
             output_device=self.device,
             storage_devices=self.cfg.storage_devices,
         )
-        
-        
+
     def setup_training(self, robomimic_cfg, obs_shape_meta):
         """Set up student model and training parameters."""
         self.student_player = RMUtils.build_model(
@@ -578,8 +542,8 @@ class Dagger(object):
         # visual_obs = self.get_visual_obs(prev_vis_obs=None)
         visual_obs = torch.arange(self.env.num_envs, device=self.device)
         seg_frame0_obs = self.get_seg_obs()
-        state_frame0_obs, visual_frame0_obs = state_obs.clone(), visual_obs.clone()
-        prev_state_obs = state_obs.clone()
+        # state_frame0_obs, visual_frame0_obs = state_obs.clone(), visual_obs.clone()
+        # prev_state_obs = state_obs.clone()
 
         with tqdm(range(self.total_episodes, self.total_episodes + self.num_learning_iterations), desc='DAgger Training') as pbar:
             test_success = self.test(num_test_iterations=1) # just to prime the dict
@@ -966,7 +930,7 @@ def main(cfg: DictConfig):
                 shutil.rmtree(cfg.export_rigid_body_poses_dir)
             agent.env.export_rigid_body_poses_dir = cfg.export_rigid_body_poses_dir
         test_success = agent.test(num_test_iterations=cfg.test_episodes)
-        print(f"Test success: {test_success['success']:.4f}")
+        print(f"Test success: {test_success['training_success']:.4f}")
 
         if cfg.export_rigid_body_poses_dir:
             meta_data = {"task": cfg.task_name}
