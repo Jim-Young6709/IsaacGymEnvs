@@ -431,15 +431,20 @@ class FrankaMPFull(FrankaMP):
         probability_tight_start = self.cfg["env"].get("probability_tight_start", 1.0)
         probability_tight_goal = self.cfg["env"].get("probability_tight_goal", 1.0)
 
-        for env_idx, demo in enumerate(self.batch):
+        for env_idx in env_ids:
+            demo = self.batch[env_idx]
             self.start_config[env_idx] = torch.tensor(demo['states'][0][:7], device=self.device)
             self.goal_config[env_idx] = torch.tensor(demo['states'][0][7:14], device=self.device)
             
             tight_len = len(demo["tight_config"])
+            open_len = len(demo["open_config"])
             # Determine if we use tight configs based on probabilities
             tight_start = torch.rand(1).item() < probability_tight_start
             tight_goal = torch.rand(1).item() < probability_tight_goal
-            
+
+            if tight_len == 0 and open_len == 0:
+                continue
+
             if tight_len == 0:
                 start_configs = demo["open_config"]
                 goal_configs = demo["open_config"]
@@ -453,7 +458,7 @@ class FrankaMPFull(FrankaMP):
             else:
                 start_configs = demo["tight_config"] if tight_start else demo["open_config"]
                 goal_configs = demo["tight_config"] if tight_goal else demo["open_config"]
-            
+
             if start_configs is goal_configs:
                 indices = torch.randperm(len(start_configs))[:2] if len(start_configs) > 1 else torch.zeros(2, dtype=torch.long)
                 start_idx, goal_idx = indices[0].item(), indices[1].item()
@@ -463,7 +468,9 @@ class FrankaMPFull(FrankaMP):
             
             self.start_config[env_idx] = torch.tensor(start_configs[start_idx], device=self.device)
             self.goal_config[env_idx] = torch.tensor(goal_configs[goal_idx], device=self.device)            
-        
+
+        self.start_config = tensor_clamp(self.start_config, self.franka_dof_lower_limits[:7], self.franka_dof_upper_limits[:7])
+        self.goal_config = tensor_clamp(self.goal_config, self.franka_dof_lower_limits[:7], self.franka_dof_upper_limits[:7])
         self.goal_ee = self.get_ee_from_joint(self.goal_config)
 
         self.set_robot_joint_state(self.start_config[env_ids], env_ids=env_ids, debug=False)
