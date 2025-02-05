@@ -32,25 +32,14 @@ def make_video(frames, logdir, epoch, name=None):
             writer.append_data(frame)
 
 
-def get_obs_shape_meta(cfg):
-    if cfg.dagger.visual_obs_type == "pcd":
-        obs_shape_meta = {
-            'ac_dim': 7,
-            'all_shapes': OrderedDict([('compute_pcd_params', [1]), ('current_angles', [7]), ('goal_angles', [7])]),
-            'all_obs_keys': ['compute_pcd_params', 'current_angles', 'goal_angles'],
-            'use_images': False,
-            'use_depths': False,
-        }
-    elif cfg.dagger.visual_obs_type == "depth":
-        h, w = cfg.task.env.local_obs.width, cfg.task.env.local_obs.height
-        c = 3 if cfg.dagger.use_seg_obs else 2
-        obs_shape_meta = {
-            'ac_dim': 6, 
-            'all_shapes': OrderedDict([('state', [20]), ('visual', [c, h, w])]),
-            'all_obs_keys': ['state', 'visual'],
-            'use_images': False,
-            'use_depths': True,
-        }
+def get_obs_shape_meta():
+    obs_shape_meta = {
+        'ac_dim': 7,
+        'all_shapes': OrderedDict([('compute_pcd_params', [1]), ('current_angles', [7]), ('goal_angles', [7])]),
+        'all_obs_keys': ['compute_pcd_params', 'current_angles', 'goal_angles'],
+        'use_images': False,
+        'use_depths': False,
+    }
     return obs_shape_meta
 
 
@@ -58,7 +47,7 @@ class Storage(object):
     def __init__(
             self, buffer_size, num_envs, 
             obs_shape, visual_obs_shape, actions_shape, 
-            visual_obs_type="pcd", visual_obs_handler=None, use_seg_obs=False, seg_obs_handler=None,
+            visual_obs_handler=None, use_seg_obs=False, seg_obs_handler=None,
             output_device="cuda:0", storage_devices=[0], traj_length=120, seq_length=1, frame_stack=0,
         ):
         """Storage for storing expert data on GPU.
@@ -69,7 +58,6 @@ class Storage(object):
             obs_shape (tuple): Shape of the state obs.
             visual_obs_shape (tuple): Shape of the visual obs.
             actions_shape (tuple): Shape of the actions.
-            visual_obs_type (str, optional): Type of the visual obs. Defaults to "pcd". Can also be "depth".
             visual_obs_handler (ObsHandler, optional): This class handles pre-processing the obs and applying data augmentation. Defaults to None.
             use_seg_obs (bool, optional): Whether to use segmentation observations from the first frame. This enables selecting the object to manipulate from a clutter. Defaults to False.
             seg_obs_handler (SegmentationObsHandler, optional): This class handles pre-processing the segmentation obs and applying data augmentation. Defaults to None.
@@ -81,7 +69,6 @@ class Storage(object):
         self.output_device = output_device
         self.buffer_size = buffer_size
         self.num_envs = num_envs
-        self.visual_obs_type = visual_obs_type
         # self.visual_obs_handler = visual_obs_handler
         self.use_seg_obs = use_seg_obs
         # self.seg_obs_handler = seg_obs_handler
@@ -336,7 +323,7 @@ class Dagger(object):
 
         self.setup_rl_env_and_expert()
         self.setup_storage()
-        obs_shape_meta = get_obs_shape_meta(self.cfg)
+        obs_shape_meta = get_obs_shape_meta()
 
         # set up training
         self.setup_training(robomimic_cfg, obs_shape_meta)
@@ -372,12 +359,6 @@ class Dagger(object):
 
     def setup_rl_env_and_expert(self):
         """Set up the environment & expert model."""
-        # assert self.cfg.init_states != "", "Please specify path to initial states"
-        # init_states = torch.load(self.cfg.init_states)
-        # idx = torch.randperm(len(list(init_states.values())[0]))
-        # for key in init_states.keys():
-        #     init_states[key] = init_states[key][idx]
-
         cfg_dict = omegaconf_to_dict(self.cfg)
         cfg_task = cfg_dict["task"]
         rl_device = cfg_dict["rl_device"]
@@ -401,7 +382,6 @@ class Dagger(object):
             visual_obs_shape=visual_obs_shape,
             # visual_obs_handler=self.visual_obs_handler,
             actions_shape=self.env.action_space.shape, 
-            visual_obs_type=self.cfg.dagger.visual_obs_type, 
             use_seg_obs=self.cfg.dagger.use_seg_obs,
             # seg_obs_handler=self.seg_obs_handler,
             traj_length=self.env.max_episode_length,
@@ -416,7 +396,6 @@ class Dagger(object):
             visual_obs_shape=visual_obs_shape,
             # visual_obs_handler=self.visual_obs_handler,
             actions_shape=self.env.action_space.shape, 
-            visual_obs_type=self.cfg.dagger.visual_obs_type, 
             use_seg_obs=self.cfg.dagger.use_seg_obs,
             # seg_obs_handler=self.seg_obs_handler,
             traj_length=self.env.max_episode_length,
@@ -611,12 +590,6 @@ class Dagger(object):
                                 "distillation/eval_l1": avg_l1_loss,
                                 "distillation/eval_gmm": avg_gmm_loss,
                             })
-
-                            # if self.total_episodes % self.cfg.test_frequency == 0:
-                            #     test_success = self.test(num_test_iterations=self.cfg.test_episodes, run=run)
-                            #     self.save_checkpoint(f"checkpoint_{self.total_episodes}_success_{test_success['training_success']:.4f}.pth", save_storage=False)
-                            #     for k in test_success:
-                            #         wandb_log_dict[f"distillation/test_{k}"] = test_success[k]
 
                             pbar.set_postfix(
                                 ep=self.total_episodes,
