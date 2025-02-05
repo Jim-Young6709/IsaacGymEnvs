@@ -47,7 +47,6 @@ class Storage(object):
     def __init__(
             self, buffer_size, num_envs, 
             obs_shape, visual_obs_shape, actions_shape, 
-            visual_obs_handler=None, use_seg_obs=False, seg_obs_handler=None,
             output_device="cuda:0", storage_devices=[0], traj_length=120, seq_length=1, frame_stack=0,
         ):
         """Storage for storing expert data on GPU.
@@ -58,9 +57,6 @@ class Storage(object):
             obs_shape (tuple): Shape of the state obs.
             visual_obs_shape (tuple): Shape of the visual obs.
             actions_shape (tuple): Shape of the actions.
-            visual_obs_handler (ObsHandler, optional): This class handles pre-processing the obs and applying data augmentation. Defaults to None.
-            use_seg_obs (bool, optional): Whether to use segmentation observations from the first frame. This enables selecting the object to manipulate from a clutter. Defaults to False.
-            seg_obs_handler (SegmentationObsHandler, optional): This class handles pre-processing the segmentation obs and applying data augmentation. Defaults to None.
             device (str, optional): Device id to store the data on.. Defaults to "cuda:0".
             traj_length (int, optional): The max length of the trajectories, assumed to be the same for all envs for now. Defaults to 120.
             seq_length (int, optional): The length of the RNN horizon. Defaults to 1. If seq_length > 1, then we are using RNN, framestack should be 0. This naming convention is taken from robomimic.
@@ -69,9 +65,6 @@ class Storage(object):
         self.output_device = output_device
         self.buffer_size = buffer_size
         self.num_envs = num_envs
-        # self.visual_obs_handler = visual_obs_handler
-        self.use_seg_obs = use_seg_obs
-        # self.seg_obs_handler = seg_obs_handler
         traj_length = traj_length
         self.traj_length = traj_length
         self.seq_length = seq_length
@@ -82,7 +75,7 @@ class Storage(object):
         # The buffer is organized as full trajectories, with additional padding pre-defined by frame_stack (pre-padding) and seq_length (post-padding)
         # split buffer evenly across storage devices
         total_traj_length = frame_stack + traj_length+seq_length -1
-        self.obs, self.visual_obs, self.seg_obs, self.dones, self.rewards, self.actions = [], [], [], [], [], []
+        self.obs, self.visual_obs, self.dones, self.rewards, self.actions = [], [], [], [], []
         for device in storage_devices:
             device = f"cuda:{device}"
             self.obs.append(torch.zeros(buffer_size, total_traj_length, *obs_shape, device=device))
@@ -90,9 +83,7 @@ class Storage(object):
             self.dones.append(torch.zeros(buffer_size, total_traj_length, device=device, dtype=torch.bool))
             self.rewards.append(torch.zeros(buffer_size, total_traj_length, device=device))
             self.actions.append(torch.zeros(buffer_size, total_traj_length, *actions_shape, device=device))
-            if self.use_seg_obs:
-                self.seg_obs.append(torch.zeros(buffer_size, 1, *visual_obs_shape, device=device))              # only for the first frame
-                        
+
         self.cur = 0
         self.step = 0
         self.ep_step = frame_stack
@@ -101,7 +92,7 @@ class Storage(object):
         self.storage_devices = storage_devices
         self.valid_buffers = 0
 
-    def add_transitions(self, obs, visual_obs, actions, rewards, dones, seg_obs=None):
+    def add_transitions(self, obs, visual_obs, actions, rewards, dones):
         """Add a transition to the storage across all environments.
         Note ep_step is the current step in the trajectory and then for the start and the end we 
         have particular logic for handling the padding.
@@ -135,8 +126,6 @@ class Storage(object):
         self.rewards[self.current_device_idx][start:end, self.ep_step].copy_(rewards)
         self.dones[self.current_device_idx][start:end, self.ep_step].copy_(dones)
         self.actions[self.current_device_idx][start:end, self.ep_step].copy_(actions)
-        if self.ep_step == self.frame_stack and self.use_seg_obs:
-            self.seg_obs[self.current_device_idx][start:end, 0].copy_(seg_obs)
 
         self.ep_step += 1
         if dones.any():
@@ -190,7 +179,7 @@ class Storage(object):
         buffer_assignment = (indices // (self.traj_length * self.buffer_size * self.num_envs))
         # need to split the indices into list of indices per buffer
         buffer_indices = [indices[buffer_assignment == i] % (self.traj_length * self.buffer_size * self.num_envs) for i in range(self.valid_buffers)]
-        obs_combined, visual_obs_combined, actions_combined, first_obs_combined, first_visual_obs_combined, prev_obs_combined, first_seg_obs_combined = [], [], [], [], [], [], []
+        obs_combined, visual_obs_combined, actions_combined, first_obs_combined, first_visual_obs_combined, prev_obs_combined = [], [], [], [], [], []
         for buffer_idx in range(self.valid_buffers):
             current_device_id = self.storage_devices[buffer_idx]
             buffer_indices_ = buffer_indices[buffer_idx].to(f"cuda:{current_device_id}")
@@ -209,8 +198,6 @@ class Storage(object):
 
                 first_obs = self.obs[buffer_idx][batch_indices, 0:1].repeat((1, self.seq_length, *([1]*len(self.obs[buffer_idx].shape[2:]))))
                 first_visual_obs = self.visual_obs[buffer_idx][batch_indices, 0:1].repeat((1, self.seq_length, *([1]*len(self.visual_obs[buffer_idx].shape[2:]))))
-                if self.use_seg_obs:
-                    first_seg_obs = self.seg_obs[buffer_idx][batch_indices, 0:1].repeat((1, self.seq_length, *([1]*len(self.seg_obs[buffer_idx].shape[2:]))))
             else:
                 # for transformer: we count forwards from the sampled index - frame_stack
                 obs = [self.obs[buffer_idx][batch_indices, seq_indices - i] for i in range(self.frame_stack - 1, -1, -1)]
@@ -224,8 +211,6 @@ class Storage(object):
 
                 first_obs = self.obs[buffer_idx][batch_indices, 0:1].repeat((1, self.frame_stack, *([1]*len(self.obs[buffer_idx].shape[2:]))))
                 first_visual_obs = self.visual_obs[buffer_idx][batch_indices, 0:1].repeat((1, self.frame_stack, *([1]*len(self.visual_obs[buffer_idx].shape[2:]))))
-                if self.use_seg_obs:
-                    first_seg_obs = self.seg_obs[buffer_idx][batch_indices, 0:1].repeat((1, self.frame_stack, *([1]*len(self.seg_obs[buffer_idx].shape[2:]))))
 
             obs_combined.append(obs.to(self.output_device))
             visual_obs_combined.append(visual_obs.to(self.output_device))
@@ -233,8 +218,6 @@ class Storage(object):
             first_obs_combined.append(first_obs.to(self.output_device))
             first_visual_obs_combined.append(first_visual_obs.to(self.output_device))
             prev_obs_combined.append(prev_obs.to(self.output_device))
-            if self.use_seg_obs:
-                first_seg_obs_combined.append(first_seg_obs.to(self.output_device))
             
         obs = torch.cat(obs_combined, dim=0)
         visual_obs = torch.cat(visual_obs_combined, dim=0)
@@ -242,17 +225,12 @@ class Storage(object):
         first_obs = torch.cat(first_obs_combined, dim=0)
         first_visual_obs = torch.cat(first_visual_obs_combined, dim=0)
         prev_obs = torch.cat(prev_obs_combined, dim=0)
-        if self.use_seg_obs:
-            first_seg_obs = torch.cat(first_seg_obs_combined, dim=0)
-        else:
-            first_seg_obs = None
         
         # apply noise to visual obs
         # visual_obs = self.visual_obs_handler.apply_noise(visual_obs)
         # first_visual_obs = self.visual_obs_handler.apply_noise(first_visual_obs)
-        # first_seg_obs = self.seg_obs_handler.apply_noise(first_seg_obs)
 
-        # obs, visual_obs = get_student_obs(obs, visual_obs, first_obs, first_visual_obs, prev_obs, self.visual_obs_type, seg_frame0_obs=first_seg_obs)
+        # obs, visual_obs = get_student_obs(obs, visual_obs, first_obs, first_visual_obs, prev_obs, self.visual_obs_type)
         
         return obs.clone(), visual_obs.clone(), actions.clone()
     
@@ -269,13 +247,11 @@ class Storage(object):
             "ep_step": self.ep_step,
             "valid_buffers": self.valid_buffers,
         }
-        if self.use_seg_obs:
-            d["seg_obs"] = [s.cpu() for s in self.seg_obs]
         return d
     
     def load(self, data):
         # load the data from the dict
-        self.obs, self.visual_obs, self.seg_obs, self.dones, self.rewards, self.actions = [], [], [], [], [], []
+        self.obs, self.visual_obs, self.dones, self.rewards, self.actions = [], [], [], [], []
         for device in self.storage_devices:
             cuda_device = f"cuda:{device}"
             self.obs.append(data["obs"][device].to(cuda_device))
@@ -283,8 +259,6 @@ class Storage(object):
             self.dones.append(data["dones"][device].to(cuda_device))
             self.rewards.append(data["rewards"][device].to(cuda_device))
             self.actions.append(data["actions"][device].to(cuda_device))
-            if self.use_seg_obs:
-                self.seg_obs.append(data["seg_obs"][device].to(cuda_device))
         self.cur = data["cur"]
         self.step = data["step"]
         self.ep_step = data["ep_step"]
@@ -379,10 +353,7 @@ class Dagger(object):
             1, self.env.num_envs,
             obs_shape=(14,),
             visual_obs_shape=visual_obs_shape,
-            # visual_obs_handler=self.visual_obs_handler,
             actions_shape=self.env.action_space.shape, 
-            use_seg_obs=self.cfg.dagger.use_seg_obs,
-            # seg_obs_handler=self.seg_obs_handler,
             traj_length=self.env.max_episode_length,
             seq_length=self.seq_length,
             frame_stack=self.frame_stack,
@@ -429,21 +400,12 @@ class Dagger(object):
             self.env.reset_idx(env_ids, switch_object=True, init_states=self.cfg.init_states)
             self.setup_expert_multitask()
         self.env.reset_idx(env_ids)
-    
-    def get_seg_obs(self, **kwargs):
-        if self.cfg.dagger.use_seg_obs:
-            return self.env.get_segmentation_observations()
-        else:
-            return None
-    
+
     @torch.inference_mode()
     def collect_data(self, split="train"):
         """Collect trajectories for evaluation with the expert."""
         state_obs = self.env.compute_observations()
-        # visual_obs = self.get_visual_obs(prev_vis_obs=None)
         visual_obs = torch.arange(self.env.num_envs, device=self.device)
-
-        seg_frame0_obs = self.get_seg_obs()
 
         if split == "train":
             storage = self.storage
@@ -463,7 +425,7 @@ class Dagger(object):
                 dones[:] = True
 
             # update storage
-            storage.add_transitions(state_obs, visual_obs, actions_expert, rews, dones, seg_obs=seg_frame0_obs)
+            storage.add_transitions(state_obs, visual_obs, actions_expert, rews, dones)
 
             # update new obs
             state_obs = obs_dict["obs"]
@@ -471,7 +433,6 @@ class Dagger(object):
                 self.reset_envs()
                 state_obs = self.env.compute_observations()
                 visual_obs = None  # reset prev visual obs
-                seg_frame0_obs = self.get_seg_obs()
             # visual_obs = self.get_visual_obs(prev_vis_obs=visual_obs)
             visual_obs = torch.arange(self.env.num_envs, device=self.device)
 
@@ -494,10 +455,8 @@ class Dagger(object):
 
         print("Training DAgger...")
         state_obs = self.env.compute_observations()
-        
-        # visual_obs = self.get_visual_obs(prev_vis_obs=None)
+
         visual_obs = torch.arange(self.env.num_envs, device=self.device)
-        seg_frame0_obs = self.get_seg_obs()
         # state_frame0_obs, visual_frame0_obs = state_obs.clone(), visual_obs.clone()
         # prev_state_obs = state_obs.clone()
 
@@ -557,7 +516,7 @@ class Dagger(object):
                         #     dones[:] = True
 
                         # update storage
-                        self.storage.add_transitions(state_obs, visual_obs, actions_expert, rews, dones, seg_obs=seg_frame0_obs)
+                        self.storage.add_transitions(state_obs, visual_obs, actions_expert, rews, dones)
 
                         # update new obs
                         prev_state_obs = state_obs.clone()
@@ -584,7 +543,6 @@ class Dagger(object):
                             state_obs = self.env.compute_observations()
                             prev_state_obs = state_obs.clone()
                             visual_obs = torch.arange(self.env.num_envs, device=self.device)
-                            seg_frame0_obs = self.get_seg_obs()
                             state_frame0_obs, visual_frame0_obs = state_obs.clone(), visual_obs.clone()
                         else:
                             visual_obs = torch.arange(self.env.num_envs, device=self.device)
@@ -621,6 +579,7 @@ class Dagger(object):
         model = self.student_player
         model.set_train()
 
+        # TODO
         batch_indices = self.storage.mini_batch_generator(self.cfg.dagger.batch_size)
         num_batches = len(batch_indices)
         tot_loss = 0.0
@@ -719,9 +678,6 @@ class Dagger(object):
                 
                 state_obs = self.env.compute_observations()
                 visual_obs = torch.arange(self.env.num_envs, device=self.device)
-                seg_frame0_obs = self.get_seg_obs()
-                state_frame0_obs, visual_frame0_obs = state_obs.clone(), visual_obs.clone()
-                prev_state_obs = state_obs.clone()
 
                 for test_step in range(self.env.max_episode_length - 1):
                     # # get student obs
@@ -736,7 +692,6 @@ class Dagger(object):
                     #     self.visual_obs_handler.apply_noise(visual_frame0_obs), 
                     #     prev_state_obs[..., :7],
                     #     self.cfg.dagger.visual_obs_type,
-                    #     seg_frame0_obs=self.seg_obs_handler.apply_noise(seg_frame0_obs),
                     # )
                     # if self.frame_stack > 0:
                     #     if self.storage.ep_step == self.frame_stack:
