@@ -433,7 +433,6 @@ class Dagger(object):
                 self.reset_envs()
                 state_obs = self.env.compute_observations()
                 visual_obs = None  # reset prev visual obs
-            # visual_obs = self.get_visual_obs(prev_vis_obs=visual_obs)
             visual_obs = torch.arange(self.env.num_envs, device=self.device)
 
         self.reset_envs()
@@ -512,8 +511,6 @@ class Dagger(object):
                         obs_dict, rews, dones, infos = self.env.step(actions)
                         self.env.force_no_fabric = False
                         self.env.no_base_action = False
-                        # if (self.total_steps + 1) % self.env.max_episode_length == 0:
-                        #     dones[:] = True
 
                         # update storage
                         self.storage.add_transitions(state_obs, visual_obs, actions_expert, rews, dones)
@@ -541,9 +538,7 @@ class Dagger(object):
                             self.reset_envs()
                             self.student_player.reset()
                             state_obs = self.env.compute_observations()
-                            prev_state_obs = state_obs.clone()
                             visual_obs = torch.arange(self.env.num_envs, device=self.device)
-                            state_frame0_obs, visual_frame0_obs = state_obs.clone(), visual_obs.clone()
                         else:
                             visual_obs = torch.arange(self.env.num_envs, device=self.device)
 
@@ -744,9 +739,6 @@ class Dagger(object):
                         num_success[k] += infos[k]
                         total_iters_per_key[k] += 1
                 total_runs += self.env.num_envs
-
-        self.env.disable_hardcode_control = True
-        self.env.render_hardcode_control = False
 
         if self.env.capture_video:
             ims = []
