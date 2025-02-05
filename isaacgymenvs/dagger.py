@@ -339,7 +339,6 @@ class Dagger(object):
             if not self.cfg.eval_mode:
                 # have to fill the storage with data before training
                 self.collect_data("eval")
-                self.collect_data("train")
 
     def log(self, run, log_dict):
         if run is not None:
@@ -389,21 +388,6 @@ class Dagger(object):
             frame_stack=self.frame_stack,
             output_device=self.device,
         )
-        # build training storage
-        self.train_storage = Storage(
-            self.cfg.dagger.buffer_size, self.env.num_envs, 
-            obs_shape=(14,),
-            visual_obs_shape=visual_obs_shape,
-            # visual_obs_handler=self.visual_obs_handler,
-            actions_shape=self.env.action_space.shape, 
-            use_seg_obs=self.cfg.dagger.use_seg_obs,
-            # seg_obs_handler=self.seg_obs_handler,
-            traj_length=self.env.max_episode_length,
-            seq_length=self.seq_length,
-            frame_stack=self.frame_stack,
-            output_device=self.device,
-            storage_devices=self.cfg.storage_devices,
-        )
 
     def setup_training(self, robomimic_cfg, obs_shape_meta):
         """Set up student model and training parameters."""
@@ -437,10 +421,6 @@ class Dagger(object):
         self.num_learning_iterations = self.cfg.dagger.num_learning_iterations
         self.num_learning_epochs = self.cfg.dagger.num_learning_epochs
         self.num_transitions_per_iter = self.cfg.dagger.num_transitions_per_iter
-
-    @property
-    def storage(self):
-        return self.train_storage
 
     def reset_envs(self):
         # TODO: support multitask dagger here (switch objects, reload policies, and recreate envs when necessary)
@@ -839,7 +819,6 @@ class Dagger(object):
             "total_epochs": self.total_epochs,
         }
         if save_storage:
-            checkpoint["train_storage"] = self.train_storage.save()
             checkpoint["eval_storage"] = self.eval_storage.save()
         torch.save(
             checkpoint,
@@ -851,9 +830,6 @@ class Dagger(object):
     def load_checkpoint(self, checkpoint_path):
         checkpoint = torch.load(checkpoint_path)
         self.student_player.deserialize(checkpoint["student_state_dict"])
-        if 'train_storage' in checkpoint:
-            self.train_storage.load(checkpoint["train_storage"])
-            print("Loaded storage of size:", self.train_storage.step, self.train_storage.valid_buffers, self.train_storage.cur)
         if 'eval_storage' in checkpoint:
             self.eval_storage.load(checkpoint["eval_storage"])
         self.total_steps = checkpoint["total_steps"]
