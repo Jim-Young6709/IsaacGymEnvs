@@ -284,7 +284,7 @@ class Dagger(object):
         robomimic_cfg.lock()
         ObsUtils.initialize_obs_utils_with_config(robomimic_cfg)
         self.seq_length = robomimic_cfg.train.seq_length
-        self.frame_stack = robomimic_cfg.train.frame_stack
+        self.frame_stack = 0 # robomimic_cfg.train.frame_stack, TODO: hardcode to 0 for now
 
         # logging
         run_name = f"{self.cfg.wandb_run_name}"
@@ -595,6 +595,9 @@ class Dagger(object):
 
         for epoch in range(self.num_learning_epochs):
             for indices in batch_indices:
+                # TODO: definitely a bug here, input shape to rnn should be (B, T, ...), checked with robomimic
+                # might be a bug related to frame stack, when using rnn should set it to 0
+                import ipdb ; ipdb.set_trace()
                 obs_batch, visual_batch, actions_expert_batch = self.storage.get_batch(indices)
                 batch = {
                     "actions": actions_expert_batch,

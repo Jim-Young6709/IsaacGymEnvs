@@ -284,7 +284,7 @@ class Dagger(object):
         robomimic_cfg.lock()
         ObsUtils.initialize_obs_utils_with_config(robomimic_cfg)
         self.seq_length = robomimic_cfg.train.seq_length
-        self.frame_stack = robomimic_cfg.train.frame_stack
+        self.frame_stack = 0 # robomimic_cfg.train.frame_stack, TODO: hardcode to 0 for now
 
         # logging
         run_name = f"{self.cfg.wandb_run_name}"
@@ -300,7 +300,7 @@ class Dagger(object):
         obs_shape_meta = get_obs_shape_meta()
 
         # set up training
-        self.setup_training(robomimic_cfg, obs_shape_meta)
+        self.setup_training(robomimic_cfg, obs_shape_meta, self.cfg.ckpt_path)
         self.total_steps = 0
         self.total_episodes = 0
         self.total_epochs = 0
@@ -360,12 +360,13 @@ class Dagger(object):
             output_device=self.device,
         )
 
-    def setup_training(self, robomimic_cfg, obs_shape_meta):
+    def setup_training(self, robomimic_cfg, obs_shape_meta, ckpt_path=None):
         """Set up student model and training parameters."""
         self.student_player = RMUtils.build_model(
             config=robomimic_cfg,
             shape_meta=obs_shape_meta,
             device=torch.device(self.cfg.rl_device),
+            ckpt_path=ckpt_path,
         )
 
         # print student model details
@@ -453,107 +454,127 @@ class Dagger(object):
             run = None
 
         print("Training DAgger...")
-        state_obs = self.env.compute_observations()
-
-        visual_obs = torch.arange(self.env.num_envs, device=self.device)
-        # state_frame0_obs, visual_frame0_obs = state_obs.clone(), visual_obs.clone()
-        # prev_state_obs = state_obs.clone()
-
         with tqdm(range(self.total_episodes, self.total_episodes + self.num_learning_iterations), desc='DAgger Training') as pbar:
             test_success = self.test(num_test_iterations=1) # just to prime the dict
             pbar.set_postfix(
                 ep=self.total_episodes,
-                mse=f"{0.0:.4f}",
-                l1=f"{0.0:.4f}",
-                gmm=f"{0.0:.4f}",
+                # mse=f"{0.0:.4f}",
+                # l1=f"{0.0:.4f}",
+                # gmm=f"{0.0:.4f}",
                 test_success=f"{test_success['training_success']:.4f}",
             )
+
+            reset_buffer = torch.ones(self.env.num_envs, dtype=torch.bool)
+            # only compatible with no storage buffer version
+
             for iter_id in pbar:
                 wandb_log_dict = {}
                 # rollout student
                 t1 = time.time()
                 with torch.inference_mode():
                     self.student_player.set_eval()
-                    for _ in range(self.num_transitions_per_iter):
-                        # TODO: get action from (base_policy + fabric), kinda messy, cleanup later
-                        abs_base_policy_action = self.env.base_delta_action + self.env.get_joint_angles()
-                        self.env.compute_fabric_action(abs_base_policy_action)
-                        actions_expert = self.env.delta_fabric_actions
 
-                        # if self.frame_stack > 0:
-                        #     if self.storage.ep_step == self.frame_stack:
-                        #         # state_obs_history = deque([concat_state_obs.clone().unsqueeze(1) for _ in range(self.frame_stack)], maxlen=self.frame_stack)
-                        #         # visual_obs_history = deque([concat_visual_obs.clone().unsqueeze(1) for _ in range(self.frame_stack)], maxlen=self.frame_stack)
-                        #         current_config_obs_history = deque([current_config_obs.clone().unsqueeze(1) for _ in range(self.frame_stack)], maxlen=self.frame_stack)
-                        #         goal_config_obs_history = deque([goal_config_obs.clone().unsqueeze(1) for _ in range(self.frame_stack)], maxlen=self.frame_stack)
-                        #         pcd_obs_history = deque([pcd_obs.clone().unsqueeze(1) for _ in range(self.frame_stack)], maxlen=self.frame_stack)
-                        #     else:
-                        #         # state_obs_history.append(concat_state_obs.clone().unsqueeze(1))
-                        #         # visual_obs_history.append(concat_visual_obs.clone().unsqueeze(1))
-                        #         current_config_obs_history.append(current_config_obs.clone().unsqueeze(1))
-                        #         goal_config_obs_history.append(goal_config_obs.clone().unsqueeze(1))
-                        #         pcd_obs_history.append(pcd_obs.clone().unsqueeze(1))
-                        #     # concat_state_obs = torch.cat(tuple(state_obs_history), dim=1)
-                        #     # concat_visual_obs = torch.cat(tuple(visual_obs_history), dim=1)
-                        #     stack_current_config_obs = torch.cat(tuple(current_config_obs_history), dim=1)
-                        #     stack_goal_config_obs = torch.cat(tuple(goal_config_obs_history), dim=1)
-                        #     stack_pcd_obs = torch.cat(tuple(pcd_obs_history), dim=1)
+                    # TODO: get action from (base_policy + fabric), kinda messy, cleanup later
+                    abs_base_policy_action = self.env.base_delta_action + self.env.get_joint_angles()
+                    self.env.compute_fabric_action(abs_base_policy_action)
+                    actions_expert = self.env.delta_fabric_actions
 
-                        obs_student = OrderedDict()
-                        obs_student["current_angles"] = self.env.get_joint_angles()
-                        obs_student["goal_angles"] = self.env.goal_config.clone()
-                        obs_student["compute_pcd_params"] = self.env.combined_pcds
-                        actions = self.student_player.get_action(obs_dict=obs_student)
+                    current_angles = self.env.get_joint_angles()
+                    goal_angles = self.env.goal_config.clone()
+                    compute_pcd_params = self.env.combined_pcds
 
-                        # take a step
-                        self.env.force_no_fabric = True
-                        self.env.no_base_action = True
-                        obs_dict, rews, dones, infos = self.env.step(actions)
-                        self.env.force_no_fabric = False
-                        self.env.no_base_action = False
-
-                        # update storage
-                        self.storage.add_transitions(state_obs, visual_obs, actions_expert, rews, dones)
-
-                        # update new obs
-                        prev_state_obs = state_obs.clone()
-                        state_obs = obs_dict["obs"].clone()
-                        if dones.any():
-                            self.total_episodes += 1
-                            avg_mse_loss, avg_l1_loss, avg_gmm_loss = self.eval()
-                            wandb_log_dict.update({
-                                "distillation/eval_mse": avg_mse_loss,
-                                "distillation/eval_l1": avg_l1_loss,
-                                "distillation/eval_gmm": avg_gmm_loss,
-                            })
-
-                            pbar.set_postfix(
-                                ep=self.total_episodes,
-                                mse=f"{avg_mse_loss:.4f}",
-                                l1=f"{avg_l1_loss:.4f}",
-                                gmm=f"{avg_gmm_loss:.4f}",
-                                test_success=f"{test_success['training_success']:.4f}",
-                            )
-
-                            self.reset_envs()
-                            self.student_player.reset()
-                            state_obs = self.env.compute_observations()
-                            visual_obs = torch.arange(self.env.num_envs, device=self.device)
+                    if self.seq_length > 0:
+                        if reset_buffer.all() == True:
+                            current_angles_buffer = deque([current_angles.clone().unsqueeze(1) for _ in range(self.seq_length)], maxlen=self.seq_length)
+                            goal_angles_buffer = deque([goal_angles.clone().unsqueeze(1) for _ in range(self.seq_length)], maxlen=self.seq_length)
+                            pcd_buffer = deque([compute_pcd_params.clone().unsqueeze(1) for _ in range(self.seq_length)], maxlen=self.seq_length)
+                            actions_expert_buffer = deque([actions_expert.clone().unsqueeze(1) for _ in range(self.seq_length)], maxlen=self.seq_length)
+                            reset_buffer = torch.zeros(self.env.num_envs, dtype=torch.bool)
                         else:
-                            visual_obs = torch.arange(self.env.num_envs, device=self.device)
+                            current_angles_buffer.append(current_angles.clone().unsqueeze(1))
+                            goal_angles_buffer.append(goal_angles.clone().unsqueeze(1))
+                            pcd_buffer.append(compute_pcd_params.clone().unsqueeze(1))
+                            actions_expert_buffer.append(actions_expert.clone().unsqueeze(1))
 
-                        if (self.total_steps + 1) % (self.env.max_episode_length * self.cfg.test_frequency) == 0:
-                            test_success = self.test(num_test_iterations=self.cfg.test_episodes, run=run)
-                            self.save_checkpoint(f"checkpoint_step{self.total_steps + 1}_success_{test_success['training_success']:.4f}.pth", save_storage=False)
-                            for k in test_success:
-                                wandb_log_dict[f"distillation/test_{k}"] = test_success[k]
+                        if reset_buffer.any() == True:
+                            for i in range(self.seq_length):
+                                current_angles_buffer[i][reset_buffer, :, :] = current_angles[reset_buffer].clone().unsqueeze(1)
+                                goal_angles_buffer[i][reset_buffer, :, :] = goal_angles[reset_buffer].clone().unsqueeze(1)
+                                pcd_buffer[i][reset_buffer, :, :] = compute_pcd_params[reset_buffer].clone().unsqueeze(1)
+                                actions_expert_buffer[i][reset_buffer, :, :] = actions_expert[reset_buffer].clone().unsqueeze(1)
+                            reset_buffer = torch.zeros(self.env.num_envs, dtype=torch.bool)
 
-                        self.total_steps += 1
+                        concat_current_angles = torch.cat(tuple(current_angles_buffer), dim=1)
+                        concat_goal_angles = torch.cat(tuple(goal_angles_buffer), dim=1)
+                        concat_pcd = torch.cat(tuple(pcd_buffer), dim=1)
+                        concat_actions_expert = torch.cat(tuple(actions_expert_buffer), dim=1)
+
+                    obs_student = OrderedDict()
+                    obs_student["current_angles"] = current_angles
+                    obs_student["goal_angles"] = goal_angles
+                    obs_student["compute_pcd_params"] = compute_pcd_params
+                    actions = self.student_player.get_action(obs_dict=obs_student)
+
+                    # take a step
+                    self.env.force_no_fabric = True
+                    self.env.no_base_action = True
+                    obs_dict, rews, dones, infos = self.env.step(actions)
+                    self.env.force_no_fabric = False
+                    self.env.no_base_action = False
+
+                    if dones.any():
+                        self.total_episodes += 1
+                        # avg_mse_loss, avg_l1_loss, avg_gmm_loss = self.eval()
+                        # wandb_log_dict.update({
+                        #     "distillation/eval_mse": avg_mse_loss,
+                        #     "distillation/eval_l1": avg_l1_loss,
+                        #     "distillation/eval_gmm": avg_gmm_loss,
+                        # })
+
+                        pbar.set_postfix(
+                            ep=self.total_episodes,
+                            # mse=f"{avg_mse_loss:.4f}",
+                            # l1=f"{avg_l1_loss:.4f}",
+                            # gmm=f"{avg_gmm_loss:.4f}",
+                            test_success=f"{test_success['training_success']:.4f}",
+                        )
+
+                        # this is very specific to LSTM policies
+                        hidden_state = RMUtils.get_hidden_state(self.student_player)
+                        hidden_state[0][0][:, dones, ...] = 0 # reset hidden state
+                        hidden_state[0][1][:, dones, ...] = 0 # reset cell state
+                        RMUtils.set_hidden_state(self.student_player, hidden_state)
+
+                    if (self.total_steps + 1) % (self.env.max_episode_length * self.cfg.test_frequency) == 0:
+                        test_success = self.test(num_test_iterations=self.cfg.test_episodes, run=run)
+                        self.save_checkpoint(f"checkpoint_step{self.total_steps + 1}_success_{test_success['training_success']:.4f}.pth", save_storage=False)
+                        for k in test_success:
+                            wandb_log_dict[f"distillation/test_{k}"] = test_success[k]
+
+                        pbar.set_postfix(
+                            ep=self.total_episodes,
+                            # mse=f"{avg_mse_loss:.4f}",
+                            # l1=f"{avg_l1_loss:.4f}",
+                            # gmm=f"{avg_gmm_loss:.4f}",
+                            test_success=f"{test_success['training_success']:.4f}",
+                        )
+
+                    self.total_steps += 1
+
                 t2 = time.time()
                 # learning step
                 t2 = time.time()
                 hidden_state = RMUtils.get_hidden_state(self.student_player)
-                avg_loss = self.update()
+
+                training_batch = {
+                    "actions": concat_actions_expert,
+                    "obs": {
+                        "current_angles": concat_current_angles,
+                        "goal_angles": concat_goal_angles,
+                        "compute_pcd_params": concat_pcd,
+                    }
+                }
+                avg_loss = self.update(training_batch)
                 t3 = time.time()
                 wandb_log_dict["distillation/train_avg_loss"] = avg_loss
                 RMUtils.set_hidden_state(self.student_player, hidden_state)
@@ -565,19 +586,38 @@ class Dagger(object):
                 if not self.cfg.logging.suppress_timing:
                     print(f"Running time: rollout: {t2 - t1:.2f}s, update: {t3 - t2:.2f}s")
                 
-                if iter_id % 10 == 0:
+                if iter_id % 100 == 0:
                     # save checkpoint every 10 epochs, its expensive to save the buffer (30s)
                     self.save_checkpoint(prefix='checkpoint_latest')
         self.save_checkpoint(prefix='checkpoint_latest')
 
-    def update(self):
+    def update(self, training_batch=None):
         model = self.student_player
         model.set_train()
 
         # TODO
+        tot_loss = 0.0
+
+        if training_batch is not None:
+            # process batch for training
+            input_batch = model.process_batch_for_training(training_batch)
+            input_batch = model.postprocess_batch_for_training(input_batch, obs_normalization_stats=None)
+
+            # forward pass
+            predictons = model._forward_training(input_batch)
+            losses = model._compute_losses(predictons, input_batch)
+
+            # backward pass
+            model.optimizers["policy"].zero_grad()
+            losses["action_loss"].backward()
+            model.optimizers["policy"].step()
+
+            tot_loss = losses["action_loss"].detach().item()
+
+            return tot_loss
+
         batch_indices = self.storage.mini_batch_generator(self.cfg.dagger.batch_size)
         num_batches = len(batch_indices)
-        tot_loss = 0.0
 
         for epoch in range(self.num_learning_epochs):
             for indices in batch_indices:
@@ -675,38 +715,6 @@ class Dagger(object):
                 visual_obs = torch.arange(self.env.num_envs, device=self.device)
 
                 for test_step in range(self.env.max_episode_length - 1):
-                    # # get student obs
-                    # current_config_obs = self.env.get_joint_angles()
-                    # goal_config_obs = self.env.goal_config
-                    # pcd_obs = self.env.combined_pcds
-                    
-                    # concat_state_obs, concat_visual_obs = get_student_obs(
-                    #     state_obs[..., :7], 
-                    #     self.visual_obs_handler.apply_noise(visual_obs), 
-                    #     state_frame0_obs[..., :7], 
-                    #     self.visual_obs_handler.apply_noise(visual_frame0_obs), 
-                    #     prev_state_obs[..., :7],
-                    #     self.cfg.dagger.visual_obs_type,
-                    # )
-                    # if self.frame_stack > 0:
-                    #     if self.storage.ep_step == self.frame_stack:
-                    #         # state_obs_history = deque([concat_state_obs.clone().unsqueeze(1) for _ in range(self.frame_stack)], maxlen=self.frame_stack)
-                    #         # visual_obs_history = deque([concat_visual_obs.clone().unsqueeze(1) for _ in range(self.frame_stack)], maxlen=self.frame_stack)
-                    #         current_config_obs_history = deque([current_config_obs.clone().unsqueeze(1) for _ in range(self.frame_stack)], maxlen=self.frame_stack)
-                    #         goal_config_obs_history = deque([goal_config_obs.clone().unsqueeze(1) for _ in range(self.frame_stack)], maxlen=self.frame_stack)
-                    #         pcd_obs_history = deque([pcd_obs.clone().unsqueeze(1) for _ in range(self.frame_stack)], maxlen=self.frame_stack)
-                    #     else:
-                    #         # state_obs_history.append(concat_state_obs.clone().unsqueeze(1))
-                    #         # visual_obs_history.append(concat_visual_obs.clone().unsqueeze(1))
-                    #         current_config_obs_history.append(current_config_obs.clone().unsqueeze(1))
-                    #         goal_config_obs_history.append(goal_config_obs.clone().unsqueeze(1))
-                    #         pcd_obs_history.append(pcd_obs.clone().unsqueeze(1))
-                    #     # concat_state_obs = torch.cat(tuple(state_obs_history), dim=1)
-                    #     # concat_visual_obs = torch.cat(tuple(visual_obs_history), dim=1)
-                    #     stack_current_config_obs = torch.cat(tuple(current_config_obs_history), dim=1)
-                    #     stack_goal_config_obs = torch.cat(tuple(goal_config_obs_history), dim=1)
-                    #     stack_pcd_obs = torch.cat(tuple(pcd_obs_history), dim=1)
-
                     obs_student = OrderedDict()
                     obs_student["current_angles"] = self.env.get_joint_angles()
                     obs_student["goal_angles"] = self.env.goal_config.clone()
@@ -754,7 +762,6 @@ class Dagger(object):
             print(f"Finished testing in {time.time() - tik:.2f}s")
 
         return {k: v / total_iters_per_key[k] for k, v in num_success.items()}
-
 
     def save_checkpoint(self, prefix='checkpoint_latest', save_storage=True):
         start_time = time.time()

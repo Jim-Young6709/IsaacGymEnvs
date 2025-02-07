@@ -62,15 +62,23 @@ def get_dataset_loader(config, shape_meta, in_memory=True):
         )
 
 
-def build_model(config, shape_meta, device):
-    model = algo_factory(
-        algo_name=config.algo_name,
-        config=config,
-        obs_key_shapes=shape_meta["all_shapes"],
-        ac_dim=shape_meta["ac_dim"],
-        device=device,
-    )
-    model.nets['policy'] = DDPModelWrapper(model.nets['policy'])
+def build_model(config, shape_meta, device, ckpt_path=None):
+    if ckpt_path is not None and ckpt_path != 'None':
+        model, _ = FileUtils.model_from_checkpoint(
+            ckpt_path=ckpt_path,
+            device=device,
+            verbose=True,
+            config=config
+        )
+    else:
+        model = algo_factory(
+            algo_name=config.algo_name,
+            config=config,
+            obs_key_shapes=shape_meta["all_shapes"],
+            ac_dim=shape_meta["ac_dim"],
+            device=device,
+        )
+        model.nets['policy'] = DDPModelWrapper(model.nets['policy'])
     return model
 
 

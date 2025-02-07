@@ -203,5 +203,6 @@ logging:
 
 # resume training
 resume: ''
+ckpt_path: 'None'
 
 storage_devices: [0]
