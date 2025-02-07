@@ -609,7 +609,6 @@ class Dagger(object):
 
             # backward pass
             model.optimizers["policy"].zero_grad()
-            import ipdb ; ipdb.set_trace()
             if self.cfg.dagger.loss_type == "gmm":
                 loss_type = "action_loss"
             elif self.cfg.dagger.loss_type == "l1":
