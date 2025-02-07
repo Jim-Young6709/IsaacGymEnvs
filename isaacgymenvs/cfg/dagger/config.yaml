@@ -1,6 +1,7 @@
 dataset_path: datasets/pick_cube_depth
 batch_size: None  # defaults to value in student robomimic cfg
 lr: None  # defaults to value in student robomimic cfg
+loss_type: l1 # l1 / l2 / gmm
 deterministic_expert: True
 buffer_size: 1000
 num_learning_iterations: 1000000
