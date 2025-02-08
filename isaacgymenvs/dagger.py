@@ -68,6 +68,7 @@ class Storage(object):
         traj_length = traj_length
         self.traj_length = traj_length
         self.seq_length = seq_length
+        self.expert_success_rate = 0
 
         buffer_size = buffer_size * num_envs
 
@@ -246,6 +247,7 @@ class Storage(object):
             "step": self.step,
             "ep_step": self.ep_step,
             "valid_buffers": self.valid_buffers,
+            "expert_success_rate": self.expert_success_rate,
         }
         return d
     
@@ -263,6 +265,7 @@ class Storage(object):
         self.step = data["step"]
         self.ep_step = data["ep_step"]
         self.valid_buffers = data["valid_buffers"]
+        self.expert_success_rate = data["expert_success_rate"]
         self.current_device_idx = 0
 
 class Dagger(object):
@@ -308,8 +311,10 @@ class Dagger(object):
 
         # restore checkpoint
         if self.cfg.resume:
+            self.resume = True
             self.load_checkpoint(self.cfg.resume)
         else:
+            self.resume = False
             if not self.cfg.eval_mode:
                 # have to fill the storage with data before training
                 self.collect_data("eval")
@@ -413,6 +418,8 @@ class Dagger(object):
         elif split == "eval":
             storage = self.eval_storage
 
+        expert_success_rate = 0
+
         for iter_id in tqdm(range(storage.buffer_size*self.env.max_episode_length), desc=f"{split} data collection"):
             # take a step
             self.env.force_no_fabric = False
@@ -424,6 +431,7 @@ class Dagger(object):
 
             if (iter_id + 1) % self.env.max_episode_length == 0:
                 dones[:] = True
+                expert_success_rate += infos['training_success']
 
             # update storage
             storage.add_transitions(state_obs, visual_obs, actions_expert, rews, dones)
@@ -431,11 +439,17 @@ class Dagger(object):
             # update new obs
             state_obs = obs_dict["obs"]
             if dones.any():
-                self.reset_envs()
+                hidden_state = RMUtils.get_hidden_state(self.env.base_model.policy)
+                hidden_state[0][0][:, dones, ...] = 0 # reset hidden state
+                hidden_state[0][1][:, dones, ...] = 0 # reset cell state
+                RMUtils.set_hidden_state(self.env.base_model.policy, hidden_state)
+
                 state_obs = self.env.compute_observations()
                 visual_obs = None  # reset prev visual obs
             visual_obs = torch.arange(self.env.num_envs, device=self.device)
 
+        expert_success_rate /= storage.buffer_size
+        storage.expert_success_rate = expert_success_rate
         self.reset_envs()
 
     def train(self):
@@ -447,11 +461,15 @@ class Dagger(object):
                 config=self.cfg_dict,
                 sync_tensorboard=True,
                 name=self.cfg.wandb_run_name,
-                resume=True,
+                resume=self.resume,
                 dir=self.log_dir,
             )
         else:
             run = None
+
+        # log expert success rate, if have training storage buffer should use that instead
+        wandb_log_dict = {"expert/expert_success_rate": self.eval_storage.expert_success_rate}
+        self.log(run, wandb_log_dict)
 
         print("Training DAgger...")
         with tqdm(range(self.total_episodes, self.total_episodes + self.num_learning_iterations), desc='DAgger Training') as pbar:

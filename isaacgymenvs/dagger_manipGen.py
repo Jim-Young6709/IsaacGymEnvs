@@ -447,7 +447,11 @@ class Dagger(object):
             # update new obs
             state_obs = obs_dict["obs"]
             if dones.any():
-                self.reset_envs()
+                hidden_state = RMUtils.get_hidden_state(self.env.base_model.policy)
+                hidden_state[0][0][:, dones, ...] = 0 # reset hidden state
+                hidden_state[0][1][:, dones, ...] = 0 # reset cell state
+                RMUtils.set_hidden_state(self.env.base_model.policy, hidden_state)
+
                 state_obs = self.env.compute_observations()
                 visual_obs = None  # reset prev visual obs
             visual_obs = torch.arange(self.env.num_envs, device=self.device)
