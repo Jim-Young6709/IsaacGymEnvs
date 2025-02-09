@@ -489,7 +489,7 @@ class Dagger(object):
                 wandb_log_dict = {}
                 # rollout student
                 t1 = time.time()
-                with torch.inference_mode():
+                with torch.no_grad():
                     self.student_player.set_eval()
 
                     # TODO: get action from (base_policy + fabric), kinda messy, cleanup later
@@ -630,9 +630,9 @@ class Dagger(object):
             if self.cfg.dagger.loss_type == "gmm":
                 loss_type = "action_loss"
             elif self.cfg.dagger.loss_type == "l1":
-                loss_type = "l1_loss"
+                loss_type = "dists_means_l1_loss"
             elif self.cfg.dagger.loss_type == "l2":
-                loss_type = "l2_loss"
+                loss_type = "dists_means_l2_loss"
 
             losses[loss_type].backward()
             model.optimizers["policy"].step()
