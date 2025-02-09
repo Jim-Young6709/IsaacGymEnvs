@@ -473,7 +473,7 @@ class Dagger(object):
 
         print("Training DAgger...")
         with tqdm(range(self.total_episodes, self.total_episodes + self.num_learning_iterations), desc='DAgger Training') as pbar:
-            test_success = self.test(num_test_iterations=1) # just to prime the dict
+            test_success = self.test(num_test_iterations=self.cfg.test_episodes) # just to prime the dict
             pbar.set_postfix(
                 ep=self.total_episodes,
                 # mse=f"{0.0:.4f}",

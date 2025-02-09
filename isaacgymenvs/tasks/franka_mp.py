@@ -456,7 +456,7 @@ class FrankaMP(VecTask):
 
         robot_config = self.states['q'][:, :7].clone()
         for _ in range(self.base_policy_sub_steps):
-            self.update_robot_pcds(robot_config)
+            self.update_robot_pcds(robot_config) # update pcd for open loop
             obs_base = OrderedDict()
             obs_base["current_angles"] = robot_config
             obs_base["goal_angles"] = self.goal_config.clone()
@@ -481,6 +481,7 @@ class FrankaMP(VecTask):
 
         self.obs_buf = obs
 
+        self.update_robot_pcds() # update pcd for current states
         return self.obs_buf
 
     def check_robot_collision(self):
