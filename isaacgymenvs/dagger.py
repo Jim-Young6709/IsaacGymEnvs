@@ -407,7 +407,7 @@ class Dagger(object):
             self.setup_expert_multitask()
         self.env.reset_idx(env_ids)
 
-    @torch.inference_mode()
+    @torch.no_grad()
     def collect_data(self, split="train"):
         """Collect trajectories for evaluation with the expert."""
         state_obs = self.env.compute_observations()
@@ -677,7 +677,7 @@ class Dagger(object):
         tot_loss /= num_batches * self.num_learning_epochs
         return tot_loss
 
-    @torch.inference_mode()
+    @torch.no_grad()
     def eval(self):
         model = self.student_player
         model.set_train()
@@ -717,7 +717,7 @@ class Dagger(object):
 
         return mse, l1, gmm
 
-    @torch.inference_mode()
+    @torch.no_grad()
     def test(self, num_test_iterations=5, run=None):
         """Test the student policy."""
         self.env.disable_hardcode_control = False
