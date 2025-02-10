@@ -309,6 +309,7 @@ class Dagger(object):
         self.total_epochs = 0
         self.log_history = {}
 
+        assert self.env.num_envs % self.cfg.dagger.batch_size == 0, "Number of environments must be divisible by mini batch size"
         # restore checkpoint
         if self.cfg.resume:
             self.resume = True
@@ -482,6 +483,9 @@ class Dagger(object):
                 test_success=f"{test_success['training_success']:.4f}",
             )
 
+            wandb_log_dict = {f"distillation/test_training_success": test_success['training_success']}
+            self.log(run, wandb_log_dict)
+
             reset_buffer = torch.ones(self.env.num_envs, dtype=torch.bool)
             # only compatible with no storage buffer version
 
@@ -613,35 +617,51 @@ class Dagger(object):
         model = self.student_player
         model.set_train()
 
-        # TODO
+        mini_batch_size = self.cfg.dagger.batch_size
         tot_loss = 0.0
+        num_mini_batches = self.env.num_envs // mini_batch_size
+
+        if self.cfg.dagger.loss_type == "gmm":
+            loss_type = "action_loss"
+        elif self.cfg.dagger.loss_type == "l1":
+            loss_type = "dists_means_l1_loss"
+        elif self.cfg.dagger.loss_type == "l2":
+            loss_type = "dists_means_l2_loss"
 
         if training_batch is not None:
-            # process batch for training
-            input_batch = model.process_batch_for_training(training_batch)
-            input_batch = model.postprocess_batch_for_training(input_batch, obs_normalization_stats=None)
+            for i in range(num_mini_batches):
+                start = i * mini_batch_size
+                end = start + mini_batch_size
 
-            # forward pass
-            predictons = model._forward_training(input_batch)
-            losses = model._compute_losses(predictons, input_batch)
+                # create mini batch
+                mini_batch = {
+                    "actions": training_batch["actions"][start:end],
+                    "obs": {
+                        "current_angles": training_batch["obs"]["current_angles"][start:end],
+                        "goal_angles": training_batch["obs"]["goal_angles"][start:end],
+                        "compute_pcd_params": training_batch["obs"]["compute_pcd_params"][start:end],
+                    }
+                }
 
-            # backward pass
-            model.optimizers["policy"].zero_grad()
-            if self.cfg.dagger.loss_type == "gmm":
-                loss_type = "action_loss"
-            elif self.cfg.dagger.loss_type == "l1":
-                loss_type = "dists_means_l1_loss"
-            elif self.cfg.dagger.loss_type == "l2":
-                loss_type = "dists_means_l2_loss"
+                # process batch for training
+                input_batch = model.process_batch_for_training(mini_batch)
+                input_batch = model.postprocess_batch_for_training(input_batch, obs_normalization_stats=None)
 
-            losses[loss_type].backward()
-            model.optimizers["policy"].step()
+                # forward pass
+                predictons = model._forward_training(input_batch)
+                losses = model._compute_losses(predictons, input_batch)
 
-            tot_loss = losses[loss_type].detach().item()
+                # backward pass
+                model.optimizers["policy"].zero_grad()
 
+                losses[loss_type].backward()
+                model.optimizers["policy"].step()
+
+                tot_loss += losses[loss_type].detach().item()
+            tot_loss /= num_mini_batches
             return tot_loss
 
-        batch_indices = self.storage.mini_batch_generator(self.cfg.dagger.batch_size)
+        batch_indices = self.storage.mini_batch_generator(mini_batch_size)
         num_batches = len(batch_indices)
 
         for epoch in range(self.num_learning_epochs):
