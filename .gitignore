@@ -27,6 +27,7 @@ _doxygen
 logs*
 nn/
 runs/
+runs_dagger/
 .idea
 outputs/
 *.hydra*

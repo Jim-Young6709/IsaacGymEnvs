@@ -49,6 +49,8 @@ env:
   base_policy_only: False
   hdf5_path: null
 
+  reset_on_collision: False
+
   capture_video: False
   capture_envs: 1
 

@@ -466,6 +466,7 @@ class FrankaMPFull(FrankaMP):
         quat_err = orientation_error(self.goal_ee[:, 3:], current_ee[:, 3:])
         goal_reaching = (pos_err < self.lock_in_pos_err) & (quat_err < self.lock_in_rot_err)
         self.lock_in[goal_reaching] = True
+        # goal_reaching = (pos_err < 0.01) & (quat_err < 15.0) # TODO: should apply this metric later
 
         num_visited_voxels_t1 = torch.sum(self.voxel_visit_binary, dim=1)
 
@@ -482,15 +483,16 @@ class FrankaMPFull(FrankaMP):
         self.extras['intrinsic_rewards'] = torch.mean(intrinsic_rewards).item()
         self.extras['num_visited_voxels_ave'] = torch.mean(num_visited_voxels_t1).item()
 
-        self.success_flags[goal_reaching & (self.reset_buf == 1)] = 1
+        self.success_flags[goal_reaching & (self.reset_buf == 1) & (self.collision_flags == 0)] = 1
         self.success_flags[(~goal_reaching) & (self.reset_buf == 1)] = 0
-        self.collision_flags[self.reset_buf == 1] = 0
         reaching_flags = torch.zeros(self.num_envs, device=self.device) # 0 for not reached, 1 for reached
         reaching_flags[goal_reaching & (self.reset_buf == 1)] = 1
 
-        self.extras['training_success'] = torch.mean(self.success_flags.float()).item()
+        self.extras['success_rate'] = torch.mean(self.success_flags.float()).item()
         self.extras['collision_rate'] = torch.mean(self.collision_flags.float()).item()
         self.extras['reaching_rate'] = torch.mean(reaching_flags.float()).item()
+
+        self.collision_flags[self.reset_buf == 1] = 0 # reset collision rate after logging
 
         self.extras['actions/residual_action_magnitude'] = actions.norm(dim=1).mean()
         self.extras['actions/base_action_magnitude'] = self.base_delta_action.norm(dim=1).mean()
