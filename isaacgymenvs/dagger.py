@@ -493,7 +493,7 @@ class Dagger(object):
         self.log(run, wandb_log_dict)
 
         print("Training DAgger...")
-        with tqdm(range(self.total_episodes, self.total_episodes + self.num_learning_iterations), desc='DAgger Training') as pbar:
+        with tqdm(range(self.total_steps, self.total_steps + self.num_learning_iterations), desc='DAgger Training') as pbar:
             test_success = self.test(num_test_iterations=self.cfg.test_episodes) # just to prime the dict
             pbar.set_postfix(
                 ep=self.total_episodes,
@@ -510,7 +510,8 @@ class Dagger(object):
             }
             self.log(run, wandb_log_dict)
 
-            reset_buffer = torch.ones(self.env.num_envs, dtype=torch.bool)
+            reset_buffer = torch.zeros(self.env.num_envs, dtype=torch.bool)
+            init_buffer = True
             # only compatible with no storage buffer version
 
             for iter_id in pbar:
@@ -529,32 +530,6 @@ class Dagger(object):
                     goal_angles = self.env.goal_config.clone()
                     compute_pcd_params = self.env.combined_pcds
 
-                    if self.seq_length > 0:
-                        if reset_buffer.all() == True:
-                            current_angles_buffer = deque([current_angles.clone().unsqueeze(1) for _ in range(self.seq_length)], maxlen=self.seq_length)
-                            goal_angles_buffer = deque([goal_angles.clone().unsqueeze(1) for _ in range(self.seq_length)], maxlen=self.seq_length)
-                            pcd_buffer = deque([compute_pcd_params.clone().unsqueeze(1) for _ in range(self.seq_length)], maxlen=self.seq_length)
-                            actions_expert_buffer = deque([actions_expert.clone().unsqueeze(1) for _ in range(self.seq_length)], maxlen=self.seq_length)
-                            reset_buffer = torch.zeros(self.env.num_envs, dtype=torch.bool)
-                        else:
-                            current_angles_buffer.append(current_angles.clone().unsqueeze(1))
-                            goal_angles_buffer.append(goal_angles.clone().unsqueeze(1))
-                            pcd_buffer.append(compute_pcd_params.clone().unsqueeze(1))
-                            actions_expert_buffer.append(actions_expert.clone().unsqueeze(1))
-
-                        if reset_buffer.any() == True:
-                            for i in range(self.seq_length):
-                                current_angles_buffer[i][reset_buffer, :, :] = current_angles[reset_buffer].clone().unsqueeze(1)
-                                goal_angles_buffer[i][reset_buffer, :, :] = goal_angles[reset_buffer].clone().unsqueeze(1)
-                                pcd_buffer[i][reset_buffer, :, :] = compute_pcd_params[reset_buffer].clone().unsqueeze(1)
-                                actions_expert_buffer[i][reset_buffer, :, :] = actions_expert[reset_buffer].clone().unsqueeze(1)
-                            reset_buffer = torch.zeros(self.env.num_envs, dtype=torch.bool)
-
-                        concat_current_angles = torch.cat(tuple(current_angles_buffer), dim=1)
-                        concat_goal_angles = torch.cat(tuple(goal_angles_buffer), dim=1)
-                        concat_pcd = torch.cat(tuple(pcd_buffer), dim=1)
-                        concat_actions_expert = torch.cat(tuple(actions_expert_buffer), dim=1)
-
                     obs_student = OrderedDict()
                     obs_student["current_angles"] = current_angles
                     obs_student["goal_angles"] = goal_angles
@@ -568,7 +543,32 @@ class Dagger(object):
                     self.env.force_no_fabric = False
                     self.env.no_base_action = False
 
-                    if dones.any():
+                    if self.seq_length > 0:
+                        if init_buffer:
+                            current_angles_buffer = deque([current_angles.clone().unsqueeze(1) for _ in range(self.seq_length)], maxlen=self.seq_length)
+                            goal_angles_buffer = deque([goal_angles.clone().unsqueeze(1) for _ in range(self.seq_length)], maxlen=self.seq_length)
+                            pcd_buffer = deque([compute_pcd_params.clone().unsqueeze(1) for _ in range(self.seq_length)], maxlen=self.seq_length)
+                            actions_expert_buffer = deque([actions_expert.clone().unsqueeze(1) for _ in range(self.seq_length)], maxlen=self.seq_length)
+                            init_buffer = False
+
+                        if reset_buffer.any():
+                            for i in range(self.seq_length):
+                                current_angles_buffer[i][reset_buffer, :, :] = current_angles[reset_buffer].clone().unsqueeze(1)
+                                goal_angles_buffer[i][reset_buffer, :, :] = goal_angles[reset_buffer].clone().unsqueeze(1)
+                                pcd_buffer[i][reset_buffer, :, :] = compute_pcd_params[reset_buffer].clone().unsqueeze(1)
+                                actions_expert_buffer[i][reset_buffer, :, :] = actions_expert[reset_buffer].clone().unsqueeze(1)
+                        else:
+                            current_angles_buffer.append(current_angles.clone().unsqueeze(1))
+                            goal_angles_buffer.append(goal_angles.clone().unsqueeze(1))
+                            pcd_buffer.append(compute_pcd_params.clone().unsqueeze(1))
+                            actions_expert_buffer.append(actions_expert.clone().unsqueeze(1))
+
+                        concat_current_angles = torch.cat(tuple(current_angles_buffer), dim=1)
+                        concat_goal_angles = torch.cat(tuple(goal_angles_buffer), dim=1)
+                        concat_pcd = torch.cat(tuple(pcd_buffer), dim=1)
+                        concat_actions_expert = torch.cat(tuple(actions_expert_buffer), dim=1)
+
+                    if reset_buffer.any():
                         self.total_episodes += 1
                         # avg_mse_loss, avg_l1_loss, avg_gmm_loss = self.eval()
                         # wandb_log_dict.update({
@@ -590,6 +590,8 @@ class Dagger(object):
                         hidden_state[0][0][:, dones, ...] = 0 # reset hidden state
                         hidden_state[0][1][:, dones, ...] = 0 # reset cell state
                         RMUtils.set_hidden_state(self.student_player, hidden_state)
+
+                    reset_buffer = dones
 
                     if (self.total_steps + 1) % (self.env.max_episode_length * self.cfg.test_frequency) == 0:
                         test_success = self.test(num_test_iterations=self.cfg.test_episodes, run=run)
