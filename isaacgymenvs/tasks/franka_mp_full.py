@@ -466,7 +466,8 @@ class FrankaMPFull(FrankaMP):
         quat_err = orientation_error(self.goal_ee[:, 3:], current_ee[:, 3:])
         goal_reaching = (pos_err < self.lock_in_pos_err) & (quat_err < self.lock_in_rot_err)
         self.lock_in[goal_reaching] = True
-        goal_reaching = (pos_err < 0.01) & (quat_err < 15.0) # TODO: should apply this metric later
+        goal_reaching = (pos_err < 0.05) & (quat_err < 15.0) # making it slightly more tolerant atm
+        # goal_reaching = (pos_err < 0.01) & (quat_err < 15.0) # TODO: should apply this metric later
 
         num_visited_voxels_t1 = torch.sum(self.voxel_visit_binary, dim=1)
 
