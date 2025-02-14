@@ -485,12 +485,11 @@ class FrankaMPFull(FrankaMP):
 
         self.success_flags[goal_reaching & (self.reset_buf == 1) & (self.collision_flags == 0)] = 1
         self.success_flags[(~goal_reaching) & (self.reset_buf == 1)] = 0
-        reaching_flags = torch.zeros(self.num_envs, device=self.device) # 0 for not reached, 1 for reached
-        reaching_flags[goal_reaching & (self.reset_buf == 1)] = 1
+        self.reaching_flags[goal_reaching & (self.reset_buf == 1)] = 1
 
         self.extras['success_rate'] = torch.mean(self.success_flags.float()).item()
         self.extras['collision_rate'] = torch.mean(self.collision_flags.float()).item()
-        self.extras['reaching_rate'] = torch.mean(reaching_flags.float()).item()
+        self.extras['reaching_rate'] = torch.mean(self.reaching_flags.float()).item()
 
         self.collision_flags[self.reset_buf == 1] = 0 # reset collision rate after logging
 

@@ -129,6 +129,7 @@ class FrankaMP(VecTask):
         self.num_collisions = torch.zeros(self.num_envs, device=self.device)
         self.success_flags = torch.zeros(cfg["env"]["numEnvs"], device=self.device) # 0 for failure, 1 for success
         self.collision_flags = torch.zeros(cfg["env"]["numEnvs"], device=self.device) # 0 for no collision, 1 for collision
+        self.reaching_flags = torch.zeros(cfg["env"]["numEnvs"], device=self.device) # 0 for not reached, 1 for reached
         self.base_model = NeuralMPModel.from_pretrained(self.base_policy_url)
         self.base_model.eval()
 

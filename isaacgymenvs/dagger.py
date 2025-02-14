@@ -485,7 +485,11 @@ class Dagger(object):
             run = None
 
         # log expert success rate, if have training storage buffer should use that instead
-        wandb_log_dict = {"expert/expert_success_rate": self.eval_storage.expert_success_rate}
+        wandb_log_dict = {
+            "expert/expert_success_rate": self.eval_storage.expert_success_rate,
+            "expert/expert_collision_rate": self.eval_storage.expert_collision_rate,
+            "expert/expert_reaching_rate": self.eval_storage.expert_reaching_rate
+        }
         self.log(run, wandb_log_dict)
 
         print("Training DAgger...")
@@ -616,9 +620,11 @@ class Dagger(object):
                         "compute_pcd_params": concat_pcd,
                     }
                 }
-                avg_loss = self.update(training_batch)
+                avg_loss, loss_dict = self.update(training_batch)
                 t3 = time.time()
-                wandb_log_dict["distillation/train_avg_loss"] = avg_loss
+                wandb_log_dict["distillation/training_loss"] = avg_loss
+                for k in loss_dict.keys():
+                    wandb_log_dict[f"distillation/{k}"] = loss_dict[k]
                 RMUtils.set_hidden_state(self.student_player, hidden_state)
 
                 # log to wandb
@@ -640,6 +646,12 @@ class Dagger(object):
         mini_batch_size = self.cfg.dagger.batch_size
         tot_loss = 0.0
         num_mini_batches = self.env.num_envs // mini_batch_size
+
+        loss_dict = {
+            "action_loss": 0.0,
+            "dists_means_l1_loss": 0.0,
+            "dists_means_l2_loss": 0.0,
+        }
 
         if self.cfg.dagger.loss_type == "gmm":
             loss_type = "action_loss"
@@ -677,9 +689,14 @@ class Dagger(object):
                 losses[loss_type].backward()
                 model.optimizers["policy"].step()
 
+                for k in loss_dict.keys():
+                    loss_dict[k] += losses[k].detach().item()
                 tot_loss += losses[loss_type].detach().item()
+
+            for k in loss_dict.keys():
+                loss_dict[k] /= num_mini_batches
             tot_loss /= num_mini_batches
-            return tot_loss
+            return tot_loss, loss_dict
 
         batch_indices = self.storage.mini_batch_generator(mini_batch_size)
         num_batches = len(batch_indices)
