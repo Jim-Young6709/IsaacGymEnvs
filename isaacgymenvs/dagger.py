@@ -69,6 +69,8 @@ class Storage(object):
         self.traj_length = traj_length
         self.seq_length = seq_length
         self.expert_success_rate = 0
+        self.expert_collision_rate = 0
+        self.expert_reaching_rate = 0
 
         buffer_size = buffer_size * num_envs
 
@@ -248,6 +250,8 @@ class Storage(object):
             "ep_step": self.ep_step,
             "valid_buffers": self.valid_buffers,
             "expert_success_rate": self.expert_success_rate,
+            "expert_collision_rate": self.expert_collision_rate,
+            "expert_reaching_rate": self.expert_reaching_rate,
         }
         return d
     
@@ -266,6 +270,8 @@ class Storage(object):
         self.ep_step = data["ep_step"]
         self.valid_buffers = data["valid_buffers"]
         self.expert_success_rate = data["expert_success_rate"]
+        self.expert_collision_rate = data["expert_collision_rate"]
+        self.expert_reaching_rate = data["expert_reaching_rate"]
         self.current_device_idx = 0
 
 class Dagger(object):
@@ -420,6 +426,8 @@ class Dagger(object):
             storage = self.eval_storage
 
         expert_success_rate = 0
+        expert_collision_rate = 0
+        expert_reaching_rate = 0
 
         for iter_id in tqdm(range(storage.buffer_size*self.env.max_episode_length), desc=f"{split} data collection"):
             # take a step
@@ -433,6 +441,8 @@ class Dagger(object):
             if (iter_id + 1) % self.env.max_episode_length == 0:
                 dones[:] = True
                 expert_success_rate += infos['success_rate']
+                expert_collision_rate += infos['collision_rate']
+                expert_reaching_rate += infos['reaching_rate']
 
             # update storage
             storage.add_transitions(state_obs, visual_obs, actions_expert, rews, dones)
@@ -450,7 +460,13 @@ class Dagger(object):
             visual_obs = torch.arange(self.env.num_envs, device=self.device)
 
         expert_success_rate /= storage.buffer_size
+        expert_collision_rate /= storage.buffer_size
+        expert_reaching_rate /= storage.buffer_size
+
         storage.expert_success_rate = expert_success_rate
+        storage.expert_collision_rate = expert_collision_rate
+        storage.expert_reaching_rate = expert_reaching_rate
+
         self.reset_envs()
 
     def train(self):
