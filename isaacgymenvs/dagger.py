@@ -508,9 +508,6 @@ class Dagger(object):
 
             pbar.set_postfix(
                 ep=self.total_episodes,
-                # mse=f"{0.0:.4f}",
-                # l1=f"{0.0:.4f}",
-                # gmm=f"{0.0:.4f}",
                 test_success=f"{test_success['success_rate']:.4f}",
             )
 
@@ -595,9 +592,6 @@ class Dagger(object):
 
                         pbar.set_postfix(
                             ep=self.total_episodes,
-                            # mse=f"{avg_mse_loss:.4f}",
-                            # l1=f"{avg_l1_loss:.4f}",
-                            # gmm=f"{avg_gmm_loss:.4f}",
                             test_success=f"{test_success['success_rate']:.4f}",
                         )
 
