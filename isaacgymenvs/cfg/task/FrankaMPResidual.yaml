@@ -50,6 +50,7 @@ env:
   hdf5_path: null
   use_mean_actions: True
 
+  step_back_on_collision: False
   reset_on_collision: False
 
   capture_video: False

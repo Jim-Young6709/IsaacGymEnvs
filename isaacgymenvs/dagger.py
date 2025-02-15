@@ -356,6 +356,7 @@ class Dagger(object):
         self.env.action_scale = 1.0
         self.env.force_no_fabric = False
         self.env.no_base_action = False
+        self.step_back_on_collision = cfg_task['env']['step_back_on_collision']
 
     def setup_storage(self):
         visual_obs_shape = () # save index of the pcd instead of pcd itself, no dim needed here
@@ -556,6 +557,9 @@ class Dagger(object):
                     obs_dict, rews, dones, infos = self.env.step(actions)
                     self.env.force_no_fabric = False
                     self.env.no_base_action = False
+
+                    if self.step_back_on_collision and self.env.scene_collision.any():
+                        self.env.set_robot_joint_state(current_angles[self.env.scene_collision.bool()], torch.where(self.env.scene_collision)[0])
 
                     if self.seq_length > 0:
                         if init_buffer:
