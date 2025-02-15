@@ -48,6 +48,7 @@ env:
   base_policy_sub_steps: 5 # set to ~5 if using fabric
   base_policy_only: False
   hdf5_path: null
+  use_mean_actions: True
 
   reset_on_collision: False
 
