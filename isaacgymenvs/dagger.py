@@ -469,6 +469,15 @@ class Dagger(object):
 
         self.reset_envs()
 
+    def reset_student_rnn(self, reset_idx):
+        if reset_idx.any():
+            self.total_episodes += 1
+            # this is very specific to LSTM policies
+            hidden_state = RMUtils.get_hidden_state(self.student_player)
+            hidden_state[0][0][:, reset_idx, ...] = 0 # reset hidden state
+            hidden_state[0][1][:, reset_idx, ...] = 0 # reset cell state
+            RMUtils.set_hidden_state(self.student_player, hidden_state)
+
     def train(self):
         """Train the student policy using DAgger."""
 
@@ -495,6 +504,8 @@ class Dagger(object):
         print("Training DAgger...")
         with tqdm(range(self.total_steps, self.total_steps + self.num_learning_iterations), desc='DAgger Training') as pbar:
             test_success = self.test(num_test_iterations=self.cfg.test_episodes) # just to prime the dict
+            self.reset_envs()
+
             pbar.set_postfix(
                 ep=self.total_episodes,
                 # mse=f"{0.0:.4f}",
@@ -510,11 +521,17 @@ class Dagger(object):
             }
             self.log(run, wandb_log_dict)
 
+            reset_policy = torch.zeros(self.env.num_envs, dtype=torch.bool)
             reset_buffer = torch.zeros(self.env.num_envs, dtype=torch.bool)
             init_buffer = True
             # only compatible with no storage buffer version
 
             for iter_id in pbar:
+                if iter_id % self.env.max_episode_length == 0:
+                    self.reset_envs()
+                    self.student_player.reset()
+                    init_buffer = True
+
                 wandb_log_dict = {}
                 # rollout student
                 t1 = time.time()
@@ -524,17 +541,17 @@ class Dagger(object):
                     # TODO: get action from (base_policy + fabric), kinda messy, cleanup later
                     abs_base_policy_action = self.env.base_delta_action + self.env.get_joint_angles()
                     self.env.compute_fabric_action(abs_base_policy_action)
-                    actions_expert = self.env.delta_fabric_actions
+                    actions_expert = self.env.delta_fabric_actions.clone()
 
-                    current_angles = self.env.get_joint_angles()
+                    current_angles = self.env.get_joint_angles().clone()
                     goal_angles = self.env.goal_config.clone()
-                    compute_pcd_params = self.env.combined_pcds
+                    compute_pcd_params = self.env.combined_pcds.clone()
 
                     obs_student = OrderedDict()
                     obs_student["current_angles"] = current_angles
                     obs_student["goal_angles"] = goal_angles
                     obs_student["compute_pcd_params"] = compute_pcd_params
-                    actions = self.student_player.get_action(obs_dict=obs_student)
+                    actions = self.student_player.get_action(obs_dict=obs_student, mean_actions=self.env.use_mean_actions)
 
                     # take a step
                     self.env.force_no_fabric = True
@@ -568,30 +585,7 @@ class Dagger(object):
                         concat_pcd = torch.cat(tuple(pcd_buffer), dim=1)
                         concat_actions_expert = torch.cat(tuple(actions_expert_buffer), dim=1)
 
-                    if reset_buffer.any():
-                        self.total_episodes += 1
-                        # avg_mse_loss, avg_l1_loss, avg_gmm_loss = self.eval()
-                        # wandb_log_dict.update({
-                        #     "distillation/eval_mse": avg_mse_loss,
-                        #     "distillation/eval_l1": avg_l1_loss,
-                        #     "distillation/eval_gmm": avg_gmm_loss,
-                        # })
-
-                        pbar.set_postfix(
-                            ep=self.total_episodes,
-                            # mse=f"{avg_mse_loss:.4f}",
-                            # l1=f"{avg_l1_loss:.4f}",
-                            # gmm=f"{avg_gmm_loss:.4f}",
-                            test_success=f"{test_success['success_rate']:.4f}",
-                        )
-
-                        # this is very specific to LSTM policies
-                        hidden_state = RMUtils.get_hidden_state(self.student_player)
-                        hidden_state[0][0][:, dones, ...] = 0 # reset hidden state
-                        hidden_state[0][1][:, dones, ...] = 0 # reset cell state
-                        RMUtils.set_hidden_state(self.student_player, hidden_state)
-
-                    reset_buffer = dones
+                    # self.reset_student_rnn(reset_policy)
 
                     if (self.total_steps + 1) % (self.env.max_episode_length * self.cfg.test_frequency) == 0:
                         test_success = self.test(num_test_iterations=self.cfg.test_episodes, run=run)
@@ -636,7 +630,7 @@ class Dagger(object):
                 if not self.cfg.logging.suppress_timing:
                     print(f"Running time: rollout: {t2 - t1:.2f}s, update: {t3 - t2:.2f}s")
                 
-                if iter_id % 100 == 0:
+                if self.total_steps % self.env.max_episode_length == 0:
                     # save checkpoint every 10 epochs, its expensive to save the buffer (30s)
                     self.save_checkpoint(prefix='checkpoint_latest')
         self.save_checkpoint(prefix='checkpoint_latest')
@@ -803,7 +797,7 @@ class Dagger(object):
                     obs_student["current_angles"] = self.env.get_joint_angles()
                     obs_student["goal_angles"] = self.env.goal_config.clone()
                     obs_student["compute_pcd_params"] = self.env.combined_pcds
-                    actions = self.student_player.get_action(obs_dict=obs_student)
+                    actions = self.student_player.get_action(obs_dict=obs_student, mean_actions=self.env.use_mean_actions)
 
                     self.env.force_no_fabric = True
                     self.env.no_base_action = True
