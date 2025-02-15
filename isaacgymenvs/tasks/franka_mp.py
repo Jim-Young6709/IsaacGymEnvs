@@ -66,6 +66,7 @@ class FrankaMP(VecTask):
         self.aggregate_mode = self.cfg["env"]["aggregateMode"]
         self.base_policy_url = self.cfg["env"]["base_policy_url"]
         self.base_policy_sub_steps = self.cfg["env"]["base_policy_sub_steps"]
+        self.use_mean_actions = self.cfg["env"]["use_mean_actions"]
         self.capture_video = self.cfg["env"]["capture_video"]
         self.capture_envs = self.cfg["env"]["capture_envs"]
 
@@ -464,7 +465,7 @@ class FrankaMP(VecTask):
             obs_base["goal_angles"] = self.goal_config.clone()
             obs_base["compute_pcd_params"] = self.combined_pcds.clone()
             with torch.no_grad():
-                sub_delta_action = self.base_model.policy.get_action(obs_dict=obs_base)
+                sub_delta_action = self.base_model.policy.get_action(obs_dict=obs_base, mean_actions=self.use_mean_actions)
 
             robot_config += sub_delta_action
 
@@ -953,7 +954,7 @@ class FrankaMP(VecTask):
             obs_base["current_angles"] = self.states['q'][:, :7].clone()
             obs_base["goal_angles"] = self.goal_config.clone()
             obs_base["compute_pcd_params"] = self.combined_pcds.clone()
-            base_action = self.base_model.policy.get_action(obs_dict=obs_base)
+            base_action = self.base_model.policy.get_action(obs_dict=obs_base, mean_actions=self.use_mean_actions)
             abs_action = base_action + self.get_joint_angles()
             if use_controller:
                 self.step(base_action)
