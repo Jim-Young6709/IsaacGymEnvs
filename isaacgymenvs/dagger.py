@@ -820,6 +820,8 @@ class Dagger(object):
 
                 for k in infos:
                     if k.endswith('rate'):
+                        if self.cfg.eval_mode:
+                            print(f"iter{iter_id} {k}: {infos[k]}")
                         num_success[k] += infos[k]
                         total_iters_per_key[k] += 1
                 total_runs += self.env.num_envs
@@ -889,7 +891,9 @@ def main(cfg: DictConfig):
                 shutil.rmtree(cfg.export_rigid_body_poses_dir)
             agent.env.export_rigid_body_poses_dir = cfg.export_rigid_body_poses_dir
         test_success = agent.test(num_test_iterations=cfg.test_episodes)
-        print(f"Test success: {test_success['success_rate']:.4f}")
+        print(f"Test success rate: {test_success['success_rate']:.4f}")
+        print(f"Test collision rate: {test_success['collision_rate']:.4f}")
+        print(f"Test reaching rate: {test_success['reaching_rate']:.4f}")
 
         if cfg.export_rigid_body_poses_dir:
             meta_data = {"task": cfg.task_name}
