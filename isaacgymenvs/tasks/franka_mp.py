@@ -760,9 +760,10 @@ class FrankaMP(VecTask):
         self.gym.simulate(self.sim)
         self._refresh()
 
-        if debug:
+        if not self.headless:
             self.render()
 
+        if debug:
             if not torch.allclose(joint_state, self.get_proprio()[2][env_ids]):
                 print("------------")
                 print("set state failed due to collision")

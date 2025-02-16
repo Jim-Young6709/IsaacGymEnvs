@@ -561,12 +561,12 @@ class FrankaMPFull(FrankaMP):
         if abs_actions.shape[-1] == 7:
             abs_actions = torch.cat((abs_actions, gripper_state), dim=1)
 
+        vel_targets = torch.zeros_like(abs_actions, device=self.device)
         if self.enable_fabric and (not self.force_no_fabric):
             abs_actions[:, :7] = self.compute_fabric_action(abs_actions)
 
             self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(abs_actions))
 
-            vel_targets = torch.zeros_like(abs_actions, device=self.device)
             vel_targets[:, :7] = self.fabric_qd[:, 0:7]
             self.gym.set_dof_velocity_target_tensor(self.sim, gymtorch.unwrap_tensor(vel_targets))
 
@@ -578,6 +578,7 @@ class FrankaMPFull(FrankaMP):
             self.obstacle_signed_dir_robot_frame[:, :, :] = self.obstacle_dir_robot_frame * self.obstacle_signed_distances.unsqueeze(-1)
         else:
             self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(abs_actions))
+            self.gym.set_dof_velocity_target_tensor(self.sim, gymtorch.unwrap_tensor(vel_targets))
 
     def post_physics_step(self):
         if self.enable_fabric and (not self.force_no_fabric):
