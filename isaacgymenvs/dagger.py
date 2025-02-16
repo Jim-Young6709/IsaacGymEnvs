@@ -414,6 +414,7 @@ class Dagger(object):
             self.env.reset_idx(env_ids, switch_object=True, init_states=self.cfg.init_states)
             self.setup_expert_multitask()
         self.env.reset_idx(env_ids)
+        self.env.base_model.policy.reset()
 
     @torch.no_grad()
     def collect_data(self, split="train"):
@@ -771,8 +772,6 @@ class Dagger(object):
     @torch.no_grad()
     def test(self, num_test_iterations=5, run=None):
         """Test the student policy."""
-        self.env.disable_hardcode_control = False
-        self.env.render_hardcode_control = True
         self.student_player.set_eval()
 
         num_success = Counter()
@@ -792,9 +791,9 @@ class Dagger(object):
 
                 for test_step in range(self.env.max_episode_length - 1):
                     obs_student = OrderedDict()
-                    obs_student["current_angles"] = self.env.get_joint_angles()
+                    obs_student["current_angles"] = self.env.get_joint_angles().clone()
                     obs_student["goal_angles"] = self.env.goal_config.clone()
-                    obs_student["compute_pcd_params"] = self.env.combined_pcds
+                    obs_student["compute_pcd_params"] = self.env.combined_pcds.clone()
                     actions = self.student_player.get_action(obs_dict=obs_student, mean_actions=self.env.use_mean_actions)
 
                     self.env.force_no_fabric = True
