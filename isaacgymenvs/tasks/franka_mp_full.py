@@ -464,10 +464,10 @@ class FrankaMPFull(FrankaMP):
         joint_err = torch.norm(current_angles - self.goal_config, dim=1)
         pos_err = torch.norm(current_ee[:, :3] - self.goal_ee[:, :3], dim=1)
         quat_err = orientation_error(self.goal_ee[:, 3:], current_ee[:, 3:])
-        goal_reaching = (pos_err < self.lock_in_pos_err) & (quat_err < self.lock_in_rot_err)
-        self.lock_in[goal_reaching] = True
-        goal_reaching = (pos_err < 0.05) & (quat_err < 15.0) # making it slightly more tolerant atm
-        # goal_reaching = (pos_err < 0.01) & (quat_err < 15.0) # TODO: should apply this metric later
+        self.goal_reaching = (pos_err < self.lock_in_pos_err) & (quat_err < self.lock_in_rot_err)
+        self.lock_in[self.goal_reaching] = True
+        self.goal_reaching = (pos_err < 0.05) & (quat_err < 15.0) # making it slightly more tolerant atm
+        # self.goal_reaching = (pos_err < 0.01) & (quat_err < 15.0) # TODO: should apply this metric later
 
         num_visited_voxels_t1 = torch.sum(self.voxel_visit_binary, dim=1)
 
@@ -484,9 +484,10 @@ class FrankaMPFull(FrankaMP):
         self.extras['intrinsic_rewards'] = torch.mean(intrinsic_rewards).item()
         self.extras['num_visited_voxels_ave'] = torch.mean(num_visited_voxels_t1).item()
 
-        self.success_flags[goal_reaching & (self.reset_buf == 1) & (self.collision_flags == 0)] = 1
-        self.success_flags[(~goal_reaching) & (self.reset_buf == 1)] = 0
-        self.reaching_flags[goal_reaching & (self.reset_buf == 1)] = 1
+        self.success_flags[self.goal_reaching & (self.reset_buf == 1) & (self.collision_flags == 0)] = 1
+        self.success_flags[(~self.goal_reaching) & (self.reset_buf == 1)] = 0
+        self.reaching_flags[self.goal_reaching & (self.reset_buf == 1)] = 1 # this records reaching rate at the last step, while goal_reaching will be updated each step
+        self.reaching_flags[(~self.goal_reaching) & (self.reset_buf == 1)] = 0
 
         self.extras['success_rate'] = torch.mean(self.success_flags.float()).item()
         self.extras['collision_rate'] = torch.mean(self.collision_flags.float()).item()
