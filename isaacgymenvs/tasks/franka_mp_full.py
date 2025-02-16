@@ -526,7 +526,7 @@ class FrankaMPFull(FrankaMP):
 
         abs_fabric_actions = torch.clone(self.fabric_q[:, 0:7]).contiguous()
         # saving final delta actions for dagger
-        self.delta_fabric_actions = abs_actions[:, :7] - self.get_joint_angles()
+        self.delta_fabric_actions = abs_fabric_actions[:, :7] - self.get_joint_angles()
         return abs_fabric_actions
 
     def fabric_forward_kinematics(self, q):
