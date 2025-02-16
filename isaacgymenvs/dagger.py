@@ -357,6 +357,7 @@ class Dagger(object):
         self.env.force_no_fabric = False
         self.env.no_base_action = False
         self.step_back_on_collision = cfg_task['env']['step_back_on_collision']
+        self.abs_angles_his = deque([self.env.start_config.clone() for _ in range(self.step_back_on_collision)], maxlen=self.step_back_on_collision)
 
     def setup_storage(self):
         visual_obs_shape = () # save index of the pcd instead of pcd itself, no dim needed here
@@ -520,8 +521,7 @@ class Dagger(object):
             }
             self.log(run, wandb_log_dict)
 
-            reset_policy = torch.zeros(self.env.num_envs, dtype=torch.bool)
-            reset_buffer = torch.zeros(self.env.num_envs, dtype=torch.bool)
+            reset_envs_bool = torch.zeros(self.env.num_envs, dtype=torch.bool)
             init_buffer = True
             # only compatible with no storage buffer version
 
@@ -552,15 +552,13 @@ class Dagger(object):
                     obs_student["compute_pcd_params"] = compute_pcd_params
                     actions = self.student_player.get_action(obs_dict=obs_student, mean_actions=self.env.use_mean_actions)
 
+                    self.abs_angles_his.append(current_angles.clone())
                     # take a step
                     self.env.force_no_fabric = True
                     self.env.no_base_action = True
                     obs_dict, rews, dones, infos = self.env.step(actions)
                     self.env.force_no_fabric = False
                     self.env.no_base_action = False
-
-                    if self.step_back_on_collision and self.env.scene_collision.any():
-                        self.env.set_robot_joint_state(current_angles[self.env.scene_collision.bool()], torch.where(self.env.scene_collision)[0])
 
                     if self.seq_length > 0:
                         if init_buffer:
@@ -570,12 +568,13 @@ class Dagger(object):
                             actions_expert_buffer = deque([actions_expert.clone().unsqueeze(1) for _ in range(self.seq_length)], maxlen=self.seq_length)
                             init_buffer = False
 
-                        if reset_buffer.any():
+                        if reset_envs_bool.any():
                             for i in range(self.seq_length):
-                                current_angles_buffer[i][reset_buffer, :, :] = current_angles[reset_buffer].clone().unsqueeze(1)
-                                goal_angles_buffer[i][reset_buffer, :, :] = goal_angles[reset_buffer].clone().unsqueeze(1)
-                                pcd_buffer[i][reset_buffer, :, :] = compute_pcd_params[reset_buffer].clone().unsqueeze(1)
-                                actions_expert_buffer[i][reset_buffer, :, :] = actions_expert[reset_buffer].clone().unsqueeze(1)
+                                current_angles_buffer[i][reset_envs_bool, :, :] = current_angles[reset_envs_bool].clone().unsqueeze(1)
+                                goal_angles_buffer[i][reset_envs_bool, :, :] = goal_angles[reset_envs_bool].clone().unsqueeze(1)
+                                pcd_buffer[i][reset_envs_bool, :, :] = compute_pcd_params[reset_envs_bool].clone().unsqueeze(1)
+                                actions_expert_buffer[i][reset_envs_bool, :, :] = actions_expert[reset_envs_bool].clone().unsqueeze(1)
+                            reset_envs_bool = torch.zeros(self.env.num_envs, dtype=torch.bool)
                         else:
                             current_angles_buffer.append(current_angles.clone().unsqueeze(1))
                             goal_angles_buffer.append(goal_angles.clone().unsqueeze(1))
@@ -587,7 +586,12 @@ class Dagger(object):
                         concat_pcd = torch.cat(tuple(pcd_buffer), dim=1)
                         concat_actions_expert = torch.cat(tuple(actions_expert_buffer), dim=1)
 
-                    # self.reset_student_rnn(reset_policy)
+                    if self.step_back_on_collision and self.env.scene_collision.any():
+                        reset_envs_bool = self.env.scene_collision.bool().clone()
+                        reset_angles = self.abs_angles_his[0].clone()
+                        self.env.set_robot_joint_state(reset_angles[reset_envs_bool], torch.where(reset_envs_bool)[0])
+                        self.abs_angles_his = deque([reset_angles.clone() for _ in range(self.step_back_on_collision)], maxlen=self.step_back_on_collision)
+                        self.reset_student_rnn(reset_envs_bool)
 
                     if (self.total_steps + 1) % (self.env.max_episode_length * self.cfg.test_frequency) == 0:
                         test_success = self.test(num_test_iterations=self.cfg.test_episodes, run=run)

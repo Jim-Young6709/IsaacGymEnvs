@@ -431,6 +431,13 @@ class FrankaMPFull(FrankaMP):
             obstacle_config = decompose_scene_pcd_params_obs(pcd_params)
             self.obstacle_configs.append(obstacle_config)
 
+    def set_robot_joint_state(self, joint_state: torch.Tensor, env_ids=None, debug=False):
+        super().set_robot_joint_state(joint_state, env_ids=env_ids, debug=debug)
+        if self.enable_fabric:
+            self.fabric_q[env_ids, :] = torch.clone(joint_state)
+            self.fabric_qd[env_ids, :] = torch.zeros_like(joint_state)
+            self.fabric_qdd[env_ids, :] = torch.zeros_like(joint_state)
+
     def reset_idx(self, env_ids=None):
         if env_ids is None:
             env_ids = torch.arange(self.num_envs, device=self.device)
