@@ -362,7 +362,9 @@ class Dagger(object):
         self.env.action_scale = 1.0
         self.env.force_no_fabric = False
         self.env.no_base_action = False
+        self.reset_on_collision = cfg_task['env']['reset_on_collision']
         self.step_back_on_collision = cfg_task['env']['step_back_on_collision']
+        assert not (self.reset_on_collision and self.step_back_on_collision), "Cannot have both reset_on_collision and step_back_on_collision"
         self.abs_angles_his = deque([self.env.start_config.clone() for _ in range(self.step_back_on_collision)], maxlen=self.step_back_on_collision)
 
     def setup_storage(self):
@@ -593,11 +595,15 @@ class Dagger(object):
                         concat_pcd = torch.cat(tuple(pcd_buffer), dim=1)
                         concat_actions_expert = torch.cat(tuple(actions_expert_buffer), dim=1)
 
-                    if self.step_back_on_collision and self.env.scene_collision.any():
+                    if self.env.scene_collision.any():
+                        if self.step_back_on_collision:
+                            reset_angles = self.abs_angles_his[0].clone()
+                            self.abs_angles_his = deque([reset_angles.clone() for _ in range(self.step_back_on_collision)], maxlen=self.step_back_on_collision)
+                        elif self.reset_on_collision:
+                            reset_angles = self.env.start_config.clone()
+
                         reset_envs_bool = self.env.scene_collision.bool().clone()
-                        reset_angles = self.abs_angles_his[0].clone()
                         self.env.set_robot_joint_state(reset_angles[reset_envs_bool], torch.where(reset_envs_bool)[0])
-                        self.abs_angles_his = deque([reset_angles.clone() for _ in range(self.step_back_on_collision)], maxlen=self.step_back_on_collision)
                         self.reset_student_rnn(reset_envs_bool)
 
                     if (self.total_steps + 1) % (self.env.max_episode_length * self.cfg.test_frequency) == 0:
