@@ -496,14 +496,6 @@ class Dagger(object):
         else:
             run = None
 
-        # log expert success rate, if have training storage buffer should use that instead
-        wandb_log_dict = {
-            "expert/expert_success_rate": self.eval_storage.expert_success_rate,
-            "expert/expert_collision_rate": self.eval_storage.expert_collision_rate,
-            "expert/expert_reaching_rate": self.eval_storage.expert_reaching_rate
-        }
-        self.log(run, wandb_log_dict)
-
         print("Training DAgger...")
         with tqdm(range(self.total_steps, self.total_steps + self.num_learning_iterations), desc='DAgger Training') as pbar:
             test_success = self.test(num_test_iterations=self.cfg.test_episodes) # just to prime the dict
@@ -514,15 +506,9 @@ class Dagger(object):
                 test_success=f"{test_success['success_rate']:.4f}",
             )
 
-            wandb_log_dict = {
-                f"eval/success_rate": test_success['success_rate'],
-                f"eval/collision_rate": test_success['collision_rate'],
-                f"eval/reaching_rate": test_success['reaching_rate'],
-            }
-            self.log(run, wandb_log_dict)
-
             reset_envs_bool = torch.zeros(self.env.num_envs, dtype=torch.bool)
             init_buffer = True
+            init_wandb_log = True
             # only compatible with no storage buffer version
 
             for iter_id in pbar:
@@ -531,7 +517,20 @@ class Dagger(object):
                     self.student_player.reset()
                     init_buffer = True
 
-                wandb_log_dict = {}
+                if init_wandb_log:
+                    # log expert success rate, if have training storage buffer should use that instead
+                    wandb_log_dict = {
+                        "expert/expert_success_rate": self.eval_storage.expert_success_rate,
+                        "expert/expert_collision_rate": self.eval_storage.expert_collision_rate,
+                        "expert/expert_reaching_rate": self.eval_storage.expert_reaching_rate,
+                        f"eval/success_rate": test_success['success_rate'],
+                        f"eval/collision_rate": test_success['collision_rate'],
+                        f"eval/reaching_rate": test_success['reaching_rate'],
+                    }
+                    init_wandb_log = False
+                else:
+                    wandb_log_dict = {}
+
                 # rollout student
                 t1 = time.time()
                 with torch.no_grad():
