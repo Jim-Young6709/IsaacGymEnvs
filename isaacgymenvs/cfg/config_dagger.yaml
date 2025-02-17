@@ -168,12 +168,6 @@ pcd_handler:
 test_frequency: 10 # test every n x num_envs episodes
 test_episodes: 5
 
-# path to the sif file
-sif_path: '/projects/rsalakhugroup/containers/skills_planning.sif'
-
-# path to asset files (objects and codes in txt file)
-asset_file_path: "assets/unidexgrasp/trainset3363.txt"
-
 # set True for samplers
 sample_mode: False
 

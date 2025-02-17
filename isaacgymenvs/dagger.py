@@ -300,6 +300,12 @@ class Dagger(object):
         self.log_dir = os.path.join(self.cfg.train_dir, run_name)
         self.checkpoint_dir = os.path.join(self.log_dir, "nn")
         self.video_dir = os.path.join(self.log_dir, "videos")
+
+        if os.path.exists(self.log_dir) and not self.cfg.resume:
+            ans = input("WARNING: training directory ({}) already exists! \noverwrite? (y/n)\n".format(self.log_dir))
+            if ans == "y":
+                print("REMOVING")
+                shutil.rmtree(self.log_dir)
         os.makedirs(self.log_dir, exist_ok=True)
         os.makedirs(self.video_dir, exist_ok=True)
         os.makedirs(self.checkpoint_dir, exist_ok=True)
@@ -490,7 +496,7 @@ class Dagger(object):
                 config=self.cfg_dict,
                 sync_tensorboard=True,
                 name=self.cfg.wandb_run_name,
-                resume=self.resume,
+                resume=True,
                 dir=self.log_dir,
             )
         else:
@@ -498,8 +504,12 @@ class Dagger(object):
 
         print("Training DAgger...")
         with tqdm(range(self.total_steps, self.total_steps + self.num_learning_iterations), desc='DAgger Training') as pbar:
-            test_success = self.test(num_test_iterations=self.cfg.test_episodes) # just to prime the dict
-            self.reset_envs()
+            init_training = not self.resume
+            if init_training:
+                test_success = self.test(num_test_iterations=self.cfg.test_episodes) # just to prime the dict
+                self.reset_envs()
+            else:
+                test_success = {"success_rate": 0.0}
 
             pbar.set_postfix(
                 ep=self.total_episodes,
@@ -508,8 +518,6 @@ class Dagger(object):
 
             reset_envs_bool = torch.zeros(self.env.num_envs, dtype=torch.bool)
             init_buffer = True
-            init_wandb_log = True
-            # only compatible with no storage buffer version
 
             for iter_id in pbar:
                 if iter_id % self.env.max_episode_length == 0:
@@ -517,7 +525,7 @@ class Dagger(object):
                     self.student_player.reset()
                     init_buffer = True
 
-                if init_wandb_log:
+                if init_training:
                     # log expert success rate, if have training storage buffer should use that instead
                     wandb_log_dict = {
                         "expert/expert_success_rate": self.eval_storage.expert_success_rate,
@@ -527,7 +535,7 @@ class Dagger(object):
                         f"eval/collision_rate": test_success['collision_rate'],
                         f"eval/reaching_rate": test_success['reaching_rate'],
                     }
-                    init_wandb_log = False
+                    init_training = False
                 else:
                     wandb_log_dict = {}
 
@@ -635,6 +643,7 @@ class Dagger(object):
                 if self.total_steps % self.env.max_episode_length == 0:
                     # save checkpoint every 10 epochs, its expensive to save the buffer (30s)
                     self.save_checkpoint(prefix='checkpoint_latest')
+                    self.total_episodes += 1
         self.save_checkpoint(prefix='checkpoint_latest')
 
     def update(self, training_batch=None):
