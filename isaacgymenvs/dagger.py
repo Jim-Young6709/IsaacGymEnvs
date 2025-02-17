@@ -595,7 +595,7 @@ class Dagger(object):
                         concat_pcd = torch.cat(tuple(pcd_buffer), dim=1)
                         concat_actions_expert = torch.cat(tuple(actions_expert_buffer), dim=1)
 
-                    if self.env.scene_collision.any():
+                    if self.env.scene_collision.any() and (self.step_back_on_collision or self.reset_on_collision):
                         if self.step_back_on_collision:
                             reset_angles = self.abs_angles_his[0].clone()
                             self.abs_angles_his = deque([reset_angles.clone() for _ in range(self.step_back_on_collision)], maxlen=self.step_back_on_collision)
