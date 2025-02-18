@@ -50,6 +50,7 @@ env:
   hdf5_path: null
   use_mean_actions: True
 
+  reaching_reset_threshold: 50
   step_back_on_collision: 0
   reset_on_collision: False
 

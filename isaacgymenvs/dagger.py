@@ -362,6 +362,7 @@ class Dagger(object):
         self.env.action_scale = 1.0
         self.env.force_no_fabric = False
         self.env.no_base_action = False
+        self.reaching_reset_threshold = cfg_task['env']['reaching_reset_threshold']
         self.reset_on_collision = cfg_task['env']['reset_on_collision']
         self.step_back_on_collision = cfg_task['env']['step_back_on_collision']
         assert not (self.reset_on_collision and self.step_back_on_collision), "Cannot have both reset_on_collision and step_back_on_collision"
@@ -518,7 +519,8 @@ class Dagger(object):
                 test_success=f"{test_success['success_rate']:.4f}",
             )
 
-            reset_envs_bool = torch.zeros(self.env.num_envs, dtype=torch.bool)
+            count_reaching = torch.zeros(self.env.num_envs, dtype=torch.int, device=self.env.device)
+            reset_envs_bool = torch.zeros(self.env.num_envs, dtype=torch.bool, device=self.env.device)
             init_buffer = True
 
             for iter_id in pbar:
@@ -526,6 +528,8 @@ class Dagger(object):
                     self.reset_envs()
                     self.student_player.reset()
                     init_buffer = True
+                    count_reaching = torch.zeros(self.env.num_envs, dtype=torch.int, device=self.env.device)
+                    reset_envs_bool = torch.zeros(self.env.num_envs, dtype=torch.bool, device=self.env.device)
 
                 if init_training:
                     # log expert success rate, if have training storage buffer should use that instead
@@ -602,9 +606,23 @@ class Dagger(object):
                         elif self.reset_on_collision:
                             reset_angles = self.env.start_config.clone()
 
+                        # this part feels junky, maybe just use reset_idx?
                         reset_envs_bool = self.env.scene_collision.bool().clone()
                         self.env.set_robot_joint_state(reset_angles[reset_envs_bool], torch.where(reset_envs_bool)[0])
                         self.reset_student_rnn(reset_envs_bool)
+                        count_reaching[reset_envs_bool] = 0
+                        self.env.compute_observations()
+                        self.env.lock_in[reset_envs_bool] = False
+
+                    count_reaching += self.env.goal_reaching
+                    if (count_reaching >= self.reaching_reset_threshold).any():
+                        reset_angles = self.env.start_config.clone()
+                        reset_envs_bool = (count_reaching >= self.reaching_reset_threshold).clone()
+                        self.env.set_robot_joint_state(reset_angles[reset_envs_bool], torch.where(reset_envs_bool)[0])
+                        self.reset_student_rnn(reset_envs_bool)
+                        count_reaching[reset_envs_bool] = 0
+                        self.env.compute_observations()
+                        self.env.lock_in[reset_envs_bool] = False
 
                     if (self.total_steps + 1) % (self.env.max_episode_length * self.cfg.test_frequency) == 0:
                         test_success = self.test(num_test_iterations=self.cfg.test_episodes, run=run)
