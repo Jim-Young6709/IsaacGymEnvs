@@ -328,7 +328,7 @@ class Dagger(object):
             self.load_checkpoint(self.cfg.resume)
         else:
             self.resume = False
-            if not self.cfg.eval_mode:
+            if not (self.cfg.eval_mode or self.cfg.debug_training):
                 # have to fill the storage with data before training
                 self.collect_data("eval")
 
@@ -507,7 +507,7 @@ class Dagger(object):
 
         print("Training DAgger...")
         with tqdm(range(self.total_steps, self.total_steps + self.num_learning_iterations), desc='DAgger Training') as pbar:
-            init_training = not self.resume
+            init_training = not (self.resume or self.cfg.debug_training)
             if init_training:
                 test_success = self.test(num_test_iterations=self.cfg.test_episodes) # just to prime the dict
                 self.reset_envs()

@@ -48,6 +48,9 @@ init_state_dir: ''
 # eval_mode - if set, run policy in inference mode
 eval_mode: False
 
+# if set, will directly start training for debugging
+debug_training: False
+
 # directory to save the rigid body poses in for rendering
 export_rigid_body_poses_dir: ""
 
