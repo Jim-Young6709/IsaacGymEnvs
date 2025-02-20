@@ -843,9 +843,29 @@ class Dagger(object):
 
                     if self.env.capture_video:
                         if "hardcode_images" not in infos or len(infos["hardcode_images"]) == 0:
-                            ims = np.array(camera_shot(
-                                self.env, env_ids=range(self.env.capture_envs), camera_ids=[0]
-                            )[0])[:, 0, :, :, :3]
+                            cs = camera_shot(self.env, env_ids=range(self.env.capture_envs), camera_ids=[0])
+                            ims = np.array(cs[0])[:, 0, :, :, :3]
+
+                            for env_idx in range(ims.shape[0]):
+                                # Convert to uint8 and correct color format for OpenCV
+                                img = ims[env_idx].astype(np.uint8).copy()
+                                
+                                # Create a separate overlay image for the semi-transparent rectangle
+                                overlay = img.copy()
+                                # Draw grey rectangle on overlay (RGB: 128,128,128)
+                                cv2.rectangle(overlay, (10, 10), (300, 80), (128, 128, 128), -1)
+                                # Apply the overlay with transparency (alpha = 0.7)
+                                alpha = 0.7
+                                cv2.addWeighted(overlay, alpha, img, 1 - alpha, 0, img)
+                                # Add black text
+                                cv2.putText(img, f'Env: {env_idx}', (20, 30), 
+                                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2)
+                                cv2.putText(img, f'Iteration: {iter_id}', (20, 50), 
+                                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2)
+                                cv2.putText(img, f'Step: {test_step}', (20, 70), 
+                                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2)
+                                ims[env_idx] = img
+                                
                             video_ims.append(ims)
                         else:
                             ims = np.array(infos["hardcode_images"])[:, :, 0, :, :, :3]
