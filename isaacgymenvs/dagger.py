@@ -9,7 +9,7 @@ import wandb
 from collections import OrderedDict
 import isaacgym # must import isaacgym before pytorch
 import numpy as np
-
+import json
 import torch
 
 import isaacgymenvs.utils.robomimic_utils as RMUtils
@@ -21,11 +21,13 @@ from isaacgymenvs.tasks import FrankaMPFull
 import hydra
 from omegaconf import DictConfig
 
+import robomimic.utils.obs_utils as ObsUtils
 from robomimic.utils.log_utils import custom_tqdm as tqdm  # use robomimic tqdm that prints to stdout
+from robomimic.config import config_factory
 
 
-def make_video(frames, logdir, epoch, name=None):
-    filename = os.path.join(logdir, f"viz_{epoch}.mp4" if name is None else name)
+def make_video(frames, logdir, steps, name=None):
+    filename = os.path.join(logdir, f"viz_step{steps}.mp4" if name is None else name)
     frames = np.asarray(frames)
     with imageio.get_writer(filename, fps=20) as writer:
         for frame in frames:
@@ -229,12 +231,6 @@ class Storage(object):
         first_visual_obs = torch.cat(first_visual_obs_combined, dim=0)
         prev_obs = torch.cat(prev_obs_combined, dim=0)
         
-        # apply noise to visual obs
-        # visual_obs = self.visual_obs_handler.apply_noise(visual_obs)
-        # first_visual_obs = self.visual_obs_handler.apply_noise(first_visual_obs)
-
-        # obs, visual_obs = get_student_obs(obs, visual_obs, first_obs, first_visual_obs, prev_obs, self.visual_obs_type)
-        
         return obs.clone(), visual_obs.clone(), actions.clone()
     
     def save(self):
@@ -282,9 +278,6 @@ class Dagger(object):
         self.cfg.seed = set_seed(self.cfg.seed)
 
         # robomimic init
-        import json
-        from robomimic.config import config_factory
-        import robomimic.utils.obs_utils as ObsUtils
         ext_cfg = json.load(open("../robomimic/robomimic/exps/mp/neural_mp_rnn.json", 'r'))
         robomimic_cfg = config_factory(ext_cfg["algo_name"])
         with robomimic_cfg.values_unlocked():
@@ -418,11 +411,7 @@ class Dagger(object):
         self.num_transitions_per_iter = self.cfg.dagger.num_transitions_per_iter
 
     def reset_envs(self):
-        # TODO: support multitask dagger here (switch objects, reload policies, and recreate envs when necessary)
         env_ids = torch.arange(self.env.num_envs, device=self.env.device)
-        if self.cfg.dagger.multitask: 
-            self.env.reset_idx(env_ids, switch_object=True, init_states=self.cfg.init_states)
-            self.setup_expert_multitask()
         self.env.reset_idx(env_ids)
         self.env.base_model.policy.reset()
 
@@ -483,7 +472,6 @@ class Dagger(object):
 
     def reset_student_rnn(self, reset_idx):
         if reset_idx.any():
-            self.total_episodes += 1
             # this is very specific to LSTM policies
             hidden_state = RMUtils.get_hidden_state(self.student_player)
             hidden_state[0][0][:, reset_idx, ...] = 0 # reset hidden state
@@ -668,6 +656,11 @@ class Dagger(object):
                     # save checkpoint every 10 epochs, its expensive to save the buffer (30s)
                     self.save_checkpoint(prefix='checkpoint_latest')
                     self.total_episodes += 1
+                    pbar.set_postfix(
+                        ep=self.total_episodes,
+                        test_success=f"{test_success['success_rate']:.4f}",
+                    )
+
         self.save_checkpoint(prefix='checkpoint_latest')
 
     def update(self, training_batch=None):
@@ -816,7 +809,6 @@ class Dagger(object):
 
         total_runs = 0
         video_ims = []
-        local_obs_ims = []
         with tqdm(total=num_test_iterations * self.env.max_episode_length, desc='Testing student policy') as pbar:
             for iter_id in range(num_test_iterations):
                 self.reset_envs()
@@ -886,10 +878,10 @@ class Dagger(object):
             for env_idx in range(self.env.capture_envs):
                 for im in video_ims:
                     ims.append(im[env_idx])
-            make_video(ims, self.video_dir, epoch=self.total_epochs)
+            make_video(ims, self.video_dir, epoch=self.total_steps)
             # log video to wandb:
             if self.cfg.wandb_activate and run is not None:
-                run.log({"visualization/video": wandb.Video(os.path.join(self.video_dir, f"viz_{self.total_epochs}.mp4"))}, commit=False)
+                run.log({"visualization/video": wandb.Video(os.path.join(self.video_dir, f"viz_step{self.total_steps}.mp4"))}, commit=False)
 
         if not self.cfg.logging.suppress_timing:
             print(f"Finished testing in {time.time() - tik:.2f}s")
