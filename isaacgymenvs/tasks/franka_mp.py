@@ -69,6 +69,7 @@ class FrankaMP(VecTask):
         self.use_mean_actions = self.cfg["env"]["use_mean_actions"]
         self.capture_video = self.cfg["env"]["capture_video"]
         self.capture_iter_max = self.cfg["env"]["capture_iter_max"]
+        self.capture_freq = self.cfg["env"]["capture_freq"]
         if self.capture_video:
             self.cfg["env"]["enableCameraSensors"] = True
         self.capture_envs = self.cfg["env"]["capture_envs"]
