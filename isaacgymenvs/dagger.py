@@ -497,7 +497,7 @@ class Dagger(object):
         with tqdm(range(self.total_steps, self.total_steps + self.num_learning_iterations), desc='DAgger Training') as pbar:
             init_training = not (self.resume or self.cfg.debug_training)
             if init_training:
-                test_success = self.test(num_test_iterations=self.cfg.test_episodes) # just to prime the dict
+                test_success = self.test(num_test_iterations=self.cfg.test_episodes, run=run) # just to prime the dict
                 self.reset_envs()
             else:
                 test_success = {"success_rate": 0.0}
@@ -850,12 +850,12 @@ class Dagger(object):
                                 alpha = 0.7
                                 cv2.addWeighted(overlay, alpha, img, 1 - alpha, 0, img)
                                 # Add black text
-                                cv2.putText(img, f'Env: {env_idx}', (20, 30), 
-                                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2)
-                                cv2.putText(img, f'Iteration: {iter_id}', (20, 50), 
-                                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2)
-                                cv2.putText(img, f'Step: {test_step}', (20, 70), 
-                                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2)
+                                cv2.putText(img, f'Env: {env_idx}  Iter: {iter_id}  Step: {test_step}', (20, 30),
+                                        cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 0, 0), 2)
+                                cv2.putText(img, f'Has Collided: {self.env.collision_flags[env_idx].bool()}', (20, 50),
+                                        cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 0, 0), 2)
+                                cv2.putText(img, f'Goal Reaching: {self.env.goal_reaching[env_idx].bool()}', (20, 70),
+                                        cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 0, 0), 2)
                                 ims[env_idx] = img
                                 
                             video_ims.append(ims)
@@ -878,7 +878,7 @@ class Dagger(object):
             for env_idx in range(self.env.capture_envs):
                 for im in video_ims:
                     ims.append(im[env_idx])
-            make_video(ims, self.video_dir, epoch=self.total_steps)
+            make_video(ims, self.video_dir, steps=self.total_steps)
             # log video to wandb:
             if self.cfg.wandb_activate and run is not None:
                 run.log({"visualization/video": wandb.Video(os.path.join(self.video_dir, f"viz_step{self.total_steps}.mp4"))}, commit=False)
