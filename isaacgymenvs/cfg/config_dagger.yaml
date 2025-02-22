@@ -66,7 +66,7 @@ gripper_control: False
 num_samples: 10000
 
 defaults:
-  - task: 'FrankaMPResidual'
+  - task: 'FrankaMP'
   - dagger: 'config'
   - override hydra/job_logging: disabled
   - _self_

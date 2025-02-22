@@ -1,5 +1,5 @@
 """
-Residual RL for motion planning
+Franka motion planning env
 """
 import os
 import time
