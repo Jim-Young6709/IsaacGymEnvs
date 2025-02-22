@@ -830,7 +830,7 @@ class FrankaMP(VecTask):
             # set the camera position based on up axis
             centre = self.cfg["env"]['envSpacing'] + int(np.sqrt(self.num_envs))
             
-            cam_pos = gymapi.Vec3(-1.5, -1.5, 5)
+            cam_pos = gymapi.Vec3(0, 0, 5)
             cam_target = gymapi.Vec3(centre, centre, 0)
 
             self.gym.viewer_camera_look_at(self.viewer, None, cam_pos, cam_target)
@@ -853,8 +853,12 @@ class FrankaMP(VecTask):
                 camera_handle = self.gym.create_camera_sensor(
                     self.env_ptrs[i], camera_props
                 )
-                camera_position = gymapi.Vec3(1.5, 0.0, 1.4)
-                camera_target = gymapi.Vec3(0.0, 0.0, 0.0)
+                if camera_handle == -1:
+                    print(f"Failed to create camera sensor for env {i}")
+                    continue  # Skip this camera if creation failed
+
+                camera_position = gymapi.Vec3(-1.0, 0.0, 1.0)
+                camera_target = gymapi.Vec3(0.5, 0.0, 0.0)
                 self.gym.set_camera_location(
                     camera_handle, self.env_ptrs[i], camera_position, camera_target
                 )
