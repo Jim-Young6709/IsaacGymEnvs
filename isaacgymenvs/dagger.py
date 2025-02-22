@@ -725,6 +725,7 @@ class Dagger(object):
         batch_indices = self.storage.mini_batch_generator(mini_batch_size)
         num_batches = len(batch_indices)
 
+        # TODO: setup num_learning_epochs correctly and cleanup these
         for epoch in range(self.num_learning_epochs):
             for indices in batch_indices:
                 obs_batch, visual_batch, actions_expert_batch = self.storage.get_batch(indices)

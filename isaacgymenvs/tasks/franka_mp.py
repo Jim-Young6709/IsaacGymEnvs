@@ -847,6 +847,7 @@ class FrankaMP(VecTask):
             camera_props.width = 640
             camera_props.height = 480
             camera_props.horizontal_fov = 90.0
+            camera_props.enable_tensors = False # disable gpu tensors, so cameras won't have automatic updates
             for i in range(self.capture_envs):
                 self.camera_handles.append([])
                 self.obs_camera_handles.append([])
