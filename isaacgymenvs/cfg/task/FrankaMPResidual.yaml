@@ -55,6 +55,7 @@ env:
 
   capture_video: True
   capture_envs: 1
+  capture_iter_max: 1
 
 sim:
   dt: 0.01667 # 1/60
