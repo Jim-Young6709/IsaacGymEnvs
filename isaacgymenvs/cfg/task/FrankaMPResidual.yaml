@@ -54,7 +54,7 @@ env:
   reset_on_collision: False
 
   capture_video: True
-  capture_envs: 5
+  capture_envs: 1
 
 sim:
   dt: 0.01667 # 1/60
