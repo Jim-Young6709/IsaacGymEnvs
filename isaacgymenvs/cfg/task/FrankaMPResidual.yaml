@@ -53,8 +53,8 @@ env:
   step_back_on_collision: 0
   reset_on_collision: False
 
-  capture_video: False
-  capture_envs: 1
+  capture_video: True
+  capture_envs: 5
 
 sim:
   dt: 0.01667 # 1/60
