@@ -841,7 +841,7 @@ class Dagger(object):
                     state_obs = obs_dict["obs"].clone()
                     visual_obs = torch.arange(self.env.num_envs, device=self.device)
 
-                    if self.env.capture_video and iter_id < self.env.capture_iter_max and iter_id % self.env.capture_freq == 0:
+                    if self.env.capture_video and iter_id < self.env.capture_iter_max and test_step % self.env.capture_freq == 0:
                         if "hardcode_images" not in infos or len(infos["hardcode_images"]) == 0:
                             cs = camera_shot(self.env, env_ids=range(self.env.capture_envs), camera_ids=[0])
                             ims = np.array(cs[0])[:, 0, :, :, :3]
