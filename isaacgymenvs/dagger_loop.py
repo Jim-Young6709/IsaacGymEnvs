@@ -21,7 +21,7 @@ if __name__ == "__main__":
     parser.add_argument("--resume", type=str, default='')
     parser.add_argument("--ckpt_path", type=str, default='None')
     parser.add_argument("--num_envs", type=int, default=1)
-    parser.add_argument("--num_learning_iters", type=int, default=1000)
+    parser.add_argument("--num_learning_iters", type=int, default=10000)
     parser.add_argument("--wandb_run_name", type=str, default='dagger')
 
     parser.add_argument("--loss_type", type=str, default='l1')
