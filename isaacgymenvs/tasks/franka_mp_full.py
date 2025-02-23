@@ -40,9 +40,10 @@ class FrankaMPFull(FrankaMP):
         # Demo loading
         hdf5_path = cfg["env"]["hdf5_path"]
         self.demo_loader = DemoLoader(hdf5_path, cfg["env"]["numEnvs"])
+        self.batch_idx = cfg["env"]["batch_idx"]
 
         # need to change the logic here (2 layers of reset ; multiple start & goal in one env ; relaunch IG)
-        self.batch = self.demo_loader.get_next_batch()
+        self.batch = self.demo_loader.get_next_batch(batch_idx=self.batch_idx)
 
         self.start_config = torch.zeros((cfg["env"]["numEnvs"], 7), device=self.device)
         self.goal_config = torch.zeros((cfg["env"]["numEnvs"], 7), device=self.device)
