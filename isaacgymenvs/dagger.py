@@ -408,7 +408,6 @@ class Dagger(object):
         # parameters
         self.num_learning_iterations = self.cfg.dagger.num_learning_iterations
         self.num_learning_epochs = self.cfg.dagger.num_learning_epochs
-        self.num_transitions_per_iter = self.cfg.dagger.num_transitions_per_iter
 
     def reset_envs(self):
         env_ids = torch.arange(self.env.num_envs, device=self.env.device)
@@ -480,6 +479,15 @@ class Dagger(object):
 
     def train(self):
         """Train the student policy using DAgger."""
+        run_id_file = os.path.join(self.log_dir, "wandb_run_id.json")
+        if self.resume:
+            with open(run_id_file, "r") as f:
+                run_data = json.load(f)
+                run_id = run_data.get("run_id")
+        else:
+            run_id = f"dagger_{int(time.time())}"
+            with open(run_id_file, "w") as f:
+                json.dump({"run_id": run_id}, f)
 
         if self.cfg.wandb_activate:
             run = wandb.init(
@@ -487,7 +495,8 @@ class Dagger(object):
                 config=self.cfg_dict,
                 sync_tensorboard=True,
                 name=self.cfg.wandb_run_name,
-                resume=True,
+                resume="allow",
+                id=run_id,
                 dir=self.log_dir,
             )
         else:
