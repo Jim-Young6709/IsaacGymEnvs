@@ -23,6 +23,7 @@ if __name__ == "__main__":
     parser.add_argument("--num_envs", type=int, default=1)
     parser.add_argument("--num_learning_iters", type=int, default=10000)
     parser.add_argument("--wandb_run_name", type=str, default='dagger')
+    parser.add_argument("--start_batch_iter", type=int, default=0)
 
     parser.add_argument("--loss_type", type=str, default='l1')
     parser.add_argument("--colli_reset", action='store_true')
@@ -48,6 +49,7 @@ if __name__ == "__main__":
     num_envs = args.num_envs
     num_learning_iters = args.num_learning_iters
     wandb_run_name = args.wandb_run_name
+    start_batch_iter = args.start_batch_iter
     loss_type = args.loss_type
     colli_reset = args.colli_reset
     colli_stepback = args.colli_stepback
@@ -89,7 +91,7 @@ if __name__ == "__main__":
             f"wandb_project={args.wandb_project}", f"wandb_activate={not args.wandb_disable}",
             f"wandb_run_name={args.wandb_run_name}", f"train_dir={args.train_dir}",
             f"dagger.loss_type={args.loss_type}", f"task.env.reset_on_collision={args.colli_reset}", f"task.env.step_back_on_collision={args.colli_stepback}",
-            f"task.env.capture_video={args.capture_video}", f"task.env.batch_idx={outer_epoch}",
+            f"task.env.capture_video={args.capture_video}", f"task.env.batch_idx={outer_epoch + start_batch_iter}",
             f"debug_training={args.skip_init_eval}",
         ]
 
