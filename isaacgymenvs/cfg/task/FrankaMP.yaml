@@ -55,7 +55,7 @@ env:
   reset_on_collision: False
 
   # video logging
-  capture_video: True
+  capture_video: False
   capture_envs: 1
   capture_iter_max: 1
   capture_freq: 5
