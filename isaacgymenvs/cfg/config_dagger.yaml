@@ -68,6 +68,7 @@ sim_device: 'cuda:0'
 # device to run RL
 rl_device: 'cuda:0'
 graphics_device_id: 0
+multi_gpu: False
 
 # disables rendering
 headless: True

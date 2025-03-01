@@ -343,6 +343,23 @@ class Dagger(object):
 
     def setup_rl_env_and_expert(self):
         """Set up the environment & expert model."""
+        if self.cfg.multi_gpu:
+            # local rank of the GPU in a node
+            local_rank = int(os.getenv("LOCAL_RANK"))#, "0"))
+            # global rank of the GPU
+            global_rank = int(os.getenv("RANK"))#, "0"))
+            # total number of GPUs across all nodes
+            world_size = int(os.getenv("WORLD_SIZE"))#, "1"))
+
+            _sim_device = f'cuda:{local_rank}'
+            _rl_device = f'cuda:{local_rank}'
+
+            self.cfg.rl_device = _rl_device
+            self.cfg.sim_device = _sim_device
+            self.cfg.task.env.batch_idx = self.cfg.task.env.batch_idx * world_size + global_rank
+
+            print(f"global_rank = {global_rank} local_rank = {local_rank} world_size = {world_size} assigned batch_idx = {self.cfg.task.env.batch_idx}")
+
         cfg_dict = omegaconf_to_dict(self.cfg)
         cfg_task = cfg_dict["task"]
         rl_device = cfg_dict["rl_device"]
