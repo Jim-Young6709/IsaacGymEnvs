@@ -45,231 +45,6 @@ def get_obs_shape_meta():
     return obs_shape_meta
 
 
-class Storage(object):
-    def __init__(
-            self, buffer_size, num_envs, 
-            obs_shape, visual_obs_shape, actions_shape, 
-            output_device="cuda:0", storage_devices=[0], traj_length=120, seq_length=1, frame_stack=0,
-        ):
-        """Storage for storing expert data on GPU.
-
-        Args:
-            buffer_size (int): How many trajectories to store per GPU, this will multiply num envs to get total num trajectories.
-            num_envs (int): Number of environments.
-            obs_shape (tuple): Shape of the state obs.
-            visual_obs_shape (tuple): Shape of the visual obs.
-            actions_shape (tuple): Shape of the actions.
-            device (str, optional): Device id to store the data on.. Defaults to "cuda:0".
-            traj_length (int, optional): The max length of the trajectories, assumed to be the same for all envs for now. Defaults to 120.
-            seq_length (int, optional): The length of the RNN horizon. Defaults to 1. If seq_length > 1, then we are using RNN, framestack should be 0. This naming convention is taken from robomimic.
-            frame_stack (int, optional): The length of the transformer horizon. Defaults to 0. If frame_stack > 0, then we are using transformer, seq_length should be 1. This naming convention is taken from robomimic.
-        """
-        self.output_device = output_device
-        self.buffer_size = buffer_size
-        self.num_envs = num_envs
-        traj_length = traj_length
-        self.traj_length = traj_length
-        self.seq_length = seq_length
-        self.expert_success_rate = 0
-        self.expert_collision_rate = 0
-        self.expert_reaching_rate = 0
-
-        buffer_size = buffer_size * num_envs
-
-        # Core
-        # The buffer is organized as full trajectories, with additional padding pre-defined by frame_stack (pre-padding) and seq_length (post-padding)
-        # split buffer evenly across storage devices
-        total_traj_length = frame_stack + traj_length+seq_length -1
-        self.obs, self.visual_obs, self.dones, self.rewards, self.actions = [], [], [], [], []
-        for device in storage_devices:
-            device = f"cuda:{device}"
-            self.obs.append(torch.zeros(buffer_size, total_traj_length, *obs_shape, device=device))
-            self.visual_obs.append(torch.zeros(buffer_size, total_traj_length, *visual_obs_shape, device=device))
-            self.dones.append(torch.zeros(buffer_size, total_traj_length, device=device, dtype=torch.bool))
-            self.rewards.append(torch.zeros(buffer_size, total_traj_length, device=device))
-            self.actions.append(torch.zeros(buffer_size, total_traj_length, *actions_shape, device=device))
-
-        self.cur = 0
-        self.step = 0
-        self.ep_step = frame_stack
-        self.frame_stack = frame_stack
-        self.current_device_idx = 0
-        self.storage_devices = storage_devices
-        self.valid_buffers = 0
-
-    def add_transitions(self, obs, visual_obs, actions, rewards, dones):
-        """Add a transition to the storage across all environments.
-        Note ep_step is the current step in the trajectory and then for the start and the end we 
-        have particular logic for handling the padding.
-
-        Args:
-            obs (torch.Tensor): The state obs.
-            visual_obs (torch.Tensor): The visual obs.
-            actions (torch.Tensor): The actions.
-            rewards (torch.Tensor): The rewards.
-            dones (torch.Tensor): The dones.
-        """
-        start = self.cur * self.num_envs
-        end = start + self.num_envs
-        current_device = self.storage_devices[self.current_device_idx]
-        obs = obs.to(f"cuda:{current_device}")
-        visual_obs = visual_obs.to(f"cuda:{current_device}")
-        actions = actions.to(f"cuda:{current_device}")
-        rewards = rewards.to(f"cuda:{current_device}")
-        dones = dones.to(f"cuda:{current_device}")
-        
-        if self.ep_step == self.frame_stack and self.frame_stack > 0:
-            # pad the start of the trajectory according to frame_stack
-            # padding is repeating the first element of the trajectory
-            self.obs[current_device][start:end, :self.ep_step] = obs.unsqueeze(1)
-            self.visual_obs[current_device][start:end, :self.ep_step] = visual_obs.unsqueeze(1)
-            self.rewards[current_device][start:end, :self.ep_step] = rewards.unsqueeze(1)
-            self.dones[current_device][start:end, :self.ep_step] = dones.unsqueeze(1)
-            self.actions[current_device][start:end, :self.ep_step] = actions.unsqueeze(1)
-        self.obs[self.current_device_idx][start:end, self.ep_step].copy_(obs)
-        self.visual_obs[self.current_device_idx][start:end, self.ep_step].copy_(visual_obs)
-        self.rewards[self.current_device_idx][start:end, self.ep_step].copy_(rewards)
-        self.dones[self.current_device_idx][start:end, self.ep_step].copy_(dones)
-        self.actions[self.current_device_idx][start:end, self.ep_step].copy_(actions)
-
-        self.ep_step += 1
-        if dones.any():
-            # pad end of the trajectory with the last element all the way to the end
-            if self.seq_length > 1:
-                self.obs[self.current_device_idx][start:end, self.traj_length:] = self.obs[self.current_device_idx][start:end, self.traj_length-1].unsqueeze(1)
-                self.visual_obs[self.current_device_idx][start:end, self.traj_length:] = self.visual_obs[self.current_device_idx][start:end, self.traj_length-1].unsqueeze(1)
-                self.rewards[self.current_device_idx][start:end, self.traj_length:] = self.rewards[self.current_device_idx][start:end, self.traj_length-1].unsqueeze(1)
-                self.dones[self.current_device_idx][start:end, self.traj_length:] = self.dones[self.current_device_idx][start:end, self.traj_length-1].unsqueeze(1)
-                self.actions[self.current_device_idx][start:end, self.traj_length:] = self.actions[self.current_device_idx][start:end, self.traj_length-1].unsqueeze(1)
-            
-            # note for our tasks everything has the same traj length
-            self.ep_step = self.frame_stack
-            self.step = self.step + 1
-            if self.step % self.buffer_size == 0:
-                # if we go beyond the buffer, then move on to the next buffer
-                self.current_device_idx = (self.current_device_idx + 1) % len(self.storage_devices)
-                self.valid_buffers += 1
-                self.valid_buffers = min(self.valid_buffers, len(self.storage_devices))
-            self.cur = self.step % self.buffer_size
-
-    def mini_batch_generator(self, mini_batch_size):
-        """Generate mini-batches of indices for training.
-        Split the buffer into mini-batches of size mini_batch_size.
-
-        Args:
-            mini_batch_size (int): The size of the mini-batch.
-
-        Returns:
-            indices (torch.Tensor): A list of indices for the mini-batches.
-        """
-        indices = torch.randperm(self.buffer_size * self.num_envs * self.traj_length * self.valid_buffers, device=self.output_device)
-        indices = indices.split(mini_batch_size)
-        return indices
-    
-    def get_batch(self, indices):
-        """ Get a batch of data from the storage. 
-        Handle the sampling for RNN and transformer.
-        RNN: we sample a sequence of length seq_length, starting from the sampled indices.
-        Transformer: we sample a sequence of length frame_stack, starting from sampled indices - frame_stack.
-
-        Args:
-            indices (torch.Tensor): The indices to sample from the storage.
-        
-        Returns:
-            obs (torch.Tensor): The state obs.
-            visual_obs (torch.Tensor): The visual obs.
-            actions (torch.Tensor): The actions.
-        """
-        # get a list of batch indices per buffer
-        buffer_assignment = (indices // (self.traj_length * self.buffer_size * self.num_envs))
-        # need to split the indices into list of indices per buffer
-        buffer_indices = [indices[buffer_assignment == i] % (self.traj_length * self.buffer_size * self.num_envs) for i in range(self.valid_buffers)]
-        obs_combined, visual_obs_combined, actions_combined, first_obs_combined, first_visual_obs_combined, prev_obs_combined = [], [], [], [], [], []
-        for buffer_idx in range(self.valid_buffers):
-            current_device_id = self.storage_devices[buffer_idx]
-            buffer_indices_ = buffer_indices[buffer_idx].to(f"cuda:{current_device_id}")
-            batch_indices = buffer_indices_ // self.traj_length
-            seq_indices = buffer_indices_ % self.traj_length + self.frame_stack
-            if self.frame_stack == 0:
-                # RNN: we count forwards from the sampled index
-                obs = [self.obs[buffer_idx][batch_indices, seq_indices + i] for i in range(self.seq_length)]
-                visual_obs = [self.visual_obs[buffer_idx][batch_indices, seq_indices + i] for i in range(self.seq_length)]
-                actions = [self.actions[buffer_idx][batch_indices, seq_indices + i] for i in range(self.seq_length)]
-                prev_obs = [self.obs[buffer_idx][batch_indices, torch.maximum(seq_indices + i - 1, torch.zeros_like(seq_indices))] for i in range(self.seq_length)]
-                obs = torch.stack(obs, dim=1)
-                visual_obs = torch.stack(visual_obs, dim=1)
-                actions = torch.stack(actions, dim=1)
-                prev_obs = torch.stack(prev_obs, dim=1)
-
-                first_obs = self.obs[buffer_idx][batch_indices, 0:1].repeat((1, self.seq_length, *([1]*len(self.obs[buffer_idx].shape[2:]))))
-                first_visual_obs = self.visual_obs[buffer_idx][batch_indices, 0:1].repeat((1, self.seq_length, *([1]*len(self.visual_obs[buffer_idx].shape[2:]))))
-            else:
-                # for transformer: we count forwards from the sampled index - frame_stack
-                obs = [self.obs[buffer_idx][batch_indices, seq_indices - i] for i in range(self.frame_stack - 1, -1, -1)]
-                visual_obs = [self.visual_obs[buffer_idx][batch_indices, seq_indices - i] for i in range(self.frame_stack - 1, -1, -1)]
-                actions = [self.actions[buffer_idx][batch_indices, seq_indices - i] for i in range(self.frame_stack - 1, -1, -1)]
-                prev_obs = [self.obs[buffer_idx][batch_indices, torch.maximum(seq_indices - i - 1, torch.zeros_like(seq_indices))] for i in range(self.frame_stack - 1, -1, -1)]
-                obs = torch.stack(obs, dim=1)
-                visual_obs = torch.stack(visual_obs, dim=1)
-                actions = torch.stack(actions, dim=1)
-                prev_obs = torch.stack(prev_obs, dim=1)
-
-                first_obs = self.obs[buffer_idx][batch_indices, 0:1].repeat((1, self.frame_stack, *([1]*len(self.obs[buffer_idx].shape[2:]))))
-                first_visual_obs = self.visual_obs[buffer_idx][batch_indices, 0:1].repeat((1, self.frame_stack, *([1]*len(self.visual_obs[buffer_idx].shape[2:]))))
-
-            obs_combined.append(obs.to(self.output_device))
-            visual_obs_combined.append(visual_obs.to(self.output_device))
-            actions_combined.append(actions.to(self.output_device))
-            first_obs_combined.append(first_obs.to(self.output_device))
-            first_visual_obs_combined.append(first_visual_obs.to(self.output_device))
-            prev_obs_combined.append(prev_obs.to(self.output_device))
-            
-        obs = torch.cat(obs_combined, dim=0)
-        visual_obs = torch.cat(visual_obs_combined, dim=0)
-        actions = torch.cat(actions_combined, dim=0)
-        first_obs = torch.cat(first_obs_combined, dim=0)
-        first_visual_obs = torch.cat(first_visual_obs_combined, dim=0)
-        prev_obs = torch.cat(prev_obs_combined, dim=0)
-        
-        return obs.clone(), visual_obs.clone(), actions.clone()
-    
-    def save(self):
-        # return a dict of all the data in the storage as cpu tensors
-        d = {
-            "obs": [o.cpu() for o in self.obs],
-            "visual_obs": [v.cpu() for v in self.visual_obs],
-            "actions": [a.cpu() for a in self.actions],
-            "rewards": [r.cpu() for r in self.rewards],
-            "dones": [d.cpu() for d in self.dones],
-            "cur": self.cur,
-            "step": self.step,
-            "ep_step": self.ep_step,
-            "valid_buffers": self.valid_buffers,
-            "expert_success_rate": self.expert_success_rate,
-            "expert_collision_rate": self.expert_collision_rate,
-            "expert_reaching_rate": self.expert_reaching_rate,
-        }
-        return d
-    
-    def load(self, data):
-        # load the data from the dict
-        self.obs, self.visual_obs, self.dones, self.rewards, self.actions = [], [], [], [], []
-        for device in self.storage_devices:
-            cuda_device = f"cuda:{device}"
-            self.obs.append(data["obs"][device].to(cuda_device))
-            self.visual_obs.append(data["visual_obs"][device].to(cuda_device))
-            self.dones.append(data["dones"][device].to(cuda_device))
-            self.rewards.append(data["rewards"][device].to(cuda_device))
-            self.actions.append(data["actions"][device].to(cuda_device))
-        self.cur = data["cur"]
-        self.step = data["step"]
-        self.ep_step = data["ep_step"]
-        self.valid_buffers = data["valid_buffers"]
-        self.expert_success_rate = data["expert_success_rate"]
-        self.expert_collision_rate = data["expert_collision_rate"]
-        self.expert_reaching_rate = data["expert_reaching_rate"]
-        self.current_device_idx = 0
-
 class Dagger(object):
     def __init__(self, config):
         # multi-gpu setup & if single gpu, default to cuda:0
@@ -323,7 +98,6 @@ class Dagger(object):
             os.makedirs(self.checkpoint_dir, exist_ok=True)
 
         self.setup_rl_env_and_expert()
-        self.setup_storage()
         obs_shape_meta = get_obs_shape_meta()
 
         # set up training
@@ -341,8 +115,7 @@ class Dagger(object):
         else:
             self.resume = False
             if not (self.cfg.eval_mode or self.cfg.debug_training):
-                # have to fill the storage with data before training
-                self.collect_data("eval")
+                self.eval_expert()
 
     def log(self, run, log_dict):
         if run is not None:
@@ -379,21 +152,6 @@ class Dagger(object):
         self.step_back_on_collision = cfg_task['env']['step_back_on_collision']
         assert not (self.reset_on_collision and self.step_back_on_collision), "Cannot have both reset_on_collision and step_back_on_collision"
         self.abs_angles_his = deque([self.env.start_config.clone() for _ in range(self.step_back_on_collision)], maxlen=self.step_back_on_collision)
-
-    def setup_storage(self):
-        visual_obs_shape = () # save index of the pcd instead of pcd itself, no dim needed here
-
-        # build eval storage: data collected with expert
-        self.eval_storage = Storage(
-            1, self.env.num_envs,
-            obs_shape=(14,),
-            visual_obs_shape=visual_obs_shape,
-            actions_shape=self.env.action_space.shape, 
-            traj_length=self.env.max_episode_length,
-            seq_length=self.seq_length,
-            frame_stack=self.frame_stack,
-            output_device=self.device,
-        )
 
     def setup_training(self, robomimic_cfg, obs_shape_meta, ckpt_path=None):
         """Set up student model and training parameters."""
@@ -434,59 +192,28 @@ class Dagger(object):
         self.env.base_model.policy.reset()
 
     @torch.no_grad()
-    def collect_data(self, split="train"):
-        """Collect trajectories for evaluation with the expert."""
-        state_obs = self.env.compute_observations()
-        visual_obs = torch.arange(self.env.num_envs, device=self.device)
+    def eval_expert(self, eval_iter=2):
+        self.expert_success_rate = 0
+        self.expert_collision_rate = 0
+        self.expert_reaching_rate = 0
 
-        if split == "train":
-            storage = self.storage
-        elif split == "eval":
-            storage = self.eval_storage
-
-        expert_success_rate = 0
-        expert_collision_rate = 0
-        expert_reaching_rate = 0
-
-        for iter_id in tqdm(range(storage.buffer_size*self.env.max_episode_length), desc=f"{split} data collection"):
+        for iter_id in tqdm(range(eval_iter * self.env.max_episode_length), desc=f"Evaling expert"):
             # take a step
             self.env.force_no_fabric = False
             self.env.no_base_action = False
             dummy_actions = torch.zeros((self.env.num_envs, self.env.num_actions), device=self.env.device)
             obs_dict, rews, dones, infos = self.env.step(dummy_actions)
 
-            actions_expert = self.env.delta_fabric_actions
-
             if (iter_id + 1) % self.env.max_episode_length == 0:
-                dones[:] = True
-                expert_success_rate += infos['success_rate']
-                expert_collision_rate += infos['collision_rate']
-                expert_reaching_rate += infos['reaching_rate']
+                self.expert_success_rate += infos['success_rate']
+                self.expert_collision_rate += infos['collision_rate']
+                self.expert_reaching_rate += infos['reaching_rate']
 
-            # update storage
-            storage.add_transitions(state_obs, visual_obs, actions_expert, rews, dones)
+                self.reset_envs()
 
-            # update new obs
-            state_obs = obs_dict["obs"]
-            if dones.any():
-                hidden_state = RMUtils.get_hidden_state(self.env.base_model.policy)
-                hidden_state[0][0][:, dones, ...] = 0 # reset hidden state
-                hidden_state[0][1][:, dones, ...] = 0 # reset cell state
-                RMUtils.set_hidden_state(self.env.base_model.policy, hidden_state)
-
-                state_obs = self.env.compute_observations()
-                visual_obs = None  # reset prev visual obs
-            visual_obs = torch.arange(self.env.num_envs, device=self.device)
-
-        expert_success_rate /= storage.buffer_size
-        expert_collision_rate /= storage.buffer_size
-        expert_reaching_rate /= storage.buffer_size
-
-        storage.expert_success_rate = expert_success_rate
-        storage.expert_collision_rate = expert_collision_rate
-        storage.expert_reaching_rate = expert_reaching_rate
-
-        self.reset_envs()
+        self.expert_success_rate /= eval_iter
+        self.expert_collision_rate /= eval_iter
+        self.expert_reaching_rate /= eval_iter
 
     def reset_student_rnn(self, reset_idx):
         if reset_idx.any():
@@ -548,11 +275,11 @@ class Dagger(object):
                     reset_envs_bool = torch.zeros(self.env.num_envs, dtype=torch.bool, device=self.env.device)
 
                 if init_training:
-                    # log expert success rate, if have training storage buffer should use that instead
+                    # log expert success rate and initial test success rate
                     wandb_log_dict = {
-                        "expert/expert_success_rate": self.eval_storage.expert_success_rate,
-                        "expert/expert_collision_rate": self.eval_storage.expert_collision_rate,
-                        "expert/expert_reaching_rate": self.eval_storage.expert_reaching_rate,
+                        "expert/expert_success_rate": self.expert_success_rate,
+                        "expert/expert_collision_rate": self.expert_collision_rate,
+                        "expert/expert_reaching_rate": self.expert_reaching_rate,
                         f"eval/success_rate": test_success['success_rate'],
                         f"eval/collision_rate": test_success['collision_rate'],
                         f"eval/reaching_rate": test_success['reaching_rate'],
@@ -642,7 +369,7 @@ class Dagger(object):
 
                     if (self.total_steps + 1) % (self.env.max_episode_length * self.cfg.test_frequency) == 0:
                         test_success = self.test(num_test_iterations=self.cfg.test_episodes, run=run)
-                        self.save_checkpoint(f"checkpoint_step{self.total_steps + 1}_success_{test_success['success_rate']:.4f}.pth", save_storage=False)
+                        self.save_checkpoint(f"checkpoint_step{self.total_steps + 1}_success_{test_success['success_rate']:.4f}.pth")
                         for k in test_success:
                             wandb_log_dict[f"eval/{k}"] = test_success[k]
 
@@ -750,10 +477,10 @@ class Dagger(object):
             tot_loss /= num_mini_batches
             return tot_loss, loss_dict
 
+        # TODO: setup num_learning_epochs correctly and cleanup the below
         batch_indices = self.storage.mini_batch_generator(mini_batch_size)
         num_batches = len(batch_indices)
 
-        # TODO: setup num_learning_epochs correctly and cleanup these
         for epoch in range(self.num_learning_epochs):
             for indices in batch_indices:
                 obs_batch, visual_batch, actions_expert_batch = self.storage.get_batch(indices)
@@ -786,46 +513,6 @@ class Dagger(object):
 
         tot_loss /= num_batches * self.num_learning_epochs
         return tot_loss
-
-    @torch.no_grad()
-    def eval(self):
-        model = self.student_player
-        model.set_train()
-
-        batch_indices = self.eval_storage.mini_batch_generator(self.cfg.dagger.batch_size)
-        num_batches = len(batch_indices)
-        mse, l1, gmm = 0.0, 0.0, 0.0
-        for indices in batch_indices:
-            obs_batch, visual_batch, actions_expert_batch = self.eval_storage.get_batch(indices)
-            batch = {
-                "actions": actions_expert_batch,
-                "obs": {
-                    "current_angles": obs_batch[..., :7],
-                    "goal_angles": obs_batch[..., 7:],
-                    "compute_pcd_params": self.env.combined_pcds[visual_batch.int()],
-                }
-            }
-
-            # process batch for training
-            input_batch = model.process_batch_for_training(batch)
-            input_batch = model.postprocess_batch_for_training(input_batch, obs_normalization_stats=None)
-
-            # forward and backward pass
-            with torch.no_grad():
-                predictions = model._forward_training(input_batch)
-                losses = model._compute_losses(predictions, input_batch)
-
-                # if "l2_loss" in losses:             # not using GMM
-                mse += losses["l2_loss"].detach().item()
-                l1 += losses["l1_loss"].detach().item()
-                # else:                               # using GMM
-                gmm += losses["action_loss"].detach().item()
-
-        mse /= num_batches
-        l1 /= num_batches
-        gmm /= num_batches
-
-        return mse, l1, gmm
 
     @torch.no_grad()
     def test(self, num_test_iterations=5, run=None):
@@ -917,7 +604,7 @@ class Dagger(object):
 
         return {k: v / total_iters_per_key[k] for k, v in num_success.items()}
 
-    def save_checkpoint(self, prefix='checkpoint_latest', save_storage=True):
+    def save_checkpoint(self, prefix='checkpoint_latest'):
         start_time = time.time()
         distillation_ckpt_path = os.path.join(self.checkpoint_dir, f"{prefix}.pth")
         checkpoint = {
@@ -926,8 +613,6 @@ class Dagger(object):
             "total_episodes": self.total_episodes,
             "total_epochs": self.total_epochs,
         }
-        if save_storage:
-            checkpoint["eval_storage"] = self.eval_storage.save()
         torch.save(
             checkpoint,
             distillation_ckpt_path,
@@ -938,8 +623,6 @@ class Dagger(object):
     def load_checkpoint(self, checkpoint_path):
         checkpoint = torch.load(checkpoint_path)
         self.student_player.deserialize(checkpoint["student_state_dict"])
-        if 'eval_storage' in checkpoint:
-            self.eval_storage.load(checkpoint["eval_storage"])
         self.total_steps = checkpoint["total_steps"]
         self.total_episodes = checkpoint["total_episodes"]
         self.total_epochs = checkpoint["total_epochs"]
