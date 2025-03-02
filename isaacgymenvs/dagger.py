@@ -11,6 +11,8 @@ import isaacgym # must import isaacgym before pytorch
 import numpy as np
 import json
 import torch
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel as DDP
 
 import isaacgymenvs.utils.robomimic_utils as RMUtils
 from isaacgymenvs.utils.media_utils import camera_shot
@@ -21,9 +23,12 @@ from isaacgymenvs.tasks import FrankaMPFull
 import hydra
 from omegaconf import DictConfig
 
+import robomimic.utils.file_utils as FileUtils
 import robomimic.utils.obs_utils as ObsUtils
+from robomimic.models.base_nets import DDPModelWrapper
 from robomimic.utils.log_utils import custom_tqdm as tqdm  # use robomimic tqdm that prints to stdout
 from robomimic.config import config_factory
+from robomimic.algo import algo_factory
 
 
 def make_video(frames, logdir, steps, name=None):
@@ -48,6 +53,8 @@ def get_obs_shape_meta():
 class Dagger(object):
     def __init__(self, config):
         # multi-gpu setup & if single gpu, default to cuda:0
+        if config.multi_gpu:
+            dist.init_process_group(backend="nccl")
         # local rank of the GPU in a node
         self.local_rank = int(os.getenv("LOCAL_RANK", "0"))
         # global rank of the GPU
@@ -155,10 +162,9 @@ class Dagger(object):
 
     def setup_training(self, robomimic_cfg, obs_shape_meta, ckpt_path=None):
         """Set up student model and training parameters."""
-        self.student_player = RMUtils.build_model(
+        self.student_player = self.build_model(
             config=robomimic_cfg,
             shape_meta=obs_shape_meta,
-            device=torch.device(self.cfg.rl_device),
             ckpt_path=ckpt_path,
         )
 
@@ -173,11 +179,18 @@ class Dagger(object):
             else:
                 return f"{num / 1e12:.2f}T"  # Trillions
 
+        if self.cfg.multi_gpu:
+            self.student_player.nets['policy'] = DDP(self.student_player.nets['policy'], device_ids=[self.local_rank], static_graph=True, find_unused_parameters=True)
+
         # print model info
         print("\n============= Model Summary =============")
         print(self.student_player)  # print model summary
-        num_policy_params = sum(p.numel() for p in self.student_player.nets['policy'].parameters())
-        num_enc_params = sum(p.numel() for p in self.student_player.nets['policy'].model.nets['encoder'].parameters())
+        if self.cfg.multi_gpu:
+            num_policy_params =sum(p.numel() for p in self.student_player.nets['policy'].module.parameters())
+            num_enc_params = sum(p.numel() for p in self.student_player.nets['policy'].module.model.nets['encoder'].parameters())
+        else:
+            num_policy_params = sum(p.numel() for p in self.student_player.nets['policy'].parameters())
+            num_enc_params = sum(p.numel() for p in self.student_player.nets['policy'].model.nets['encoder'].parameters())
         print("Policy params:", format_parameters(num_policy_params))
         print("Encoder params:", format_parameters(num_enc_params))
         print("")
@@ -185,6 +198,25 @@ class Dagger(object):
         # parameters
         self.num_learning_iterations = self.cfg.dagger.num_learning_iterations
         self.num_learning_epochs = self.cfg.dagger.num_learning_epochs
+
+    def build_model(self, config, shape_meta, ckpt_path=None):
+        if ckpt_path is not None and ckpt_path != 'None':
+            model, _ = FileUtils.model_from_checkpoint(
+                ckpt_path=ckpt_path,
+                device=self.cfg.rl_device,
+                verbose=True,
+                config=config,
+            )
+        else:
+            model = algo_factory(
+                algo_name=config.algo_name,
+                config=config,
+                obs_key_shapes=shape_meta["all_shapes"],
+                ac_dim=shape_meta["ac_dim"],
+                device=self.cfg.rl_device,
+            )
+            model.nets['policy'] = DDPModelWrapper(model.nets['policy'])
+        return model
 
     def reset_envs(self):
         env_ids = torch.arange(self.env.num_envs, device=self.env.device)
@@ -225,17 +257,19 @@ class Dagger(object):
 
     def train(self):
         """Train the student policy using DAgger."""
-        run_id_file = os.path.join(self.log_dir, "wandb_run_id.json")
-        if self.resume:
-            with open(run_id_file, "r") as f:
-                run_data = json.load(f)
-                run_id = run_data.get("run_id")
-        else:
-            run_id = f"dagger_{int(time.time())}"
-            with open(run_id_file, "w") as f:
-                json.dump({"run_id": run_id}, f)
+        if self.cfg.wandb_activate and self.global_rank == 0:
+            # log / load wandb run id
+            run_id_file = os.path.join(self.log_dir, "wandb_run_id.json")
+            if self.resume:
+                with open(run_id_file, "r") as f:
+                    run_data = json.load(f)
+                    run_id = run_data.get("run_id")
+            else:
+                run_id = f"dagger_{int(time.time())}"
+                with open(run_id_file, "w") as f:
+                    json.dump({"run_id": run_id}, f)
 
-        if self.cfg.wandb_activate:
+            # init wandb
             run = wandb.init(
                 project=self.cfg.wandb_project,
                 config=self.cfg_dict,
@@ -274,19 +308,20 @@ class Dagger(object):
                     count_reaching = torch.zeros(self.env.num_envs, dtype=torch.int, device=self.env.device)
                     reset_envs_bool = torch.zeros(self.env.num_envs, dtype=torch.bool, device=self.env.device)
 
-                if init_training:
-                    # log expert success rate and initial test success rate
-                    wandb_log_dict = {
-                        "expert/expert_success_rate": self.expert_success_rate,
-                        "expert/expert_collision_rate": self.expert_collision_rate,
-                        "expert/expert_reaching_rate": self.expert_reaching_rate,
-                        f"eval/success_rate": test_success['success_rate'],
-                        f"eval/collision_rate": test_success['collision_rate'],
-                        f"eval/reaching_rate": test_success['reaching_rate'],
-                    }
-                    init_training = False
-                else:
-                    wandb_log_dict = {}
+                if self.global_rank == 0:
+                    if init_training:
+                        # log expert success rate and initial test success rate
+                        wandb_log_dict = {
+                            "expert/expert_success_rate": self.expert_success_rate,
+                            "expert/expert_collision_rate": self.expert_collision_rate,
+                            "expert/expert_reaching_rate": self.expert_reaching_rate,
+                            f"eval/success_rate": test_success['success_rate'],
+                            f"eval/collision_rate": test_success['collision_rate'],
+                            f"eval/reaching_rate": test_success['reaching_rate'],
+                        }
+                        init_training = False
+                    else:
+                        wandb_log_dict = {}
 
                 # rollout student
                 t1 = time.time()
@@ -370,8 +405,10 @@ class Dagger(object):
                     if (self.total_steps + 1) % (self.env.max_episode_length * self.cfg.test_frequency) == 0:
                         test_success = self.test(num_test_iterations=self.cfg.test_episodes, run=run)
                         self.save_checkpoint(f"checkpoint_step{self.total_steps + 1}_success_{test_success['success_rate']:.4f}.pth")
-                        for k in test_success:
-                            wandb_log_dict[f"eval/{k}"] = test_success[k]
+
+                        if self.global_rank == 0:
+                            for k in test_success:
+                                wandb_log_dict[f"eval/{k}"] = test_success[k]
 
                         pbar.set_postfix(
                             ep=self.total_episodes,
@@ -395,13 +432,15 @@ class Dagger(object):
                 }
                 avg_loss, loss_dict = self.update(training_batch)
                 t3 = time.time()
-                wandb_log_dict["distillation/training_loss"] = avg_loss
-                for k in loss_dict.keys():
-                    wandb_log_dict[f"distillation/{k}"] = loss_dict[k]
+
+                if self.global_rank == 0:
+                    wandb_log_dict["distillation/training_loss"] = avg_loss
+                    for k in loss_dict.keys():
+                        wandb_log_dict[f"distillation/{k}"] = loss_dict[k]
                 RMUtils.set_hidden_state(self.student_player, hidden_state)
 
                 # log to wandb
-                if self.cfg.wandb_activate:
+                if self.cfg.wandb_activate and self.global_rank == 0:
                     self.log(run, wandb_log_dict)
 
                 if not self.cfg.logging.suppress_timing:
@@ -589,7 +628,7 @@ class Dagger(object):
                         total_iters_per_key[k] += 1
                 total_runs += self.env.num_envs
 
-        if self.env.capture_video:
+        if self.env.capture_video and self.global_rank == 0:
             ims = []
             for env_idx in range(self.env.capture_envs):
                 for im in video_ims:
@@ -605,24 +644,25 @@ class Dagger(object):
         return {k: v / total_iters_per_key[k] for k, v in num_success.items()}
 
     def save_checkpoint(self, prefix='checkpoint_latest'):
-        start_time = time.time()
-        distillation_ckpt_path = os.path.join(self.checkpoint_dir, f"{prefix}.pth")
-        checkpoint = {
-            "student_state_dict": self.student_player.serialize(),
-            "total_steps": self.total_steps,
-            "total_episodes": self.total_episodes,
-            "total_epochs": self.total_epochs,
-        }
-        torch.save(
-            checkpoint,
-            distillation_ckpt_path,
-        )
-        if not self.cfg.logging.suppress_timing:
-            print("Time to save checkpoint:", time.time() - start_time, "s")
+        if self.global_rank == 0:
+            start_time = time.time()
+            distillation_ckpt_path = os.path.join(self.checkpoint_dir, f"{prefix}.pth")
+            checkpoint = {
+                "student_state_dict": self.student_player.serialize(),
+                "total_steps": self.total_steps,
+                "total_episodes": self.total_episodes,
+                "total_epochs": self.total_epochs,
+            }
+            torch.save(
+                checkpoint,
+                distillation_ckpt_path,
+            )
+            if not self.cfg.logging.suppress_timing:
+                print("Time to save checkpoint:", time.time() - start_time, "s")
 
     def load_checkpoint(self, checkpoint_path):
         checkpoint = torch.load(checkpoint_path)
-        self.student_player.deserialize(checkpoint["student_state_dict"])
+        self.student_player.deserialize(checkpoint["student_state_dict"], ddp=self.cfg.multi_gpu)
         self.total_steps = checkpoint["total_steps"]
         self.total_episodes = checkpoint["total_episodes"]
         self.total_epochs = checkpoint["total_epochs"]
