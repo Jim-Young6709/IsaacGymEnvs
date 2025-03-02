@@ -272,6 +272,24 @@ class Storage(object):
 
 class Dagger(object):
     def __init__(self, config):
+        # multi-gpu setup & if single gpu, default to cuda:0
+        # local rank of the GPU in a node
+        self.local_rank = int(os.getenv("LOCAL_RANK", "0"))
+        # global rank of the GPU
+        self.global_rank = int(os.getenv("RANK", "0"))
+        # total number of GPUs across all nodes
+        self.world_size = int(os.getenv("WORLD_SIZE", "1"))
+
+        config.device = f'cuda:{self.local_rank}'
+        _sim_device = f'cuda:{self.local_rank}'
+        _rl_device = f'cuda:{self.local_rank}'
+        torch.cuda.set_device(self.local_rank)  # Explicitly set device
+
+        config.rl_device = _rl_device
+        config.sim_device = _sim_device
+        config.task.env.batch_idx = config.task.env.batch_idx * self.world_size + self.global_rank
+        print(f"global_rank = {self.global_rank} local_rank = {self.local_rank} world_size = {self.world_size} assigned batch_idx = {config.task.env.batch_idx}")
+
         self.cfg = config
         self.cfg_dict = omegaconf_to_dict(config)
         self.device = self.cfg.device
@@ -294,14 +312,15 @@ class Dagger(object):
         self.checkpoint_dir = os.path.join(self.log_dir, "nn")
         self.video_dir = os.path.join(self.log_dir, "videos")
 
-        if os.path.exists(self.log_dir) and not self.cfg.resume:
-            ans = input("WARNING: training directory ({}) already exists! \noverwrite? (y/n)\n".format(self.log_dir))
-            if ans == "y":
-                print("REMOVING")
-                shutil.rmtree(self.log_dir)
-        os.makedirs(self.log_dir, exist_ok=True)
-        os.makedirs(self.video_dir, exist_ok=True)
-        os.makedirs(self.checkpoint_dir, exist_ok=True)
+        if self.global_rank == 0:
+            if os.path.exists(self.log_dir) and not self.cfg.resume:
+                ans = input("WARNING: training directory ({}) already exists! \noverwrite? (y/n)\n".format(self.log_dir))
+                if ans == "y":
+                    print("REMOVING")
+                    shutil.rmtree(self.log_dir)
+            os.makedirs(self.log_dir, exist_ok=True)
+            os.makedirs(self.video_dir, exist_ok=True)
+            os.makedirs(self.checkpoint_dir, exist_ok=True)
 
         self.setup_rl_env_and_expert()
         self.setup_storage()
@@ -343,23 +362,6 @@ class Dagger(object):
 
     def setup_rl_env_and_expert(self):
         """Set up the environment & expert model."""
-        if self.cfg.multi_gpu:
-            # local rank of the GPU in a node
-            local_rank = int(os.getenv("LOCAL_RANK"))#, "0"))
-            # global rank of the GPU
-            global_rank = int(os.getenv("RANK"))#, "0"))
-            # total number of GPUs across all nodes
-            world_size = int(os.getenv("WORLD_SIZE"))#, "1"))
-
-            _sim_device = f'cuda:{local_rank}'
-            _rl_device = f'cuda:{local_rank}'
-
-            self.cfg.rl_device = _rl_device
-            self.cfg.sim_device = _sim_device
-            self.cfg.task.env.batch_idx = self.cfg.task.env.batch_idx * world_size + global_rank
-
-            print(f"global_rank = {global_rank} local_rank = {local_rank} world_size = {world_size} assigned batch_idx = {self.cfg.task.env.batch_idx}")
-
         cfg_dict = omegaconf_to_dict(self.cfg)
         cfg_task = cfg_dict["task"]
         rl_device = cfg_dict["rl_device"]
