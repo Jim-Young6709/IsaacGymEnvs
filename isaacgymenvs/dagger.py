@@ -128,6 +128,7 @@ class Dagger(object):
         if run is not None:
             expanded_log_dict = {}
             for k, v in log_dict.items():
+                v = v.cpu().numpy()
                 if k not in self.log_history:
                     self.log_history[k] = []
                 self.log_history[k].append(v)
@@ -224,10 +225,10 @@ class Dagger(object):
         self.env.base_model.policy.reset()
 
     @torch.no_grad()
-    def eval_expert(self, eval_iter=2):
-        self.expert_success_rate = 0
-        self.expert_collision_rate = 0
-        self.expert_reaching_rate = 0
+    def eval_expert(self, eval_iter=1):
+        self.expert_success_rate = torch.tensor(0, dtype=torch.float32, device=self.device)
+        self.expert_collision_rate = torch.tensor(0, dtype=torch.float32, device=self.device)
+        self.expert_reaching_rate = torch.tensor(0, dtype=torch.float32, device=self.device)
 
         for iter_id in tqdm(range(eval_iter * self.env.max_episode_length), desc=f"Evaling expert"):
             # take a step
@@ -243,9 +244,14 @@ class Dagger(object):
 
                 self.reset_envs()
 
-        self.expert_success_rate /= eval_iter
-        self.expert_collision_rate /= eval_iter
-        self.expert_reaching_rate /= eval_iter
+        if self.cfg.multi_gpu:
+            dist.all_reduce(self.expert_success_rate, op=dist.ReduceOp.SUM)
+            dist.all_reduce(self.expert_collision_rate, op=dist.ReduceOp.SUM)
+            dist.all_reduce(self.expert_reaching_rate, op=dist.ReduceOp.SUM)
+
+        self.expert_success_rate /= (eval_iter * self.world_size)
+        self.expert_collision_rate /= (eval_iter * self.world_size)
+        self.expert_reaching_rate /= (eval_iter * self.world_size)
 
     def reset_student_rnn(self, reset_idx):
         if reset_idx.any():
@@ -287,9 +293,14 @@ class Dagger(object):
             init_training = not (self.resume or self.cfg.debug_training)
             if init_training:
                 test_success = self.test(num_test_iterations=self.cfg.test_episodes, run=run) # just to prime the dict
+                if self.cfg.multi_gpu:
+                    for k, value in test_success.items():
+                        value_tensor = torch.tensor(value, dtype=torch.float32, device=self.device)
+                        dist.all_reduce(value_tensor, op=dist.ReduceOp.SUM)
+                        test_success[k] = value_tensor / self.world_size
                 self.reset_envs()
             else:
-                test_success = {"success_rate": 0.0}
+                test_success = {"success_rate": torch.tensor(0, dtype=torch.float32, device=self.device)}
 
             pbar.set_postfix(
                 ep=self.total_episodes,
@@ -406,6 +417,12 @@ class Dagger(object):
                         test_success = self.test(num_test_iterations=self.cfg.test_episodes, run=run)
                         self.save_checkpoint(f"checkpoint_step{self.total_steps + 1}_success_{test_success['success_rate']:.4f}.pth")
 
+                        if self.cfg.multi_gpu:
+                            for k, value in test_success.items():
+                                value_tensor = torch.tensor(value, dtype=torch.float32, device=self.device)
+                                dist.all_reduce(value_tensor, op=dist.ReduceOp.SUM)
+                                test_success[k] = value_tensor / self.world_size
+
                         if self.global_rank == 0:
                             for k in test_success:
                                 wandb_log_dict[f"eval/{k}"] = test_success[k]
@@ -432,6 +449,14 @@ class Dagger(object):
                 }
                 avg_loss, loss_dict = self.update(training_batch)
                 t3 = time.time()
+
+                if self.cfg.multi_gpu:
+                    dist.all_reduce(avg_loss, op=dist.ReduceOp.SUM)
+                    avg_loss /= self.world_size
+
+                    for k in loss_dict.keys():
+                        dist.all_reduce(loss_dict[k], op=dist.ReduceOp.SUM)
+                        loss_dict[k] /= self.world_size
 
                 if self.global_rank == 0:
                     wandb_log_dict["distillation/training_loss"] = avg_loss
@@ -462,13 +487,13 @@ class Dagger(object):
         model.set_train()
 
         mini_batch_size = self.cfg.dagger.batch_size
-        tot_loss = 0.0
+        tot_loss = torch.tensor(0, dtype=torch.float32, device=self.device)
         num_mini_batches = self.env.num_envs // mini_batch_size
 
         loss_dict = {
-            "action_loss": 0.0,
-            "dists_means_l1_loss": 0.0,
-            "dists_means_l2_loss": 0.0,
+            "action_loss": torch.tensor(0, dtype=torch.float32, device=self.device),
+            "dists_means_l1_loss": torch.tensor(0, dtype=torch.float32, device=self.device),
+            "dists_means_l2_loss": torch.tensor(0, dtype=torch.float32, device=self.device),
         }
 
         if self.cfg.dagger.loss_type == "gmm":
