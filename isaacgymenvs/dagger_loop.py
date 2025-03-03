@@ -21,7 +21,7 @@ if __name__ == "__main__":
     parser.add_argument("--resume", type=str, default='')
     parser.add_argument("--ckpt_path", type=str, default='None')
     parser.add_argument("--num_envs", type=int, default=1)
-    parser.add_argument("--num_learning_iters", type=int, default=10000)
+    parser.add_argument("--num_learning_iters", type=int, default=1000)
     parser.add_argument("--wandb_run_name", type=str, default='dagger')
     parser.add_argument("--start_batch_iter", type=int, default=0)
 
@@ -30,6 +30,7 @@ if __name__ == "__main__":
     parser.add_argument("--colli_stepback", type=int, default=0)
     parser.add_argument("--capture_video", action='store_true')
     parser.add_argument("--skip_init_eval", action='store_true')
+    parser.add_argument("--gpu_num", type=int, default=1)
 
     args = parser.parse_args()
 
@@ -55,6 +56,7 @@ if __name__ == "__main__":
     colli_stepback = args.colli_stepback
     capture_video = args.capture_video
     skip_init_eval = args.skip_init_eval
+    gpu_num = args.gpu_num
 
     log_dir = os.path.join(args.train_dir, args.wandb_run_name)
 
@@ -83,7 +85,8 @@ if __name__ == "__main__":
             ckpt_path = 'None'
 
         command_list =[
-            "python", "isaacgymenvs/dagger.py",
+            f"torchrun --nproc_per_node={args.gpu_num}", f"multi_gpu={args.gpu_num > 1}",
+            "isaacgymenvs/dagger.py",
             f"task.env.hdf5_path={args.dataset_path}",
             f"ckpt_path={ckpt_path}", f"resume={resume}",
             f"num_envs={args.num_envs}", f"dagger.batch_size={args.batch_size}", 
