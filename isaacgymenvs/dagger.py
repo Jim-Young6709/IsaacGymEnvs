@@ -289,7 +289,9 @@ class Dagger(object):
             run = None
 
         print("Training DAgger...")
-        with tqdm(range(self.total_steps, self.total_steps + self.num_learning_iterations), desc='DAgger Training') as pbar:
+        start_step = self.total_steps % self.num_learning_iterations
+        print(f"Starting from step {start_step}")
+        with tqdm(range(start_step, self.num_learning_iterations), desc='DAgger Training') as pbar:
             init_training = not (self.resume or self.cfg.debug_training)
             if init_training:
                 test_success = self.test(num_test_iterations=self.cfg.test_episodes, run=run) # just to prime the dict
@@ -413,9 +415,9 @@ class Dagger(object):
                         self.env.compute_observations()
                         self.env.lock_in[reset_envs_bool] = False
 
-                    if (self.total_steps + 1) % (self.env.max_episode_length * self.cfg.test_frequency) == 0:
+                    if (self.total_steps) % (self.env.max_episode_length * self.cfg.test_frequency) == 0:
                         test_success = self.test(num_test_iterations=self.cfg.test_episodes, run=run)
-                        self.save_checkpoint(f"checkpoint_step{self.total_steps + 1}_success_{test_success['success_rate']:.4f}.pth")
+                        self.save_checkpoint(f"checkpoint_step{self.total_steps}_success_{test_success['success_rate']:.4f}.pth")
 
                         if self.cfg.multi_gpu:
                             for k, value in test_success.items():

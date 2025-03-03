@@ -86,7 +86,7 @@ if __name__ == "__main__":
 
         command_list =[
             "torchrun", f"--nproc_per_node={args.gpu_num}", "isaacgymenvs/dagger.py",
-            f"multi_gpu={args.gpu_num > 1}",
+            f"multi_gpu={args.gpu_num > 0}",
             f"task.env.hdf5_path={args.dataset_path}",
             f"ckpt_path={ckpt_path}", f"resume={resume}",
             f"num_envs={args.num_envs}", f"dagger.batch_size={args.batch_size}", 
