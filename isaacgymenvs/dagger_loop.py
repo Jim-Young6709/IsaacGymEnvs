@@ -2,6 +2,16 @@ import subprocess
 import os
 import shutil
 import argparse
+import torch
+
+
+# Get CPU count allocated by SLURM
+num_cpus = int(os.environ.get("SLURM_CPUS_PER_TASK", 1))
+num_threads = max(1, num_cpus // torch.cuda.device_count())  # Distribute threads across GPUs
+
+os.environ["OMP_NUM_THREADS"] = str(num_threads)
+
+print(f"Setting OMP_NUM_THREADS to {num_threads}")
 
 
 if __name__ == "__main__":
