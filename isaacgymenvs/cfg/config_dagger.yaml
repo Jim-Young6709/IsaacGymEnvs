@@ -53,7 +53,7 @@ hydra:
 
 # test options
 test_frequency: 10 # test every n x num_envs episodes
-test_episodes: 3
+test_episodes: 1
 
 # set True for samplers
 sample_mode: False
