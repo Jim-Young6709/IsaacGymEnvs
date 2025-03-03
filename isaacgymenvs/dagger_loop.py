@@ -85,8 +85,8 @@ if __name__ == "__main__":
             ckpt_path = 'None'
 
         command_list =[
-            f"torchrun --nproc_per_node={args.gpu_num}", f"multi_gpu={args.gpu_num > 1}",
-            "isaacgymenvs/dagger.py",
+            "torchrun", f"--nproc_per_node={args.gpu_num}", "isaacgymenvs/dagger.py",
+            f"multi_gpu={args.gpu_num > 1}",
             f"task.env.hdf5_path={args.dataset_path}",
             f"ckpt_path={ckpt_path}", f"resume={resume}",
             f"num_envs={args.num_envs}", f"dagger.batch_size={args.batch_size}", 
