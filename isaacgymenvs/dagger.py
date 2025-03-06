@@ -309,7 +309,9 @@ class Dagger(object):
                 test_success=f"{test_success['success_rate']:.4f}",
             )
 
-            count_reaching = torch.zeros(self.env.num_envs, dtype=torch.int, device=self.env.device)
+            count_reaching = torch.zeros(self.env.num_envs, dtype=torch.int, device=self.env.device) # count reaching for goal reaching reset
+            has_reached = torch.zeros(self.env.num_envs, dtype=torch.bool, device=self.env.device) # count whether goal has been reached during this episode, for logging purposes
+            has_collided = torch.zeros(self.env.num_envs, dtype=torch.bool, device=self.env.device) # count whether collision has occurred during this episode, for logging purposes
             reset_envs_bool = torch.zeros(self.env.num_envs, dtype=torch.bool, device=self.env.device)
             init_buffer = True
 
@@ -319,6 +321,8 @@ class Dagger(object):
                     self.student_player.reset()
                     init_buffer = True
                     count_reaching = torch.zeros(self.env.num_envs, dtype=torch.int, device=self.env.device)
+                    has_reached = torch.zeros(self.env.num_envs, dtype=torch.bool, device=self.env.device)
+                    has_collided = torch.zeros(self.env.num_envs, dtype=torch.bool, device=self.env.device)
                     reset_envs_bool = torch.zeros(self.env.num_envs, dtype=torch.bool, device=self.env.device)
 
                 if self.global_rank == 0:
@@ -335,6 +339,19 @@ class Dagger(object):
                         init_training = False
                     else:
                         wandb_log_dict = {}
+
+                    if (iter_id + 1) % self.env.max_episode_length == 0:
+                        # log the last step training info of the current episode
+                        train_reaching_rate = sum(has_reached) / self.env.num_envs
+                        train_collision_rate = sum(has_collided) / self.env.num_envs
+                        if self.cfg.multi_gpu:
+                            dist.all_reduce(train_reaching_rate, op=dist.ReduceOp.SUM)
+                            dist.all_reduce(train_collision_rate, op=dist.ReduceOp.SUM)
+                            train_reaching_rate /= self.world_size
+                            train_collision_rate /= self.world_size
+
+                        wandb_log_dict["train/reaching_rate"] = train_reaching_rate
+                        wandb_log_dict["train/collision_rate"] = train_collision_rate
 
                 # rollout student
                 t1 = time.time()
@@ -426,6 +443,8 @@ class Dagger(object):
                         self.env.lock_in[reset_envs_bool] = False
 
                     count_reaching += self.env.goal_reaching
+                    has_reached |= self.env.goal_reaching.bool()
+                    has_collided |= self.env.scene_collision.bool()
                     if (count_reaching >= self.reaching_reset_threshold).any():
                         reset_angles = self.env.start_config.clone()
                         reset_envs_bool = (count_reaching >= self.reaching_reset_threshold).clone()
