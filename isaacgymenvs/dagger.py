@@ -343,7 +343,6 @@ class Dagger(object):
 
                     if (self.total_steps) % (self.env.max_episode_length * self.cfg.test_frequency) == 0:
                         test_success = self.test(num_test_iterations=self.cfg.test_episodes, run=run)
-                        self.save_checkpoint(f"checkpoint_step{self.total_steps}_success_{test_success['success_rate']:.4f}.pth")
 
                         if self.cfg.multi_gpu:
                             for k, value in test_success.items():
@@ -359,6 +358,8 @@ class Dagger(object):
                             ep=self.total_episodes,
                             test_success=f"{test_success['success_rate']:.4f}",
                         )
+
+                        self.save_checkpoint(f"checkpoint_step{self.total_steps}_success_{test_success['success_rate']:.4f}.pth")
 
                     # TODO: get action from (base_policy + fabric), kinda messy, cleanup later
                     abs_base_policy_action = self.env.base_delta_action + self.env.get_joint_angles()
