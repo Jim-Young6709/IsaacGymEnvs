@@ -340,16 +340,17 @@ class Dagger(object):
                     else:
                         wandb_log_dict = {}
 
-                    if (iter_id + 1) % self.env.max_episode_length == 0:
-                        # log the last step training info of the current episode
-                        train_reaching_rate = sum(has_reached) / self.env.num_envs
-                        train_collision_rate = sum(has_collided) / self.env.num_envs
-                        if self.cfg.multi_gpu:
-                            dist.all_reduce(train_reaching_rate, op=dist.ReduceOp.SUM)
-                            dist.all_reduce(train_collision_rate, op=dist.ReduceOp.SUM)
-                            train_reaching_rate /= self.world_size
-                            train_collision_rate /= self.world_size
+                if (iter_id + 1) % self.env.max_episode_length == 0:
+                    # log the last step training info of the current episode
+                    train_reaching_rate = sum(has_reached) / self.env.num_envs
+                    train_collision_rate = sum(has_collided) / self.env.num_envs
+                    if self.cfg.multi_gpu:
+                        dist.all_reduce(train_reaching_rate, op=dist.ReduceOp.SUM)
+                        dist.all_reduce(train_collision_rate, op=dist.ReduceOp.SUM)
+                        train_reaching_rate /= self.world_size
+                        train_collision_rate /= self.world_size
 
+                    if self.global_rank == 0:
                         wandb_log_dict["train/reaching_rate"] = train_reaching_rate
                         wandb_log_dict["train/collision_rate"] = train_collision_rate
 
