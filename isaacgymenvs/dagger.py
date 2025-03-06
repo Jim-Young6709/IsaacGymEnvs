@@ -341,6 +341,25 @@ class Dagger(object):
                 with torch.no_grad():
                     self.student_player.set_eval()
 
+                    if (self.total_steps) % (self.env.max_episode_length * self.cfg.test_frequency) == 0:
+                        test_success = self.test(num_test_iterations=self.cfg.test_episodes, run=run)
+                        self.save_checkpoint(f"checkpoint_step{self.total_steps}_success_{test_success['success_rate']:.4f}.pth")
+
+                        if self.cfg.multi_gpu:
+                            for k, value in test_success.items():
+                                value_tensor = torch.tensor(value, dtype=torch.float32, device=self.device)
+                                dist.all_reduce(value_tensor, op=dist.ReduceOp.SUM)
+                                test_success[k] = value_tensor / self.world_size
+
+                        if self.global_rank == 0:
+                            for k in test_success:
+                                wandb_log_dict[f"eval/{k}"] = test_success[k]
+
+                        pbar.set_postfix(
+                            ep=self.total_episodes,
+                            test_success=f"{test_success['success_rate']:.4f}",
+                        )
+
                     # TODO: get action from (base_policy + fabric), kinda messy, cleanup later
                     abs_base_policy_action = self.env.base_delta_action + self.env.get_joint_angles()
                     self.env.compute_fabric_action(abs_base_policy_action)
@@ -414,25 +433,6 @@ class Dagger(object):
                         count_reaching[reset_envs_bool] = 0
                         self.env.compute_observations()
                         self.env.lock_in[reset_envs_bool] = False
-
-                    if (self.total_steps) % (self.env.max_episode_length * self.cfg.test_frequency) == 0:
-                        test_success = self.test(num_test_iterations=self.cfg.test_episodes, run=run)
-                        self.save_checkpoint(f"checkpoint_step{self.total_steps}_success_{test_success['success_rate']:.4f}.pth")
-
-                        if self.cfg.multi_gpu:
-                            for k, value in test_success.items():
-                                value_tensor = torch.tensor(value, dtype=torch.float32, device=self.device)
-                                dist.all_reduce(value_tensor, op=dist.ReduceOp.SUM)
-                                test_success[k] = value_tensor / self.world_size
-
-                        if self.global_rank == 0:
-                            for k in test_success:
-                                wandb_log_dict[f"eval/{k}"] = test_success[k]
-
-                        pbar.set_postfix(
-                            ep=self.total_episodes,
-                            test_success=f"{test_success['success_rate']:.4f}",
-                        )
 
                     self.total_steps += 1
 
@@ -667,6 +667,8 @@ class Dagger(object):
 
         if not self.cfg.logging.suppress_timing:
             print(f"Finished testing in {time.time() - tik:.2f}s")
+
+        self.reset_envs()
 
         return {k: v / total_iters_per_key[k] for k, v in num_success.items()}
 
