@@ -34,6 +34,7 @@ if __name__ == "__main__":
     parser.add_argument("--num_learning_iters", type=int, default=1000)
     parser.add_argument("--wandb_run_name", type=str, default='dagger')
     parser.add_argument("--start_batch_iter", type=int, default=0)
+    parser.add_argument("--fabric_lockin", type=float, default=0.05)
 
     parser.add_argument("--loss_type", type=str, default='l1')
     parser.add_argument("--colli_reset", action='store_true')
@@ -61,6 +62,7 @@ if __name__ == "__main__":
     num_learning_iters = args.num_learning_iters
     wandb_run_name = args.wandb_run_name
     start_batch_iter = args.start_batch_iter
+    fabric_lockin = args.fabric_lockin
     loss_type = args.loss_type
     colli_reset = args.colli_reset
     colli_stepback = args.colli_stepback
@@ -105,6 +107,7 @@ if __name__ == "__main__":
             f"wandb_run_name={args.wandb_run_name}", f"train_dir={args.train_dir}",
             f"dagger.loss_type={args.loss_type}", f"task.env.reset_on_collision={args.colli_reset}", f"task.env.step_back_on_collision={args.colli_stepback}",
             f"task.env.capture_video={args.capture_video}", f"task.env.batch_idx={outer_epoch + start_batch_iter}",
+            f"task.fabric.lock_in_pos_err={args.fabric_lockin}",
             f"debug_training={args.skip_init_eval}",
         ]
 
