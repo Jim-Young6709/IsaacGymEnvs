@@ -34,7 +34,7 @@ if __name__ == "__main__":
     parser.add_argument("--num_learning_iters", type=int, default=1000)
     parser.add_argument("--wandb_run_name", type=str, default='dagger')
     parser.add_argument("--start_batch_iter", type=int, default=0)
-    parser.add_argument("--fabric_lockin", type=float, default=0.05)
+    parser.add_argument("--fabric_lockin", type=float, default=0.01)
 
     parser.add_argument("--loss_type", type=str, default='l1')
     parser.add_argument("--colli_reset", action='store_true')
