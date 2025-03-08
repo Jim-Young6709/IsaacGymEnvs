@@ -313,7 +313,6 @@ class FrankaMPFull(FrankaMP):
 
         self.gym.clear_lines(self.viewer)
         # self.gym.refresh_rigid_body_state_tensor(self.sim)
-        repulsion_points_robot_frame = self.franka_fabric.get_taskmap_position("body_points").reshape(self.num_envs, self.num_points_on_franka, 3)
 
         for i in range(self.num_envs):
             # draw hand frame
@@ -373,6 +372,7 @@ class FrankaMPFull(FrankaMP):
             )
 
             if draw_obstacle_vectors:
+                repulsion_points_robot_frame = self.franka_fabric.get_taskmap_position("body_points").reshape(self.num_envs, self.num_points_on_franka, 3)
                 # draw the vectors pointing to the nearest obstacles
                 repulsion_pts_robot_frame = repulsion_points_robot_frame[i]
                 obstacle_signed_dir_robot_frame = self.obstacle_signed_dir_robot_frame[i]
@@ -589,7 +589,7 @@ class FrankaMPFull(FrankaMP):
             self.gym.set_dof_velocity_target_tensor(self.sim, gymtorch.unwrap_tensor(vel_targets))
 
     def post_physics_step(self):
-        if self.enable_fabric and (not self.force_no_fabric):
+        if self.enable_fabric:
             self._debug_viz_draw()
 
         # TODO: note, there are differences between fabric fk and direct eef_pos from IG, not sure how much this will affect
