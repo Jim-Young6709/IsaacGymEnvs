@@ -27,12 +27,16 @@ class DemoLoader:
             print(f"Error loading HDF5 file: {e}")
             return False
 
-    def get_next_batch(self):
+    def get_next_batch(self, batch_idx=None):
         """Get next batch of demonstrations"""
         if self.demos is None:
             return None
 
-        start_idx = self.current_batch * self.batch_size
+        if batch_idx is None:
+            start_idx = self.current_batch * self.batch_size
+        else:
+            start_idx = batch_idx * self.batch_size
+
         if start_idx >= self.total_demos:
             print("All demonstrations processed")
             return None
@@ -55,7 +59,8 @@ class DemoLoader:
                 print(f"Error loading demo {demo_idx}: {e}")
                 continue
 
-        self.current_batch += 1
+        if batch_idx is None:
+            self.current_batch += 1
         return batch_data
 
     def reset(self):

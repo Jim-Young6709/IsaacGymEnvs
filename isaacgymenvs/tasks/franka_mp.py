@@ -1,5 +1,5 @@
 """
-Residual RL for motion planning
+Franka motion planning env
 """
 import os
 import time
@@ -66,6 +66,13 @@ class FrankaMP(VecTask):
         self.aggregate_mode = self.cfg["env"]["aggregateMode"]
         self.base_policy_url = self.cfg["env"]["base_policy_url"]
         self.base_policy_sub_steps = self.cfg["env"]["base_policy_sub_steps"]
+        self.use_mean_actions = self.cfg["env"]["use_mean_actions"]
+        self.capture_video = self.cfg["env"]["capture_video"]
+        self.capture_iter_max = self.cfg["env"]["capture_iter_max"]
+        self.capture_freq = self.cfg["env"]["capture_freq"]
+        if self.capture_video:
+            self.cfg["env"]["enableCameraSensors"] = True
+        self.capture_envs = self.cfg["env"]["capture_envs"]
 
         # Controller type
         self.control_type = self.cfg["env"]["controlType"]
@@ -126,6 +133,8 @@ class FrankaMP(VecTask):
         self.seed_joint_angles = self.canonical_joint_config.clone()
         self.num_collisions = torch.zeros(self.num_envs, device=self.device)
         self.success_flags = torch.zeros(cfg["env"]["numEnvs"], device=self.device) # 0 for failure, 1 for success
+        self.collision_flags = torch.zeros(cfg["env"]["numEnvs"], device=self.device) # 0 for no collision, 1 for collision
+        self.reaching_flags = torch.zeros(cfg["env"]["numEnvs"], device=self.device) # 0 for not reached, 1 for reached
         self.base_model = NeuralMPModel.from_pretrained(self.base_policy_url)
         self.base_model.eval()
 
@@ -200,7 +209,7 @@ class FrankaMP(VecTask):
         max_agg_shapes = num_franka_shapes + 4  # 1 for table, table stand
 
         self.frankas = []
-        self.envs = []
+        self.env_ptrs = []
 
         # Create environments
         for i in range(self.num_envs):
@@ -242,7 +251,7 @@ class FrankaMP(VecTask):
                 self.gym.end_aggregate(env_ptr)
 
             # Store the created env pointers
-            self.envs.append(env_ptr)
+            self.env_ptrs.append(env_ptr)
             self.frankas.append(franka_actor)
 
         # Setup data
@@ -315,7 +324,7 @@ class FrankaMP(VecTask):
 
     def init_data(self, actor_num):
         # Setup sim handles
-        env_ptr = self.envs[0]
+        env_ptr = self.env_ptrs[0]
         franka_handle = 0
         self.handles = {
             # Franka
@@ -454,13 +463,13 @@ class FrankaMP(VecTask):
 
         robot_config = self.states['q'][:, :7].clone()
         for _ in range(self.base_policy_sub_steps):
-            self.update_robot_pcds(robot_config)
+            self.update_robot_pcds(robot_config) # update pcd for open loop
             obs_base = OrderedDict()
             obs_base["current_angles"] = robot_config
             obs_base["goal_angles"] = self.goal_config.clone()
             obs_base["compute_pcd_params"] = self.combined_pcds.clone()
             with torch.no_grad():
-                sub_delta_action = self.base_model.policy.get_action(obs_dict=obs_base)
+                sub_delta_action = self.base_model.policy.get_action(obs_dict=obs_base, mean_actions=self.use_mean_actions)
 
             robot_config += sub_delta_action
 
@@ -469,14 +478,17 @@ class FrankaMP(VecTask):
         pcd_feats = self.base_model.policy.nets['policy'].model.encoded_feats.clone()
         pcd_feats = pcd_feats.contiguous().view(pcd_feats.size(0), -1) # (num_envs, 1038) , 1038 = 1024 (pointnet++_feat) + 7 (current) + 7 (goal)
 
-        obs_residual = pcd_feats
-        if self.obs_buf.size(1) == 1038:
-            obs_residual[:, -14:-7] += self.base_delta_action
+        obs = pcd_feats
+        if self.obs_buf.size(1) == 14:
+            obs = torch.cat((robot_config, self.goal_config), dim=1)
+        elif self.obs_buf.size(1) == 1038:
+            obs[:, -14:-7] += self.base_delta_action
         elif self.obs_buf.size(1) == 1045:
-            obs_residual = torch.cat((obs_residual, self.base_delta_action), dim=1)
+            obs = torch.cat((obs, self.base_delta_action), dim=1)
 
-        self.obs_buf = obs_residual
+        self.obs_buf = obs
 
+        self.update_robot_pcds() # update pcd for current states
         return self.obs_buf
 
     def check_robot_collision(self):
@@ -752,9 +764,10 @@ class FrankaMP(VecTask):
         self.gym.simulate(self.sim)
         self._refresh()
 
-        if debug:
+        if not self.headless:
             self.render()
 
+        if debug:
             if not torch.allclose(joint_state, self.get_proprio()[2][env_ids]):
                 print("------------")
                 print("set state failed due to collision")
@@ -819,10 +832,40 @@ class FrankaMP(VecTask):
             # set the camera position based on up axis
             centre = self.cfg["env"]['envSpacing'] + int(np.sqrt(self.num_envs))
             
-            cam_pos = gymapi.Vec3(-1.5, -1.5, 5)
+            cam_pos = gymapi.Vec3(0, 0, 5)
             cam_target = gymapi.Vec3(centre, centre, 0)
 
             self.gym.viewer_camera_look_at(self.viewer, None, cam_pos, cam_target)
+
+        if self.capture_video:
+            self.camera_handles = []
+            self.obs_camera_handles = []
+            # camera_properties = gymapi.CameraProperties()
+            # camera_properties.width = self.cfg["env"]["camera"]["width"]
+            # camera_properties.height = self.cfg["env"]["camera"]["height"]
+            camera_props = gymapi.CameraProperties()
+            camera_props.width = 640
+            camera_props.height = 480
+            camera_props.horizontal_fov = 90.0
+            camera_props.enable_tensors = False # disable gpu tensors, so cameras won't have automatic updates
+            for i in range(self.capture_envs):
+                self.camera_handles.append([])
+                self.obs_camera_handles.append([])
+                # global
+                # TODO: bugfix here, now handle is returning -1
+                camera_handle = self.gym.create_camera_sensor(
+                    self.env_ptrs[i], camera_props
+                )
+                if camera_handle == -1:
+                    print(f"Failed to create camera sensor for env {i}")
+                    continue  # Skip this camera if creation failed
+
+                camera_position = gymapi.Vec3(-1.0, 0.0, 1.0)
+                camera_target = gymapi.Vec3(0.5, 0.0, 0.0)
+                self.gym.set_camera_location(
+                    camera_handle, self.env_ptrs[i], camera_position, camera_target
+                )
+                self.camera_handles[i].append(camera_handle)
 
     def reset_idx(self, env_ids=None):
         """
@@ -869,8 +912,10 @@ class FrankaMP(VecTask):
 
         # reset the robot to start if it collides with the obstacles
         if sum(self.scene_collision) > 0:
-            self.reset_buf = torch.where(self.scene_collision > 0, torch.ones_like(self.reset_buf), self.reset_buf)
+            # if self.cfg["env"]["reset_on_collision"]:
+            #     self.reset_buf = torch.where(self.scene_collision > 0, torch.ones_like(self.reset_buf), self.reset_buf)
             self.success_flags[self.scene_collision.bool()] = 0
+            self.collision_flags[self.scene_collision.bool()] = 1
 
         # debug viz
         if self.viewer and self.debug_viz:
@@ -889,9 +934,9 @@ class FrankaMP(VecTask):
                     pz = (pos[i] + quat_apply(rot[i], to_torch([0, 0, 1], device=self.device) * 0.2)).cpu().numpy()
 
                     p0 = pos[i].cpu().numpy()
-                    self.gym.add_lines(self.viewer, self.envs[i], 1, [p0[0], p0[1], p0[2], px[0], px[1], px[2]], [0.85, 0.1, 0.1])
-                    self.gym.add_lines(self.viewer, self.envs[i], 1, [p0[0], p0[1], p0[2], py[0], py[1], py[2]], [0.1, 0.85, 0.1])
-                    self.gym.add_lines(self.viewer, self.envs[i], 1, [p0[0], p0[1], p0[2], pz[0], pz[1], pz[2]], [0.1, 0.1, 0.85])
+                    self.gym.add_lines(self.viewer, self.env_ptrs[i], 1, [p0[0], p0[1], p0[2], px[0], px[1], px[2]], [0.85, 0.1, 0.1])
+                    self.gym.add_lines(self.viewer, self.env_ptrs[i], 1, [p0[0], p0[1], p0[2], py[0], py[1], py[2]], [0.1, 0.85, 0.1])
+                    self.gym.add_lines(self.viewer, self.env_ptrs[i], 1, [p0[0], p0[1], p0[2], pz[0], pz[1], pz[2]], [0.1, 0.1, 0.85])
 
     def update_robot_pcds(self, robot_config=None):
         num_robot_points = self.pcd_spec_dict['num_robot_points']
@@ -919,7 +964,7 @@ class FrankaMP(VecTask):
             obs_base["current_angles"] = self.states['q'][:, :7].clone()
             obs_base["goal_angles"] = self.goal_config.clone()
             obs_base["compute_pcd_params"] = self.combined_pcds.clone()
-            base_action = self.base_model.policy.get_action(obs_dict=obs_base)
+            base_action = self.base_model.policy.get_action(obs_dict=obs_base, mean_actions=self.use_mean_actions)
             abs_action = base_action + self.get_joint_angles()
             if use_controller:
                 self.step(base_action)

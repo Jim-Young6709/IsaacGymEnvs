@@ -1,0 +1,6 @@
+batch_size: None  # defaults to value in student robomimic cfg
+lr: None  # defaults to value in student robomimic cfg
+loss_type: gmm # l1 / l2 / gmm
+buffer_size: 1000
+num_learning_iterations: 1000000
+num_learning_epochs: 5

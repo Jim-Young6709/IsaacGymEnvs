@@ -1,3 +1,7 @@
+"""
+This code is kinda messy for compatibility between Dagger and residual RL, TODO: cleanup later
+"""
+
 import time
 
 import hydra
@@ -28,15 +32,18 @@ class FrankaMPFull(FrankaMP):
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render, num_env_per_env=1):
         self.device = sim_device
         self.enable_fabric = cfg["fabric"]["enable"]
+        self.force_no_fabric = False
+        self.no_base_action = False
         self.vis_basis_points = cfg["fabric"]["vis_basis_points"]
         self.base_policy_only = cfg["env"]["base_policy_only"]
 
         # Demo loading
         hdf5_path = cfg["env"]["hdf5_path"]
         self.demo_loader = DemoLoader(hdf5_path, cfg["env"]["numEnvs"])
+        self.batch_idx = cfg["env"]["batch_idx"]
 
         # need to change the logic here (2 layers of reset ; multiple start & goal in one env ; relaunch IG)
-        self.batch = self.demo_loader.get_next_batch()
+        self.batch = self.demo_loader.get_next_batch(batch_idx=self.batch_idx)
 
         self.start_config = torch.zeros((cfg["env"]["numEnvs"], 7), device=self.device)
         self.goal_config = torch.zeros((cfg["env"]["numEnvs"], 7), device=self.device)
@@ -77,7 +84,7 @@ class FrankaMPFull(FrankaMP):
         max_agg_bodies = num_franka_bodies + self.max_obstacles  # franka + obstacles
         max_agg_shapes = num_franka_shapes + self.max_obstacles
         self.frankas = []
-        self.envs = []
+        self.env_ptrs = []
 
         num_robot_points = self.pcd_spec_dict['num_robot_points']
         num_scene_points = self.pcd_spec_dict['num_obstacle_points']
@@ -184,7 +191,7 @@ class FrankaMPFull(FrankaMP):
                 self.gym.end_aggregate(env_ptr)
 
             # Store the created env pointers
-            self.envs.append(env_ptr)
+            self.env_ptrs.append(env_ptr)
             self.frankas.append(franka_actor)
 
             # compute the static scene pcd (currently only consider static scenes)
@@ -304,7 +311,6 @@ class FrankaMPFull(FrankaMP):
 
         self.gym.clear_lines(self.viewer)
         # self.gym.refresh_rigid_body_state_tensor(self.sim)
-        repulsion_points_robot_frame = self.franka_fabric.get_taskmap_position("body_points").reshape(self.num_envs, self.num_points_on_franka, 3)
 
         for i in range(self.num_envs):
             # draw hand frame
@@ -320,17 +326,17 @@ class FrankaMPFull(FrankaMP):
 
             p0 = fabric_ee_pose[:, 0:3][i].cpu().numpy()
             self.gym.add_lines(
-                self.viewer, self.envs[i], 1, 
+                self.viewer, self.env_ptrs[i], 1, 
                 [p0[0], p0[1], p0[2], px[0], px[1], px[2]], 
                 [0.85, 0.1, 0.1]
             )
             self.gym.add_lines(
-                self.viewer, self.envs[i], 1, 
+                self.viewer, self.env_ptrs[i], 1, 
                 [p0[0], p0[1], p0[2], py[0], py[1], py[2]], 
                 [0.1, 0.85, 0.1]
             )
             self.gym.add_lines(
-                self.viewer, self.envs[i], 1, 
+                self.viewer, self.env_ptrs[i], 1, 
                 [p0[0], p0[1], p0[2], pz[0], pz[1], pz[2]], 
                 [0.1, 0.1, 0.85]
             )
@@ -348,22 +354,23 @@ class FrankaMPFull(FrankaMP):
 
             p0 = fabric_goal_pose[:, 0:3][i].cpu().numpy()
             self.gym.add_lines(
-                self.viewer, self.envs[i], 1, 
+                self.viewer, self.env_ptrs[i], 1, 
                 [p0[0], p0[1], p0[2], px[0], px[1], px[2]], 
                 [0.85, 0.1, 0.1]
             )
             self.gym.add_lines(
-                self.viewer, self.envs[i], 1, 
+                self.viewer, self.env_ptrs[i], 1, 
                 [p0[0], p0[1], p0[2], py[0], py[1], py[2]], 
                 [0.1, 0.85, 0.1]
             )
             self.gym.add_lines(
-                self.viewer, self.envs[i], 1, 
+                self.viewer, self.env_ptrs[i], 1, 
                 [p0[0], p0[1], p0[2], pz[0], pz[1], pz[2]], 
                 [0.1, 0.1, 0.85]
             )
 
             if draw_obstacle_vectors:
+                repulsion_points_robot_frame = self.franka_fabric.get_taskmap_position("body_points").reshape(self.num_envs, self.num_points_on_franka, 3)
                 # draw the vectors pointing to the nearest obstacles
                 repulsion_pts_robot_frame = repulsion_points_robot_frame[i]
                 obstacle_signed_dir_robot_frame = self.obstacle_signed_dir_robot_frame[i]
@@ -376,7 +383,7 @@ class FrankaMPFull(FrankaMP):
                     p1 = nearest_obstacle_pts_robot_frame[j].cpu().numpy()
                     dist = obstacle_signed_dists[j].item()
                     self.gym.add_lines(
-                        self.viewer, self.envs[i], 1, 
+                        self.viewer, self.env_ptrs[i], 1, 
                         [p0[0], p0[1], p0[2], p1[0], p1[1], p1[2]], 
                         # colour gradient where the line goes from green to red as dist approaches zero
                         [1 - dist, dist, 0.0],
@@ -405,7 +412,7 @@ class FrankaMPFull(FrankaMP):
                     p1 = basis_point_to_obstacle_robot_frame[j].cpu().numpy()
                     dist = basis_point_signed_dists[j].item()
                     self.gym.add_lines(
-                        self.viewer, self.envs[i], 1,
+                        self.viewer, self.env_ptrs[i], 1,
                         [p0[0], p0[1], p0[2], p1[0], p1[1], p1[2]],
                         # colour gradient where the line goes from green to red as dist approaches zero
                         [1 - dist, dist, 0.0],
@@ -413,7 +420,7 @@ class FrankaMPFull(FrankaMP):
 
                     basis_point_transform = gymapi.Transform()
                     basis_point_transform.p = gymapi.Vec3(*self.basis_point_locations[j])
-                    gymutil.draw_lines(sphere_geom, self.gym, self.viewer, self.envs[i], basis_point_transform)
+                    gymutil.draw_lines(sphere_geom, self.gym, self.viewer, self.env_ptrs[i], basis_point_transform)
 
     def update_obstacle_configs_from_batch(self, batch_data):
         """Update obstacle configurations from a new batch of demos."""
@@ -422,6 +429,13 @@ class FrankaMPFull(FrankaMP):
             pcd_params = demo['states'][0][15:]
             obstacle_config = decompose_scene_pcd_params_obs(pcd_params)
             self.obstacle_configs.append(obstacle_config)
+
+    def set_robot_joint_state(self, joint_state: torch.Tensor, env_ids=None, debug=False):
+        super().set_robot_joint_state(joint_state, env_ids=env_ids, debug=debug)
+        if self.enable_fabric:
+            self.fabric_q[env_ids, :] = torch.clone(joint_state)
+            self.fabric_qd[env_ids, :] = torch.zeros_like(joint_state)
+            self.fabric_qdd[env_ids, :] = torch.zeros_like(joint_state)
 
     def reset_idx(self, env_ids=None):
         if env_ids is None:
@@ -496,8 +510,10 @@ class FrankaMPFull(FrankaMP):
         joint_err = torch.norm(current_angles - self.goal_config, dim=1)
         pos_err = torch.norm(current_ee[:, :3] - self.goal_ee[:, :3], dim=1)
         quat_err = orientation_error(self.goal_ee[:, 3:], current_ee[:, 3:])
-        goal_reaching = (pos_err < self.lock_in_pos_err) & (quat_err < self.lock_in_rot_err)
-        self.lock_in[goal_reaching] = True
+        self.goal_reaching = (pos_err < self.lock_in_pos_err) & (quat_err < self.lock_in_rot_err)
+        self.lock_in[self.goal_reaching] = True
+        self.goal_reaching = (pos_err < 0.05) & (quat_err < 15.0) # making it slightly more tolerant atm
+        # self.goal_reaching = (pos_err < 0.01) & (quat_err < 15.0) # TODO: should apply this metric later
 
         num_visited_voxels_t1 = torch.sum(self.voxel_visit_binary, dim=1)
 
@@ -514,13 +530,50 @@ class FrankaMPFull(FrankaMP):
         self.extras['intrinsic_rewards'] = torch.mean(intrinsic_rewards).item()
         self.extras['num_visited_voxels_ave'] = torch.mean(num_visited_voxels_t1).item()
 
-        self.success_flags[goal_reaching & (self.reset_buf == 1)] = 1
-        self.success_flags[(~goal_reaching) & (self.reset_buf == 1)] = 0
+        self.success_flags[self.goal_reaching & (self.reset_buf == 1) & (self.collision_flags == 0)] = 1
+        self.success_flags[(~self.goal_reaching) & (self.reset_buf == 1)] = 0
+        self.reaching_flags[self.goal_reaching & (self.reset_buf == 1)] = 1 # this records reaching rate at the last step, while goal_reaching will be updated each step
+        self.reaching_flags[(~self.goal_reaching) & (self.reset_buf == 1)] = 0
 
-        self.extras['training_success'] = torch.mean(self.success_flags.float()).item()
+        self.extras['success_rate'] = torch.mean(self.success_flags.float()).item()
+        self.extras['collision_rate'] = torch.mean(self.collision_flags.float()).item()
+        self.extras['reaching_rate'] = torch.mean(self.reaching_flags.float()).item()
+
+        self.collision_flags[self.reset_buf == 1] = 0 # reset collision rate after logging
 
         self.extras['actions/residual_action_magnitude'] = actions.norm(dim=1).mean()
         self.extras['actions/base_action_magnitude'] = self.base_delta_action.norm(dim=1).mean()
+
+    def compute_fabric_action(self, abs_actions):
+        cspace_target = abs_actions[:, 0:7]
+        cspace_target[self.lock_in] = self.goal_config[self.lock_in] # if lock in, then switch to pure fabric mode and set the target to the goal
+        # cspace_target = self.goal_config # if you want to only use fabric
+        gripper_target = self.fabric_forward_kinematics(cspace_target)
+
+        cspace_toggle = torch.ones(self.num_envs, 1, device=self.device)
+        self.franka_fabric.set_features(
+            gripper_target,
+            "quaternion",
+            cspace_target,
+            cspace_toggle,
+            self.fabric_q.detach(),
+            self.fabric_qd.detach(),
+            self.fabrics_object_ids,
+            self.fabrics_object_indicator
+        )
+
+        timestep = 1/60.
+        # Integrate fabric layer forward at 60 Hz. If policy action rate gets downsampled in the future, 
+        # then change the value of 1 below to the downsample factor
+        for i in range(1): # TODO: step fabric multiple times so the delta action is not too small
+            self.fabric_q, self.fabric_qd, self.fabric_qdd = self.franka_integrator.step(
+                self.fabric_q.detach(), self.fabric_qd.detach(), timestep # should be 1/60
+            )
+
+        abs_fabric_actions = torch.clone(self.fabric_q[:, 0:7]).contiguous()
+        # saving final delta actions for dagger
+        self.delta_fabric_actions = abs_fabric_actions[:, :7] - self.get_joint_angles()
+        return abs_fabric_actions
 
     def fabric_forward_kinematics(self, q):
         gripper_map = self.franka_fabric.get_taskmap("gripper")
@@ -542,46 +595,24 @@ class FrankaMPFull(FrankaMP):
     def pre_physics_step(self, actions):
         delta_actions = actions.clone().to(self.device)
         gripper_state = torch.Tensor([[0.035, 0.035]] * self.num_envs).to(self.device)
-
+        current_joint_state = self.get_joint_angles()
         delta_actions = delta_actions * self.action_scale
         self.actions = delta_actions
         if self.base_policy_only:
-            abs_actions = self.get_joint_angles() + self.base_delta_action
+            abs_actions = current_joint_state + self.base_delta_action
+        elif self.no_base_action:
+            abs_actions = current_joint_state + delta_actions
         else:
-            abs_actions = self.get_joint_angles() + delta_actions + self.base_delta_action
+            abs_actions = current_joint_state + delta_actions + self.base_delta_action
         if abs_actions.shape[-1] == 7:
             abs_actions = torch.cat((abs_actions, gripper_state), dim=1)
 
-        if self.enable_fabric:
-            cspace_target = abs_actions[:, 0:7]
-            cspace_target[self.lock_in] = self.goal_config[self.lock_in] # if lock in, then switch to pure fabric mode and set the target to the goal
-            # cspace_target = self.goal_config # if you want to only use fabric
-            gripper_target = self.fabric_forward_kinematics(cspace_target)
+        vel_targets = torch.zeros_like(abs_actions, device=self.device)
+        if self.enable_fabric and (not self.force_no_fabric):
+            abs_actions[:, :7] = self.compute_fabric_action(abs_actions)
 
-            cspace_toggle = torch.ones(self.num_envs, 1, device=self.device)
-            self.franka_fabric.set_features(
-                gripper_target,
-                "quaternion",
-                cspace_target,
-                cspace_toggle,
-                self.fabric_q.detach(),
-                self.fabric_qd.detach(),
-                self.fabrics_object_ids,
-                self.fabrics_object_indicator
-            )
-
-            timestep = 1/60.
-            # Integrate fabric layer forward at 60 Hz. If policy action rate gets downsampled in the future, 
-            # then change the value of 1 below to the downsample factor
-            for i in range(1): # TODO: step fabric multiple times so the delta action is not too small
-                self.fabric_q, self.fabric_qd, self.fabric_qdd = self.franka_integrator.step(
-                    self.fabric_q.detach(), self.fabric_qd.detach(), timestep # should be 1/60
-                )
-
-            abs_actions[:, :7] = torch.clone(self.fabric_q[:, 0:7]).contiguous()
             self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(abs_actions))
 
-            vel_targets = torch.zeros_like(abs_actions, device=self.device)
             vel_targets[:, :7] = self.fabric_qd[:, 0:7]
             self.gym.set_dof_velocity_target_tensor(self.sim, gymtorch.unwrap_tensor(vel_targets))
 
@@ -593,9 +624,10 @@ class FrankaMPFull(FrankaMP):
             self.obstacle_signed_dir_robot_frame[:, :, :] = self.obstacle_dir_robot_frame * self.obstacle_signed_distances.unsqueeze(-1)
         else:
             self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(abs_actions))
+            self.gym.set_dof_velocity_target_tensor(self.sim, gymtorch.unwrap_tensor(vel_targets))
 
     def post_physics_step(self):
-        if self.enable_fabric:
+        if self.enable_fabric and ((not self.headless) or self.capture_video):
             self._debug_viz_draw()
 
         # TODO: note, there are differences between fabric fk and direct eef_pos from IG, not sure how much this will affect
