@@ -266,7 +266,7 @@ class Dagger(object):
         if self.cfg.wandb_activate and self.global_rank == 0:
             # log / load wandb run id
             run_id_file = os.path.join(self.log_dir, "wandb_run_id.json")
-            if self.resume:
+            if self.resume and os.path.exists(run_id_file):
                 with open(run_id_file, "r") as f:
                     run_data = json.load(f)
                     run_id = run_data.get("run_id")
