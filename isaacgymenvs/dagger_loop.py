@@ -36,6 +36,7 @@ if __name__ == "__main__":
     parser.add_argument("--wandb_run_name", type=str, default='dagger')
     parser.add_argument("--start_batch_iter", type=int, default=0)
     parser.add_argument("--fabric_lockin", type=float, default=0.01)
+    parser.add_argument("--step_expert", action='store_true')
 
     parser.add_argument("--loss_type", type=str, default='l1')
     parser.add_argument("--colli_reset", action='store_true')
@@ -109,7 +110,7 @@ if __name__ == "__main__":
             f"dagger.loss_type={args.loss_type}", f"task.env.reset_on_collision={args.colli_reset}", f"task.env.step_back_on_collision={args.colli_stepback}",
             f"task.env.capture_video={args.capture_video}", f"task.env.batch_idx={outer_epoch + start_batch_iter}",
             f"task.fabric.lock_in_pos_err={args.fabric_lockin}", f"task.env.base_policy_url={args.expert_base_policy_url}",
-            f"debug_training={args.skip_init_eval}",
+            f"debug_training={args.skip_init_eval}", f"dagger.step_expert={args.step_expert}",
         ]
 
         # check if {log_dir}/nn/checkpoint_latest.pth exists, if so resume from that path

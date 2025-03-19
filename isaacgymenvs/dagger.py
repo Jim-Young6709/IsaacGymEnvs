@@ -199,6 +199,7 @@ class Dagger(object):
         # parameters
         self.num_learning_iterations = self.cfg.dagger.num_learning_iterations
         self.num_learning_epochs = self.cfg.dagger.num_learning_epochs
+        self.step_expert = self.cfg.dagger.step_expert
 
     def build_model(self, config, shape_meta, ckpt_path=None):
         if ckpt_path is not None and ckpt_path != 'None':
@@ -398,7 +399,10 @@ class Dagger(object):
                     # take a step
                     self.env.force_no_fabric = True
                     self.env.no_base_action = True
-                    obs_dict, rews, dones, infos = self.env.step(actions)
+                    if self.step_expert:
+                        obs_dict, rews, dones, infos = self.env.step(actions_expert)
+                    else:
+                        obs_dict, rews, dones, infos = self.env.step(actions)
                     self.env.force_no_fabric = False
                     self.env.no_base_action = False
 

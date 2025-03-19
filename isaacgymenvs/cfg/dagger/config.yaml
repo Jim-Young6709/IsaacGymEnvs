@@ -4,3 +4,6 @@ loss_type: gmm # l1 / l2 / gmm
 buffer_size: 1000
 num_learning_iterations: 1000000
 num_learning_epochs: 5
+
+# if set, will step expert actions instead of student actions
+step_expert: False
