@@ -448,6 +448,7 @@ class FrankaMP(VecTask):
         self.states.update({
             # Franka
             "q": self._q[:, :],
+            "qd": self._qd[:, :],
             "q_gripper": self._q[:, -2:],
             "eef_pos": self._eef_state[:, :3],
             "eef_quat": self._eef_state[:, 3:7],
