@@ -28,6 +28,7 @@ if __name__ == "__main__":
     parser.add_argument("--train_dir", type=str, default='runs_dagger')
 
     parser.add_argument("--dataset_path", type=str, default='')
+    parser.add_argument("--expert_base_policy_url", "-eb", type=str, default='jimyoung6709/DRP')
     parser.add_argument("--resume", type=str, default='')
     parser.add_argument("--ckpt_path", type=str, default='None')
     parser.add_argument("--num_envs", type=int, default=1)
@@ -107,7 +108,7 @@ if __name__ == "__main__":
             f"wandb_run_name={args.wandb_run_name}", f"train_dir={args.train_dir}",
             f"dagger.loss_type={args.loss_type}", f"task.env.reset_on_collision={args.colli_reset}", f"task.env.step_back_on_collision={args.colli_stepback}",
             f"task.env.capture_video={args.capture_video}", f"task.env.batch_idx={outer_epoch + start_batch_iter}",
-            f"task.fabric.lock_in_pos_err={args.fabric_lockin}",
+            f"task.fabric.lock_in_pos_err={args.fabric_lockin}", f"task.env.base_policy_url={args.expert_base_policy_url}",
             f"debug_training={args.skip_init_eval}",
         ]
 
