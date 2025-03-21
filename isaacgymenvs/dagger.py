@@ -406,6 +406,10 @@ class Dagger(object):
                     self.env.force_no_fabric = False
                     self.env.no_base_action = False
 
+                    count_reaching += self.env.goal_reaching
+                    has_reached |= self.env.goal_reaching.bool()
+                    has_collided |= self.env.scene_collision.bool()
+
                     if self.seq_length > 0:
                         if init_buffer:
                             current_angles_buffer = deque([current_angles.clone().unsqueeze(1) for _ in range(self.seq_length)], maxlen=self.seq_length)
@@ -447,9 +451,6 @@ class Dagger(object):
                         self.env.compute_observations()
                         self.env.lock_in[reset_envs_bool] = False
 
-                    count_reaching += self.env.goal_reaching
-                    has_reached |= self.env.goal_reaching.bool()
-                    has_collided |= self.env.scene_collision.bool()
                     if (count_reaching >= self.reaching_reset_threshold).any():
                         reset_angles = self.env.start_config.clone()
                         reset_envs_bool = (count_reaching >= self.reaching_reset_threshold).clone()
