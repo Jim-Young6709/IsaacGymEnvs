@@ -432,11 +432,13 @@ class FrankaMPFull(FrankaMP):
             obstacle_config = decompose_scene_pcd_params_obs(pcd_params)
             self.obstacle_configs.append(obstacle_config)
 
-    def set_robot_joint_state(self, joint_state: torch.Tensor, env_ids=None, debug=False):
-        super().set_robot_joint_state(joint_state, env_ids=env_ids, debug=debug)
+    def set_robot_joint_state(self, joint_state: torch.Tensor, joint_vel=None, env_ids=None, debug=False):
+        super().set_robot_joint_state(joint_state, joint_vel, env_ids=env_ids, debug=debug)
         if self.enable_fabric:
             self.fabric_q[env_ids, :] = torch.clone(joint_state)
             self.fabric_qd[env_ids, :] = torch.zeros_like(joint_state)
+            if joint_vel is not None:
+                self.fabric_qd[env_ids, :] = torch.clone(joint_vel)
             self.fabric_qdd[env_ids, :] = torch.zeros_like(joint_state)
 
     def reset_idx(self, env_ids=None):
@@ -567,6 +569,10 @@ class FrankaMPFull(FrankaMP):
         current_joint_state = self.get_joint_angles()
         delta_actions = delta_actions * self.action_scale
         self.actions = delta_actions
+        # since the below is commonly used for debugging, let's temporarily keep it here
+        # self.base_policy_only = True
+        # self.enable_fabric = True
+        # self.force_no_fabric = False
         if self.base_policy_only:
             abs_actions = current_joint_state + self.base_delta_action
         elif self.no_base_action:

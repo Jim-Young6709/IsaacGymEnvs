@@ -160,6 +160,7 @@ class Dagger(object):
         self.step_back_on_collision = cfg_task['env']['step_back_on_collision']
         assert not (self.reset_on_collision and self.step_back_on_collision), "Cannot have both reset_on_collision and step_back_on_collision"
         self.abs_angles_his = deque([self.env.start_config.clone() for _ in range(self.step_back_on_collision)], maxlen=self.step_back_on_collision)
+        self.vel_angles_his = deque([torch.zeros_like(self.env.start_config) for _ in range(self.step_back_on_collision)], maxlen=self.step_back_on_collision)
 
     def setup_training(self, robomimic_cfg, obs_shape_meta, ckpt_path=None):
         """Set up student model and training parameters."""
@@ -295,6 +296,7 @@ class Dagger(object):
         with tqdm(range(start_step, self.num_learning_iterations), desc='DAgger Training') as pbar:
             init_training = not (self.resume or self.cfg.debug_training)
             if init_training:
+                # TODO: clean this up
                 test_success = self.test(num_test_iterations=self.cfg.test_episodes, run=run) # just to prime the dict
                 if self.cfg.multi_gpu:
                     for k, value in test_success.items():
@@ -396,6 +398,7 @@ class Dagger(object):
                     actions = self.student_player.get_action(obs_dict=obs_student, mean_actions=self.env.use_mean_actions)
 
                     self.abs_angles_his.append(current_angles.clone())
+                    self.vel_angles_his.append(self.env.states['qd'][:, 0:7].clone()) # TODO: wrap this up in a function like get_vel()
                     # take a step
                     self.env.force_no_fabric = True
                     self.env.no_base_action = True
@@ -439,13 +442,16 @@ class Dagger(object):
                     if self.env.scene_collision.any() and (self.step_back_on_collision or self.reset_on_collision):
                         if self.step_back_on_collision:
                             reset_angles = self.abs_angles_his[0].clone()
+                            reset_vels = self.vel_angles_his[0].clone()
                             self.abs_angles_his = deque([reset_angles.clone() for _ in range(self.step_back_on_collision)], maxlen=self.step_back_on_collision)
+                            self.vel_angles_his = deque([reset_vels.clone() for _ in range(self.step_back_on_collision)], maxlen=self.step_back_on_collision)
                         elif self.reset_on_collision:
                             reset_angles = self.env.start_config.clone()
+                            reset_vels = torch.zeros_like(self.env.start_config)
 
                         # this part feels junky, maybe just use reset_idx?
                         reset_envs_bool = self.env.scene_collision.bool().clone()
-                        self.env.set_robot_joint_state(reset_angles[reset_envs_bool], torch.where(reset_envs_bool)[0])
+                        self.env.set_robot_joint_state(joint_state=reset_angles[reset_envs_bool], joint_vel=reset_vels[reset_envs_bool], env_ids=torch.where(reset_envs_bool)[0])
                         self.reset_student_rnn(reset_envs_bool)
                         count_reaching[reset_envs_bool] = 0
                         self.env.compute_observations()
@@ -454,7 +460,7 @@ class Dagger(object):
                     if (count_reaching >= self.reaching_reset_threshold).any():
                         reset_angles = self.env.start_config.clone()
                         reset_envs_bool = (count_reaching >= self.reaching_reset_threshold).clone()
-                        self.env.set_robot_joint_state(reset_angles[reset_envs_bool], torch.where(reset_envs_bool)[0])
+                        self.env.set_robot_joint_state(joint_state=reset_angles[reset_envs_bool], joint_vel=reset_vels[reset_envs_bool], env_ids=torch.where(reset_envs_bool)[0])
                         self.reset_student_rnn(reset_envs_bool)
                         count_reaching[reset_envs_bool] = 0
                         self.env.compute_observations()
@@ -626,6 +632,9 @@ class Dagger(object):
                 visual_obs = torch.arange(self.env.num_envs, device=self.device)
 
                 for test_step in range(self.env.max_episode_length - 1):
+                    # temporarily save this comment for debugging purposes, clean up later
+                    # if test_step >= 997:
+                    #     import ipdb ; ipdb.set_trace()
                     obs_student = OrderedDict()
                     obs_student["current_angles"] = self.env.get_joint_angles().clone()
                     obs_student["goal_angles"] = self.env.goal_config.clone()

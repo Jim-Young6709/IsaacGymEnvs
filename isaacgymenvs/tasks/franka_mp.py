@@ -719,10 +719,11 @@ class FrankaMP(VecTask):
         if num_resampling <= 5:
             print(f"env_inresampling: {resampling_idx}")
 
-    def set_robot_joint_state(self, joint_state: torch.Tensor, env_ids=None, debug=False):
+    def set_robot_joint_state(self, joint_state: torch.Tensor, joint_vel=None, env_ids=None, debug=False):
         """
         Set the joint state of the robot. (set the dof state (pos/vel) of each joint,
         for MP we don't care about vel, so make it 0 and the gripper joints can be fully open (.035, 0.035))
+        joint_vel (torch.Tensor): (num_selected_envs, 7) joint velocity
 
         Args:
             joint_state (torch.Tensor): (num_selected_envs, 7)
@@ -735,10 +736,16 @@ class FrankaMP(VecTask):
             gripper_state = torch.Tensor([[0.035, 0.035]] * len(env_ids)).to(self.device)
             state_tensor = torch.cat((joint_state, gripper_state), dim=1).unsqueeze(2)
         state_tensor = torch.cat((state_tensor, torch.zeros_like(state_tensor)), dim=2)
+
+        if joint_vel is not None:
+            state_tensor[:, 0:7, 1] = joint_vel
+
         pos = state_tensor[:, :, 0].contiguous()
+        vel = state_tensor[:, :, 1].contiguous()
 
         # Reset the internal obs accordingly
         self._q[env_ids, :] = pos
+        self._qd[env_ids, :] = vel
         self._dof_state[env_ids, :] = state_tensor
         self._pos_control[env_ids, :] = pos
 
