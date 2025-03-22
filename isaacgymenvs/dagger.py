@@ -460,7 +460,7 @@ class Dagger(object):
                     if (count_reaching >= self.reaching_reset_threshold).any():
                         reset_angles = self.env.start_config.clone()
                         reset_envs_bool = (count_reaching >= self.reaching_reset_threshold).clone()
-                        self.env.set_robot_joint_state(joint_state=reset_angles[reset_envs_bool], joint_vel=reset_vels[reset_envs_bool], env_ids=torch.where(reset_envs_bool)[0])
+                        self.env.set_robot_joint_state(joint_state=reset_angles[reset_envs_bool], joint_vel=None, env_ids=torch.where(reset_envs_bool)[0])
                         self.reset_student_rnn(reset_envs_bool)
                         count_reaching[reset_envs_bool] = 0
                         self.env.compute_observations()
