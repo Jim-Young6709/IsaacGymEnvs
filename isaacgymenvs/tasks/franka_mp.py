@@ -769,7 +769,7 @@ class FrankaMP(VecTask):
             len(multi_env_ids_int32),
         )
 
-        self.gym.simulate(self.sim)
+        self.gym.simulate(self.sim) # TODO: should it be here?
         self._refresh()
 
         if not self.headless:

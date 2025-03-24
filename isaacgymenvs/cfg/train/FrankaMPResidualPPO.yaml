@@ -31,13 +31,13 @@ params:
         name: default
       regularizer:
         name: None
-    # rnn: # added
-    #   name: lstm
-    #   units: 1024
-    #   layers: 1
-    #   before_mlp: False #True
-    #   concat_input: False
-    #   layer_norm: False
+    rnn: # added
+      name: lstm
+      units: 1024
+      layers: 1
+      before_mlp: False #True
+      concat_input: False
+      layer_norm: False
 
   load_checkpoint: ${if:${...checkpoint},True,False} # flag which sets whether to load the checkpoint
   load_path: ${...checkpoint} # path to the checkpoint to load

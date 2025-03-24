@@ -1,5 +1,5 @@
 # used to create the object
-name: FrankaMPFull
+name: FrankaMPRRL
 
 physics_engine: ${..physics_engine}
 
@@ -7,7 +7,7 @@ physics_engine: ${..physics_engine}
 env:
   numEnvs: ${resolve_default:8192,${...num_envs}}
   envSpacing: 1.5
-  episodeLength: 1000
+  episodeLength: 500
   enableDebugVis: False
 
   clipObservations: 5.0
@@ -40,10 +40,10 @@ env:
   # 14: for Dagger (7 joint angles + 7 goal angles)
   # 1038: for residual RL match the output dim of pointnet encoder, note this only works with robomimic ckpts (1024 pcd_feats + 7 (joint angles + base_policy_delta) + 7 goal angles)
   # 1045: for residual RL (1024 pcd_feats + 7 joint angles + 7 goal angles + 7 base policy delta)
-  numObservations: 14
+  numObservations: 1038
   numActions: 7
 
-  base_policy_url: "jimyoung6709/DRP"
+  base_policy_url: "jimyoung6709/DRP_Dagger"
   base_policy_sub_steps: 1 # set to ~5 if using fabric
   base_policy_only: False
   hdf5_path: null # hdf5 file that contains env and trajectory info
@@ -87,13 +87,23 @@ task:
 pcd_spec:
   num_robot_points: 2048
   num_obstacle_points: 4096
+  num_moving_obstacle_points_per_obj: 100
   num_extra_points_per_obj: 500
   num_ground_plane_points: 500
   num_target_points: 2048
   max_rollout_length: 150
+  debug: True
 
-fabric:
-  enable: True
-  vis_basis_points: False
-  lock_in_pos_err: 0.01 # m
-  lock_in_rot_err: 15 # deg, set to 180 to remove rotation constraint
+blocking_obj:
+  type: ["cuboid"] # ["cuboid", "sphere", "mesh"]
+  dim_range: [[0.03, 0.03, 0.03], [0.05, 0.05, 0.05]]
+  num_obj: 0 # TODO: still bugs here, enable both blocking and dynamic objects will mess up things
+
+dynamic_obj:
+  init_pos: [0.5, 0.0, 0.0]
+  init_radius: 1.0
+  type: ["cuboid"] # ["cuboid", "sphere", "mesh"]
+  dim_range: [[0.05, 0.05, 0.05], [0.2, 0.2, 0.2]]
+  center_range: [[0.4, -0.1, -0.1], [0.6, 0.1, 0.1]]
+  vel_range: [0.05, 0.1]
+  num_obj: 0

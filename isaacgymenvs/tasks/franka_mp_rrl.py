@@ -1,5 +1,6 @@
 """
 This code is kinda messy for compatibility between Dagger and residual RL, TODO: cleanup later
+TODO: try to let everything goes with tensor, not np.array
 """
 
 import time
@@ -16,11 +17,25 @@ from isaacgymenvs.utils.reformat import omegaconf_to_dict
 from isaacgymenvs.utils.demo_loader import DemoLoader
 from isaacgymenvs.utils.torch_jit_utils import *
 
+from geometrout.primitive import Cuboid, Cylinder, Sphere
 from neural_mp.utils.pcd_utils import decompose_scene_pcd_params_obs, compute_scene_oracle_pcd
+from neural_mp.utils.geometry import construct_mixed_point_cloud
+from neural_mp.real_utils.real_world_collision_checker import FrankaCollisionChecker
 from collections import OrderedDict
 from omegaconf import DictConfig
 from tqdm import tqdm
 from fabrics_sim.worlds.voxels import VoxelCounter
+
+
+def random_quaternion_xyzw():
+    u1, u2, u3 = np.random.uniform(0, 1, 3)
+
+    qx = np.sqrt(1 - u1) * np.sin(2 * np.pi * u2)
+    qy = np.sqrt(1 - u1) * np.cos(2 * np.pi * u2)
+    qz = np.sqrt(u1) * np.sin(2 * np.pi * u3)
+    qw = np.sqrt(u1) * np.cos(2 * np.pi * u3)
+
+    return np.array([qx, qy, qz, qw])
 
 
 class FrankaMPRRL(FrankaMP):
@@ -39,10 +54,12 @@ class FrankaMPRRL(FrankaMP):
 
         self.start_config = torch.zeros((cfg["env"]["numEnvs"], 7), device=self.device)
         self.goal_config = torch.zeros((cfg["env"]["numEnvs"], 7), device=self.device)
-        self.lock_in = torch.zeros((cfg["env"]["numEnvs"], ), dtype=torch.bool, device=self.device)
         self.obstacle_configs = []
         self.obstacle_handles = []
+        self.blocking_obj_handles = []
+        self.dynamic_obj_handles = []
         self.max_obstacles = 0
+        self.frankacc = FrankaCollisionChecker()
 
         for env_idx, demo in enumerate(self.batch):
             self.start_config[env_idx] = torch.tensor(demo['states'][0][:7], device=self.device)
@@ -70,26 +87,45 @@ class FrankaMPRRL(FrankaMP):
         franka_start_pose.p = gymapi.Vec3(0.0, 0.0, 0.0)
         franka_start_pose.r = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
 
+        # setup moving obstacles
+        num_blocking_objs = self.cfg["blocking_obj"]["num_obj"]
+        blocking_objs_dim_range = self.cfg["blocking_obj"]["dim_range"]
+
+        num_dynamic_objs = self.cfg["dynamic_obj"]["num_obj"]
+        dynamic_objs_dim_range = self.cfg["dynamic_obj"]["dim_range"]
+        dynamic_center_range = self.cfg["dynamic_obj"]["center_range"]
+        self.dynamic_objs_init_radius = self.cfg["dynamic_obj"]["init_radius"]
+        dynamic_objs_init_pos = torch.tensor(self.cfg["dynamic_obj"]["init_pos"], device=self.device, dtype=torch.float32)
+        self.dyn_centers = np.random.uniform(dynamic_center_range[0], dynamic_center_range[1], (self.num_envs, num_dynamic_objs, 3))
+        self.dyn_vel = np.random.uniform(self.cfg["dynamic_obj"]["vel_range"][0], self.cfg["dynamic_obj"]["vel_range"][1], (self.num_envs, num_dynamic_objs))
+        self.dyn_centers = torch.from_numpy(self.dyn_centers).to(self.device, dtype=torch.float32)
+        self.dyn_vel = torch.from_numpy(self.dyn_vel).to(self.device, dtype=torch.float32) * self.cfg["sim"]["dt"]
+        self.dyn_vel_direction = torch.zeros((self.num_envs, num_dynamic_objs, 3), device=self.device, dtype=torch.float32) # to store the direction of velocity for each dynamic object
+
         # compute aggregate size
         num_franka_bodies = self.gym.get_asset_rigid_body_count(franka_asset)
         num_franka_shapes = self.gym.get_asset_rigid_shape_count(franka_asset)
-        max_agg_bodies = num_franka_bodies + self.max_obstacles  # franka + obstacles
-        max_agg_shapes = num_franka_shapes + self.max_obstacles
+        max_agg_bodies = num_franka_bodies + self.max_obstacles + num_blocking_objs + num_dynamic_objs # franka + obstacles
+        max_agg_shapes = num_franka_shapes + self.max_obstacles + num_blocking_objs + num_dynamic_objs
         self.frankas = []
         self.env_ptrs = []
 
-        num_robot_points = self.pcd_spec_dict['num_robot_points']
-        num_scene_points = self.pcd_spec_dict['num_obstacle_points']
+        self.num_robot_points = self.pcd_spec_dict['num_robot_points']
+        self.num_scene_points = self.pcd_spec_dict['num_obstacle_points']
+        self.num_moving_points_per_obj = self.pcd_spec_dict['num_moving_obstacle_points_per_obj']
+        self.num_moving_points = (num_blocking_objs + num_dynamic_objs) * self.num_moving_points_per_obj
+        self.num_static_points = self.num_scene_points - self.num_moving_points
         num_target_points = self.pcd_spec_dict['num_target_points']
+        self.static_pcds = torch.zeros(self.num_envs, self.num_static_points, 3, device=self.device)
         self.combined_pcds = torch.cat(
             (
-                torch.zeros(num_robot_points, 4, device=self.device),
-                torch.ones(num_scene_points, 4, device=self.device),
+                torch.zeros(self.num_robot_points, 4, device=self.device),
+                torch.ones(self.num_scene_points, 4, device=self.device),
                 2 * torch.ones(num_target_points, 4, device=self.device),
             ),
             dim=0,
         ).repeat(self.num_envs, 1, 1)
-
+        self.moving_pcds = []
 
         self.obstacle_count = 0
         self.max_objects_per_env = 20
@@ -117,6 +153,9 @@ class FrankaMPRRL(FrankaMP):
 
             # Create obstacles using initial demo data
             env_obstacles = []
+            block_obstacles = []
+            dyn_obstacles = []
+
             (
                 cuboid_dims, 
                 cuboid_centers, 
@@ -166,6 +205,65 @@ class FrankaMPRRL(FrankaMP):
                 
             self.obstacle_handles.append(env_obstacles)
 
+            # init moving obstacles
+            moving_cuboids = []
+            for j in range(num_blocking_objs):
+                blocking_objs_dim = np.random.uniform(blocking_objs_dim_range[0], blocking_objs_dim_range[1])
+                blocking_objs_pos = [0.5, 0., 1.0]
+                blocking_objs_xyzw = random_quaternion_xyzw()
+                blocking_asset, blocking_pose = self._create_cube(
+                    pos=blocking_objs_pos,
+                    size=blocking_objs_dim.tolist(),
+                    quat=blocking_objs_xyzw.tolist(),
+                )
+                blocking_actor = self.gym.create_actor(
+                    env_ptr,
+                    blocking_asset,
+                    blocking_pose,
+                    f"blocking_{j}",
+                    i,
+                    1,
+                    0
+                )
+                block_obstacles.append(blocking_actor)
+                moving_cuboids.append(Cuboid(np.array([0.0, 0.0, 0.0]), blocking_objs_dim, blocking_objs_xyzw[[3, 0, 1, 2]]))
+
+            self.blocking_obj_handles.append(block_obstacles)
+
+            for j in range(num_dynamic_objs):
+                dynamic_objs_dim = np.random.uniform(dynamic_objs_dim_range[0], dynamic_objs_dim_range[1])
+                vec = torch.randn(3, device=self.device)
+                vec = vec / vec.norm() * self.dynamic_objs_init_radius
+                dynamic_objs_start_pos = vec + dynamic_objs_init_pos
+                if dynamic_objs_start_pos[0] < 0.2:
+                    dynamic_objs_start_pos[0] = 0.2
+                center_direction = self.dyn_centers[i, j] - dynamic_objs_start_pos
+                self.dyn_vel_direction[i, j] = center_direction / center_direction.norm() # randomize direction of velocity
+                dynamic_objs_xyzw = random_quaternion_xyzw()
+                dynamic_asset, dynamic_pose = self._create_cube(
+                    pos=dynamic_objs_start_pos.tolist(),
+                    size=dynamic_objs_dim.tolist(),
+                    quat=dynamic_objs_xyzw.tolist(),
+                )
+                dynamic_actor = self.gym.create_actor(
+                    env_ptr,
+                    dynamic_asset,
+                    dynamic_pose,
+                    f"dynamic_{j}",
+                    i,
+                    1,
+                    0
+                )
+                dyn_obstacles.append(dynamic_actor)
+                moving_cuboids.append(Cuboid(np.array([0.0, 0.0, 0.0]), dynamic_objs_dim, dynamic_objs_xyzw[[3, 0, 1, 2]]))
+
+            self.dynamic_obj_handles.append(dyn_obstacles)
+
+            moving_pcds_i = np.array(construct_mixed_point_cloud(moving_cuboids, num_points=self.num_moving_points_per_obj*len(moving_cuboids), return_point_list=True, even=True))[..., :3]
+
+            # for vectorization, we unified the dim of the pcd of each objects
+            self.moving_pcds.append(moving_pcds_i)
+
             if self.aggregate_mode == 1:
                 self.gym.begin_aggregate(env_ptr, max_agg_bodies, max_agg_shapes, True)
 
@@ -177,13 +275,15 @@ class FrankaMPRRL(FrankaMP):
             self.frankas.append(franka_actor)
 
             # compute the static scene pcd (currently only consider static scenes)
-            static_scene_pcd = compute_scene_oracle_pcd(
-                num_obstacle_points=num_scene_points,
+            self.static_pcds[i] = torch.from_numpy(compute_scene_oracle_pcd(
+                num_obstacle_points=self.num_static_points,
                 cuboid_dims=cuboid_dims,
                 cuboid_centers=cuboid_centers,
                 cuboid_quats=cuboid_quats,
-            )
-            self.combined_pcds[i, num_robot_points:num_robot_points+num_scene_points, :3] = torch.from_numpy(static_scene_pcd).to(self.device)
+            )).to(self.device)
+            self.combined_pcds[i, self.num_robot_points:self.num_robot_points+self.num_static_points, :3] = self.static_pcds[i]
+
+        self.moving_pcds = torch.from_numpy(np.array(self.moving_pcds)).to(self.device, dtype=torch.float32)
 
         # Setting up voxel counter
         voxel_size = 0.15
@@ -209,16 +309,49 @@ class FrankaMPRRL(FrankaMP):
         self.num_visited_voxels_t0 = torch.zeros((self.num_envs), device=self.device)
 
         # Setup data
-        actor_num = 1 + self.max_obstacles  # franka  + obstacles
+        actor_num = 1 + self.max_obstacles + num_blocking_objs + num_dynamic_objs # franka  + obstacles
+        self.blocking_obj_indices = torch.tensor(self.blocking_obj_handles, device=self.device, dtype=torch.int32)
+        self.dynamic_obj_indices = torch.tensor(self.dynamic_obj_handles, device=self.device, dtype=torch.int32)
+        for i in range(self.num_envs):
+            self.blocking_obj_indices[i] += actor_num * i
+            self.dynamic_obj_indices[i] += actor_num * i
         self.init_data(actor_num=actor_num)
 
-    def _debug_viz_draw(self):
+    def _debug_viz_draw(self, pcd=False):
         draw_obstacle_vectors = False
 
         self.gym.clear_lines(self.viewer)
         # self.gym.refresh_rigid_body_state_tensor(self.sim)
 
         for i in range(self.num_envs):
+            if pcd:
+                # draw point clouds
+                points = self.combined_pcds[i][2048:6144, :3].cpu().numpy()
+
+                # Parameters
+                offset = np.array([0.005, 0.0, 0.0], dtype=np.float32)  # small x-direction offset for line
+                num_points = points.shape[0]
+
+                # Prepare flattened vertices list: [x1,y1,z1,x2,y2,z2,...]
+                verts_flat = []
+                for p in points:
+                    p0 = p - offset
+                    p1 = p + offset
+                    verts_flat.extend([p0[0], p0[1], p0[2], p1[0], p1[1], p1[2]])
+
+                # Colors: same RGB for each line
+                color = [1.0, 0.0, 0.0]  # red
+                colors_flat = color * num_points  # repeat for each line
+
+                # Add lines to viewer
+                self.gym.add_lines(
+                    self.viewer,
+                    self.env_ptrs[i],
+                    num_points,     # num_lines = num points
+                    verts_flat,     # flat list of start/end points
+                    colors_flat     # flat list of RGB triples
+                )
+
             # draw hand frame
             fabric_ee_pose = self.get_ee_from_joint(self.states['q'][:, :7])
             px = (fabric_ee_pose[:, 0:3][i] 
@@ -283,6 +416,37 @@ class FrankaMPRRL(FrankaMP):
             obstacle_config = decompose_scene_pcd_params_obs(pcd_params)
             self.obstacle_configs.append(obstacle_config)
 
+    def update_moving_obstacles_state(self, env_ids=None):
+        if env_ids is None:
+            env_ids = np.arange(self.num_envs)
+
+        # update blocking obstacles
+        flat_blk_indices = self.blocking_obj_indices[env_ids].view(-1)
+
+        # update dynamic obstacles
+        flat_dyn_indices = self.dynamic_obj_indices[env_ids].view(-1)
+        flat_root_state = self._root_state.view(-1, 13)
+        flat_root_state[flat_dyn_indices, 0:3] += self.dyn_vel_direction[env_ids].view(-1, 3) * self.dyn_vel[env_ids].view(-1).unsqueeze(1)
+
+        center_dist = (flat_root_state[self.dynamic_obj_indices.view(-1), 0:3].view(self.num_envs, -1, 3) - self.dyn_centers).norm(dim=-1)
+
+        isreturn =  (center_dist > self.dynamic_objs_init_radius * 1.2) | (flat_root_state[self.dynamic_obj_indices.view(-1), 0:3].view(self.num_envs, -1, 3)[:, :, 0] <= 0.2)
+
+        self.dyn_vel_direction[isreturn] = self.dyn_vel_direction[isreturn] * (-1)
+
+        # update all pcds for moving obstacles
+        flat_indices_all = torch.cat([self.blocking_obj_indices.view(-1), self.dynamic_obj_indices.view(-1)])
+        moving_obj_pos = flat_root_state[flat_indices_all, 0:3].view(self.num_envs, -1, 3)
+        self.current_moving_obs_pcds = self.moving_pcds + moving_obj_pos.unsqueeze(2)
+
+        self.combined_pcds[:, self.num_robot_points+self.num_static_points:self.num_robot_points+self.num_static_points+self.num_moving_points, :3] = self.current_moving_obs_pcds.view(self.num_envs, -1, 3)
+        self.gym.set_actor_root_state_tensor_indexed(
+            self.sim,
+            gymtorch.unwrap_tensor(flat_root_state),
+            gymtorch.unwrap_tensor(flat_dyn_indices),
+            flat_dyn_indices.numel()
+        )
+
     def reset_idx(self, env_ids=None):
         if env_ids is None:
             env_ids = torch.arange(self.num_envs, device=self.device)
@@ -301,7 +465,6 @@ class FrankaMPRRL(FrankaMP):
 
         self.progress_buf[env_ids] = 0
         self.reset_buf[env_ids] = 0
-        self.lock_in[env_ids] = False
         self.compute_observations()
 
     def compute_reward(self, actions):
@@ -312,12 +475,13 @@ class FrankaMPRRL(FrankaMP):
         joint_err = torch.norm(current_angles - self.goal_config, dim=1)
         pos_err = torch.norm(current_ee[:, :3] - self.goal_ee[:, :3], dim=1)
         quat_err = orientation_error(self.goal_ee[:, 3:], current_ee[:, 3:])
-        self.goal_reaching = (pos_err < self.lock_in_pos_err) & (quat_err < self.lock_in_rot_err)
-        self.lock_in[self.goal_reaching] = True
         self.goal_reaching = (pos_err < 0.05) & (quat_err < 15.0) # making it slightly more tolerant atm
         # self.goal_reaching = (pos_err < 0.01) & (quat_err < 15.0) # TODO: should apply this metric later
 
         num_visited_voxels_t1 = torch.sum(self.voxel_visit_binary, dim=1)
+
+        # TODO: 
+        sdf = self.frankacc.check_scene_sdf_batch(current_angles, self.current_moving_obs_pcds.view(self.num_envs, -1, 3), debug=False, sphere_repr_only=True)
 
         self.rew_buf[:], self.reset_buf[:], reaching_rewards, intrinsic_rewards = compute_franka_reward(
             self.reset_buf, self.progress_buf,
@@ -363,13 +527,13 @@ class FrankaMPRRL(FrankaMP):
         if abs_actions.shape[-1] == 7:
             abs_actions = torch.cat((abs_actions, gripper_state), dim=1)
 
+        self.update_moving_obstacles_state()
+        self._debug_viz_draw(self.pcd_spec_dict['debug'])
         # vel_targets = torch.zeros_like(abs_actions, device=self.device)
         self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(abs_actions))
         # self.gym.set_dof_velocity_target_tensor(self.sim, gymtorch.unwrap_tensor(vel_targets))
 
     def post_physics_step(self):
-        self._debug_viz_draw()
-
         gripper_pos = self.get_eef_pose()[:, :3]
 
         # voxel_counts (num_envs, ) -> number of times the voxel at the specified gripper_pos has been visited
