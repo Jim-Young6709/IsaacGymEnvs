@@ -7,7 +7,7 @@ physics_engine: ${..physics_engine}
 env:
   numEnvs: ${resolve_default:8192,${...num_envs}}
   envSpacing: 1.5
-  episodeLength: 500
+  episodeLength: 1000
   enableDebugVis: False
 
   clipObservations: 5.0
@@ -87,17 +87,19 @@ task:
 pcd_spec:
   num_robot_points: 2048
   num_obstacle_points: 4096
-  num_moving_obstacle_points_per_obj: 100
+  num_moving_obstacle_points_per_obj: 700
   num_extra_points_per_obj: 500
   num_ground_plane_points: 500
   num_target_points: 2048
   max_rollout_length: 150
-  debug: True
+  debug: False
 
 blocking_obj:
   type: ["cuboid"] # ["cuboid", "sphere", "mesh"]
-  dim_range: [[0.03, 0.03, 0.03], [0.05, 0.05, 0.05]]
-  num_obj: 0 # TODO: still bugs here, enable both blocking and dynamic objects will mess up things
+  dim_range: [[0.05, 0.05, 0.05], [0.2, 0.2, 0.2]]
+  dist_range: [0.1, 0.15]
+  num_obj: 1 # TODO: still bugs here, enable both blocking and dynamic objects will mess up things
+  update_freq: 1000 # update the blocking objects every 1000 sim steps
 
 dynamic_obj:
   init_pos: [0.5, 0.0, 0.0]
@@ -105,5 +107,7 @@ dynamic_obj:
   type: ["cuboid"] # ["cuboid", "sphere", "mesh"]
   dim_range: [[0.05, 0.05, 0.05], [0.2, 0.2, 0.2]]
   center_range: [[0.4, -0.1, -0.1], [0.6, 0.1, 0.1]]
-  vel_range: [0.05, 0.1]
+  vel_range: [0.1, 0.2]
   num_obj: 0
+
+x_threshold: 0.25
