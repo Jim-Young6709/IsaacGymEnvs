@@ -614,8 +614,8 @@ class FrankaMPRRL(FrankaMP):
 
         self.update_moving_obstacles_state()
         self.blk_chasing()
-        # if not self.headless:
-        #     self._debug_viz_draw(self.pcd_spec_dict['debug'])
+        if not self.headless:
+            self._debug_viz_draw(self.pcd_spec_dict['debug'])
         # vel_targets = torch.zeros_like(abs_actions, device=self.device)
         self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(abs_actions))
         # self.gym.set_dof_velocity_target_tensor(self.sim, gymtorch.unwrap_tensor(vel_targets))
