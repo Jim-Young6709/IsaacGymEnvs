@@ -488,18 +488,21 @@ class FrankaMPRRL(FrankaMP):
 
         flat_root_state[flat_blk_indices, 0:3] += self.blk_vel.view(-1).unsqueeze(-1) * self.blk_vel_direction.view(-1, 3)
 
-        x_pos = flat_root_state[flat_blk_indices, 0]
-        y_pos = flat_root_state[flat_blk_indices, 1]
-        z_pos = flat_root_state[flat_blk_indices, 2]
-        safety_corr = (x_pos < self.xy_threshold) & (y_pos < self.xy_threshold / 2) & (y_pos > - self.xy_threshold / 2) & (z_pos < self.xy_threshold) & (z_pos > 0.0)
+        # TODO: temporarily save it here, but cleanup later
+        # x_pos = flat_root_state[flat_blk_indices, 0]
+        # y_pos = flat_root_state[flat_blk_indices, 1]
+        # z_pos = flat_root_state[flat_blk_indices, 2]
+        # safety_corr = (x_pos < self.xy_threshold) & (y_pos < self.xy_threshold / 2) & (y_pos > - self.xy_threshold / 2) & (z_pos < self.xy_threshold) & (z_pos > 0.0)
 
-        x_corr = (x_pos > self.xy_threshold - 0.01) & (safety_corr)
-        y_corr_p = (x_pos <= self.xy_threshold - 0.01) & (y_pos > 0) & (safety_corr)
-        y_corr_n = (x_pos <= self.xy_threshold - 0.01) & (y_pos < 0) & (safety_corr)
+        # x_corr = (x_pos > self.xy_threshold - 0.01) & (safety_corr)
+        # y_corr_p = (x_pos <= self.xy_threshold - 0.01) & (y_pos > 0) & (safety_corr)
+        # y_corr_n = (x_pos <= self.xy_threshold - 0.01) & (y_pos < 0) & (safety_corr)
 
-        flat_root_state[flat_blk_indices[x_corr], 0] = self.xy_threshold
-        flat_root_state[flat_blk_indices[y_corr_p], 1] = self.xy_threshold / 2
-        flat_root_state[flat_blk_indices[y_corr_n], 1] = -self.xy_threshold / 2
+        # flat_root_state[flat_blk_indices[x_corr], 0] = self.xy_threshold
+        # flat_root_state[flat_blk_indices[y_corr_p], 1] = self.xy_threshold / 2
+        # flat_root_state[flat_blk_indices[y_corr_n], 1] = -self.xy_threshold / 2
+
+        self.x_reset_flag = flat_root_state[flat_blk_indices, 0] < self.xy_threshold
 
         self.gym.set_actor_root_state_tensor_indexed(
             self.sim,
@@ -647,6 +650,7 @@ class FrankaMPRRL(FrankaMP):
         )
 
         super().post_physics_step()
+        self.reset_buf[self.x_reset_flag] = 1
 
 
 @hydra.main(config_name="config", config_path="../cfg/")
@@ -726,7 +730,7 @@ def compute_franka_reward(
     # Compute resets
     reset_buf = torch.where((progress_buf >= max_episode_length - 1), torch.ones_like(reset_buf), reset_buf)
 
-    reset_buf[(collision_status == 1) & (progress_buf > 30)] = 1
+    # reset_buf[(collision_status == 1) & (progress_buf > 30)] = 1
 
     return rewards, reset_buf, reaching_rewards, intrinsic_rewards, sdf_rewards
 
