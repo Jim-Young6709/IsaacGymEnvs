@@ -82,6 +82,8 @@ class FrankaMPRRL(FrankaMP):
         self.capsule_dims = []  # r, l
         self.sphere_radii = []  # r
 
+        self.x_reset_flag = torch.zeros((self.num_envs), device=self.device, dtype=torch.bool)
+
         # setup franka
         franka_dof_props = self._create_franka()
         franka_asset = self.franka_asset
@@ -559,6 +561,7 @@ class FrankaMPRRL(FrankaMP):
 
         self.progress_buf[env_ids] = 0
         self.reset_buf[env_ids] = 0
+        self.x_reset_flag[:] = 0
         self.blk_flashing()
         self.compute_observations()
 
@@ -721,11 +724,11 @@ def compute_franka_reward(
     sdf_rewards = torch.clamp(100*(sdf - 0.03), -1, 20)
 
     # lazy reward (reward for being 'lazy' so not affect the reaching of the base policy)
-    lazy_rewards = 1 / (net_actions.norm(dim=1) /  + 0.01) * (sdf > 0.1)
+    lazy_rewards = 1 / (5 * net_actions.norm(dim=1) + 0.01) * (sdf > 0.15)
 
     # rewards = reaching_rewards + intrinsic_rewards
 
-    rewards = sdf_rewards #+ lazy_rewards # + reaching_rewards
+    rewards = sdf_rewards + lazy_rewards # + reaching_rewards
 
     # Compute resets
     reset_buf = torch.where((progress_buf >= max_episode_length - 1), torch.ones_like(reset_buf), reset_buf)
