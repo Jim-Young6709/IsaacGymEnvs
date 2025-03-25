@@ -97,7 +97,7 @@ pcd_spec:
 blocking_obj:
   type: ["cuboid"] # ["cuboid", "sphere", "mesh"]
   dim_range: [[0.05, 0.05, 0.05], [0.2, 0.2, 0.2]]
-  dist_range: [0.2, 0.3]
+  dist_range: [0.1, 0.2]
   vel_range: [0.1, 0.2]
   num_obj: 1 # TODO: still bugs here, enable both blocking and dynamic objects will mess up things
   update_freq: 1000 # update the blocking objects every 1000 sim steps
@@ -111,4 +111,4 @@ dynamic_obj:
   vel_range: [0.1, 0.2]
   num_obj: 0
 
-x_threshold: 0.25
+xy_threshold: 0.25
