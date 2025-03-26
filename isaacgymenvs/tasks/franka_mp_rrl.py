@@ -633,8 +633,8 @@ class FrankaMPRRL(FrankaMP):
 
         self.update_moving_obstacles_state()
         self.blk_chasing()
-        if not self.headless:
-            self._debug_viz_draw(self.pcd_spec_dict['debug'])
+        # if not self.headless:
+        #     self._debug_viz_draw(self.pcd_spec_dict['debug'])
         # vel_targets = torch.zeros_like(abs_actions, device=self.device)
         self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(abs_actions))
         # self.gym.set_dof_velocity_target_tensor(self.sim, gymtorch.unwrap_tensor(vel_targets))
@@ -725,7 +725,11 @@ def compute_franka_reward(
     sdf_rewards = torch.clamp(100*(sdf - 0.03), -1, 20)
 
     # lazy reward (reward for being 'lazy' so not affect the reaching of the base policy)
-    lazy_rewards = 1 / (5 * net_actions.norm(dim=1) + 0.01) * (sdf > 0.15)
+    lazy_rewards = torch.where(
+        sdf > 0.15, 
+        1 / (0.035 * net_actions.norm(dim=1) + 0.01), 
+        0,
+    )
 
     # rewards = reaching_rewards + intrinsic_rewards
 
