@@ -642,17 +642,6 @@ class FrankaMPRRL(FrankaMP):
     def post_physics_step(self):
         gripper_pos = self.get_eef_pose()[:, :3]
 
-        # voxel_counts (num_envs, ) -> number of times the voxel at the specified gripper_pos has been visited
-        voxel_counts, _ = self.voxel_counter.get_count(gripper_pos)
-
-        # voxels (num_envs, 20*20*20) -> number of times each voxel has been visited
-        voxels = self.voxel_counter.voxel_counter.view(self.num_envs, -1)
-        self.voxel_visit_binary = torch.where(
-            voxels >= 1.,
-            1.,
-            0.,
-        )
-
         super().post_physics_step()
         self.reset_buf[self.x_reset_flag] = 1
 

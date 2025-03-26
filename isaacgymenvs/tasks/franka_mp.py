@@ -137,6 +137,32 @@ class FrankaMP(VecTask):
         self.reaching_flags = torch.zeros(cfg["env"]["numEnvs"], device=self.device) # 0 for not reached, 1 for reached
         self.base_model = NeuralMPModel.from_pretrained(self.base_policy_url)
         self.base_model.eval()
+        
+        
+        # # Step 1: Warm-up and static inputs
+        # obs_base = OrderedDict()
+        # obs_base["current_angles"] = torch.zeros((self.num_envs, 7), device=self.device)
+        # obs_base["goal_angles"] = torch.zeros((self.num_envs, 7), device=self.device)
+        # obs_base["compute_pcd_params"] = self.combined_pcds.clone().cuda()
+
+        # # Prepare static input for capture (e.g., fixed-shaped inputs)
+        # self.static_obs = {
+        #     k: v.clone().cuda().requires_grad_(False)
+        #     for k, v in obs_base.items()
+        # }
+        # # Step 2: Allocate output tensor(s) with the same shape
+        # with torch.no_grad():
+        #     warmup_output = self.base_model.policy.get_action(obs_dict=self.static_obs, mean_actions=self.use_mean_actions)
+        #     self.captured_output = torch.empty_like(warmup_output)
+
+        # # Step 4: Capture the CUDA graph
+        # self.g = torch.cuda.CUDAGraph()
+        # torch.cuda.synchronize()
+        # with torch.cuda.graph(self.g):
+        #     output = self.base_model.policy.get_action(obs_dict=self.static_obs, mean_actions=self.use_mean_actions)
+        #     self.captured_output.copy_(output)
+
+
 
         # Refresh tensors & Reset all environments
         self._refresh()
@@ -469,8 +495,16 @@ class FrankaMP(VecTask):
             obs_base["current_angles"] = robot_config
             obs_base["goal_angles"] = self.goal_config.clone()
             obs_base["compute_pcd_params"] = self.combined_pcds.clone()
+            # torch.cuda.synchronize()
             with torch.no_grad():
                 sub_delta_action = self.base_model.policy.get_action(obs_dict=obs_base, mean_actions=self.use_mean_actions)
+
+            # torch.cuda.synchronize()
+            t3 = time.time()
+            # for k in obs_base:
+            #     self.static_obs[k].copy_(obs_base[k])  # new_obs must match shape/type
+            # self.g.replay()
+            # sub_delta_action = self.captured_output.clone()
 
             robot_config += sub_delta_action
 
@@ -489,7 +523,8 @@ class FrankaMP(VecTask):
 
         self.obs_buf = obs
 
-        self.update_robot_pcds() # update pcd for current states
+        if self.base_policy_sub_steps != 1:
+            self.update_robot_pcds() # update pcd for current states
         return self.obs_buf
 
     def check_robot_collision(self):
@@ -924,27 +959,6 @@ class FrankaMP(VecTask):
             #     self.reset_buf = torch.where(self.scene_collision > 0, torch.ones_like(self.reset_buf), self.reset_buf)
             self.success_flags[self.scene_collision.bool()] = 0
             self.collision_flags[self.scene_collision.bool()] = 1
-
-        # debug viz
-        if self.viewer and self.debug_viz:
-            self.gym.clear_lines(self.viewer)
-            self.gym.refresh_rigid_body_state_tensor(self.sim)
-
-            # Grab relevant states to visualize
-            eef_pos = self.states["eef_pos"]
-            eef_rot = self.states["eef_quat"]
-
-            # Plot visualizations
-            for i in range(self.num_envs):
-                for pos, rot in zip((eef_pos), (eef_rot)):
-                    px = (pos[i] + quat_apply(rot[i], to_torch([1, 0, 0], device=self.device) * 0.2)).cpu().numpy()
-                    py = (pos[i] + quat_apply(rot[i], to_torch([0, 1, 0], device=self.device) * 0.2)).cpu().numpy()
-                    pz = (pos[i] + quat_apply(rot[i], to_torch([0, 0, 1], device=self.device) * 0.2)).cpu().numpy()
-
-                    p0 = pos[i].cpu().numpy()
-                    self.gym.add_lines(self.viewer, self.env_ptrs[i], 1, [p0[0], p0[1], p0[2], px[0], px[1], px[2]], [0.85, 0.1, 0.1])
-                    self.gym.add_lines(self.viewer, self.env_ptrs[i], 1, [p0[0], p0[1], p0[2], py[0], py[1], py[2]], [0.1, 0.85, 0.1])
-                    self.gym.add_lines(self.viewer, self.env_ptrs[i], 1, [p0[0], p0[1], p0[2], pz[0], pz[1], pz[2]], [0.1, 0.1, 0.85])
 
     def update_robot_pcds(self, robot_config=None):
         num_robot_points = self.pcd_spec_dict['num_robot_points']
