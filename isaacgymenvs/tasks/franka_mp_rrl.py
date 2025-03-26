@@ -736,7 +736,7 @@ def compute_franka_reward(
 
     # reset_buf[(collision_status == 1) & (progress_buf > 30)] = 1
 
-    return rewards, reset_buf, reaching_rewards, intrinsic_rewards, sdf_rewards, reaching_reward
+    return rewards, reset_buf, reaching_rewards, intrinsic_rewards, sdf_rewards, lazy_rewards
 
 
 if __name__ == "__main__":
