@@ -72,7 +72,7 @@ class FrankaMPRRL(FrankaMP):
             self.max_obstacles = max(len(obstacle_config[0]), self.max_obstacles)
 
         super().__init__(cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render)
-        # self.progress_buf = torch.randint(0, self.max_episode_length, (self.num_envs,)).to(self.device)
+        self.progress_buf = torch.randint(0, self.max_episode_length, (self.num_envs,)).to(self.device)
 
     def _create_envs(self, spacing, num_per_row):
         lower = gymapi.Vec3(-spacing, -spacing, 0.0)
@@ -504,7 +504,7 @@ class FrankaMPRRL(FrankaMP):
         # flat_root_state[flat_blk_indices[y_corr_p], 1] = self.xy_threshold / 2
         # flat_root_state[flat_blk_indices[y_corr_n], 1] = -self.xy_threshold / 2
 
-        self.x_reset_flag = flat_root_state[flat_blk_indices, 0] < self.xy_threshold
+        # self.x_reset_flag = flat_root_state[flat_blk_indices, 0] < self.xy_threshold
 
         self.gym.set_actor_root_state_tensor_indexed(
             self.sim,
@@ -584,7 +584,7 @@ class FrankaMPRRL(FrankaMP):
 
         net_actions = (actions / self.action_scale)
         # import ipdb ; ipdb.set_trace()
-        self.rew_buf[:], self.reset_buf[:], reaching_rewards, intrinsic_rewards, sdf_rewards = compute_franka_reward(
+        self.rew_buf[:], self.reset_buf[:], reaching_rewards, intrinsic_rewards, sdf_rewards, reaching_rewards = compute_franka_reward(
             self.reset_buf, self.progress_buf,
             joint_err, pos_err, quat_err,
             self.num_visited_voxels_t0, num_visited_voxels_t1,
@@ -597,6 +597,7 @@ class FrankaMPRRL(FrankaMP):
         self.extras['reaching_rewards'] = torch.mean(reaching_rewards).item()
         self.extras['intrinsic_rewards'] = torch.mean(intrinsic_rewards).item()
         self.extras['sdf_rewards'] = torch.mean(sdf_rewards).item()
+        self.extras['reaching_rewards'] = torch.mean(reaching_rewards).item()
         self.extras['num_visited_voxels_ave'] = torch.mean(num_visited_voxels_t1).item()
 
         self.success_flags[self.goal_reaching & (self.reset_buf == 1) & (self.collision_flags == 0)] = 1
@@ -712,7 +713,7 @@ def compute_franka_reward(
     num_visited_voxels_t0: torch.Tensor, num_visited_voxels_t1: torch.Tensor,
     collision_status: torch.Tensor, sdf: torch.Tensor, net_actions: torch.Tensor,
     max_episode_length: float,
-) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
 
     # Sparse reaching reward (TODO: change to use key points)
     reaching_rewards = 50*torch.exp(-10*joint_err)
@@ -735,7 +736,7 @@ def compute_franka_reward(
 
     # reset_buf[(collision_status == 1) & (progress_buf > 30)] = 1
 
-    return rewards, reset_buf, reaching_rewards, intrinsic_rewards, sdf_rewards
+    return rewards, reset_buf, reaching_rewards, intrinsic_rewards, sdf_rewards, reaching_reward
 
 
 if __name__ == "__main__":
