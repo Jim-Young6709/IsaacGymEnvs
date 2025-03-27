@@ -491,15 +491,17 @@ class FrankaMPRRL(FrankaMP):
         flat_root_state[flat_blk_indices, 0:3] += self.blk_vel.view(-1).unsqueeze(-1) * self.blk_vel_direction.view(-1, 3)
 
         # TODO: temporarily save it here, but cleanup later
-        # x_pos = flat_root_state[flat_blk_indices, 0]
+        x_pos = flat_root_state[flat_blk_indices, 0]
         # y_pos = flat_root_state[flat_blk_indices, 1]
         # z_pos = flat_root_state[flat_blk_indices, 2]
         # safety_corr = (x_pos < self.xy_threshold) & (y_pos < self.xy_threshold / 2) & (y_pos > - self.xy_threshold / 2) & (z_pos < self.xy_threshold) & (z_pos > 0.0)
+        x_corr = x_pos < self.xy_threshold
 
         # x_corr = (x_pos > self.xy_threshold - 0.01) & (safety_corr)
         # y_corr_p = (x_pos <= self.xy_threshold - 0.01) & (y_pos > 0) & (safety_corr)
         # y_corr_n = (x_pos <= self.xy_threshold - 0.01) & (y_pos < 0) & (safety_corr)
 
+        flat_root_state[flat_blk_indices[x_corr], 0] = self.xy_threshold
         # flat_root_state[flat_blk_indices[x_corr], 0] = self.xy_threshold
         # flat_root_state[flat_blk_indices[y_corr_p], 1] = self.xy_threshold / 2
         # flat_root_state[flat_blk_indices[y_corr_n], 1] = -self.xy_threshold / 2
@@ -588,7 +590,7 @@ class FrankaMPRRL(FrankaMP):
             self.reset_buf, self.progress_buf,
             joint_err, pos_err, quat_err,
             self.num_visited_voxels_t0, num_visited_voxels_t1,
-            self.collision, sdf, net_actions,
+            self.collision, sdf, self.residual_flag,
             self.max_episode_length
         )
 
@@ -615,13 +617,16 @@ class FrankaMPRRL(FrankaMP):
         self.extras['actions/base_action_magnitude'] = self.base_delta_action.norm(dim=1).mean()
 
     def pre_physics_step(self, actions):
-        delta_actions = actions.clone().to(self.device)
-        gripper_state = torch.Tensor([[0.035, 0.035]] * self.num_envs).to(self.device)
+        self.residual_flag = actions[:, -1]
+        is_residual_enabled = self.residual_flag < 0
+        delta_actions = actions.clone()[:, :7]
+        delta_actions[is_residual_enabled] = 0.0
         current_joint_state = self.get_joint_angles()
         delta_actions = delta_actions * self.action_scale
         self.actions = delta_actions
         # since the below is commonly used for debugging, let's temporarily keep it here
         # self.base_policy_only = True
+        gripper_state = torch.Tensor([[0.035, 0.035]] * self.num_envs).to(self.device)
         if self.base_policy_only:
             abs_actions = current_joint_state + self.base_delta_action
         elif self.no_base_action:
@@ -700,7 +705,7 @@ def compute_franka_reward(
     reset_buf: torch.Tensor, progress_buf: torch.Tensor,
     joint_err: torch.Tensor, pos_err: torch.Tensor, quat_err: torch.Tensor,
     num_visited_voxels_t0: torch.Tensor, num_visited_voxels_t1: torch.Tensor,
-    collision_status: torch.Tensor, sdf: torch.Tensor, net_actions: torch.Tensor,
+    collision_status: torch.Tensor, sdf: torch.Tensor, residual_flag: torch.Tensor,
     max_episode_length: float,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
 
@@ -714,22 +719,27 @@ def compute_franka_reward(
     sdf_rewards = torch.clamp(100*(sdf - 0.03), -1, 20)
 
     # lazy reward (reward for being 'lazy' so not affect the reaching of the base policy)
-    lazy_rewards = torch.where(
-        sdf > 0.15, 
-        1 / (0.035 * net_actions.norm(dim=1) + 0.01), 
-        0,
-    )
+    # sdf_threshold = 0.1
+
+    # flag_diff = torch.where(sdf > sdf_threshold, 1 - residual_flag, residual_flag + 1)
+
+    flag_diff = torch.abs(residual_flag - torch.clamp(10 * (sdf - 0.1), -1, 1))
+
+    # print("flag: ", residual_flag)
+    # print("diff: ", flag_diff)
+
+    flag_rewards = 1 / (flag_diff + 0.2)
 
     # rewards = reaching_rewards + intrinsic_rewards
 
-    rewards = sdf_rewards + lazy_rewards # + reaching_rewards
+    rewards = sdf_rewards + flag_rewards # + reaching_rewards
 
     # Compute resets
     reset_buf = torch.where((progress_buf >= max_episode_length - 1), torch.ones_like(reset_buf), reset_buf)
 
     # reset_buf[(collision_status == 1) & (progress_buf > 30)] = 1
 
-    return rewards, reset_buf, reaching_rewards, intrinsic_rewards, sdf_rewards, lazy_rewards
+    return rewards, reset_buf, reaching_rewards, intrinsic_rewards, sdf_rewards, flag_rewards
 
 
 if __name__ == "__main__":

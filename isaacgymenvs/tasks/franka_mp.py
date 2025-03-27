@@ -516,8 +516,10 @@ class FrankaMP(VecTask):
         obs = pcd_feats
         if self.obs_buf.size(1) == 14:
             obs = torch.cat((robot_config, self.goal_config), dim=1)
+        # elif self.obs_buf.size(1) == 1038:
+        #     obs[:, -14:-7] += self.base_delta_action
         elif self.obs_buf.size(1) == 1038:
-            obs[:, -14:-7] += self.base_delta_action
+            obs[:, -7:] = self.base_delta_action.clone()
         elif self.obs_buf.size(1) == 1045:
             obs = torch.cat((obs, self.base_delta_action), dim=1)
 
