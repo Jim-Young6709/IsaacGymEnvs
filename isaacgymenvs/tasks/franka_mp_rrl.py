@@ -115,6 +115,7 @@ class FrankaMPRRL(FrankaMP):
         self.dyn_vel_direction = torch.zeros((self.num_envs, num_dynamic_objs, 3), device=self.device, dtype=torch.float32) # to store the direction of velocity for each dynamic object
 
         self.xy_threshold = self.cfg["xy_threshold"]
+        self.x_blocking = self.cfg["x_blocking"]
         # compute aggregate size
         num_franka_bodies = self.gym.get_asset_rigid_body_count(franka_asset)
         num_franka_shapes = self.gym.get_asset_rigid_shape_count(franka_asset)
@@ -491,22 +492,23 @@ class FrankaMPRRL(FrankaMP):
         flat_root_state[flat_blk_indices, 0:3] += self.blk_vel.view(-1).unsqueeze(-1) * self.blk_vel_direction.view(-1, 3)
 
         # TODO: temporarily save it here, but cleanup later
-        x_pos = flat_root_state[flat_blk_indices, 0]
-        # y_pos = flat_root_state[flat_blk_indices, 1]
-        # z_pos = flat_root_state[flat_blk_indices, 2]
-        # safety_corr = (x_pos < self.xy_threshold) & (y_pos < self.xy_threshold / 2) & (y_pos > - self.xy_threshold / 2) & (z_pos < self.xy_threshold) & (z_pos > 0.0)
-        x_corr = x_pos < self.xy_threshold
+        if self.x_blocking:
+            x_pos = flat_root_state[flat_blk_indices, 0]
+            # y_pos = flat_root_state[flat_blk_indices, 1]
+            # z_pos = flat_root_state[flat_blk_indices, 2]
+            # safety_corr = (x_pos < self.xy_threshold) & (y_pos < self.xy_threshold / 2) & (y_pos > - self.xy_threshold / 2) & (z_pos < self.xy_threshold) & (z_pos > 0.0)
+            x_corr = x_pos < self.xy_threshold
 
-        # x_corr = (x_pos > self.xy_threshold - 0.01) & (safety_corr)
-        # y_corr_p = (x_pos <= self.xy_threshold - 0.01) & (y_pos > 0) & (safety_corr)
-        # y_corr_n = (x_pos <= self.xy_threshold - 0.01) & (y_pos < 0) & (safety_corr)
+            # x_corr = (x_pos > self.xy_threshold - 0.01) & (safety_corr)
+            # y_corr_p = (x_pos <= self.xy_threshold - 0.01) & (y_pos > 0) & (safety_corr)
+            # y_corr_n = (x_pos <= self.xy_threshold - 0.01) & (y_pos < 0) & (safety_corr)
 
-        flat_root_state[flat_blk_indices[x_corr], 0] = self.xy_threshold
-        # flat_root_state[flat_blk_indices[x_corr], 0] = self.xy_threshold
-        # flat_root_state[flat_blk_indices[y_corr_p], 1] = self.xy_threshold / 2
-        # flat_root_state[flat_blk_indices[y_corr_n], 1] = -self.xy_threshold / 2
+            flat_root_state[flat_blk_indices[x_corr], 0] = self.xy_threshold
+            # flat_root_state[flat_blk_indices[x_corr], 0] = self.xy_threshold
+            # flat_root_state[flat_blk_indices[y_corr_p], 1] = self.xy_threshold / 2
+            # flat_root_state[flat_blk_indices[y_corr_n], 1] = -self.xy_threshold / 2
 
-        # self.x_reset_flag = flat_root_state[flat_blk_indices, 0] < self.xy_threshold
+            # self.x_reset_flag = flat_root_state[flat_blk_indices, 0] < self.xy_threshold
 
         self.gym.set_actor_root_state_tensor_indexed(
             self.sim,

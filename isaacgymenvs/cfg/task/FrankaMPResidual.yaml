@@ -112,3 +112,4 @@ dynamic_obj:
   num_obj: 0
 
 xy_threshold: 0.25
+x_blocking: False # blocking obstacles at x = xy_threshold
