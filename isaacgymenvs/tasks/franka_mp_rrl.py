@@ -623,7 +623,7 @@ class FrankaMPRRL(FrankaMP):
     def pre_physics_step(self, actions):
         self.residual_flag = actions[:, -1]
         is_residual_disabled = self.residual_flag > 0
-        delta_actions = actions.clone()[:, :7]
+        delta_actions = actions.clone()[:, :7] * torch.abs(self.residual_flag.unsqueeze(-1))
         delta_actions[is_residual_disabled] = 0.0
         current_joint_state = self.get_joint_angles()
         delta_actions = delta_actions * self.action_scale
