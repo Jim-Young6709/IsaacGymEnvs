@@ -80,6 +80,7 @@ class FrankaMP(VecTask):
             "Invalid control type specified. Must be one of: {osc, joint_position}"
 
         assert "numObservations" in self.cfg["env"], "numObservations must be specified in the config"
+        assert "numStates" in self.cfg["env"], "numStates must be specified in the config"
         assert "numActions" in self.cfg["env"], "numActions must be specified in the config"
 
         # Values to be filled in at runtime
@@ -524,6 +525,10 @@ class FrankaMP(VecTask):
             obs = torch.cat((obs, self.base_delta_action), dim=1)
 
         self.obs_buf = obs
+        self.states_buf[:, 0:self.num_obs] = obs
+        self.states_buf[:, self.num_obs:self.num_obs +self.num_blocking_objs*3] = self.blk_pos.reshape(self.num_envs, -1)
+        self.states_buf[:, self.num_obs +self.num_blocking_objs*3:self.num_obs +2*self.num_blocking_objs*3] = self.blk_vel_direction.reshape(self.num_envs, -1)
+        self.states_buf[:, self.num_obs +2*self.num_blocking_objs*3:] = self.sdf.unsqueeze(-1)
 
         if self.base_policy_sub_steps != 1:
             self.update_robot_pcds() # update pcd for current states

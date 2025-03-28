@@ -79,5 +79,34 @@ params:
     seq_length: 4
     bounds_loss_coef: 0.0001
 
+    central_value_config:
+      minibatch_size: 8192
+      mini_epochs: 5
+      learning_rate: 5e-4
+      kl_threshold: 0.008
+      clip_value: True
+      normalize_input: True
+      truncate_grads: True
+
+      network:
+        name: actor_critic
+        central_value: True
+        mlp:
+          units: [512, 256, 128, 64]
+          activation: elu
+          d2rl: False
+
+          initializer:
+            name: default
+          regularizer:
+            name: None
+        rnn: # added
+          name: lstm
+          units: 1024
+          layers: 1
+          before_mlp: True
+          concat_input: False
+          layer_norm: True
+
     player: # added
       games_num: 2000
