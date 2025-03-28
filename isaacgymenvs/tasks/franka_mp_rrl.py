@@ -94,13 +94,13 @@ class FrankaMPRRL(FrankaMP):
         self.num_dyn_objs = self.cfg["dyn_obj"]["num_obj"]
         dyn_objs_dim_range = self.cfg["dyn_obj"]["dim_range"]
         dyn_dist_range = self.cfg["dyn_obj"]["dist_range"]
-        self.blk_vel = np.random.uniform(self.cfg["dyn_obj"]["vel_range"][0], self.cfg["dyn_obj"]["vel_range"][1], (self.num_envs, self.num_dyn_objs))
-        self.blk_vel = torch.from_numpy(self.blk_vel).to(self.device, dtype=torch.float32) * self.cfg["sim"]["dt"]
-        self.blk_pos = torch.zeros((self.num_envs, self.num_dyn_objs, 3), device=self.device, dtype=torch.float32)
-        self.blk_vel_direction = torch.zeros((self.num_envs, self.num_dyn_objs, 3), device=self.device, dtype=torch.float32) # to store the direction of velocity for each dynamic object
+        self.dyn_vel = np.random.uniform(self.cfg["dyn_obj"]["vel_range"][0], self.cfg["dyn_obj"]["vel_range"][1], (self.num_envs, self.num_dyn_objs))
+        self.dyn_vel = torch.from_numpy(self.dyn_vel).to(self.device, dtype=torch.float32) * self.cfg["sim"]["dt"]
+        self.dyn_pos = torch.zeros((self.num_envs, self.num_dyn_objs, 3), device=self.device, dtype=torch.float32)
+        self.dyn_vel_direction = torch.zeros((self.num_envs, self.num_dyn_objs, 3), device=self.device, dtype=torch.float32) # to store the direction of velocity for each dynamic object
         self.dyn_dist = np.random.uniform(dyn_dist_range[0], dyn_dist_range[1], (self.num_envs, self.num_dyn_objs))
         self.dyn_dist = torch.from_numpy(self.dyn_dist).to(self.device, dtype=torch.float32)
-        self.blk_update_freq = self.cfg["dyn_obj"]["update_freq"]
+        self.dyn_update_freq = self.cfg["dyn_obj"]["update_freq"]
         self.rand_sphere_idx = torch.zeros((self.num_envs, self.num_dyn_objs, 1), dtype=torch.int64, device=self.device)
 
         self.xy_threshold = self.cfg["xy_threshold"]
@@ -371,7 +371,7 @@ class FrankaMPRRL(FrankaMP):
             obstacle_config = decompose_scene_pcd_params_obs(pcd_params)
             self.obstacle_configs.append(obstacle_config)
 
-    def blk_flashing(self, env_ids=None):
+    def dyn_flashing(self, env_ids=None):
         if env_ids is None:
             env_ids = torch.arange(self.num_envs, device=self.device)
 
@@ -391,53 +391,53 @@ class FrankaMPRRL(FrankaMP):
         center_shift = center_direction / center_direction.norm(dim=-1, keepdim=True) * (radii + self.dyn_dist[env_ids].unsqueeze(-1))
         dyn_objs_pos = centers + center_shift
 
-        flat_blk_indices = self.dyn_obj_indices[env_ids].view(-1)
+        flat_dyn_indices = self.dyn_obj_indices[env_ids].view(-1)
         flat_root_state = self._root_state.view(-1, 13)
-        flat_root_state[flat_blk_indices, 0:3] = dyn_objs_pos.view(-1, 3)
+        flat_root_state[flat_dyn_indices, 0:3] = dyn_objs_pos.view(-1, 3)
 
-        self.blk_pos = flat_root_state[self.dyn_obj_indices.view(-1), 0:3].view(self.num_envs, self.num_dyn_objs, 3)
-        self.blk_vel_direction[env_ids] = 0.0
+        self.dyn_pos = flat_root_state[self.dyn_obj_indices.view(-1), 0:3].view(self.num_envs, self.num_dyn_objs, 3)
+        self.dyn_vel_direction[env_ids] = 0.0
 
         self.gym.set_actor_root_state_tensor_indexed(
             self.sim,
             gymtorch.unwrap_tensor(flat_root_state),
-            gymtorch.unwrap_tensor(flat_blk_indices),
-            flat_blk_indices.numel()
+            gymtorch.unwrap_tensor(flat_dyn_indices),
+            flat_dyn_indices.numel()
         )
 
-    def blk_chasing(self, env_ids=None):
+    def dyn_chasing(self, env_ids=None):
         if env_ids is None:
             env_ids = torch.arange(self.num_envs).to(self.device)
 
         # update dynamic obstacle vels (chasing phase)
-        ischasing = self.progress_buf[env_ids] <= self.blk_update_freq
+        ischasing = self.progress_buf[env_ids] <= self.dyn_update_freq
 
         current_configs = self.get_joint_angles()[env_ids]
         torch_spheres = self.frankacc.torch_spheres(current_configs)
         centers = torch_spheres.centers[:, 28:, :] # link4 - gripper
         centers = torch.gather(centers, dim=1, index=self.rand_sphere_idx.expand(-1, -1, centers.shape[-1])) # (num_envs, num_obj, 3)
 
-        flat_blk_indices = self.dyn_obj_indices[env_ids].view(-1)
+        flat_dyn_indices = self.dyn_obj_indices[env_ids].view(-1)
         flat_root_state = self._root_state.view(-1, 13)
 
-        displacement = centers.view(-1, 3) - flat_root_state[flat_blk_indices, 0:3]
+        displacement = centers.view(-1, 3) - flat_root_state[flat_dyn_indices, 0:3]
         updated_vel_direction = displacement / displacement.norm(dim=-1, keepdim=True)
-        self.blk_vel_direction[env_ids[ischasing]] = updated_vel_direction.view(-1, self.num_dyn_objs, 3)[ischasing]
+        self.dyn_vel_direction[env_ids[ischasing]] = updated_vel_direction.view(-1, self.num_dyn_objs, 3)[ischasing]
 
-        flat_root_state[flat_blk_indices, 0:3] += self.blk_vel.view(-1).unsqueeze(-1) * self.blk_vel_direction.view(-1, 3)
+        flat_root_state[flat_dyn_indices, 0:3] += self.dyn_vel.view(-1).unsqueeze(-1) * self.dyn_vel_direction.view(-1, 3)
 
-        self.blk_pos = flat_root_state[flat_blk_indices, 0:3].view(self.num_envs, self.num_dyn_objs, 3)
+        self.dyn_pos = flat_root_state[flat_dyn_indices, 0:3].view(self.num_envs, self.num_dyn_objs, 3)
 
         if self.x_blocking:
-            x_pos = flat_root_state[flat_blk_indices, 0]
+            x_pos = flat_root_state[flat_dyn_indices, 0]
             x_corr = x_pos < self.xy_threshold
-            flat_root_state[flat_blk_indices[x_corr], 0] = self.xy_threshold
+            flat_root_state[flat_dyn_indices[x_corr], 0] = self.xy_threshold
 
         self.gym.set_actor_root_state_tensor_indexed(
             self.sim,
             gymtorch.unwrap_tensor(flat_root_state),
-            gymtorch.unwrap_tensor(flat_blk_indices),
-            flat_blk_indices.numel()
+            gymtorch.unwrap_tensor(flat_dyn_indices),
+            flat_dyn_indices.numel()
         )
 
     def update_dynamic_obstacles_pcd(self):
@@ -470,14 +470,14 @@ class FrankaMPRRL(FrankaMP):
 
         self.progress_buf[env_ids] = 0
         self.reset_buf[env_ids] = 0
-        self.blk_flashing(env_ids=env_ids)
+        self.dyn_flashing(env_ids=env_ids)
         self.compute_observations()
 
     def compute_observations(self):
         obs = super().compute_observations()
         self.states_buf[:, 0:self.num_obs] = obs.clone()
-        self.states_buf[:, self.num_obs:self.num_obs +self.num_dyn_objs*3] = self.blk_pos.reshape(self.num_envs, -1)
-        self.states_buf[:, self.num_obs +self.num_dyn_objs*3:self.num_obs +2*self.num_dyn_objs*3] = self.blk_vel_direction.reshape(self.num_envs, -1)
+        self.states_buf[:, self.num_obs:self.num_obs +self.num_dyn_objs*3] = self.dyn_pos.reshape(self.num_envs, -1)
+        self.states_buf[:, self.num_obs +self.num_dyn_objs*3:self.num_obs +2*self.num_dyn_objs*3] = self.dyn_vel_direction.reshape(self.num_envs, -1)
         self.states_buf[:, self.num_obs +2*self.num_dyn_objs*3:] = self.sdf.unsqueeze(-1)
         return obs
 
@@ -538,7 +538,7 @@ class FrankaMPRRL(FrankaMP):
         if abs_actions.shape[-1] == 7:
             abs_actions = torch.cat((abs_actions, gripper_state), dim=1)
 
-        self.blk_chasing()
+        self.dyn_chasing()
         self.update_dynamic_obstacles_pcd()
         if (not self.headless) and self.vis_goal:
             self._debug_viz_draw(self.pcd_spec_dict['debug'])
