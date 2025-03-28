@@ -81,7 +81,6 @@ class FrankaMP(VecTask):
             "Invalid control type specified. Must be one of: {osc, joint_position}"
 
         assert "numObservations" in self.cfg["env"], "numObservations must be specified in the config"
-        assert "numStates" in self.cfg["env"], "numStates must be specified in the config"
         assert "numActions" in self.cfg["env"], "numActions must be specified in the config"
 
         # Values to be filled in at runtime
@@ -139,32 +138,6 @@ class FrankaMP(VecTask):
         self.reaching_flags = torch.zeros(cfg["env"]["numEnvs"], device=self.device) # 0 for not reached, 1 for reached
         self.base_model = NeuralMPModel.from_pretrained(self.base_policy_url)
         self.base_model.eval()
-        # self.base_model = torch.compile(self.base_model)
-        
-        # # Step 1: Warm-up and static inputs
-        # obs_base = OrderedDict()
-        # obs_base["current_angles"] = torch.zeros((self.num_envs, 7), device=self.device)
-        # obs_base["goal_angles"] = torch.zeros((self.num_envs, 7), device=self.device)
-        # obs_base["compute_pcd_params"] = self.combined_pcds.clone().cuda()
-
-        # # Prepare static input for capture (e.g., fixed-shaped inputs)
-        # self.static_obs = {
-        #     k: v.clone().cuda().requires_grad_(False)
-        #     for k, v in obs_base.items()
-        # }
-        # # Step 2: Allocate output tensor(s) with the same shape
-        # with torch.no_grad():
-        #     warmup_output = self.base_model.policy.get_action(obs_dict=self.static_obs, mean_actions=self.use_mean_actions)
-        #     self.captured_output = torch.empty_like(warmup_output)
-
-        # # Step 4: Capture the CUDA graph
-        # self.g = torch.cuda.CUDAGraph()
-        # torch.cuda.synchronize()
-        # with torch.cuda.graph(self.g):
-        #     output = self.base_model.policy.get_action(obs_dict=self.static_obs, mean_actions=self.use_mean_actions)
-        #     self.captured_output.copy_(output)
-
-
 
         # Refresh tensors & Reset all environments
         self._refresh()
@@ -497,17 +470,9 @@ class FrankaMP(VecTask):
             obs_base["current_angles"] = robot_config
             obs_base["goal_angles"] = self.goal_config.clone()
             obs_base["compute_pcd_params"] = self.combined_pcds.clone()
-            # torch.cuda.synchronize()
             with torch.no_grad():
                 with torch.autocast('cuda', dtype=torch.float16):
                     sub_delta_action = self.base_model.policy.get_action(obs_dict=obs_base, mean_actions=self.use_mean_actions)
-
-            # torch.cuda.synchronize()
-            t3 = time.time()
-            # for k in obs_base:
-            #     self.static_obs[k].copy_(obs_base[k])  # new_obs must match shape/type
-            # self.g.replay()
-            # sub_delta_action = self.captured_output.clone()
 
             robot_config += sub_delta_action
 
@@ -527,10 +492,6 @@ class FrankaMP(VecTask):
             obs = torch.cat((obs, self.base_delta_action), dim=1)
 
         self.obs_buf = obs
-        self.states_buf[:, 0:self.num_obs] = obs
-        self.states_buf[:, self.num_obs:self.num_obs +self.num_blocking_objs*3] = self.blk_pos.reshape(self.num_envs, -1)
-        self.states_buf[:, self.num_obs +self.num_blocking_objs*3:self.num_obs +2*self.num_blocking_objs*3] = self.blk_vel_direction.reshape(self.num_envs, -1)
-        self.states_buf[:, self.num_obs +2*self.num_blocking_objs*3:] = self.sdf.unsqueeze(-1)
 
         if self.base_policy_sub_steps != 1:
             self.update_robot_pcds() # update pcd for current states
