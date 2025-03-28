@@ -732,7 +732,7 @@ def compute_franka_reward(
     # print("flag: ", residual_flag)
     # print("diff: ", flag_diff)
 
-    flag_rewards = 1 / (flag_diff + 0.2)
+    flag_rewards = 1 / (flag_diff + 0.1)
 
     # rewards = reaching_rewards + intrinsic_rewards
 
