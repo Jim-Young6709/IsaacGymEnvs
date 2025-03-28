@@ -138,7 +138,7 @@ class FrankaMP(VecTask):
         self.reaching_flags = torch.zeros(cfg["env"]["numEnvs"], device=self.device) # 0 for not reached, 1 for reached
         self.base_model = NeuralMPModel.from_pretrained(self.base_policy_url)
         self.base_model.eval()
-        
+        # self.base_model = torch.compile(self.base_model)
         
         # # Step 1: Warm-up and static inputs
         # obs_base = OrderedDict()
@@ -498,7 +498,8 @@ class FrankaMP(VecTask):
             obs_base["compute_pcd_params"] = self.combined_pcds.clone()
             # torch.cuda.synchronize()
             with torch.no_grad():
-                sub_delta_action = self.base_model.policy.get_action(obs_dict=obs_base, mean_actions=self.use_mean_actions)
+                with torch.autocast('cuda', dtype=torch.float16):
+                    sub_delta_action = self.base_model.policy.get_action(obs_dict=obs_base, mean_actions=self.use_mean_actions)
 
             # torch.cuda.synchronize()
             t3 = time.time()
