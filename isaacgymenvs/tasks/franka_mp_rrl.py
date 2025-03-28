@@ -623,7 +623,7 @@ class FrankaMPRRL(FrankaMP):
     def pre_physics_step(self, actions):
         self.residual_flag = actions[:, -1]
         is_residual_disabled = self.residual_flag > 0
-        delta_actions = actions.clone()[:, :7]
+        delta_actions = actions.clone()[:, :7] * torch.abs(self.residual_flag.unsqueeze(-1))
         delta_actions[is_residual_disabled] = 0.0
         current_joint_state = self.get_joint_angles()
         delta_actions = delta_actions * self.action_scale
@@ -642,8 +642,8 @@ class FrankaMPRRL(FrankaMP):
 
         self.update_moving_obstacles_state()
         self.blk_chasing()
-        # if not self.headless:
-        #     self._debug_viz_draw(self.pcd_spec_dict['debug'])
+        if (not self.headless) and self.vis_goal:
+            self._debug_viz_draw(self.pcd_spec_dict['debug'])
         # vel_targets = torch.zeros_like(abs_actions, device=self.device)
         self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(abs_actions))
         # self.gym.set_dof_velocity_target_tensor(self.sim, gymtorch.unwrap_tensor(vel_targets))
@@ -720,16 +720,18 @@ def compute_franka_reward(
     intrinsic_rewards = num_visited_voxels_t1 - num_visited_voxels_t0
 
     # sdf reward
-    sdf_rewards = torch.clamp(100*(sdf - 0.03), -1, 20)
+    sdf_rewards = torch.clamp(100*sdf, -1, 20)
 
     # lazy reward (reward for being 'lazy' so not affect the reaching of the base policy)
     # sdf_threshold = 0.1
 
     # flag_diff = torch.where(sdf > sdf_threshold, 1 - residual_flag, residual_flag + 1)
 
-    flag_diff = torch.abs(residual_flag - torch.clamp(10 * (sdf - 0.1), -1, 1))
+    flag_diff = torch.abs(residual_flag - torch.clamp(10 * (sdf - 0.2), -1, 1))
 
     # print("flag: ", residual_flag)
+    # print("sdf: ", sdf)
+    # print("isflag correct: ", residual_flag * (sdf - 0.1) > 0)
     # print("diff: ", flag_diff)
 
     flag_rewards = 1 / (flag_diff + 0.1)

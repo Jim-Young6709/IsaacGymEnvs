@@ -73,6 +73,7 @@ class FrankaMP(VecTask):
         if self.capture_video:
             self.cfg["env"]["enableCameraSensors"] = True
         self.capture_envs = self.cfg["env"]["capture_envs"]
+        self.vis_goal = self.cfg["env"]["vis_goal"]
 
         # Controller type
         self.control_type = self.cfg["env"]["controlType"]
@@ -80,6 +81,7 @@ class FrankaMP(VecTask):
             "Invalid control type specified. Must be one of: {osc, joint_position}"
 
         assert "numObservations" in self.cfg["env"], "numObservations must be specified in the config"
+        assert "numStates" in self.cfg["env"], "numStates must be specified in the config"
         assert "numActions" in self.cfg["env"], "numActions must be specified in the config"
 
         # Values to be filled in at runtime
@@ -137,7 +139,7 @@ class FrankaMP(VecTask):
         self.reaching_flags = torch.zeros(cfg["env"]["numEnvs"], device=self.device) # 0 for not reached, 1 for reached
         self.base_model = NeuralMPModel.from_pretrained(self.base_policy_url)
         self.base_model.eval()
-        
+        # self.base_model = torch.compile(self.base_model)
         
         # # Step 1: Warm-up and static inputs
         # obs_base = OrderedDict()
@@ -497,7 +499,8 @@ class FrankaMP(VecTask):
             obs_base["compute_pcd_params"] = self.combined_pcds.clone()
             # torch.cuda.synchronize()
             with torch.no_grad():
-                sub_delta_action = self.base_model.policy.get_action(obs_dict=obs_base, mean_actions=self.use_mean_actions)
+                with torch.autocast('cuda', dtype=torch.float16):
+                    sub_delta_action = self.base_model.policy.get_action(obs_dict=obs_base, mean_actions=self.use_mean_actions)
 
             # torch.cuda.synchronize()
             t3 = time.time()
@@ -524,6 +527,10 @@ class FrankaMP(VecTask):
             obs = torch.cat((obs, self.base_delta_action), dim=1)
 
         self.obs_buf = obs
+        self.states_buf[:, 0:self.num_obs] = obs
+        self.states_buf[:, self.num_obs:self.num_obs +self.num_blocking_objs*3] = self.blk_pos.reshape(self.num_envs, -1)
+        self.states_buf[:, self.num_obs +self.num_blocking_objs*3:self.num_obs +2*self.num_blocking_objs*3] = self.blk_vel_direction.reshape(self.num_envs, -1)
+        self.states_buf[:, self.num_obs +2*self.num_blocking_objs*3:] = self.sdf.unsqueeze(-1)
 
         if self.base_policy_sub_steps != 1:
             self.update_robot_pcds() # update pcd for current states
