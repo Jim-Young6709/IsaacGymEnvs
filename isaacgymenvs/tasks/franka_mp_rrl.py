@@ -642,8 +642,8 @@ class FrankaMPRRL(FrankaMP):
 
         self.update_moving_obstacles_state()
         self.blk_chasing()
-        # if not self.headless:
-        #     self._debug_viz_draw(self.pcd_spec_dict['debug'])
+        if (not self.headless) and self.vis_goal:
+            self._debug_viz_draw(self.pcd_spec_dict['debug'])
         # vel_targets = torch.zeros_like(abs_actions, device=self.device)
         self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(abs_actions))
         # self.gym.set_dof_velocity_target_tensor(self.sim, gymtorch.unwrap_tensor(vel_targets))
@@ -730,6 +730,8 @@ def compute_franka_reward(
     flag_diff = torch.abs(residual_flag - torch.clamp(10 * (sdf - 0.1), -1, 1))
 
     # print("flag: ", residual_flag)
+    # print("sdf: ", sdf)
+    # print("isflag correct: ", residual_flag * (sdf - 0.1) > 0)
     # print("diff: ", flag_diff)
 
     flag_rewards = 1 / (flag_diff + 0.1)

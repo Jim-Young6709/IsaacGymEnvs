@@ -55,6 +55,8 @@ env:
   step_back_on_collision: 0
   reset_on_collision: False
 
+  vis_goal: False
+
   # video logging
   capture_video: False
   capture_envs: 1

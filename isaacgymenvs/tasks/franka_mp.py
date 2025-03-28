@@ -73,6 +73,7 @@ class FrankaMP(VecTask):
         if self.capture_video:
             self.cfg["env"]["enableCameraSensors"] = True
         self.capture_envs = self.cfg["env"]["capture_envs"]
+        self.vis_goal = self.cfg["env"]["vis_goal"]
 
         # Controller type
         self.control_type = self.cfg["env"]["controlType"]
