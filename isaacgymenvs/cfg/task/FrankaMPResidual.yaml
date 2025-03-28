@@ -38,10 +38,11 @@ env:
     height: 480
 
   # 14: for Dagger (7 joint angles + 7 goal angles)
-  # 1038: for residual RL match the output dim of pointnet encoder, note this only works with robomimic ckpts (1024 pcd_feats + 7 (joint angles + base_policy_delta) + 7 goal angles)
+  # 1038: for residual RL match the output dim of pointnet encoder, note this only works with robomimic ckpts (1024 pcd_feats + 7 joint angles + 7 base_policy_delta)
   # 1045: for residual RL (1024 pcd_feats + 7 joint angles + 7 goal angles + 7 base policy delta)
   numObservations: 1038
-  numActions: 7
+  numStates: 1045 # 1038 + pos(3) + vel(3) + sdf
+  numActions: 8
 
   base_policy_url: "jimyoung6709/DRP_Dagger"
   base_policy_sub_steps: 1 # set to ~5 if using fabric
@@ -53,6 +54,8 @@ env:
   reaching_reset_threshold: 50
   step_back_on_collision: 0
   reset_on_collision: False
+
+  vis_goal: False
 
   # video logging
   capture_video: False
@@ -97,7 +100,7 @@ pcd_spec:
 blocking_obj:
   type: ["cuboid"] # ["cuboid", "sphere", "mesh"]
   dim_range: [[0.05, 0.05, 0.05], [0.2, 0.2, 0.2]]
-  dist_range: [0.1, 0.2]
+  dist_range: [0.1, 0.4]
   vel_range: [0.1, 0.2]
   num_obj: 1 # TODO: still bugs here, enable both blocking and dynamic objects will mess up things
   update_freq: 1000 # update the blocking objects every 1000 sim steps
@@ -112,3 +115,4 @@ dynamic_obj:
   num_obj: 0
 
 xy_threshold: 0.25
+x_blocking: False # blocking obstacles at x = xy_threshold
