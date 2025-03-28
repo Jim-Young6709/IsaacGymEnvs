@@ -97,6 +97,7 @@ class FrankaMPRRL(FrankaMP):
         blocking_dist_range = self.cfg["blocking_obj"]["dist_range"]
         self.blk_vel = np.random.uniform(self.cfg["blocking_obj"]["vel_range"][0], self.cfg["blocking_obj"]["vel_range"][1], (self.num_envs, self.num_blocking_objs))
         self.blk_vel = torch.from_numpy(self.blk_vel).to(self.device, dtype=torch.float32) * self.cfg["sim"]["dt"]
+        self.blk_pos = torch.zeros((self.num_envs, self.num_blocking_objs, 3), device=self.device, dtype=torch.float32)
         self.blk_vel_direction = torch.zeros((self.num_envs, self.num_blocking_objs, 3), device=self.device, dtype=torch.float32) # to store the direction of velocity for each blocking object
         self.blocking_dist = np.random.uniform(blocking_dist_range[0], blocking_dist_range[1], (self.num_envs, self.num_blocking_objs))
         self.blocking_dist = torch.from_numpy(self.blocking_dist).to(self.device, dtype=torch.float32)
@@ -116,6 +117,7 @@ class FrankaMPRRL(FrankaMP):
 
         self.xy_threshold = self.cfg["xy_threshold"]
         self.x_blocking = self.cfg["x_blocking"]
+        self.sdf = torch.zeros(self.num_envs, device=self.device)
         # compute aggregate size
         num_franka_bodies = self.gym.get_asset_rigid_body_count(franka_asset)
         num_franka_shapes = self.gym.get_asset_rigid_shape_count(franka_asset)
@@ -442,26 +444,29 @@ class FrankaMPRRL(FrankaMP):
         if env_ids is None:
             env_ids = torch.arange(self.num_envs, device=self.device)
 
-        blk_update_ids = env_ids[self.progress_buf[env_ids] % self.blk_update_freq == 0]
+        # blk_update_ids = env_ids[self.progress_buf[env_ids] % self.blk_update_freq == 0]
         # update blocking obstacles
-        current_configs = self.get_joint_angles()[blk_update_ids]
+        current_configs = self.get_joint_angles()[env_ids]
         torch_spheres = self.frankacc.torch_spheres(current_configs)
         centers = torch_spheres.centers[:, 28:-10, :] # link4 - gripper
         radii = torch_spheres.radii[:, 28:-10]
 
-        self.rand_sphere_idx[blk_update_ids] = torch.randint(low=0, high=radii[:, 8:].shape[1], size=(len(blk_update_ids),self.num_blocking_objs, 1), dtype=torch.int64).to(self.device)
+        self.rand_sphere_idx[env_ids] = torch.randint(low=0, high=radii[:, 8:].shape[1], size=(len(env_ids),self.num_blocking_objs, 1), dtype=torch.int64).to(self.device)
 
-        centers = torch.gather(centers, dim=1, index=self.rand_sphere_idx[blk_update_ids].expand(-1, -1, centers.shape[-1])) # (num_envs, num_obj, 3)
-        radii = torch.gather(radii, dim=1, index=self.rand_sphere_idx[blk_update_ids].expand(-1, -1, radii.shape[-1])) # (num_envs, num_obj, 1)
+        centers = torch.gather(centers, dim=1, index=self.rand_sphere_idx[env_ids].expand(-1, -1, centers.shape[-1])) # (num_envs, num_obj, 3)
+        radii = torch.gather(radii, dim=1, index=self.rand_sphere_idx[env_ids].expand(-1, -1, radii.shape[-1])) # (num_envs, num_obj, 1)
 
         # flashing position
         center_direction = torch.randn_like(centers)
-        center_shift = center_direction / center_direction.norm(dim=-1, keepdim=True) * (radii + self.blocking_dist[blk_update_ids].unsqueeze(-1))
+        center_shift = center_direction / center_direction.norm(dim=-1, keepdim=True) * (radii + self.blocking_dist[env_ids].unsqueeze(-1))
         blocking_objs_pos = centers + center_shift
 
-        flat_blk_indices = self.blocking_obj_indices[blk_update_ids].view(-1)
+        flat_blk_indices = self.blocking_obj_indices[env_ids].view(-1)
         flat_root_state = self._root_state.view(-1, 13)
         flat_root_state[flat_blk_indices, 0:3] = blocking_objs_pos.view(-1, 3)
+
+        self.blk_pos = flat_root_state[self.blocking_obj_indices.view(-1), 0:3].view(self.num_envs, self.num_blocking_objs, 3)
+        self.blk_vel_direction[env_ids] = 0.0
 
         self.gym.set_actor_root_state_tensor_indexed(
             self.sim,
@@ -491,6 +496,7 @@ class FrankaMPRRL(FrankaMP):
 
         flat_root_state[flat_blk_indices, 0:3] += self.blk_vel.view(-1).unsqueeze(-1) * self.blk_vel_direction.view(-1, 3)
 
+        self.blk_pos = flat_root_state[flat_blk_indices, 0:3].view(self.num_envs, self.num_blocking_objs, 3)
         # TODO: temporarily save it here, but cleanup later
         if self.x_blocking:
             x_pos = flat_root_state[flat_blk_indices, 0]
@@ -566,7 +572,7 @@ class FrankaMPRRL(FrankaMP):
         self.progress_buf[env_ids] = 0
         self.reset_buf[env_ids] = 0
         self.x_reset_flag[:] = 0
-        self.blk_flashing()
+        self.blk_flashing(env_ids=env_ids)
         self.compute_observations()
 
     def compute_reward(self, actions):
@@ -583,26 +589,22 @@ class FrankaMPRRL(FrankaMP):
         num_visited_voxels_t1 = torch.sum(self.voxel_visit_binary, dim=1)
 
         # TODO: 
-        sdf = self.frankacc.check_scene_sdf_batch(current_angles, self.current_moving_obs_pcds.view(self.num_envs, -1, 3), debug=False, sphere_repr_only=True) # (num_envs, num_points)
-        sdf = torch.min(sdf, dim=1)[0] # (num_envs, )
+        self.sdf = self.frankacc.check_scene_sdf_batch(current_angles, self.current_moving_obs_pcds.view(self.num_envs, -1, 3), debug=False, sphere_repr_only=True) # (num_envs, num_points)
+        self.sdf = torch.min(self.sdf, dim=1)[0] # (num_envs, )
 
-        net_actions = (actions / self.action_scale)
-        # import ipdb ; ipdb.set_trace()
-        self.rew_buf[:], self.reset_buf[:], reaching_rewards, intrinsic_rewards, sdf_rewards, reaching_rewards = compute_franka_reward(
+        self.rew_buf[:], self.reset_buf[:], reaching_rewards, intrinsic_rewards, sdf_rewards, flag_rewards = compute_franka_reward(
             self.reset_buf, self.progress_buf,
             joint_err, pos_err, quat_err,
             self.num_visited_voxels_t0, num_visited_voxels_t1,
-            self.collision, sdf, self.residual_flag,
+            self.collision, self.sdf, self.residual_flag,
             self.max_episode_length
         )
 
         self.num_visited_voxels_t0 = num_visited_voxels_t1
 
         self.extras['reaching_rewards'] = torch.mean(reaching_rewards).item()
-        self.extras['intrinsic_rewards'] = torch.mean(intrinsic_rewards).item()
         self.extras['sdf_rewards'] = torch.mean(sdf_rewards).item()
-        self.extras['reaching_rewards'] = torch.mean(reaching_rewards).item()
-        self.extras['num_visited_voxels_ave'] = torch.mean(num_visited_voxels_t1).item()
+        self.extras['flag_rewards'] = torch.mean(flag_rewards).item()
 
         self.success_flags[self.goal_reaching & (self.reset_buf == 1) & (self.collision_flags == 0)] = 1
         self.success_flags[(~self.goal_reaching) & (self.reset_buf == 1)] = 0
@@ -620,9 +622,9 @@ class FrankaMPRRL(FrankaMP):
 
     def pre_physics_step(self, actions):
         self.residual_flag = actions[:, -1]
-        is_residual_enabled = self.residual_flag < 0
+        is_residual_disabled = self.residual_flag > 0
         delta_actions = actions.clone()[:, :7]
-        delta_actions[is_residual_enabled] = 0.0
+        delta_actions[is_residual_disabled] = 0.0
         current_joint_state = self.get_joint_angles()
         delta_actions = delta_actions * self.action_scale
         self.actions = delta_actions
