@@ -720,14 +720,14 @@ def compute_franka_reward(
     intrinsic_rewards = num_visited_voxels_t1 - num_visited_voxels_t0
 
     # sdf reward
-    sdf_rewards = torch.clamp(100*(sdf - 0.03), -1, 20)
+    sdf_rewards = torch.clamp(100*sdf, -1, 20)
 
     # lazy reward (reward for being 'lazy' so not affect the reaching of the base policy)
     # sdf_threshold = 0.1
 
     # flag_diff = torch.where(sdf > sdf_threshold, 1 - residual_flag, residual_flag + 1)
 
-    flag_diff = torch.abs(residual_flag - torch.clamp(10 * (sdf - 0.1), -1, 1))
+    flag_diff = torch.abs(residual_flag - torch.clamp(10 * (sdf - 0.2), -1, 1))
 
     # print("flag: ", residual_flag)
     # print("sdf: ", sdf)
