@@ -657,8 +657,8 @@ def compute_franka_reward(
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
 
     # sdf reward
-    sdf_rewards = torch.clamp(100*sdf, -1, 20)
-    flag_diff = torch.abs(residual_flag - torch.clamp(10 * (sdf - 0.2), -1, 1))
+    sdf_rewards = torch.clamp(200*sdf, -1, 20)
+    flag_diff = torch.abs(residual_flag - torch.clamp(10000 * (sdf - 0.1), -1, 1))
     flag_rewards = 1 / (flag_diff + 0.1)
 
     # print("flag: ", residual_flag)

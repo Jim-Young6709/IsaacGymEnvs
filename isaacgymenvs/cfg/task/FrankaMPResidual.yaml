@@ -103,7 +103,7 @@ dyn_obj:
   dist_range: [0.1, 0.4]
   vel_range: [0.1, 0.2]
   num_obj: 1
-  xyz_threshold: [[-0.3, 0.3], [-0.25, 0.25], [-0.1, 0.6]] # a safety region to prevent the dynamic object from colliding with the robot base
+  xyz_threshold: [[-0.3, 0.2], [-0.2, 0.2], [-0.1, 0.6]] # a safety region to prevent the dynamic object from colliding with the robot base
   bounce_back:
     enable: True
     thres: [0.15, 0.3]
