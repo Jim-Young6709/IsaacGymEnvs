@@ -104,6 +104,8 @@ dyn_obj:
   vel_range: [0.1, 0.2]
   num_obj: 1
   update_freq: 1000 # reset the dynamic objects every 1000 sim steps
+  floating_thres: 0.1
+  chasing_thres: 0.4
 
 xy_threshold: 0.25
 x_blocking: False # block dynamic obstacles at x = xy_threshold

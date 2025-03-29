@@ -101,8 +101,11 @@ class FrankaMPRRL(FrankaMP):
         self.dyn_dist = np.random.uniform(dyn_dist_range[0], dyn_dist_range[1], (self.num_envs, self.num_dyn_objs))
         self.dyn_dist = torch.from_numpy(self.dyn_dist).to(self.device, dtype=torch.float32)
         self.dyn_update_freq = self.cfg["dyn_obj"]["update_freq"]
+        self.dyn_chasing_flag = torch.ones((self.num_envs,), device=self.device, dtype=torch.bool) # to store the chasing flag for each dynamic object
         self.rand_sphere_idx = torch.zeros((self.num_envs, self.num_dyn_objs, 1), dtype=torch.int64, device=self.device)
 
+        self.floating_thres = self.cfg["dyn_obj"]["floating_thres"]
+        self.chasing_thres = self.cfg["dyn_obj"]["chasing_thres"]
         self.xy_threshold = self.cfg["xy_threshold"]
         self.x_blocking = self.cfg["x_blocking"]
         self.sdf = torch.zeros(self.num_envs, device=self.device)
@@ -396,7 +399,10 @@ class FrankaMPRRL(FrankaMP):
         flat_root_state[flat_dyn_indices, 0:3] = dyn_objs_pos.view(-1, 3)
 
         self.dyn_pos = flat_root_state[self.dyn_obj_indices.view(-1), 0:3].view(self.num_envs, self.num_dyn_objs, 3)
-        self.dyn_vel_direction[env_ids] = 0.0
+
+        displacement = centers.view(-1, 3) - flat_root_state[flat_dyn_indices, 0:3]
+        updated_vel_direction = displacement / displacement.norm(dim=-1, keepdim=True)
+        self.dyn_vel_direction[env_ids] = updated_vel_direction.view(-1, self.num_dyn_objs, 3)
 
         self.gym.set_actor_root_state_tensor_indexed(
             self.sim,
@@ -405,24 +411,24 @@ class FrankaMPRRL(FrankaMP):
             flat_dyn_indices.numel()
         )
 
-    def dyn_chasing(self, env_ids=None):
-        if env_ids is None:
-            env_ids = torch.arange(self.num_envs).to(self.device)
-
+    def dyn_chasing(self):
         # update dynamic obstacle vels (chasing phase)
-        ischasing = self.progress_buf[env_ids] <= self.dyn_update_freq
+        floating_ids = self.sdf < self.floating_thres
+        chasing_ids = self.sdf > self.chasing_thres
+        self.dyn_chasing_flag[floating_ids] = False
+        self.dyn_chasing_flag[chasing_ids] = True
 
-        current_configs = self.get_joint_angles()[env_ids]
+        current_configs = self.get_joint_angles()
         torch_spheres = self.frankacc.torch_spheres(current_configs)
-        centers = torch_spheres.centers[:, 28:, :] # link4 - gripper
+        centers = torch_spheres.centers[:, 28:, :] # link5 - gripper
         centers = torch.gather(centers, dim=1, index=self.rand_sphere_idx.expand(-1, -1, centers.shape[-1])) # (num_envs, num_obj, 3)
 
-        flat_dyn_indices = self.dyn_obj_indices[env_ids].view(-1)
+        flat_dyn_indices = self.dyn_obj_indices.view(-1)
         flat_root_state = self._root_state.view(-1, 13)
 
         displacement = centers.view(-1, 3) - flat_root_state[flat_dyn_indices, 0:3]
         updated_vel_direction = displacement / displacement.norm(dim=-1, keepdim=True)
-        self.dyn_vel_direction[env_ids[ischasing]] = updated_vel_direction.view(-1, self.num_dyn_objs, 3)[ischasing]
+        self.dyn_vel_direction[self.dyn_chasing_flag] = updated_vel_direction.view(-1, self.num_dyn_objs, 3)[self.dyn_chasing_flag]
 
         flat_root_state[flat_dyn_indices, 0:3] += self.dyn_vel.view(-1).unsqueeze(-1) * self.dyn_vel_direction.view(-1, 3)
 
