@@ -103,9 +103,8 @@ dyn_obj:
   dist_range: [0.1, 0.4]
   vel_range: [0.1, 0.2]
   num_obj: 1
-  update_freq: 1000 # reset the dynamic objects every 1000 sim steps
-  floating_thres: 0.1
-  chasing_thres: 0.4
-
-xy_threshold: 0.25
-x_blocking: False # block dynamic obstacles at x = xy_threshold
+  chasing_steps: 500 # number of sim steps the obstacle chase the robot
+  xyz_threshold: [[-0.3, 0.2], [-0.2, 0.2], [-0.1, 0.5]] # a safety region to prevent the dynamic object from colliding with the robot base
+  bounce_back:
+    enable: True
+    thres: [0.15, 0.3]

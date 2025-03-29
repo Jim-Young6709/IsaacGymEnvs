@@ -57,6 +57,7 @@ class FrankaMPRRL(FrankaMP):
         self.obstacle_handles = []
         self.dyn_obj_handles = []
         self.max_obstacles = 0
+        self.step_counter = 0
         self.frankacc = FrankaCollisionChecker()
 
         for env_idx, demo in enumerate(self.batch):
@@ -100,14 +101,13 @@ class FrankaMPRRL(FrankaMP):
         self.dyn_vel_direction = torch.zeros((self.num_envs, self.num_dyn_objs, 3), device=self.device, dtype=torch.float32) # to store the direction of velocity for each dynamic object
         self.dyn_dist = np.random.uniform(dyn_dist_range[0], dyn_dist_range[1], (self.num_envs, self.num_dyn_objs))
         self.dyn_dist = torch.from_numpy(self.dyn_dist).to(self.device, dtype=torch.float32)
-        self.dyn_update_freq = self.cfg["dyn_obj"]["update_freq"]
+        self.dyn_chasing_steps = self.cfg["dyn_obj"]["chasing_steps"]
         self.dyn_chasing_flag = torch.ones((self.num_envs,), device=self.device, dtype=torch.bool) # to store the chasing flag for each dynamic object
         self.rand_sphere_idx = torch.zeros((self.num_envs, self.num_dyn_objs, 1), dtype=torch.int64, device=self.device)
 
-        self.floating_thres = self.cfg["dyn_obj"]["floating_thres"]
-        self.chasing_thres = self.cfg["dyn_obj"]["chasing_thres"]
-        self.xy_threshold = self.cfg["xy_threshold"]
-        self.x_blocking = self.cfg["x_blocking"]
+        self.bounceback_enable = self.cfg["dyn_obj"]["bounce_back"]["enable"]
+        self.bounceback_thres = self.cfg["dyn_obj"]["bounce_back"]["thres"]
+        self.xyz_threshold = torch.tensor(self.cfg["dyn_obj"]["xyz_threshold"], device=self.device, dtype=torch.float32)
         self.sdf = torch.zeros(self.num_envs, device=self.device)
         # compute aggregate size
         num_franka_bodies = self.gym.get_asset_rigid_body_count(franka_asset)
@@ -413,8 +413,8 @@ class FrankaMPRRL(FrankaMP):
 
     def dyn_chasing(self):
         # update dynamic obstacle vels (chasing phase)
-        floating_ids = self.sdf < self.floating_thres
-        chasing_ids = self.sdf > self.chasing_thres
+        floating_ids = self.sdf < self.bounceback_thres[0]
+        chasing_ids = self.sdf > self.bounceback_thres[1]
         self.dyn_chasing_flag[floating_ids] = False
         self.dyn_chasing_flag[chasing_ids] = True
 
@@ -426,18 +426,32 @@ class FrankaMPRRL(FrankaMP):
         flat_dyn_indices = self.dyn_obj_indices.view(-1)
         flat_root_state = self._root_state.view(-1, 13)
 
+        # safety region correction
+        # TODO: this only work with one dynamic obstacle at the moment
+        x_pos = flat_root_state[flat_dyn_indices, 0]
+        y_pos = flat_root_state[flat_dyn_indices, 1]
+        z_pos = flat_root_state[flat_dyn_indices, 2]
+
+        safety_err = torch.zeros((self.num_envs, 3, 2), dtype=torch.float32, device=self.device)
+        safety_err[:, 0, 0] = self.xyz_threshold[0, 0] - x_pos
+        safety_err[:, 0, 1] = x_pos - self.xyz_threshold[0, 1]
+        safety_err[:, 1, 0] = self.xyz_threshold[1, 0] - y_pos
+        safety_err[:, 1, 1] = y_pos - self.xyz_threshold[1, 1]
+        safety_err[:, 2, 0] = self.xyz_threshold[2, 0] - z_pos
+        safety_err[:, 2, 1] = z_pos - self.xyz_threshold[2, 1]
+
+        safety_vio = torch.max(safety_err.view(self.num_envs, -1), dim=-1)[0] <= 0.0
+        safety_vio_xyz = torch.min(torch.abs(safety_err.view(self.num_envs, -1)), dim=-1)[1] # check which axis' motion is near the boundary
+
+        # update velocity
         displacement = centers.view(-1, 3) - flat_root_state[flat_dyn_indices, 0:3]
-        updated_vel_direction = displacement / displacement.norm(dim=-1, keepdim=True)
-        self.dyn_vel_direction[self.dyn_chasing_flag] = updated_vel_direction.view(-1, self.num_dyn_objs, 3)[self.dyn_chasing_flag]
+        self.dyn_vel_direction[self.dyn_chasing_flag] = displacement.view(-1, self.num_dyn_objs, 3)[self.dyn_chasing_flag]
+        self.dyn_vel_direction[safety_vio, :, (safety_vio_xyz[safety_vio] // 2)] = 0.0
+        self.dyn_vel_direction = self.dyn_vel_direction / self.dyn_vel_direction.norm(dim=-1, keepdim=True)
 
         flat_root_state[flat_dyn_indices, 0:3] += self.dyn_vel.view(-1).unsqueeze(-1) * self.dyn_vel_direction.view(-1, 3)
-
         self.dyn_pos = flat_root_state[flat_dyn_indices, 0:3].view(self.num_envs, self.num_dyn_objs, 3)
-
-        if self.x_blocking:
-            x_pos = flat_root_state[flat_dyn_indices, 0]
-            x_corr = x_pos < self.xy_threshold
-            flat_root_state[flat_dyn_indices[x_corr], 0] = self.xy_threshold
+        flat_root_state[flat_dyn_indices[safety_vio], (safety_vio_xyz[safety_vio] // 2)] = self.xyz_threshold.view(-1)[safety_vio_xyz[safety_vio]]
 
         self.gym.set_actor_root_state_tensor_indexed(
             self.sim,
@@ -526,6 +540,7 @@ class FrankaMPRRL(FrankaMP):
         self.extras['actions/base_action_magnitude'] = self.base_delta_action.norm(dim=1).mean()
 
     def pre_physics_step(self, actions):
+        self.step_counter += 1
         self.residual_flag = actions[:, -1]
         is_residual_disabled = self.residual_flag > 0
         delta_actions = actions.clone()[:, :7] * torch.abs(self.residual_flag.unsqueeze(-1))
