@@ -487,7 +487,7 @@ class FrankaMP(VecTask):
         # elif self.obs_buf.size(1) == 1038:
         #     obs[:, -14:-7] += self.base_delta_action
         elif self.obs_buf.size(1) == 1031:
-            obs = obs[:, -7:]
+            obs = obs[:, :-7]
         elif self.obs_buf.size(1) == 1038:
             obs[:, -7:] = self.base_delta_action.clone()
         elif self.obs_buf.size(1) == 1045:
