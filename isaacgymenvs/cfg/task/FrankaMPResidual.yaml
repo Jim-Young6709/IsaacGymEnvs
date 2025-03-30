@@ -38,6 +38,7 @@ env:
     height: 480
 
   # 14: for Dagger (7 joint angles + 7 goal angles)
+  # 1031: for RL with switch, 1024 pcd_feats + 7 joint angles
   # 1038: for residual RL match the output dim of pointnet encoder, note this only works with robomimic ckpts (1024 pcd_feats + 7 joint angles + 7 base_policy_delta)
   # 1045: for residual RL (1024 pcd_feats + 7 joint angles + 7 goal angles + 7 base policy delta)
   numObservations: 1038
@@ -47,6 +48,7 @@ env:
   base_policy_url: "jimyoung6709/DRP_Dagger"
   base_policy_sub_steps: 1 # set to ~5 if using fabric
   base_policy_only: False
+  no_base_action: False
   hdf5_path: null # hdf5 file that contains env and trajectory info
   batch_idx: 0 # index of the batch of envs to load from the hdf5 file
   use_mean_actions: True
@@ -62,6 +64,8 @@ env:
   capture_envs: 1
   capture_iter_max: 1
   capture_freq: 5
+
+  is_rrl: True # if training with residual rl or just rl
 
 sim:
   dt: 0.01667 # 1/60

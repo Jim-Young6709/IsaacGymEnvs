@@ -40,7 +40,8 @@ def random_quaternion_xyzw():
 class FrankaMPRRL(FrankaMP):
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render, num_env_per_env=1):
         self.device = sim_device
-        self.no_base_action = False
+        self.is_rrl = cfg["env"]["is_rrl"]
+        self.no_base_action = cfg["env"]["no_base_action"]
         self.base_policy_only = cfg["env"]["base_policy_only"]
 
         # Demo loading
@@ -576,6 +577,9 @@ class FrankaMPRRL(FrankaMP):
         current_joint_state = self.get_joint_angles()
         delta_actions = delta_actions * self.action_scale
         self.actions = delta_actions
+
+        if not self.is_rrl:
+            self.base_delta_action[~is_residual_disabled] = 0.0
 
         gripper_state = torch.Tensor([[0.035, 0.035]] * self.num_envs).to(self.device)
         if self.base_policy_only:
