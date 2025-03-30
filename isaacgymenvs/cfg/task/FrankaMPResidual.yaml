@@ -108,7 +108,7 @@ dyn_obj:
     enable: True
     thres: [0.15, 0.3]
   curri_chasing: # curriculum chasing mode will be activated if bounce back is disabled
-    update_freq: 10000 # update the chasing steps every certain sim steps
-    chasing_steps: [10, 100, 200, 300] # number of sim steps the obstacle chase the robot
+    update_freq: 20000 # update the chasing steps every certain sim steps
+    chasing_steps: [10, 100, 200, 300, 400, 500] # number of sim steps the obstacle chase the robot
     center: [0.5, 0.0, 0.0] # center of the operation space
     radius: 1.5 # stop the obstacle when its moving too far away from the center
