@@ -42,7 +42,7 @@ env:
   # 1038: for residual RL match the output dim of pointnet encoder, note this only works with robomimic ckpts (1024 pcd_feats + 7 joint angles + 7 base_policy_delta)
   # 1045: for residual RL (1024 pcd_feats + 7 joint angles + 7 goal angles + 7 base policy delta)
   numObservations: 1038
-  numStates: 1045 # 1038 + pos(3) + vel(3) + sdf
+  numStates: 1046 # 1038 + pos(3) + vel(3) + dyn_sdf + static_sdf
   numActions: 8
 
   base_policy_url: "jimyoung6709/DRP_Dagger"

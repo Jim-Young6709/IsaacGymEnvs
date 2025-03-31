@@ -114,7 +114,8 @@ class FrankaMPRRL(FrankaMP):
         self.curri_radius = torch.tensor(self.cfg["dyn_obj"]["curri_chasing"]["radius"], device=self.device, dtype=torch.float32)
 
         self.xyz_threshold = torch.tensor(self.cfg["dyn_obj"]["xyz_threshold"], device=self.device, dtype=torch.float32)
-        self.sdf = torch.zeros(self.num_envs, device=self.device)
+        self.dyn_sdf = torch.zeros(self.num_envs, device=self.device)
+        self.static_sdf = torch.zeros(self.num_envs, device=self.device)
         # compute aggregate size
         num_franka_bodies = self.gym.get_asset_rigid_body_count(franka_asset)
         num_franka_shapes = self.gym.get_asset_rigid_shape_count(franka_asset)
@@ -179,9 +180,9 @@ class FrankaMPRRL(FrankaMP):
                 *_
             ) = self.obstacle_configs[i]
 
-            cuboid_dims = cuboid_dims[[0]]
-            cuboid_centers = cuboid_centers[[0]]
-            cuboid_quats = cuboid_quats[[0]]
+            # cuboid_dims = cuboid_dims[[0]]
+            # cuboid_centers = cuboid_centers[[0]]
+            # cuboid_quats = cuboid_quats[[0]]
 
             # num_cylinders = len(cylinder_radii) #pausing cylinders due to incorrect spawning. Likely an actor indexing issue.
 
@@ -422,8 +423,8 @@ class FrankaMPRRL(FrankaMP):
         # update dynamic obstacle chasing flags
         if self.bounceback_enable:
             # bounce back mode
-            floating_ids = self.sdf < self.bounceback_thres[0]
-            chasing_ids = self.sdf > self.bounceback_thres[1]
+            floating_ids = self.dyn_sdf < self.bounceback_thres[0]
+            chasing_ids = self.dyn_sdf > self.bounceback_thres[1]
             self.dyn_chasing_flag[floating_ids] = False
             self.dyn_chasing_flag[chasing_ids] = True
         else:
@@ -520,7 +521,8 @@ class FrankaMPRRL(FrankaMP):
         self.states_buf[:, 0:self.num_obs] = obs.clone()
         self.states_buf[:, self.num_obs:self.num_obs +self.num_dyn_objs*3] = self.dyn_pos.reshape(self.num_envs, -1)
         self.states_buf[:, self.num_obs +self.num_dyn_objs*3:self.num_obs +2*self.num_dyn_objs*3] = self.dyn_vel_direction.reshape(self.num_envs, -1)
-        self.states_buf[:, self.num_obs +2*self.num_dyn_objs*3:] = self.sdf.unsqueeze(-1)
+        self.states_buf[:, self.num_obs +2*self.num_dyn_objs*3:-1] = self.dyn_sdf.unsqueeze(-1)
+        self.states_buf[:, -1:] = self.static_sdf.unsqueeze(-1)
         return obs
 
     def compute_reward(self, actions):
@@ -534,14 +536,17 @@ class FrankaMPRRL(FrankaMP):
         self.goal_reaching = (pos_err < 0.05) & (quat_err < 15.0) # making it slightly more tolerant atm
         # self.goal_reaching = (pos_err < 0.01) & (quat_err < 15.0) # TODO: should apply this metric later
 
-        self.sdf = self.frankacc.check_scene_sdf_batch(current_angles, self.current_moving_obs_pcds.view(self.num_envs, -1, 3), debug=False, sphere_repr_only=True) # (num_envs, num_points)
-        self.sdf = torch.min(self.sdf, dim=1)[0] # (num_envs, )
+        dyn_sdf = self.frankacc.check_scene_sdf_batch(current_angles, self.current_moving_obs_pcds.view(self.num_envs, -1, 3), debug=False, sphere_repr_only=True) # (num_envs, num_dyn_points)
+        static_sdf = self.frankacc.check_scene_sdf_batch(current_angles, self.static_pcds, debug=False, sphere_repr_only=True) # (num_envs, num_static_points)
+
+        self.dyn_sdf = torch.min(dyn_sdf, dim=1)[0] # (num_envs, )
+        self.static_sdf = torch.min(static_sdf, dim=1)[0] # (num_envs, )
 
         self.rew_buf[:], self.reset_buf[:], sdf_rewards, flag_rewards = compute_franka_reward(
             self.reset_buf, self.progress_buf,
             joint_err, pos_err, quat_err,
-            self.collision, self.sdf, self.residual_flag,
-            self.max_episode_length
+            self.collision, self.dyn_sdf, self.static_sdf,
+            self.residual_flag, self.max_episode_length
         )
 
         self.extras['num_sim_steps'] = self.step_counter
@@ -656,13 +661,16 @@ def orientation_error(q1, q2):
 def compute_franka_reward(
     reset_buf: torch.Tensor, progress_buf: torch.Tensor,
     joint_err: torch.Tensor, pos_err: torch.Tensor, quat_err: torch.Tensor,
-    collision_status: torch.Tensor, sdf: torch.Tensor, residual_flag: torch.Tensor,
-    max_episode_length: float,
+    collision_status: torch.Tensor, dyn_sdf: torch.Tensor, static_sdf: torch.Tensor,
+    residual_flag: torch.Tensor, max_episode_length: float,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
 
     # sdf reward
+    sdf = dyn_sdf.clone()
+    sdf[static_sdf < 0.01] = torch.min(dyn_sdf, static_sdf)[static_sdf < 0.01]
+
     sdf_rewards = torch.clamp(200*sdf, -1, 20)
-    flag_diff = torch.abs(residual_flag - torch.clamp(10000 * (sdf - 0.1), -1, 1))
+    flag_diff = torch.abs(residual_flag - torch.clamp(10000 * (dyn_sdf - 0.1), -1, 1))
     flag_rewards = 1 / (flag_diff + 0.1)
 
     # print("flag: ", residual_flag)
