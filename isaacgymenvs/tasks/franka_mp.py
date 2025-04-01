@@ -567,6 +567,14 @@ class FrankaMP(VecTask):
         """
         return self.get_proprio()[2]
 
+    def get_gripper_state(self) -> torch.Tensor:
+        """
+        Get the gripper state of the robot.
+        Returns:
+            gripper_state (torch.Tensor): (num_envs, 2) 2-dof gripper state.
+        """
+        return self.get_proprio()[3]
+
     def get_eef_pose(self) -> torch.Tensor:
         """
         Get the end effector pose of the robot.
@@ -588,7 +596,8 @@ class FrankaMP(VecTask):
         ee_pos = self.states['eef_pos']
         ee_quat = self.states['eef_quat']
         joint_angles = self.states['q'][:, :7]
-        return ee_pos, ee_quat, joint_angles
+        gripper_states = self.states['q_gripper']
+        return ee_pos, ee_quat, joint_angles, gripper_states
 
     def get_joint_from_ee(self, target_ee_pose):
         """
@@ -935,10 +944,14 @@ class FrankaMP(VecTask):
     def update_robot_pcds(self, robot_config=None):
         num_robot_points = self.pcd_spec_dict['num_robot_points']
         num_target_points = self.pcd_spec_dict['num_target_points']
+        gripper_states = self.get_gripper_state()
         if robot_config is None:
-            robot_pcd = self.gpu_fk_sampler.sample(self.get_joint_angles(), num_robot_points)
-        else:
-            robot_pcd = self.gpu_fk_sampler.sample(robot_config, num_robot_points)
+            robot_config = self.get_joint_angles()
+
+        if robot_config.shape[-1] == 7:
+            robot_config = torch.cat((robot_config, gripper_states), dim=1)
+
+        robot_pcd = self.gpu_fk_sampler.sample(robot_config, num_robot_points)
         target_pcd = self.gpu_fk_sampler.sample(self.goal_config, num_target_points) # TODO: don't need to calculate this everytime
         self.combined_pcds[:, :num_robot_points, :3] = robot_pcd
         self.combined_pcds[:, -num_target_points:, :3] = target_pcd
