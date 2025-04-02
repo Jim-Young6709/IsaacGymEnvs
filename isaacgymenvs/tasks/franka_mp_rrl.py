@@ -518,6 +518,10 @@ class FrankaMPRRL(FrankaMP):
         self.reset_buf[env_ids] = 0
         self.dyn_flashing(env_ids=env_ids)
         self.compute_observations()
+        if (self.pcd_his_len > 0) & (self.pcd_feat_buffer is not None):
+            for i in range(self.pcd_his_len - 1):
+                # after reset, set all history to the latest observation
+                self.pcd_feat_buffer[i][env_ids] = self.pcd_feat_buffer[-1][env_ids]
 
     def compute_observations(self):
         obs = super().compute_observations()

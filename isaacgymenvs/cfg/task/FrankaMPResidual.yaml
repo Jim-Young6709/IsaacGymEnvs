@@ -41,9 +41,11 @@ env:
   # 1031: for RL with switch, 1024 pcd_feats + 7 joint angles
   # 1038: for residual RL match the output dim of pointnet encoder, note this only works with robomimic ckpts (1024 pcd_feats + 7 joint angles + 7 base_policy_delta)
   # 1045: for residual RL (1024 pcd_feats + 7 joint angles + 7 goal angles + 7 base policy delta)
-  numObservations: 1038
-  numStates: 1046 # 1038 + pos(3) + vel(3) + dyn_sdf + static_sdf
+  numObservations: 2062 # 1024 * 2 + 7 joint angles + 7 base_policy_delta
+  numStates: 2070 # 2062 + pos(3) + vel(3) + dyn_sdf + static_sdf
   numActions: 8
+
+  pcd_his_len: 0 # 0 - no history buffer
 
   base_policy_url: "jimyoung6709/DRP_Dagger"
   base_policy_sub_steps: 1 # set to ~5 if using fabric
