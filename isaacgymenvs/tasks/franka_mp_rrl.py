@@ -674,7 +674,7 @@ def compute_franka_reward(
     sdf = torch.min(dyn_sdf, static_sdf)
 
     sdf_rewards = torch.clamp(200*sdf, -1, sdf_rw_max)
-    sdf_rewards[dyn_sdf > 0.1 & residual_flag > 0] = sdf_rw_max
+    sdf_rewards[(dyn_sdf > 0.1) & (residual_flag > 0)] = sdf_rw_max
 
     flag_diff = torch.abs(residual_flag - torch.clamp(10000 * (dyn_sdf - 0.1), -1, 1))
     flag_rewards = 1 / (flag_diff + (1 / flag_rw_max) )
