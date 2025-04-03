@@ -95,7 +95,7 @@ task:
 
 reward:
   sdf_rw_max: [20]
-  flag_rw_max: [10]
+  flag_rw_max: [20]
   sdf_threshold: 0.1
   curri_freq: 20000
 
