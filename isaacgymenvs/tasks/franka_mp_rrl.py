@@ -66,6 +66,7 @@ class FrankaMPRRL(FrankaMP):
         self.sdf_threshold = cfg["reward"]["sdf_threshold"]
         self.curri_freq = cfg["reward"]["curri_freq"]
         self.curri_idx = 0
+        self.prob_start_at_goal = cfg["env"]["prob_start_at_goal"]
 
         for env_idx, demo in enumerate(self.batch):
             self.start_config[env_idx] = torch.tensor(demo['states'][0][:7], device=self.device)
@@ -496,13 +497,16 @@ class FrankaMPRRL(FrankaMP):
         if env_ids is None:
             env_ids = torch.arange(self.num_envs, device=self.device)
 
-        self.start_config = tensor_clamp(self.start_config, self.franka_dof_lower_limits[:7], self.franka_dof_upper_limits[:7])
+        start_config = tensor_clamp(self.start_config[env_ids], self.franka_dof_lower_limits[:7], self.franka_dof_upper_limits[:7])
 
-        self.goal_config = tensor_clamp(self.goal_config, self.franka_dof_lower_limits[:7], self.franka_dof_upper_limits[:7])
+        goal_config = tensor_clamp(self.goal_config[env_ids], self.franka_dof_lower_limits[:7], self.franka_dof_upper_limits[:7])
+
+        start_at_goal = torch.rand(len(env_ids), device=self.device) < self.prob_start_at_goal
+        start_config[start_at_goal] = goal_config[start_at_goal]
 
         self.goal_ee = self.get_ee_from_joint(self.goal_config)
 
-        self.set_robot_joint_state(self.start_config[env_ids], env_ids=env_ids, debug=False)
+        self.set_robot_joint_state(start_config, env_ids=env_ids, debug=False)
 
         self.progress_buf[env_ids] = 0
         self.reset_buf[env_ids] = 0
