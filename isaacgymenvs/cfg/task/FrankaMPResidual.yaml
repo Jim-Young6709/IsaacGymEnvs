@@ -94,9 +94,10 @@ task:
   randomize: False
 
 reward:
-  sdf_rw_max: 20
-  flag_rw_max: 10
+  sdf_rw_max: [20]
+  flag_rw_max: [10]
   sdf_threshold: 0.1
+  curri_freq: 20000
 
 pcd_spec:
   num_robot_points: 2048
@@ -118,8 +119,3 @@ dyn_obj:
   bounce_back:
     enable: True
     thres: [0.15, 0.3]
-  curri_chasing: # curriculum chasing mode will be activated if bounce back is disabled
-    update_freq: 20000 # update the chasing steps every certain sim steps
-    chasing_steps: [10, 100, 200, 300, 400, 500] # number of sim steps the obstacle chase the robot
-    center: [0.5, 0.0, 0.0] # center of the operation space
-    radius: 1.5 # stop the obstacle when its moving too far away from the center

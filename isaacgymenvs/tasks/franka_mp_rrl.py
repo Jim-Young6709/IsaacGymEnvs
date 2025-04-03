@@ -61,9 +61,11 @@ class FrankaMPRRL(FrankaMP):
         self.step_counter = 0
         self.frankacc = FrankaCollisionChecker()
 
-        self.sdf_rw_max = cfg["reward"]["sdf_rw_max"]
-        self.flag_rw_max = cfg["reward"]["flag_rw_max"]
+        self.sdf_rw_max_curri = torch.tensor(cfg["reward"]["sdf_rw_max"], device=self.device, dtype=torch.float32)
+        self.flag_rw_max_curri = torch.tensor(cfg["reward"]["flag_rw_max"], device=self.device, dtype=torch.float32)
         self.sdf_threshold = cfg["reward"]["sdf_threshold"]
+        self.curri_freq = cfg["reward"]["curri_freq"]
+        self.curri_idx = 0
 
         for env_idx, demo in enumerate(self.batch):
             self.start_config[env_idx] = torch.tensor(demo['states'][0][:7], device=self.device)
@@ -111,11 +113,6 @@ class FrankaMPRRL(FrankaMP):
 
         self.bounceback_enable = self.cfg["dyn_obj"]["bounce_back"]["enable"]
         self.bounceback_thres = self.cfg["dyn_obj"]["bounce_back"]["thres"]
-        self.curri_chasing_steps_list = torch.tensor(self.cfg["dyn_obj"]["curri_chasing"]["chasing_steps"], device=self.device, dtype=torch.int64)
-        self.curri_chasing_steps_idx = 0
-        self.curri_update_freq = torch.tensor(self.cfg["dyn_obj"]["curri_chasing"]["update_freq"], device=self.device, dtype=torch.int64)
-        self.curri_center = torch.tensor(self.cfg["dyn_obj"]["curri_chasing"]["center"], device=self.device, dtype=torch.float32)
-        self.curri_radius = torch.tensor(self.cfg["dyn_obj"]["curri_chasing"]["radius"], device=self.device, dtype=torch.float32)
 
         self.xyz_threshold = torch.tensor(self.cfg["dyn_obj"]["xyz_threshold"], device=self.device, dtype=torch.float32)
         self.dyn_sdf = torch.zeros(self.num_envs, device=self.device)
@@ -432,9 +429,7 @@ class FrankaMPRRL(FrankaMP):
             self.dyn_chasing_flag[floating_ids] = False
             self.dyn_chasing_flag[chasing_ids] = True
         else:
-            # curriculum chasing mode
-            floating_ids = self.progress_buf > self.curri_chasing_steps_list[self.curri_chasing_steps_idx]
-            self.dyn_chasing_flag[floating_ids] = False
+            raise NotImplementedError("Other mode no longer supported.")
 
         # update robot & dyn obj states
         current_configs = self.get_joint_angles()
@@ -470,12 +465,6 @@ class FrankaMPRRL(FrankaMP):
 
         if self.bounceback_enable:
             flat_root_state[flat_dyn_indices, 0:3] += self.dyn_vel.view(-1).unsqueeze(-1) * self.dyn_vel_direction.view(-1, 3)
-        else:
-            # don't let dynamic objects drift too far away
-            pos = flat_root_state[flat_dyn_indices, :3].view(-1, self.num_dyn_objs, 3)
-            center_dist = (pos - self.curri_center).norm(dim=-1)
-            moving_flags_flat = (center_dist < self.curri_radius).view(-1)
-            flat_root_state[flat_dyn_indices[moving_flags_flat], 0:3] += self.dyn_vel.view(-1).unsqueeze(-1)[moving_flags_flat] * self.dyn_vel_direction.view(-1, 3)[moving_flags_flat]
 
         self.dyn_pos = flat_root_state[flat_dyn_indices, 0:3].view(self.num_envs, self.num_dyn_objs, 3)
         flat_root_state[flat_dyn_indices[safety_vio], (safety_vio_xyz[safety_vio] // 2)] = self.xyz_threshold.view(-1)[safety_vio_xyz[safety_vio]]
@@ -550,11 +539,14 @@ class FrankaMPRRL(FrankaMP):
         self.dyn_sdf = torch.min(dyn_sdf, dim=1)[0] # (num_envs, )
         self.static_sdf = torch.min(static_sdf, dim=1)[0] # (num_envs, )
 
+        sdf_curri_idx = min(self.curri_idx, len(self.sdf_rw_max_curri)-1)
+        flag_curri_idx = min(self.curri_idx, len(self.flag_rw_max_curri)-1)
+
         self.rew_buf[:], self.reset_buf[:], sdf_rewards, flag_rewards = compute_franka_reward(
             self.reset_buf, self.progress_buf,
             joint_err, pos_err, quat_err,
             self.collision, self.dyn_sdf, self.static_sdf,
-            self.sdf_rw_max, self.flag_rw_max, self.sdf_threshold,
+            self.sdf_rw_max_curri[sdf_curri_idx], self.flag_rw_max_curri[flag_curri_idx], self.sdf_threshold,
             self.residual_flag, self.max_episode_length
         )
 
@@ -579,10 +571,8 @@ class FrankaMPRRL(FrankaMP):
 
     def pre_physics_step(self, actions):
         self.step_counter += 1
-        if self.step_counter % self.curri_update_freq == 0:
-            self.curri_chasing_steps_idx += 1
-            if self.curri_chasing_steps_idx > (len(self.curri_chasing_steps_list) - 1):
-                self.curri_chasing_steps_idx = len(self.curri_chasing_steps_list) - 1
+        if self.step_counter % self.curri_freq == 0:
+            self.curri_idx += 1
 
         self.residual_flag = actions[:, -1]
         is_residual_disabled = self.residual_flag > 0
