@@ -63,6 +63,7 @@ class FrankaMPRRL(FrankaMP):
 
         self.sdf_rw_max = cfg["reward"]["sdf_rw_max"]
         self.flag_rw_max = cfg["reward"]["flag_rw_max"]
+        self.sdf_threshold = cfg["reward"]["sdf_threshold"]
 
         for env_idx, demo in enumerate(self.batch):
             self.start_config[env_idx] = torch.tensor(demo['states'][0][:7], device=self.device)
@@ -553,7 +554,7 @@ class FrankaMPRRL(FrankaMP):
             self.reset_buf, self.progress_buf,
             joint_err, pos_err, quat_err,
             self.collision, self.dyn_sdf, self.static_sdf,
-            self.sdf_rw_max, self.flag_rw_max,
+            self.sdf_rw_max, self.flag_rw_max, self.sdf_threshold,
             self.residual_flag, self.max_episode_length
         )
 
@@ -670,17 +671,18 @@ def compute_franka_reward(
     reset_buf: torch.Tensor, progress_buf: torch.Tensor,
     joint_err: torch.Tensor, pos_err: torch.Tensor, quat_err: torch.Tensor,
     collision_status: torch.Tensor, dyn_sdf: torch.Tensor, static_sdf: torch.Tensor,
-    sdf_rw_max: torch.Tensor, flag_rw_max: torch.Tensor,
+    sdf_rw_max: torch.Tensor, flag_rw_max: torch.Tensor, sdf_threshold: torch.Tensor,
     residual_flag: torch.Tensor, max_episode_length: float,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
 
     # sdf reward
     sdf = torch.min(dyn_sdf, static_sdf)
 
-    sdf_rewards = torch.clamp(200*sdf, -1, sdf_rw_max)
-    sdf_rewards[(dyn_sdf > 0.1) & (residual_flag > 0)] = sdf_rw_max
+    sdf_rewards = torch.clamp( (sdf_rw_max / sdf_threshold)*sdf, -1, sdf_rw_max)
+    sdf_rewards[(dyn_sdf > sdf_threshold) & (residual_flag > 0)] = sdf_rw_max
+    sdf_rewards[(dyn_sdf > sdf_threshold) & (residual_flag <= 0)] = 0
 
-    flag_diff = torch.abs(residual_flag - torch.clamp(10000 * (dyn_sdf - 0.1), -1, 1))
+    flag_diff = torch.abs(residual_flag - torch.clamp(10000 * (dyn_sdf - sdf_threshold), -1, 1))
     flag_rewards = 1 / (flag_diff + (1 / flag_rw_max) )
 
     # print("flag: ", residual_flag)
