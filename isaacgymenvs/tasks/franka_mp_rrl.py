@@ -118,6 +118,7 @@ class FrankaMPRRL(FrankaMP):
         self.xyz_threshold = torch.tensor(self.cfg["dyn_obj"]["xyz_threshold"], device=self.device, dtype=torch.float32)
         self.dyn_sdf = torch.zeros(self.num_envs, device=self.device)
         self.static_sdf = torch.zeros(self.num_envs, device=self.device)
+        self.ground_truth_flag = self.cfg["env"]["ground_truth_flag"]
         # compute aggregate size
         num_franka_bodies = self.gym.get_asset_rigid_body_count(franka_asset)
         num_franka_shapes = self.gym.get_asset_rigid_shape_count(franka_asset)
@@ -579,7 +580,10 @@ class FrankaMPRRL(FrankaMP):
             self.curri_idx += 1
 
         self.residual_flag = actions[:, -1]
-        is_residual_disabled = self.residual_flag > 0
+        if self.ground_truth_flag:
+            is_residual_disabled = self.dyn_sdf > self.sdf_threshold
+        else:
+            is_residual_disabled = self.residual_flag > 0
         delta_actions = actions.clone()[:, :7] * torch.abs(self.residual_flag.unsqueeze(-1))
         delta_actions[is_residual_disabled] = 0.0
         current_joint_state = self.get_joint_angles()
@@ -673,11 +677,15 @@ def compute_franka_reward(
     sdf = torch.min(dyn_sdf, static_sdf)
 
     sdf_rewards = torch.clamp( (sdf_rw_max / sdf_threshold)*sdf, -1, sdf_rw_max)
+    # we don't want to penalize the robot for being close to the static obstacles during reaching phase when dynamic obstacles are far away
     sdf_rewards[(dyn_sdf > sdf_threshold) & (residual_flag > 0)] = sdf_rw_max
-    sdf_rewards[(dyn_sdf > sdf_threshold) & (residual_flag <= 0)] = 0
+    # sdf_rewards[(dyn_sdf > sdf_threshold) & (residual_flag <= 0)] = 0
 
     flag_diff = torch.abs(residual_flag - torch.clamp(10000 * (dyn_sdf - sdf_threshold), -1, 1))
-    flag_rewards = 1 / (flag_diff + (1 / flag_rw_max) )
+    if flag_rw_max == 0:
+        flag_rewards = torch.zeros_like(flag_diff).to(flag_diff.device)
+    else:
+        flag_rewards = 1 / (flag_diff + (1 / flag_rw_max) )
 
     # print("flag: ", residual_flag)
     # print("sdf: ", dyn_sdf)

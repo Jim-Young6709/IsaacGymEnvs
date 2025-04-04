@@ -69,6 +69,7 @@ env:
   capture_freq: 5
 
   is_rrl: True # if training with residual rl or just rl
+  ground_truth_flag: False
 
 sim:
   dt: 0.01667 # 1/60
@@ -96,7 +97,7 @@ task:
 
 reward:
   sdf_rw_max: [20]
-  flag_rw_max: [20]
+  flag_rw_max: [10]
   sdf_threshold: 0.1
   curri_freq: 20000
 
