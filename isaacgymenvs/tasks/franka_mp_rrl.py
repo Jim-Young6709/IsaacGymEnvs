@@ -21,6 +21,7 @@ from geometrout.primitive import Cuboid, Cylinder, Sphere
 from neural_mp.utils.pcd_utils import decompose_scene_pcd_params_obs, compute_scene_oracle_pcd
 from neural_mp.utils.geometry import construct_mixed_point_cloud
 from neural_mp.real_utils.real_world_collision_checker import FrankaCollisionChecker
+from neural_mp.utils.franka_utils import unnormalize_franka_joints
 from collections import OrderedDict
 from omegaconf import DictConfig
 from tqdm import tqdm
@@ -42,6 +43,8 @@ class FrankaMPRRL(FrankaMP):
         self.device = sim_device
         self.is_rrl = cfg["env"]["is_rrl"]
         self.no_base_action = cfg["env"]["no_base_action"]
+        if cfg["env"]["rl_as_goal"]:
+            cfg["env"]["base_policy_only"] = True
         self.base_policy_only = cfg["env"]["base_policy_only"]
 
         # Demo loading
@@ -69,6 +72,8 @@ class FrankaMPRRL(FrankaMP):
             obstacle_config = decompose_scene_pcd_params_obs(pcd_params)
             self.obstacle_configs.append(obstacle_config)
             self.max_obstacles = max(len(obstacle_config[0]), self.max_obstacles)
+
+        self.updated_goal = self.goal_config.clone()
 
         super().__init__(cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render)
 
@@ -587,11 +592,28 @@ class FrankaMPRRL(FrankaMP):
             is_residual_disabled = self.dyn_sdf > self.sdf_threshold
         else:
             is_residual_disabled = self.residual_flag > 0
-        delta_actions = actions.clone()[:, :7] * torch.abs(self.residual_flag.unsqueeze(-1))
-        delta_actions[is_residual_disabled] = 0.0
+
         current_joint_state = self.get_joint_angles()
-        delta_actions = delta_actions * self.action_scale
-        self.actions = delta_actions
+
+        if self.rl_abs:
+            abs_actions = actions.clone()[:, :7]
+            abs_actions = unnormalize_franka_joints(abs_actions)
+            self.actions = abs_actions - current_joint_state
+        else:
+            if self.rl_as_goal:
+                delta_actions = actions.clone()[:, :7]
+            else:
+                delta_actions = actions.clone()[:, :7] * torch.abs(self.residual_flag.unsqueeze(-1))
+            delta_actions[is_residual_disabled] = 0.0
+            delta_actions = delta_actions * self.action_scale
+            self.actions = delta_actions
+
+        if self.rl_as_goal:
+            abs_goal = self.actions + current_joint_state
+            self.updated_goal = abs_goal.clone()
+            self.updated_goal[is_residual_disabled] = self.goal_config[is_residual_disabled]
+        else:
+            self.updated_goal = self.goal_config.clone()
 
         if not self.is_rrl:
             self.base_delta_action[~is_residual_disabled] = 0.0

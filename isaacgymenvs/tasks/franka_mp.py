@@ -471,7 +471,7 @@ class FrankaMP(VecTask):
             self.update_robot_pcds(robot_config) # update pcd for open loop
             obs_base = OrderedDict()
             obs_base["current_angles"] = robot_config
-            obs_base["goal_angles"] = self.goal_config.clone()
+            obs_base["goal_angles"] = self.updated_goal.clone()
             obs_base["compute_pcd_params"] = self.combined_pcds.clone()
             with torch.no_grad():
                 with torch.autocast('cuda', dtype=torch.float16):
@@ -495,7 +495,7 @@ class FrankaMP(VecTask):
             obs = self.pcd_feats
 
         if self.obs_buf.size(1) == 14:
-            obs = torch.cat((robot_config, self.goal_config), dim=1)
+            obs = torch.cat((robot_config, self.updated_goal), dim=1)
         # elif self.obs_buf.size(1) == 1038:
         #     obs[:, -14:-7] += self.base_delta_action
         elif self.obs_buf.size(1) == 2055:
@@ -524,6 +524,7 @@ class FrankaMP(VecTask):
         self.goal_config, valid_scene = self.sample_valid_joint_configs(
             initial_configs=self.goal_config, check_not_in_collision=True
         )
+        self.updated_goal = self.goal_config.clone()
         self.goal_pose = self.get_eef_pose() # (:, 7) xyz, wxyz
         if not valid_scene:
             print("Failed to sample valid goal config")
