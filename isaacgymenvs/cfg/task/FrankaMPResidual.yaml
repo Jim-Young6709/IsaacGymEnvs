@@ -59,7 +59,7 @@ env:
   step_back_on_collision: 0
   reset_on_collision: False
 
-  prob_start_at_goal: 0.3
+  prob_start_at_goal: 0.5
   vis_goal: False
 
   # video logging
@@ -119,7 +119,8 @@ dyn_obj:
   dist_range: [0.3, 0.4]
   vel_range: [0.1, 0.2]
   num_obj: 1
-  xyz_threshold: [[-0.3, 0.2], [-0.2, 0.2], [-0.1, 0.6]] # a safety region to prevent the dynamic object from colliding with the robot base
+  # xyz_threshold: [[-0.3, 0.2], [-0.2, 0.2], [-0.1, 0.6]] # a safety region to prevent the dynamic object from colliding with the robot base
+  xyz_threshold: [[-10.3, 0.2], [-10.2, 10.2], [-10.1, 10.6]] # block motion beyond x=0.2 plane
   bounce_back:
     enable: True
     thres: [0.15, 0.3]

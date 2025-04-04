@@ -357,7 +357,7 @@ class FrankaMPRRL(FrankaMP):
             )
 
             # draw goal frame
-            fabric_goal_pose = self.get_ee_from_joint(self.goal_config)
+            fabric_goal_pose = self.get_ee_from_joint(self.updated_goal)
             px = (fabric_goal_pose[:, 0:3][i] 
                 + quat_apply(fabric_goal_pose[:, 3:7][i], torch.tensor([1, 0, 0], device=self.device) * 0.2)).cpu().numpy()
 
