@@ -70,6 +70,8 @@ env:
 
   is_rrl: True # if training with residual rl or just rl
   ground_truth_flag: False
+  rl_as_goal: False # use rl to change the goal position of the base policy
+  rl_abs: False
 
 sim:
   dt: 0.01667 # 1/60

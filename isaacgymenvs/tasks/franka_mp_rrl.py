@@ -61,13 +61,6 @@ class FrankaMPRRL(FrankaMP):
         self.step_counter = 0
         self.frankacc = FrankaCollisionChecker()
 
-        self.sdf_rw_max_curri = torch.tensor(cfg["reward"]["sdf_rw_max"], device=self.device, dtype=torch.float32)
-        self.flag_rw_max_curri = torch.tensor(cfg["reward"]["flag_rw_max"], device=self.device, dtype=torch.float32)
-        self.sdf_threshold = cfg["reward"]["sdf_threshold"]
-        self.curri_freq = cfg["reward"]["curri_freq"]
-        self.curri_idx = 0
-        self.prob_start_at_goal = cfg["env"]["prob_start_at_goal"]
-
         for env_idx, demo in enumerate(self.batch):
             self.start_config[env_idx] = torch.tensor(demo['states'][0][:7], device=self.device)
             self.goal_config[env_idx] = torch.tensor(demo['states'][0][7:14], device=self.device)
@@ -115,10 +108,20 @@ class FrankaMPRRL(FrankaMP):
         self.bounceback_enable = self.cfg["dyn_obj"]["bounce_back"]["enable"]
         self.bounceback_thres = self.cfg["dyn_obj"]["bounce_back"]["thres"]
 
+        self.sdf_rw_max_curri = torch.tensor(self.cfg["reward"]["sdf_rw_max"], device=self.device, dtype=torch.float32)
+        self.flag_rw_max_curri = torch.tensor(self.cfg["reward"]["flag_rw_max"], device=self.device, dtype=torch.float32)
+        self.sdf_threshold = self.cfg["reward"]["sdf_threshold"]
+        self.curri_freq = self.cfg["reward"]["curri_freq"]
+        self.curri_idx = 0
+
+        self.prob_start_at_goal = self.cfg["env"]["prob_start_at_goal"]
         self.xyz_threshold = torch.tensor(self.cfg["dyn_obj"]["xyz_threshold"], device=self.device, dtype=torch.float32)
+        self.ground_truth_flag = self.cfg["env"]["ground_truth_flag"]
+        self.rl_as_goal = self.cfg["env"]["rl_as_goal"]
+        self.rl_abs = self.cfg["env"]["rl_abs"]
+
         self.dyn_sdf = torch.zeros(self.num_envs, device=self.device)
         self.static_sdf = torch.zeros(self.num_envs, device=self.device)
-        self.ground_truth_flag = self.cfg["env"]["ground_truth_flag"]
         # compute aggregate size
         num_franka_bodies = self.gym.get_asset_rigid_body_count(franka_asset)
         num_franka_shapes = self.gym.get_asset_rigid_shape_count(franka_asset)
