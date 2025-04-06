@@ -712,6 +712,7 @@ def compute_franka_reward(
     else:
         flag_rewards = 1 / (flag_diff + (1 / flag_rw_max) )
 
+    # print(flag_rewards)
     # print("flag: ", residual_flag)
     # print("sdf: ", dyn_sdf)
     # print("isflag correct: ", residual_flag * (dyn_sdf - 0.1) > 0)
