@@ -1,4 +1,7 @@
 import h5py
+import sys
+import random
+from dataclasses import dataclass
 class DemoLoader:
     
     def __init__(self, hdf5_path, batch_size):
@@ -15,6 +18,14 @@ class DemoLoader:
         self.total_demos = 0
         self._load_hdf5_file(hdf5_path)
 
+    @dataclass
+    class Plan:
+        start_config: list
+        goal_config: list
+        gripper_state: float
+        plan: list
+    
+
     def _load_hdf5_file(self, file_path):
         """Load the HDF5 file and get total number of demos"""
         try:
@@ -25,7 +36,22 @@ class DemoLoader:
             return True
         except Exception as e:
             print(f"Error loading HDF5 file: {e}")
+            sys.exit(1)
             return False
+
+    def get_random_arm_cfg_pair(self, demo_idx):
+        demo_key = f"demo_{demo_idx}"
+        # solutions = len(self.demos[demo_key])
+        all_keys = self.demos[demo_key].keys()
+
+        # Filter keys that contain the word "solution"
+        number_of_solutions = len([key for key in all_keys if "solution" in str(key)])
+
+        solution_idx = random.randint(0, number_of_solutions-1)
+        solution_key = f"solution_{solution_idx}"
+        start_config = self.demos[f"{demo_key}/{solution_key}/start_config"][:]
+        goal_config = self.demos[f"{demo_key}/{solution_key}/goal_config"][:]
+        return (start_config, goal_config)
 
     def get_next_batch(self, batch_idx=None):
         """Get next batch of demonstrations"""
@@ -43,14 +69,26 @@ class DemoLoader:
 
         end_idx = min(start_idx + self.batch_size, self.total_demos)
         batch_data = []
-        
         for demo_idx in range(start_idx, end_idx):
             demo_key = f"demo_{demo_idx}"
+            solutions = len(self.demos[demo_key]) - 1  # Exclude the "states" key
+            plans = []
+            for sol in range(solutions):
+                solution_key = f"solution_{sol}"
+                plan = DemoLoader.Plan(
+                    start_config =self.demos[demo_key][solution_key]["start_config"][:],
+                    goal_config  =self.demos[demo_key][solution_key]["goal_config"][:],
+                    gripper_state=self.demos[demo_key][solution_key]["gripper_state"][:],
+                    plan         =self.demos[demo_key][solution_key]["plan"][:]
+                )
+                plans.append(plan)
+
             try:
                 # TODO: Support multiple configs in one env, ideally have one valid config for each support volume, or can even just load cuboids
                 # Get all necessary data from the demo
                 demo_data = {
                     'states': self.demos[f"{demo_key}/states"][:],
+                    'plan': plans
                 }
                 batch_data.append(demo_data)
             except Exception as e:
