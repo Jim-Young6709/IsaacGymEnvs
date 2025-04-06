@@ -52,14 +52,6 @@ class DemoLoader:
         start_config = self.demos[f"{demo_key}/{solution_key}/start_config"][:]
         goal_config = self.demos[f"{demo_key}/{solution_key}/goal_config"][:]
         return (start_config, goal_config)
-    
-    # def get_random_arm_plan(self, demo_idx):
-    #     demo_key = f"demo_{demo_idx}"
-    #     solutions = len(self.demos[demo_key])
-    #     solution_idx = random.randint(0, solutions-1)
-    #     solution_key = f"solution_{solution_idx}"
-    #     states = self.demos[f"{demo_key}/{solution_key}/states"][:]
-    #     return (states[0][:7], states[0][7:14])
 
     def get_next_batch(self, batch_idx=None):
         """Get next batch of demonstrations"""
@@ -79,15 +71,10 @@ class DemoLoader:
         batch_data = []
         for demo_idx in range(start_idx, end_idx):
             demo_key = f"demo_{demo_idx}"
-            solutions = len(self.demos[demo_key])
+            solutions = len(self.demos[demo_key]) - 1  # Exclude the "states" key
             plans = []
-            for sol in range(solutions - 1):
+            for sol in range(solutions):
                 solution_key = f"solution_{sol}"
-                # start_config = self.demos[demo_key][solution_key]["start_config"][:]
-                # goal_config = self.demos[demo_key][solution_key]["goal_config"][:]
-                # gripper_state = self.demos[demo_key][solution_key]["gripper_state"][:]
-                # plan_data = self.demos[demo_key][solution_key]["plan"][:]
-
                 plan = DemoLoader.Plan(
                     start_config =self.demos[demo_key][solution_key]["start_config"][:],
                     goal_config  =self.demos[demo_key][solution_key]["goal_config"][:],
@@ -96,16 +83,12 @@ class DemoLoader:
                 )
                 plans.append(plan)
 
-            # solution_idx = random.randint(0, solutions-1)
-            # solution_key = f"solution_{solution_idx}"
             try:
                 # TODO: Support multiple configs in one env, ideally have one valid config for each support volume, or can even just load cuboids
                 # Get all necessary data from the demo
                 demo_data = {
                     'states': self.demos[f"{demo_key}/states"][:],
                     'plan': plans
-                    # 'tight_config': self.demos.get(f"{demo_key}/{solution_key}/tight_config", []),
-                    # 'open_config': self.demos.get(f"{demo_key}/{solution_key}/open_config", []),
                 }
                 batch_data.append(demo_data)
             except Exception as e:

@@ -441,52 +441,12 @@ class FrankaMPFull(FrankaMP):
         if env_ids is None:
             env_ids = torch.arange(self.num_envs, device=self.device)
 
-
-        probability_tight_start = self.cfg["env"].get("probability_tight_start", 1.0)
-        probability_tight_goal = self.cfg["env"].get("probability_tight_goal", 1.0)
-
         for env_idx in env_ids:
-            # demo_key = f"demo_{demo_idx}"
-            # solutions = len(self.demos[demo_key])
-            # solution_idx = random.randint(0, solutions-1)
-            # solution_key = f"solution_{solution_idx}"
-            start_cfg, goal_cfg = self.demo_loader.get_random_arm_cfg_pair(env_idx)
-            demo = self.batch[env_idx]
-            self.start_config[env_idx] = torch.tensor(start_cfg, device=self.device)
-            self.goal_config[env_idx]  = torch.tensor( goal_cfg, device=self.device)
-            
-            # tight_len = len(demo["tight_config"])
-            # open_len = len(demo["open_config"])
-            # # Determine if we use tight configs based on probabilities
-            # tight_start = torch.rand(1).item() < probability_tight_start
-            # tight_goal = torch.rand(1).item() < probability_tight_goal
+            plan_idx = np.random.randint(0, len(self.batch[env_idx]['plan']))
+            plan = self.batch[env_idx]['plan'][plan_idx]
 
-            # if tight_len == 0 and open_len == 0:
-            #     continue
-
-            # if tight_len == 0:
-            #     start_configs = demo["open_config"]
-            #     goal_configs = demo["open_config"]
-            # elif tight_len == 1 and tight_start and tight_goal:
-            #     if torch.rand(1).item() < 0.5:
-            #         start_configs = demo["tight_config"]
-            #         goal_configs = demo["open_config"]
-            #     else:
-            #         start_configs = demo["open_config"]
-            #         goal_configs = demo["tight_config"]
-            # else:
-            #     start_configs = demo["tight_config"] if tight_start else demo["open_config"]
-            #     goal_configs = demo["tight_config"] if tight_goal else demo["open_config"]
-
-            # if start_configs is goal_configs:
-            #     indices = torch.randperm(len(start_configs))[:2] if len(start_configs) > 1 else torch.zeros(2, dtype=torch.long)
-            #     start_idx, goal_idx = indices[0].item(), indices[1].item()
-            # else:
-            #     start_idx = torch.randint(len(start_configs), (1,)).item()
-            #     goal_idx = torch.randint(len(goal_configs), (1,)).item()
-            
-            # self.start_config[env_idx] = torch.tensor(start_configs[start_idx], device=self.device)
-            # self.goal_config[env_idx] = torch.tensor(goal_configs[goal_idx], device=self.device)            
+            self.start_config[env_idx] = torch.tensor(plan.start_config, device=self.device)
+            self.goal_config[env_idx]  = torch.tensor(plan.goal_config, device=self.device)
 
         self.start_config = tensor_clamp(self.start_config, self.franka_dof_lower_limits[:7], self.franka_dof_upper_limits[:7])
         self.goal_config = tensor_clamp(self.goal_config, self.franka_dof_lower_limits[:7], self.franka_dof_upper_limits[:7])
