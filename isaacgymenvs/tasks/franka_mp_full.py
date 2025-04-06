@@ -29,7 +29,7 @@ from fabrics_sim.worlds.voxels import VoxelCounter
 
 
 class FrankaMPFull(FrankaMP):
-    def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render, num_env_per_env=1):
+    def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
         self.device = sim_device
         self.enable_fabric = cfg["fabric"]["enable"]
         self.force_no_fabric = False
@@ -41,12 +41,12 @@ class FrankaMPFull(FrankaMP):
         hdf5_path = cfg["env"]["hdf5_path"]
         self.demo_loader = DemoLoader(hdf5_path, cfg["env"]["numEnvs"])
         self.batch_idx = cfg["env"]["batch_idx"]
+        self.num_task_per_env = cfg["env"]["num_task_per_env"]
 
         # need to change the logic here (2 layers of reset ; multiple start & goal in one env ; relaunch IG)
-        self.batch = self.demo_loader.get_next_batch(batch_idx=self.batch_idx)
+        self.batch, self.vec_states = self.demo_loader.get_next_batch(batch_idx=self.batch_idx, num_task_per_env=self.num_task_per_env)
+        self.vec_states = torch.tensor(self.vec_states, device=self.device, dtype=torch.float)
 
-        self.start_config = torch.zeros((cfg["env"]["numEnvs"], 7), device=self.device)
-        self.goal_config = torch.zeros((cfg["env"]["numEnvs"], 7), device=self.device)
         self.lock_in = torch.zeros((cfg["env"]["numEnvs"], ), dtype=torch.bool, device=self.device)
         self.lock_in_pos_err = cfg["fabric"]["lock_in_pos_err"] # meters
         self.lock_in_rot_err = cfg["fabric"]["lock_in_rot_err"] # degrees
@@ -55,7 +55,6 @@ class FrankaMPFull(FrankaMP):
         self.max_obstacles = 0
 
         for env_idx, demo in enumerate(self.batch):
-
             pcd_params = demo['states'][0][15:]
             obstacle_config = decompose_scene_pcd_params_obs(pcd_params)
             self.obstacle_configs.append(obstacle_config)
@@ -443,12 +442,25 @@ class FrankaMPFull(FrankaMP):
         if env_ids is None:
             env_ids = torch.arange(self.num_envs, device=self.device)
 
-        for env_idx in env_ids:
-            plan_idx = np.random.randint(0, len(self.batch[env_idx]['plan']))
-            plan = self.batch[env_idx]['plan'][plan_idx]
+        # randomly pick a task (start & goal pair) for each env
+        task_idx = torch.randint(0, self.num_task_per_env, (len(env_ids),), device=self.device)
+        task = self.vec_states[env_ids, task_idx] # (len(env_ids), 3, 9)
 
-            self.start_config[env_idx] = torch.tensor(plan.start_config, device=self.device)
-            self.goal_config[env_idx]  = torch.tensor(plan.goal_config, device=self.device)
+        # start & goal is revertable
+        flip_mask = torch.randint(0, 2, size=(len(env_ids),), device=self.device)
+        start_configs = task[env_ids, flip_mask, :7] # (len(env_ids), 7)
+        goal_configs = task[env_ids, 1 - flip_mask, :7] # (len(env_ids), 7)
+        gripper_state = task[:, 0, 7:9] # might be useful later
+
+        # replace tight start / goal with free space config
+        tight_space_config_prob = self.cfg["env"].get("tight_space_config_prob", 1.0)
+        free_space_config = torch.rand(len(env_ids), device=self.device) < 1-tight_space_config_prob
+        replace_mask = torch.randint(0, 2, size=(len(env_ids),), device=self.device)
+        start_configs[free_space_config & replace_mask.bool()] = task[free_space_config & replace_mask.bool()][:, 2, :7]
+        goal_configs[free_space_config & ~replace_mask.bool()] = task[free_space_config & ~replace_mask.bool()][:, 2, :7]
+
+        self.start_config[env_ids] = start_configs
+        self.goal_config[env_ids] = goal_configs
 
         self.start_config = tensor_clamp(self.start_config, self.franka_dof_lower_limits[:7], self.franka_dof_upper_limits[:7])
         self.goal_config = tensor_clamp(self.goal_config, self.franka_dof_lower_limits[:7], self.franka_dof_upper_limits[:7])

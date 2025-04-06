@@ -46,10 +46,10 @@ env:
   base_policy_url: "jimyoung6709/DRP"
   base_policy_sub_steps: 1 # set to ~5 if using fabric
   base_policy_only: False
-  probability_tight_start: 1.0
-  probability_tight_goal: 1.0
+  tight_space_config_prob: 1.0
   hdf5_path: null # hdf5 file that contains env and trajectory info
   batch_idx: 0 # index of the batch of envs to load from the hdf5 file
+  num_task_per_env: 3
   use_mean_actions: True
 
   reaching_reset_threshold: 50

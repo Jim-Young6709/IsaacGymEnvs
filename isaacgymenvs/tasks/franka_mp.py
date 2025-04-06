@@ -71,8 +71,11 @@ class FrankaMP(VecTask):
         self.capture_video = self.cfg["env"]["capture_video"]
         self.capture_iter_max = self.cfg["env"]["capture_iter_max"]
         self.capture_freq = self.cfg["env"]["capture_freq"]
-        self.pcd_his_len = self.cfg["env"]["pcd_his_len"]
+        self.pcd_his_len = self.cfg["env"].get("pcd_his_len", 0)
         self.pcd_feat_buffer = None
+        self.start_config = torch.zeros((cfg["env"]["numEnvs"], 7), device=self.device)
+        self.goal_config = torch.zeros((cfg["env"]["numEnvs"], 7), device=self.device)
+        self.updated_goal = self.goal_config.clone()
         if self.capture_video:
             self.cfg["env"]["enableCameraSensors"] = True
         self.capture_envs = self.cfg["env"]["capture_envs"]
@@ -908,8 +911,6 @@ class FrankaMP(VecTask):
         """
         Reset the environment.
         """
-        self.start_config = None
-        self.goal_config = None
         self.invalid_scene_idx = []
         self._reset_obstacle()
         while True:

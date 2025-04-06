@@ -55,8 +55,6 @@ class FrankaMPRRL(FrankaMP):
         # need to change the logic here (2 layers of reset ; multiple start & goal in one env ; relaunch IG)
         self.batch = self.demo_loader.get_next_batch(batch_idx=self.batch_idx)
 
-        self.start_config = torch.zeros((cfg["env"]["numEnvs"], 7), device=self.device)
-        self.goal_config = torch.zeros((cfg["env"]["numEnvs"], 7), device=self.device)
         self.obstacle_configs = []
         self.obstacle_handles = []
         self.dyn_obj_handles = []
@@ -72,8 +70,6 @@ class FrankaMPRRL(FrankaMP):
             obstacle_config = decompose_scene_pcd_params_obs(pcd_params)
             self.obstacle_configs.append(obstacle_config)
             self.max_obstacles = max(len(obstacle_config[0]), self.max_obstacles)
-
-        self.updated_goal = self.goal_config.clone()
 
         super().__init__(cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render)
 

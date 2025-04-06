@@ -2,6 +2,9 @@ import h5py
 import sys
 import random
 from dataclasses import dataclass
+import numpy as np
+
+
 class DemoLoader:
     
     def __init__(self, hdf5_path, batch_size):
@@ -53,7 +56,7 @@ class DemoLoader:
         goal_config = self.demos[f"{demo_key}/{solution_key}/goal_config"][:]
         return (start_config, goal_config)
 
-    def get_next_batch(self, batch_idx=None):
+    def get_next_batch(self, batch_idx=None, num_task_per_env=3):
         """Get next batch of demonstrations"""
         if self.demos is None:
             return None
@@ -67,28 +70,46 @@ class DemoLoader:
             print("All demonstrations processed")
             return None
 
+        vec_states = np.zeros((self.batch_size, num_task_per_env, 3, 9)) # 3 for start & goal & middle waypoint of the traj, 9 for 7-dim jonit angle + gripper state
+
         end_idx = min(start_idx + self.batch_size, self.total_demos)
         batch_data = []
         for demo_idx in range(start_idx, end_idx):
             demo_key = f"demo_{demo_idx}"
             solutions = len(self.demos[demo_key]) - 1  # Exclude the "states" key
             plans = []
-            for sol in range(solutions):
-                solution_key = f"solution_{sol}"
-                plan = DemoLoader.Plan(
-                    start_config =self.demos[demo_key][solution_key]["start_config"][:],
-                    goal_config  =self.demos[demo_key][solution_key]["goal_config"][:],
-                    gripper_state=self.demos[demo_key][solution_key]["gripper_state"][:],
-                    plan         =self.demos[demo_key][solution_key]["plan"][:]
-                )
-                plans.append(plan)
+            for sol in range(num_task_per_env):
+                sol_idx = sol % solutions
+                solution_key = f"solution_{sol_idx}"
+                start_config = self.demos[demo_key][solution_key]["start_config"][:]
+                goal_config = self.demos[demo_key][solution_key]["goal_config"][:]
+                plan_len = len(self.demos[demo_key][solution_key]["plan"][:])
+                middle_waypoint = self.demos[demo_key][solution_key]["plan"][plan_len//2]
+                gripper_state = self.demos[demo_key][solution_key]["gripper_state"][:]
+
+                gripper_double = np.tile(gripper_state, 2)  # shape (2,)
+                start_row = np.concatenate([start_config, gripper_double])
+                goal_row = np.concatenate([goal_config, gripper_double])
+                middle_row = np.concatenate([middle_waypoint, gripper_double])
+
+                vec_states[demo_idx-start_idx, sol] = np.stack([start_row, goal_row, middle_row], axis=0)
+
+            # for sol in range(solutions):
+            #     solution_key = f"solution_{sol}"
+            #     plan = DemoLoader.Plan(
+            #         start_config =self.demos[demo_key][solution_key]["start_config"][:],
+            #         goal_config  =self.demos[demo_key][solution_key]["goal_config"][:],
+            #         gripper_state=self.demos[demo_key][solution_key]["gripper_state"][:],
+            #         plan         =self.demos[demo_key][solution_key]["plan"][:]
+            #     )
+            #     plans.append(plan)
 
             try:
                 # TODO: Support multiple configs in one env, ideally have one valid config for each support volume, or can even just load cuboids
                 # Get all necessary data from the demo
                 demo_data = {
                     'states': self.demos[f"{demo_key}/states"][:],
-                    'plan': plans
+                    # 'plan': plans
                 }
                 batch_data.append(demo_data)
             except Exception as e:
@@ -97,7 +118,7 @@ class DemoLoader:
 
         if batch_idx is None:
             self.current_batch += 1
-        return batch_data
+        return batch_data, vec_states
 
     def reset(self):
         """Reset to first batch"""
