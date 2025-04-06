@@ -441,6 +441,7 @@ class Dagger(object):
 
                     if self.env.scene_collision.any() and (self.step_back_on_collision or self.reset_on_collision):
                         if self.step_back_on_collision:
+                            # TODO: clearly bug here, now resetting all the buffers when a single env collides!!!
                             reset_angles = self.abs_angles_his[0].clone()
                             reset_vels = self.vel_angles_his[0].clone()
                             self.abs_angles_his = deque([reset_angles.clone() for _ in range(self.step_back_on_collision)], maxlen=self.step_back_on_collision)

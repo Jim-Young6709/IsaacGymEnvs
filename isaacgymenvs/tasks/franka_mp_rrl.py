@@ -21,6 +21,7 @@ from geometrout.primitive import Cuboid, Cylinder, Sphere
 from neural_mp.utils.pcd_utils import decompose_scene_pcd_params_obs, compute_scene_oracle_pcd
 from neural_mp.utils.geometry import construct_mixed_point_cloud
 from neural_mp.real_utils.real_world_collision_checker import FrankaCollisionChecker
+from neural_mp.utils.franka_utils import unnormalize_franka_joints
 from collections import OrderedDict
 from omegaconf import DictConfig
 from tqdm import tqdm
@@ -42,6 +43,8 @@ class FrankaMPRRL(FrankaMP):
         self.device = sim_device
         self.is_rrl = cfg["env"]["is_rrl"]
         self.no_base_action = cfg["env"]["no_base_action"]
+        if cfg["env"]["rl_as_goal"]:
+            cfg["env"]["base_policy_only"] = True
         self.base_policy_only = cfg["env"]["base_policy_only"]
 
         # Demo loading
@@ -61,9 +64,6 @@ class FrankaMPRRL(FrankaMP):
         self.step_counter = 0
         self.frankacc = FrankaCollisionChecker()
 
-        self.sdf_rw_max = cfg["reward"]["sdf_rw_max"]
-        self.flag_rw_max = cfg["reward"]["flag_rw_max"]
-
         for env_idx, demo in enumerate(self.batch):
             self.start_config[env_idx] = torch.tensor(demo['states'][0][:7], device=self.device)
             self.goal_config[env_idx] = torch.tensor(demo['states'][0][7:14], device=self.device)
@@ -72,6 +72,8 @@ class FrankaMPRRL(FrankaMP):
             obstacle_config = decompose_scene_pcd_params_obs(pcd_params)
             self.obstacle_configs.append(obstacle_config)
             self.max_obstacles = max(len(obstacle_config[0]), self.max_obstacles)
+
+        self.updated_goal = self.goal_config.clone()
 
         super().__init__(cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render)
 
@@ -110,13 +112,19 @@ class FrankaMPRRL(FrankaMP):
 
         self.bounceback_enable = self.cfg["dyn_obj"]["bounce_back"]["enable"]
         self.bounceback_thres = self.cfg["dyn_obj"]["bounce_back"]["thres"]
-        self.curri_chasing_steps_list = torch.tensor(self.cfg["dyn_obj"]["curri_chasing"]["chasing_steps"], device=self.device, dtype=torch.int64)
-        self.curri_chasing_steps_idx = 0
-        self.curri_update_freq = torch.tensor(self.cfg["dyn_obj"]["curri_chasing"]["update_freq"], device=self.device, dtype=torch.int64)
-        self.curri_center = torch.tensor(self.cfg["dyn_obj"]["curri_chasing"]["center"], device=self.device, dtype=torch.float32)
-        self.curri_radius = torch.tensor(self.cfg["dyn_obj"]["curri_chasing"]["radius"], device=self.device, dtype=torch.float32)
 
+        self.sdf_rw_max_curri = torch.tensor(self.cfg["reward"]["sdf_rw_max"], device=self.device, dtype=torch.float32)
+        self.flag_rw_max_curri = torch.tensor(self.cfg["reward"]["flag_rw_max"], device=self.device, dtype=torch.float32)
+        self.sdf_threshold = self.cfg["reward"]["sdf_threshold"]
+        self.curri_freq = self.cfg["reward"]["curri_freq"]
+        self.curri_idx = 0
+
+        self.prob_start_at_goal = self.cfg["env"]["prob_start_at_goal"]
         self.xyz_threshold = torch.tensor(self.cfg["dyn_obj"]["xyz_threshold"], device=self.device, dtype=torch.float32)
+        self.ground_truth_flag = self.cfg["env"]["ground_truth_flag"]
+        self.rl_as_goal = self.cfg["env"]["rl_as_goal"]
+        self.rl_abs = self.cfg["env"]["rl_abs"]
+
         self.dyn_sdf = torch.zeros(self.num_envs, device=self.device)
         self.static_sdf = torch.zeros(self.num_envs, device=self.device)
         # compute aggregate size
@@ -349,7 +357,7 @@ class FrankaMPRRL(FrankaMP):
             )
 
             # draw goal frame
-            fabric_goal_pose = self.get_ee_from_joint(self.goal_config)
+            fabric_goal_pose = self.get_ee_from_joint(self.updated_goal)
             px = (fabric_goal_pose[:, 0:3][i] 
                 + quat_apply(fabric_goal_pose[:, 3:7][i], torch.tensor([1, 0, 0], device=self.device) * 0.2)).cpu().numpy()
 
@@ -431,9 +439,7 @@ class FrankaMPRRL(FrankaMP):
             self.dyn_chasing_flag[floating_ids] = False
             self.dyn_chasing_flag[chasing_ids] = True
         else:
-            # curriculum chasing mode
-            floating_ids = self.progress_buf > self.curri_chasing_steps_list[self.curri_chasing_steps_idx]
-            self.dyn_chasing_flag[floating_ids] = False
+            raise NotImplementedError("Other mode no longer supported.")
 
         # update robot & dyn obj states
         current_configs = self.get_joint_angles()
@@ -469,12 +475,6 @@ class FrankaMPRRL(FrankaMP):
 
         if self.bounceback_enable:
             flat_root_state[flat_dyn_indices, 0:3] += self.dyn_vel.view(-1).unsqueeze(-1) * self.dyn_vel_direction.view(-1, 3)
-        else:
-            # don't let dynamic objects drift too far away
-            pos = flat_root_state[flat_dyn_indices, :3].view(-1, self.num_dyn_objs, 3)
-            center_dist = (pos - self.curri_center).norm(dim=-1)
-            moving_flags_flat = (center_dist < self.curri_radius).view(-1)
-            flat_root_state[flat_dyn_indices[moving_flags_flat], 0:3] += self.dyn_vel.view(-1).unsqueeze(-1)[moving_flags_flat] * self.dyn_vel_direction.view(-1, 3)[moving_flags_flat]
 
         self.dyn_pos = flat_root_state[flat_dyn_indices, 0:3].view(self.num_envs, self.num_dyn_objs, 3)
         flat_root_state[flat_dyn_indices[safety_vio], (safety_vio_xyz[safety_vio] // 2)] = self.xyz_threshold.view(-1)[safety_vio_xyz[safety_vio]]
@@ -506,18 +506,25 @@ class FrankaMPRRL(FrankaMP):
         if env_ids is None:
             env_ids = torch.arange(self.num_envs, device=self.device)
 
-        self.start_config = tensor_clamp(self.start_config, self.franka_dof_lower_limits[:7], self.franka_dof_upper_limits[:7])
+        start_config = tensor_clamp(self.start_config[env_ids], self.franka_dof_lower_limits[:7], self.franka_dof_upper_limits[:7])
 
-        self.goal_config = tensor_clamp(self.goal_config, self.franka_dof_lower_limits[:7], self.franka_dof_upper_limits[:7])
+        goal_config = tensor_clamp(self.goal_config[env_ids], self.franka_dof_lower_limits[:7], self.franka_dof_upper_limits[:7])
+
+        start_at_goal = torch.rand(len(env_ids), device=self.device) < self.prob_start_at_goal
+        start_config[start_at_goal] = goal_config[start_at_goal]
 
         self.goal_ee = self.get_ee_from_joint(self.goal_config)
 
-        self.set_robot_joint_state(self.start_config[env_ids], env_ids=env_ids, debug=False)
+        self.set_robot_joint_state(start_config, env_ids=env_ids, debug=False)
 
         self.progress_buf[env_ids] = 0
         self.reset_buf[env_ids] = 0
         self.dyn_flashing(env_ids=env_ids)
         self.compute_observations()
+        if (self.pcd_his_len > 0) & (self.pcd_feat_buffer is not None):
+            for i in range(self.pcd_his_len - 1):
+                # after reset, set all history to the latest observation
+                self.pcd_feat_buffer[i][env_ids] = self.pcd_feat_buffer[-1][env_ids]
 
     def compute_observations(self):
         obs = super().compute_observations()
@@ -545,11 +552,14 @@ class FrankaMPRRL(FrankaMP):
         self.dyn_sdf = torch.min(dyn_sdf, dim=1)[0] # (num_envs, )
         self.static_sdf = torch.min(static_sdf, dim=1)[0] # (num_envs, )
 
+        sdf_curri_idx = min(self.curri_idx, len(self.sdf_rw_max_curri)-1)
+        flag_curri_idx = min(self.curri_idx, len(self.flag_rw_max_curri)-1)
+
         self.rew_buf[:], self.reset_buf[:], sdf_rewards, flag_rewards = compute_franka_reward(
             self.reset_buf, self.progress_buf,
             joint_err, pos_err, quat_err,
             self.collision, self.dyn_sdf, self.static_sdf,
-            self.sdf_rw_max, self.flag_rw_max,
+            self.sdf_rw_max_curri[sdf_curri_idx], self.flag_rw_max_curri[flag_curri_idx], self.sdf_threshold,
             self.residual_flag, self.max_episode_length
         )
 
@@ -574,18 +584,36 @@ class FrankaMPRRL(FrankaMP):
 
     def pre_physics_step(self, actions):
         self.step_counter += 1
-        if self.step_counter % self.curri_update_freq == 0:
-            self.curri_chasing_steps_idx += 1
-            if self.curri_chasing_steps_idx > (len(self.curri_chasing_steps_list) - 1):
-                self.curri_chasing_steps_idx = len(self.curri_chasing_steps_list) - 1
+        if self.step_counter % self.curri_freq == 0:
+            self.curri_idx += 1
 
         self.residual_flag = actions[:, -1]
-        is_residual_disabled = self.residual_flag > 0
-        delta_actions = actions.clone()[:, :7] * torch.abs(self.residual_flag.unsqueeze(-1))
-        delta_actions[is_residual_disabled] = 0.0
+        if self.ground_truth_flag:
+            is_residual_disabled = self.dyn_sdf > self.sdf_threshold
+        else:
+            is_residual_disabled = self.residual_flag > 0
+
         current_joint_state = self.get_joint_angles()
-        delta_actions = delta_actions * self.action_scale
-        self.actions = delta_actions
+
+        if self.rl_abs:
+            abs_actions = actions.clone()[:, :7]
+            abs_actions = unnormalize_franka_joints(abs_actions)
+            self.actions = abs_actions - current_joint_state
+        else:
+            if self.rl_as_goal:
+                delta_actions = actions.clone()[:, :7]
+            else:
+                delta_actions = actions.clone()[:, :7] * torch.abs(self.residual_flag.unsqueeze(-1))
+            delta_actions[is_residual_disabled] = 0.0
+            delta_actions = delta_actions * self.action_scale
+            self.actions = delta_actions
+
+        if self.rl_as_goal:
+            abs_goal = self.actions + current_joint_state
+            self.updated_goal = abs_goal.clone()
+            self.updated_goal[is_residual_disabled] = self.goal_config[is_residual_disabled]
+        else:
+            self.updated_goal = self.goal_config.clone()
 
         if not self.is_rrl:
             self.base_delta_action[~is_residual_disabled] = 0.0
@@ -666,19 +694,25 @@ def compute_franka_reward(
     reset_buf: torch.Tensor, progress_buf: torch.Tensor,
     joint_err: torch.Tensor, pos_err: torch.Tensor, quat_err: torch.Tensor,
     collision_status: torch.Tensor, dyn_sdf: torch.Tensor, static_sdf: torch.Tensor,
-    sdf_rw_max: torch.Tensor, flag_rw_max: torch.Tensor,
+    sdf_rw_max: torch.Tensor, flag_rw_max: torch.Tensor, sdf_threshold: torch.Tensor,
     residual_flag: torch.Tensor, max_episode_length: float,
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
 
     # sdf reward
     sdf = torch.min(dyn_sdf, static_sdf)
 
-    sdf_rewards = torch.clamp(200*sdf, -1, sdf_rw_max)
-    sdf_rewards[(dyn_sdf > 0.1) & (residual_flag > 0)] = sdf_rw_max
+    sdf_rewards = torch.clamp( (sdf_rw_max / sdf_threshold)*sdf, -1, sdf_rw_max)
+    # we don't want to penalize the robot for being close to the static obstacles during reaching phase when dynamic obstacles are far away
+    sdf_rewards[(dyn_sdf > sdf_threshold) & (residual_flag > 0)] = sdf_rw_max
+    # sdf_rewards[(dyn_sdf > sdf_threshold) & (residual_flag <= 0)] = 0
 
-    flag_diff = torch.abs(residual_flag - torch.clamp(10000 * (dyn_sdf - 0.1), -1, 1))
-    flag_rewards = 1 / (flag_diff + (1 / flag_rw_max) )
+    flag_diff = torch.abs(residual_flag - torch.clamp(10000 * (dyn_sdf - sdf_threshold), -1, 1))
+    if flag_rw_max == 0:
+        flag_rewards = torch.zeros_like(flag_diff).to(flag_diff.device)
+    else:
+        flag_rewards = 1 / (flag_diff + (1 / flag_rw_max) )
 
+    # print(flag_rewards)
     # print("flag: ", residual_flag)
     # print("sdf: ", dyn_sdf)
     # print("isflag correct: ", residual_flag * (dyn_sdf - 0.1) > 0)

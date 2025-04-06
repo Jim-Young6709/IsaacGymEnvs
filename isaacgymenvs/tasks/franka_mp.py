@@ -21,6 +21,7 @@ from tqdm import tqdm
 from scipy.spatial.transform import Rotation
 from neural_mp.real_utils.model import NeuralMPModel
 from robofin.pointcloud.torch import FrankaSampler
+from collections import Counter, deque
 
 IMAGE_TYPES = {
     "rgb": gymapi.IMAGE_COLOR,
@@ -70,6 +71,8 @@ class FrankaMP(VecTask):
         self.capture_video = self.cfg["env"]["capture_video"]
         self.capture_iter_max = self.cfg["env"]["capture_iter_max"]
         self.capture_freq = self.cfg["env"]["capture_freq"]
+        self.pcd_his_len = self.cfg["env"]["pcd_his_len"]
+        self.pcd_feat_buffer = None
         if self.capture_video:
             self.cfg["env"]["enableCameraSensors"] = True
         self.capture_envs = self.cfg["env"]["capture_envs"]
@@ -468,7 +471,7 @@ class FrankaMP(VecTask):
             self.update_robot_pcds(robot_config) # update pcd for open loop
             obs_base = OrderedDict()
             obs_base["current_angles"] = robot_config
-            obs_base["goal_angles"] = self.goal_config.clone()
+            obs_base["goal_angles"] = self.updated_goal.clone()
             obs_base["compute_pcd_params"] = self.combined_pcds.clone()
             with torch.no_grad():
                 with torch.autocast('cuda', dtype=torch.float16):
@@ -479,18 +482,27 @@ class FrankaMP(VecTask):
         self.base_delta_action = robot_config - self.states['q'][:, :7]
 
         pcd_feats = self.base_model.policy.nets['policy'].model.encoded_feats.clone()
-        pcd_feats = pcd_feats.contiguous().view(pcd_feats.size(0), -1) # (num_envs, 1038) , 1038 = 1024 (pointnet++_feat) + 7 (current) + 7 (goal)
+        self.pcd_feats = pcd_feats.contiguous().view(pcd_feats.size(0), -1) # (num_envs, 1038) , 1038 = 1024 (pointnet++_feat) + 7 (current) + 7 (goal)
 
-        obs = pcd_feats
+        if self.pcd_his_len > 0:
+            if self.pcd_feat_buffer is None:
+                # self.pcd_feat_buffer[0] is the oldest pcd feature ; self.pcd_feat_buffer[-1] is the latest pcd feature
+                self.pcd_feat_buffer = deque([self.pcd_feats[:, :-14].clone() for _ in range(self.pcd_his_len)], maxlen=self.pcd_his_len)
+
+            delta_pcd_feats = self.pcd_feat_buffer[-1] - self.pcd_feat_buffer[0]
+            obs = torch.cat((delta_pcd_feats, self.pcd_feats), dim=1)
+        else:
+            obs = self.pcd_feats
+
         if self.obs_buf.size(1) == 14:
-            obs = torch.cat((robot_config, self.goal_config), dim=1)
+            obs = torch.cat((robot_config, self.updated_goal), dim=1)
         # elif self.obs_buf.size(1) == 1038:
         #     obs[:, -14:-7] += self.base_delta_action
-        elif self.obs_buf.size(1) == 1031:
+        elif self.obs_buf.size(1) == 2055:
             obs = obs[:, :-7]
-        elif self.obs_buf.size(1) == 1038:
+        elif self.obs_buf.size(1) == 2062:
             obs[:, -7:] = self.base_delta_action.clone()
-        elif self.obs_buf.size(1) == 1045:
+        elif self.obs_buf.size(1) == 2069:
             obs = torch.cat((obs, self.base_delta_action), dim=1)
 
         self.obs_buf = obs
@@ -512,6 +524,7 @@ class FrankaMP(VecTask):
         self.goal_config, valid_scene = self.sample_valid_joint_configs(
             initial_configs=self.goal_config, check_not_in_collision=True
         )
+        self.updated_goal = self.goal_config.clone()
         self.goal_pose = self.get_eef_pose() # (:, 7) xyz, wxyz
         if not valid_scene:
             print("Failed to sample valid goal config")
@@ -933,6 +946,9 @@ class FrankaMP(VecTask):
 
         self.compute_observations()
         self.compute_reward(self.actions)
+
+        if self.pcd_his_len > 0:
+            self.pcd_feat_buffer.append(self.pcd_feats[:, :-14].clone())
 
         # reset the robot to start if it collides with the obstacles
         if sum(self.scene_collision) > 0:
