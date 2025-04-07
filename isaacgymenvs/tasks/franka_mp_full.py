@@ -465,6 +465,7 @@ class FrankaMPFull(FrankaMP):
         self.start_config = tensor_clamp(self.start_config, self.franka_dof_lower_limits[:7], self.franka_dof_upper_limits[:7])
         self.goal_config = tensor_clamp(self.goal_config, self.franka_dof_lower_limits[:7], self.franka_dof_upper_limits[:7])
         self.goal_ee = self.get_ee_from_joint(self.goal_config)
+        self.updated_goal = self.goal_config.clone()
 
         self.set_robot_joint_state(self.start_config[env_ids], env_ids=env_ids, debug=False)
 
