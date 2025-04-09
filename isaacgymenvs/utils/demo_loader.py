@@ -78,21 +78,23 @@ class DemoLoader:
             demo_key = f"demo_{demo_idx}"
             solutions = len(self.demos[demo_key]) - 1  # Exclude the "states" key
             plans = []
-            for sol in range(num_task_per_env):
-                sol_idx = sol % solutions
-                solution_key = f"solution_{sol_idx}"
-                start_config = self.demos[demo_key][solution_key]["start_config"][:]
-                goal_config = self.demos[demo_key][solution_key]["goal_config"][:]
-                plan_len = len(self.demos[demo_key][solution_key]["plan"][:])
-                middle_waypoint = self.demos[demo_key][solution_key]["plan"][plan_len//2]
-                gripper_state = self.demos[demo_key][solution_key]["gripper_state"][:]
 
-                gripper_double = np.tile(gripper_state, 2)  # shape (2,)
-                start_row = np.concatenate([start_config, gripper_double])
-                goal_row = np.concatenate([goal_config, gripper_double])
-                middle_row = np.concatenate([middle_waypoint, gripper_double])
+            if 'solution_0' in self.demos['demo_0'].keys():
+                for sol in range(num_task_per_env):
+                    sol_idx = sol % solutions
+                    solution_key = f"solution_{sol_idx}"
+                    start_config = self.demos[demo_key][solution_key]["start_config"][:]
+                    goal_config = self.demos[demo_key][solution_key]["goal_config"][:]
+                    plan_len = len(self.demos[demo_key][solution_key]["plan"][:])
+                    middle_waypoint = self.demos[demo_key][solution_key]["plan"][plan_len//2]
+                    gripper_state = self.demos[demo_key][solution_key]["gripper_state"][:]
 
-                vec_states[demo_idx-start_idx, sol] = np.stack([start_row, goal_row, middle_row], axis=0)
+                    gripper_double = np.tile(gripper_state, 2)  # shape (2,)
+                    start_row = np.concatenate([start_config, gripper_double])
+                    goal_row = np.concatenate([goal_config, gripper_double])
+                    middle_row = np.concatenate([middle_waypoint, gripper_double])
+
+                    vec_states[demo_idx-start_idx, sol] = np.stack([start_row, goal_row, middle_row], axis=0)
 
             # for sol in range(solutions):
             #     solution_key = f"solution_{sol}"

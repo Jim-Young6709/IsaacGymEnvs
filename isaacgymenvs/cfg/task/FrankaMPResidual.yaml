@@ -69,7 +69,7 @@ env:
   capture_freq: 5
 
   is_rrl: True # if training with residual rl or just rl
-  ground_truth_flag: False
+  ground_truth_flag: 50000 # number of simulation steps to use ground truth flag
   rl_as_goal: False # use rl to change the goal position of the base policy
   rl_abs: False
 

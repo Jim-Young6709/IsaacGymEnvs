@@ -53,7 +53,7 @@ class FrankaMPRRL(FrankaMP):
         self.batch_idx = cfg["env"]["batch_idx"]
 
         # need to change the logic here (2 layers of reset ; multiple start & goal in one env ; relaunch IG)
-        self.batch = self.demo_loader.get_next_batch(batch_idx=self.batch_idx)
+        self.batch, self.vec_states = self.demo_loader.get_next_batch(batch_idx=self.batch_idx)
 
         self.obstacle_configs = []
         self.obstacle_handles = []
@@ -63,15 +63,19 @@ class FrankaMPRRL(FrankaMP):
         self.frankacc = FrankaCollisionChecker()
 
         for env_idx, demo in enumerate(self.batch):
-            self.start_config[env_idx] = torch.tensor(demo['states'][0][:7], device=self.device)
-            self.goal_config[env_idx] = torch.tensor(demo['states'][0][7:14], device=self.device)
-
             pcd_params = demo['states'][0][15:]
             obstacle_config = decompose_scene_pcd_params_obs(pcd_params)
             self.obstacle_configs.append(obstacle_config)
             self.max_obstacles = max(len(obstacle_config[0]), self.max_obstacles)
 
         super().__init__(cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render)
+
+        # this is very ugly coded now, cleanup this later with multi start & goal scenes
+        for env_idx, demo in enumerate(self.batch):
+            self.start_config[env_idx] = torch.tensor(demo['states'][0][:7], device=self.device)
+            self.goal_config[env_idx] = torch.tensor(demo['states'][0][7:14], device=self.device)
+
+        self.reset_idx()
 
         assert "numObservations" in self.cfg["env"], "numObservations must be specified in the config"
         assert "numStates" in self.cfg["env"], "numStates must be specified in the config"
@@ -584,7 +588,7 @@ class FrankaMPRRL(FrankaMP):
             self.curri_idx += 1
 
         self.residual_flag = actions[:, -1]
-        if self.ground_truth_flag:
+        if self.ground_truth_flag > self.step_counter:
             is_residual_disabled = self.dyn_sdf > self.sdf_threshold
         else:
             is_residual_disabled = self.residual_flag > 0
