@@ -126,7 +126,7 @@ class FrankaMPRRL(FrankaMP):
         self.rl_abs = self.cfg["env"]["rl_abs"]
 
         self.dyn_sdf = torch.zeros(self.num_envs, device=self.device)
-        self.static_sdf = torch.zeros(self.num_envs, device=self.device)
+        self.static_sdf = torch.zeros((self.num_envs, self.max_obstacles), device=self.device)
         # compute aggregate size
         num_franka_bodies = self.gym.get_asset_rigid_body_count(franka_asset)
         num_franka_shapes = self.gym.get_asset_rigid_shape_count(franka_asset)
@@ -142,6 +142,7 @@ class FrankaMPRRL(FrankaMP):
         self.num_static_points = self.num_scene_points - self.num_moving_points
         num_target_points = self.pcd_spec_dict['num_target_points']
         self.static_pcds = torch.zeros(self.num_envs, self.num_static_points, 3, device=self.device)
+        self.static_pcds_sdf = torch.zeros((self.num_envs, self.max_obstacles, 50, 3), device=self.device) # specifically made to track sdf values of each obstacle (50 points per obstacle)
         self.combined_pcds = torch.cat(
             (
                 torch.zeros(self.num_robot_points, 4, device=self.device),
@@ -283,6 +284,28 @@ class FrankaMPRRL(FrankaMP):
                 cuboid_quats=cuboid_quats,
             )).to(self.device)
             self.combined_pcds[i, self.num_robot_points:self.num_robot_points+self.num_static_points, :3] = self.static_pcds[i]
+
+            dummy_num = self.max_obstacles - len(cuboid_dims)
+            dummy_dims = np.array([[0.01, 0.01, 0.01]]*dummy_num).reshape(-1, 3)
+            dummy_centers = np.array([[0, 0, -100]]*dummy_num).reshape(-1, 3)
+            dummy_quats = np.array([[0, 0, 0, 1]]*dummy_num).reshape(-1, 4)
+
+            # for some reason there are 0s in cuboid_dims, we should not have this in the dataset!
+            # below is a temporary fix, ideally we want to fix this issue in the dataset itself!
+            for j in range(len(cuboid_dims)):
+                if all(cuboid_dims[j] == 0):
+                    cuboid_dims[j] = np.array([0.01, 0.01, 0.01])
+                    cuboid_centers[j] = np.array([0, 0, -100])
+                    cuboid_quats[j] = np.array([0, 0, 0, 1])
+
+            self.static_pcds_sdf[i] = torch.from_numpy(compute_scene_oracle_pcd(
+                num_obstacle_points=50*self.max_obstacles,
+                cuboid_dims=np.concatenate([cuboid_dims, dummy_dims], axis=0),
+                cuboid_centers=np.concatenate([cuboid_centers, dummy_centers], axis=0),
+                cuboid_quats=np.concatenate([cuboid_quats, dummy_quats], axis=0),
+                return_point_list=True,
+                even=True,
+            )).to(self.device)
 
         self.moving_pcds = torch.from_numpy(np.array(self.moving_pcds)).to(self.device, dtype=torch.float32)
 
@@ -528,11 +551,13 @@ class FrankaMPRRL(FrankaMP):
 
     def compute_observations(self):
         obs = super().compute_observations()
+        # TODO: this is not the correct order, should compute sdf first and then update states_buf
         self.states_buf[:, 0:self.num_obs] = obs.clone()
         self.states_buf[:, self.num_obs:self.num_obs +self.num_dyn_objs*3] = self.dyn_pos.reshape(self.num_envs, -1)
         self.states_buf[:, self.num_obs +self.num_dyn_objs*3:self.num_obs +2*self.num_dyn_objs*3] = self.dyn_vel_direction.reshape(self.num_envs, -1)
-        self.states_buf[:, self.num_obs +2*self.num_dyn_objs*3:-1] = self.dyn_sdf.unsqueeze(-1)
-        self.states_buf[:, -1:] = self.static_sdf.unsqueeze(-1)
+        self.states_buf[:, (self.num_obs +2*self.num_dyn_objs*3) : (self.num_obs +2*self.num_dyn_objs*3+1) ] = self.dyn_sdf.unsqueeze(-1)
+        static_sdf_min5 = torch.topk(self.static_sdf, k=5, dim=1, largest=False)[0]
+        self.states_buf[:, (self.num_obs +2*self.num_dyn_objs*3+1):] = static_sdf_min5
         return obs
 
     def compute_reward(self, actions):
@@ -547,10 +572,11 @@ class FrankaMPRRL(FrankaMP):
         # self.goal_reaching = (pos_err < 0.01) & (quat_err < 15.0) # TODO: should apply this metric later
 
         dyn_sdf = self.frankacc.check_scene_sdf_batch(current_angles, self.current_moving_obs_pcds.view(self.num_envs, -1, 3), debug=False, sphere_repr_only=True) # (num_envs, num_dyn_points)
-        static_sdf = self.frankacc.check_scene_sdf_batch(current_angles, self.static_pcds, debug=False, sphere_repr_only=True) # (num_envs, num_static_points)
+        flattened_pcds = self.static_pcds_sdf.view(self.num_envs, -1, 3)
+        static_sdf = self.frankacc.check_scene_sdf_batch(current_angles, flattened_pcds, debug=False, sphere_repr_only=True).view(self.num_envs, self.max_obstacles, -1) # (num_envs, num_obstacles, pcd_per_obstacle)
 
         self.dyn_sdf = torch.min(dyn_sdf, dim=1)[0] # (num_envs, )
-        self.static_sdf = torch.min(static_sdf, dim=1)[0] # (num_envs, )
+        self.static_sdf = torch.min(static_sdf, dim=-1)[0] # (num_envs, num_obstacles)
 
         sdf_curri_idx = min(self.curri_idx, len(self.sdf_rw_max_curri)-1)
         flag_curri_idx = min(self.curri_idx, len(self.flag_rw_max_curri)-1)
@@ -699,7 +725,9 @@ def compute_franka_reward(
 ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
 
     # sdf reward
-    sdf = torch.min(dyn_sdf, static_sdf)
+    static_sdf_min5 = torch.topk(static_sdf, k=5, dim=1, largest=False)[0]
+    sdf = torch.cat((static_sdf_min5, dyn_sdf.unsqueeze(1)),dim=1).mean(dim=-1)
+    # sdf = torch.min(dyn_sdf, static_sdf)
 
     sdf_rewards = torch.clamp( (sdf_rw_max / sdf_threshold)*sdf, -1, sdf_rw_max)
     # we don't want to penalize the robot for being close to the static obstacles during reaching phase when dynamic obstacles are far away
