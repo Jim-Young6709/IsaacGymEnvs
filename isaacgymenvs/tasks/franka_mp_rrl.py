@@ -726,6 +726,7 @@ def compute_franka_reward(
 
     # sdf reward
     static_sdf_min5 = torch.topk(static_sdf, k=5, dim=1, largest=False)[0]
+    static_sdf_min5 = torch.clamp(static_sdf_min5, -1, sdf_threshold)
     sdf = torch.cat((static_sdf_min5, dyn_sdf.unsqueeze(1)),dim=1).mean(dim=-1)
     # sdf = torch.min(dyn_sdf, static_sdf)
 
