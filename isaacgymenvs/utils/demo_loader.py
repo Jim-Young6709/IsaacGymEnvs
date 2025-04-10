@@ -74,6 +74,7 @@ class DemoLoader:
 
         end_idx = min(start_idx + self.batch_size, self.total_demos)
         batch_data = []
+        print(f"batch_idx:{batch_idx} ; start_idx:{start_idx} ; end_idx:{end_idx}")
         for demo_idx in range(start_idx, end_idx):
             demo_key = f"demo_{demo_idx}"
             solutions = len(self.demos[demo_key]) - 1  # Exclude the "states" key
