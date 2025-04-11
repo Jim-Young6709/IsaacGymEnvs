@@ -191,9 +191,9 @@ class FrankaMPRRL(FrankaMP):
                 *_
             ) = self.obstacle_configs[i]
 
-            # cuboid_dims = cuboid_dims[[0]]
-            # cuboid_centers = cuboid_centers[[0]]
-            # cuboid_quats = cuboid_quats[[0]]
+            cuboid_dims = cuboid_dims[[0]]
+            cuboid_centers = cuboid_centers[[0]]
+            cuboid_quats = cuboid_quats[[0]]
 
             # num_cylinders = len(cylinder_radii) #pausing cylinders due to incorrect spawning. Likely an actor indexing issue.
 
@@ -528,6 +528,7 @@ class FrankaMPRRL(FrankaMP):
 
     def compute_observations(self):
         obs = super().compute_observations()
+        # TODO: this is not the correct order, should compute sdf first and then update states_buf
         self.states_buf[:, 0:self.num_obs] = obs.clone()
         self.states_buf[:, self.num_obs:self.num_obs +self.num_dyn_objs*3] = self.dyn_pos.reshape(self.num_envs, -1)
         self.states_buf[:, self.num_obs +self.num_dyn_objs*3:self.num_obs +2*self.num_dyn_objs*3] = self.dyn_vel_direction.reshape(self.num_envs, -1)
@@ -723,7 +724,7 @@ def compute_franka_reward(
     # Compute resets
     reset_buf = torch.where((progress_buf >= max_episode_length - 1), torch.ones_like(reset_buf), reset_buf)
 
-    # reset_buf[(collision_status == 1) & (progress_buf > 30)] = 1
+    reset_buf[(collision_status == 1) & (progress_buf > 30)] = 1
 
     return rewards, reset_buf, sdf_rewards, flag_rewards
 

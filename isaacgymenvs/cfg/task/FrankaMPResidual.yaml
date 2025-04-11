@@ -46,6 +46,7 @@ env:
   numActions: 8
 
   pcd_his_len: 0 # 0 - no history buffer
+  pcd_his_delta: False
 
   base_policy_url: "jimyoung6709/DRP_Dagger"
   base_policy_sub_steps: 1 # set to ~5 if using fabric
@@ -69,7 +70,7 @@ env:
   capture_freq: 5
 
   is_rrl: True # if training with residual rl or just rl
-  ground_truth_flag: 50000 # number of simulation steps to use ground truth flag
+  ground_truth_flag: 100000000 # number of simulation steps to use ground truth flag
   rl_as_goal: False # use rl to change the goal position of the base policy
   rl_abs: False
 
@@ -117,10 +118,10 @@ dyn_obj:
   type: ["cuboid"] # ["cuboid", "sphere", "mesh"]
   dim_range: [[0.05, 0.05, 0.05], [0.2, 0.2, 0.2]]
   dist_range: [0.3, 0.4]
-  vel_range: [0.1, 0.2]
+  vel_range: [0.1, 0.5]
   num_obj: 1
-  # xyz_threshold: [[-0.3, 0.2], [-0.2, 0.2], [-0.1, 0.6]] # a safety region to prevent the dynamic object from colliding with the robot base
-  xyz_threshold: [[-10.3, 0.2], [-10.2, 10.2], [-10.1, 10.6]] # block motion beyond x=0.2 plane
+  xyz_threshold: [[-0.3, 0.2], [-0.2, 0.2], [-0.1, 0.6]] # a safety region to prevent the dynamic object from colliding with the robot base
+  # xyz_threshold: [[-10.3, 0.2], [-10.2, 10.2], [-10.1, 10.6]] # block motion beyond x=0.2 plane
   bounce_back:
     enable: True
     thres: [0.15, 0.3]

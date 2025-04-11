@@ -72,6 +72,7 @@ class FrankaMP(VecTask):
         self.capture_iter_max = self.cfg["env"]["capture_iter_max"]
         self.capture_freq = self.cfg["env"]["capture_freq"]
         self.pcd_his_len = self.cfg["env"].get("pcd_his_len", 0)
+        self.pcd_his_delta = self.cfg["env"].get("pcd_his_delta", False)
         self.pcd_feat_buffer = None
         self.start_config = torch.zeros((cfg["env"]["numEnvs"], 7), device=self.device)
         self.goal_config = torch.zeros((cfg["env"]["numEnvs"], 7), device=self.device)
@@ -492,8 +493,11 @@ class FrankaMP(VecTask):
                 # self.pcd_feat_buffer[0] is the oldest pcd feature ; self.pcd_feat_buffer[-1] is the latest pcd feature
                 self.pcd_feat_buffer = deque([self.pcd_feats[:, :-14].clone() for _ in range(self.pcd_his_len)], maxlen=self.pcd_his_len)
 
-            delta_pcd_feats = self.pcd_feat_buffer[-1] - self.pcd_feat_buffer[0]
-            obs = torch.cat((delta_pcd_feats, self.pcd_feats), dim=1)
+            if self.pcd_his_delta:
+                his_pcd_feats = self.pcd_feat_buffer[-1] - self.pcd_feat_buffer[0]
+            else:
+                his_pcd_feats = self.pcd_feat_buffer[0]
+            obs = torch.cat((his_pcd_feats, self.pcd_feats), dim=1)
         else:
             obs = self.pcd_feats
 
