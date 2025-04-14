@@ -78,7 +78,7 @@ class Dagger(object):
         self.cfg.seed = set_seed(self.cfg.seed)
 
         # robomimic init
-        ext_cfg = json.load(open("../robomimic/robomimic/exps/mp/neural_mp_rnn.json", 'r'))
+        ext_cfg = json.load(open("../neural_mp/robomimic/robomimic/exps/mp/neural_mp_rnn.json", 'r'))
         robomimic_cfg = config_factory(ext_cfg["algo_name"])
         with robomimic_cfg.values_unlocked():
             robomimic_cfg.update(ext_cfg)
