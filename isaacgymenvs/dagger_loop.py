@@ -44,6 +44,7 @@ if __name__ == "__main__":
     parser.add_argument("--fabric_lockin", type=float, default=0.01)
     parser.add_argument("--ts_prob", type=float, default=1.0)
     parser.add_argument("--step_expert", action='store_true')
+    parser.add_argument("--rm_previous", action='store_true')
 
     parser.add_argument("--loss_type", type=str, default='l1')
     parser.add_argument("--colli_reset", action='store_true')
@@ -84,12 +85,16 @@ if __name__ == "__main__":
     log_dir = os.path.join(args.train_dir, args.wandb_run_name)
 
     if os.path.exists(log_dir) and not args.resume:
-        ans = input("WARNING: training directory ({}) already exists! \n type 'y' to overwrite, 'n' to resume (y/n)\n".format(log_dir))
-        if ans == "y":
+        if args.rm_previous:
             print("removing previous runs")
             shutil.rmtree(log_dir)
         else:
-            print("resuming from previous runs")
+            ans = input("WARNING: training directory ({}) already exists! \n type 'y' to overwrite, 'n' to resume (y/n)\n".format(log_dir))
+            if ans == "y":
+                print("removing previous runs")
+                shutil.rmtree(log_dir)
+            else:
+                print("resuming from previous runs")
 
     gpu_cmd = {
         # "DISABLE_LAYER_NV_OPTIMUS_1": "1",
