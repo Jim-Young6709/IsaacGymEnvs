@@ -3,6 +3,12 @@ import os
 import shutil
 import argparse
 import torch
+import socket
+
+def find_free_port():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(('', 0))  # let OS assign an unused port
+        return s.getsockname()[1]
 
 
 # Get CPU count allocated by SLURM
@@ -73,6 +79,7 @@ if __name__ == "__main__":
     capture_video = args.capture_video
     skip_init_eval = args.skip_init_eval
     gpu_num = args.gpu_num
+    port_id = find_free_port()
 
     log_dir = os.path.join(args.train_dir, args.wandb_run_name)
 
@@ -101,7 +108,7 @@ if __name__ == "__main__":
             ckpt_path = 'None'
 
         command_list =[
-            "torchrun", f"--nproc_per_node={args.gpu_num}", "isaacgymenvs/dagger.py",
+            "torchrun", f"--nproc_per_node={args.gpu_num}", f"--master_port={port_id}", "isaacgymenvs/dagger.py",
             f"multi_gpu={args.gpu_num > 0}",
             f"task.env.hdf5_path={args.dataset_path}",
             f"ckpt_path={ckpt_path}", f"resume={resume}",
