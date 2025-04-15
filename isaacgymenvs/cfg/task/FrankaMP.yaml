@@ -50,6 +50,9 @@ env:
   hdf5_path: null # hdf5 file that contains env and trajectory info
   batch_idx: 0 # index of the batch of envs to load from the hdf5 file
   num_task_per_env: 3
+  goal_blk:
+    prob: 0.0
+    size_range: [[0.1, 0.1, 0.1], [0.25, 0.25, 0.25]]
   use_mean_actions: True
 
   reaching_reset_threshold: 50

@@ -255,6 +255,10 @@ class Dagger(object):
         self.expert_collision_rate /= (eval_iter * self.world_size)
         self.expert_reaching_rate /= (eval_iter * self.world_size)
 
+        print(f"Expert success rate: {self.expert_success_rate:.4f}")
+        print(f"Expert collision rate: {self.expert_collision_rate:.4f}")
+        print(f"Expert reaching rate: {self.expert_reaching_rate:.4f}")
+
     def reset_student_rnn(self, reset_idx):
         if reset_idx.any():
             # this is very specific to LSTM policies
