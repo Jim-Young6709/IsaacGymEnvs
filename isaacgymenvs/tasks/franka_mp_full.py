@@ -20,6 +20,7 @@ from neural_mp.utils.pcd_utils import decompose_scene_pcd_params_obs, compute_sc
 from collections import OrderedDict
 from omegaconf import DictConfig
 from tqdm import tqdm
+from scipy.spatial.transform import Rotation
 
 from fabrics_sim.fabrics.franka_fabric_rl import FrankaFabricRL
 from fabrics_sim.integrator.integrators import DisplacementIntegrator
@@ -43,6 +44,10 @@ class FrankaMPFull(FrankaMP):
         self.batch_idx = cfg["env"]["batch_idx"]
         self.num_task_per_env = cfg["env"]["num_task_per_env"]
 
+        # goal blocking config
+        self.goal_blk_prob = cfg["env"]["goal_blk"]["prob"]
+        self.goal_blk_size_range = cfg["env"]["goal_blk"]["size_range"]
+
         # need to change the logic here (2 layers of reset ; multiple start & goal in one env ; relaunch IG)
         self.batch, self.vec_states = self.demo_loader.get_next_batch(batch_idx=self.batch_idx, num_task_per_env=self.num_task_per_env)
         self.vec_states = torch.tensor(self.vec_states, device=self.device, dtype=torch.float)
@@ -59,6 +64,8 @@ class FrankaMPFull(FrankaMP):
             obstacle_config = decompose_scene_pcd_params_obs(pcd_params)
             self.obstacle_configs.append(obstacle_config)
             self.max_obstacles = max(len(obstacle_config[0]), self.max_obstacles)
+
+        self.max_obstacles += 1 # add one for the goal blocking obstacle
 
         super().__init__(cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render)
 
@@ -137,6 +144,16 @@ class FrankaMPFull(FrankaMP):
             ) = self.obstacle_configs[i]
 
             # num_cylinders = len(cylinder_radii) #pausing cylinders due to incorrect spawning. Likely an actor indexing issue.
+            rand_prob = np.random.rand()
+            if rand_prob < self.goal_blk_prob:
+                blk_pos = self.get_ee_from_joint(self.vec_states[i, 1, 1, :7])[0, :3].cpu().numpy() # self.vec_states: (self.batch_size, num_task_per_env, 3, 9)
+                blk_size = np.random.uniform(*self.goal_blk_size_range)
+                blk_ori = np.random.uniform(-np.pi, np.pi, 3)
+                blk_ori = Rotation.from_euler("xyz", blk_ori).as_quat()
+
+                cuboid_dims = np.vstack([cuboid_dims, blk_size.reshape(1, 3)])
+                cuboid_centers = np.vstack([cuboid_centers, blk_pos.reshape(1, 3)])
+                cuboid_quats = np.vstack([cuboid_quats, blk_ori.reshape(1, 4)])
 
             num_cubes = len(cuboid_dims)
 
@@ -445,11 +462,10 @@ class FrankaMPFull(FrankaMP):
         # randomly pick a task (start & goal pair) for each env
         task_idx = torch.randint(0, self.num_task_per_env, (len(env_ids),), device=self.device)
         task = self.vec_states[env_ids, task_idx] # (len(env_ids), 3, 9)
+        # task = self.vec_states[:, 1]
 
-        # start & goal is revertable
-        flip_mask = torch.randint(0, 2, size=(len(env_ids),), device=self.device)
-        start_configs = task[env_ids, flip_mask, :7] # (len(env_ids), 7)
-        goal_configs = task[env_ids, 1 - flip_mask, :7] # (len(env_ids), 7)
+        start_configs = task[env_ids, 0, :7] # (len(env_ids), 7)
+        goal_configs = task[env_ids, 1, :7] # (len(env_ids), 7)
         gripper_state = task[:, 0, 7:9] # might be useful later
 
         # replace tight start / goal with free space config
