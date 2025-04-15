@@ -43,6 +43,7 @@ if __name__ == "__main__":
     parser.add_argument("--start_batch_iter", type=int, default=0)
     parser.add_argument("--fabric_lockin", type=float, default=0.01)
     parser.add_argument("--ts_prob", type=float, default=1.0)
+    parser.add_argument("--gblk", type=float, default=0.0) # proportion of env that has goal blocks
     parser.add_argument("--step_expert", action='store_true')
     parser.add_argument("--rm_previous", action='store_true')
 
@@ -126,6 +127,7 @@ if __name__ == "__main__":
             f"task.fabric.lock_in_pos_err={args.fabric_lockin}", f"task.env.base_policy_url={args.expert_base_policy_url}",
             f"debug_training={args.skip_init_eval}", f"dagger.step_expert={args.step_expert}",
             f"task.env.tight_space_config_prob={args.ts_prob}",
+            f"task.env.goal_blk.prob={args.gblk}"
         ]
 
         # check if {log_dir}/nn/checkpoint_latest.pth exists, if so resume from that path
