@@ -22,7 +22,7 @@ from neural_mp.utils.pcd_utils import decompose_scene_pcd_params_obs, compute_sc
 from neural_mp.utils.geometry import construct_mixed_point_cloud
 from neural_mp.real_utils.real_world_collision_checker import FrankaCollisionChecker
 from neural_mp.utils.franka_utils import unnormalize_franka_joints
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from omegaconf import DictConfig
 from tqdm import tqdm
 
@@ -191,9 +191,9 @@ class FrankaMPRRL(FrankaMP):
                 *_
             ) = self.obstacle_configs[i]
 
-            cuboid_dims = cuboid_dims[[0]]
-            cuboid_centers = cuboid_centers[[0]]
-            cuboid_quats = cuboid_quats[[0]]
+            # cuboid_dims = cuboid_dims[[0]]
+            # cuboid_centers = cuboid_centers[[0]]
+            # cuboid_quats = cuboid_quats[[0]]
 
             # num_cylinders = len(cylinder_radii) #pausing cylinders due to incorrect spawning. Likely an actor indexing issue.
 
@@ -520,6 +520,7 @@ class FrankaMPRRL(FrankaMP):
         self.progress_buf[env_ids] = 0
         self.reset_buf[env_ids] = 0
         self.dyn_flashing(env_ids=env_ids)
+        self.update_dynamic_obstacles_pcd()
         self.compute_observations()
         if (self.pcd_his_len > 0) & (self.pcd_feat_buffer is not None):
             for i in range(self.pcd_his_len - 1):
@@ -527,14 +528,63 @@ class FrankaMPRRL(FrankaMP):
                 self.pcd_feat_buffer[i][env_ids] = self.pcd_feat_buffer[-1][env_ids]
 
     def compute_observations(self):
-        obs = super().compute_observations()
-        # TODO: this is not the correct order, should compute sdf first and then update states_buf
+        self._refresh()
+
+        robot_config = self.states['q'][:, :7].clone()
+        self.update_robot_pcds(robot_config)
+
+        obs_base = OrderedDict()
+        obs_base["current_angles"] = robot_config
+        obs_base["goal_angles"] = self.updated_goal.clone()
+        obs_base["compute_pcd_params"] = self.combined_pcds.clone()
+
+        with torch.no_grad():
+            with torch.autocast('cuda', dtype=torch.float16):
+                pcd_latent = self.pcd_encoder(obs_base)
+
+        if self.pcd_his_len > 0:
+            if self.pcd_feat_buffer is None:
+                # self.pcd_feat_buffer[0] is the oldest pcd feature ; self.pcd_feat_buffer[-1] is the latest pcd feature
+                self.pcd_feat_buffer = deque([pcd_latent[:, :-14].clone() for _ in range(self.pcd_his_len)], maxlen=self.pcd_his_len)
+            elif self.pcd_his_len > 0:
+                self.pcd_feat_buffer.append(pcd_latent[:, :-14].clone())
+
+            if self.pcd_his_delta:
+                his_pcd_feats = self.pcd_feat_buffer[-1] - self.pcd_feat_buffer[0]
+            else:
+                his_pcd_feats = self.pcd_feat_buffer[0]
+            obs = torch.cat((his_pcd_feats, pcd_latent), dim=1)
+        else:
+            num_scene_points = self.num_static_points + self.num_moving_points
+            dyn_pcd = self.combined_pcds[:, self.num_robot_points+self.num_static_points:self.num_robot_points+num_scene_points, :3].clone()
+            idx = torch.randint(0, self.num_moving_points, (dyn_pcd.shape[0], num_scene_points,), device=dyn_pcd.device)
+            idx_expanded = idx.unsqueeze(-1).expand(-1, -1, 3)
+            upsampled_dyn_pcd = torch.gather(dyn_pcd, dim=1, index=idx_expanded)
+            obs_base["compute_pcd_params"][:, self.num_robot_points:self.num_robot_points+num_scene_points, :3] = upsampled_dyn_pcd
+            with torch.no_grad():
+                with torch.autocast('cuda', dtype=torch.float16):
+                    dyn_pcd_latent = self.pcd_encoder(obs_base)
+            obs = torch.cat((dyn_pcd_latent[:, :-14], pcd_latent), dim=1)
+
+        assert self.obs_buf.size(1) == 2055
+
+        obs = obs[:, :-7]
+        self.obs_buf = obs
+
+        # update sdf values
+        dyn_sdf = self.frankacc.check_scene_sdf_batch(robot_config, self.current_moving_obs_pcds.view(self.num_envs, -1, 3), debug=False, sphere_repr_only=True) # (num_envs, num_dyn_points)
+        static_sdf = self.frankacc.check_scene_sdf_batch(robot_config, self.static_pcds, debug=False, sphere_repr_only=True) # (num_envs, num_static_points)
+
+        self.dyn_sdf = torch.min(dyn_sdf, dim=1)[0] # (num_envs, )
+        self.static_sdf = torch.min(static_sdf, dim=1)[0] # (num_envs, )
+
         self.states_buf[:, 0:self.num_obs] = obs.clone()
         self.states_buf[:, self.num_obs:self.num_obs +self.num_dyn_objs*3] = self.dyn_pos.reshape(self.num_envs, -1)
         self.states_buf[:, self.num_obs +self.num_dyn_objs*3:self.num_obs +2*self.num_dyn_objs*3] = self.dyn_vel_direction.reshape(self.num_envs, -1)
         self.states_buf[:, self.num_obs +2*self.num_dyn_objs*3:-1] = self.dyn_sdf.unsqueeze(-1)
         self.states_buf[:, -1:] = self.static_sdf.unsqueeze(-1)
-        return obs
+
+        return self.obs_buf
 
     def compute_reward(self, actions):
         self.check_robot_collision()
@@ -546,12 +596,6 @@ class FrankaMPRRL(FrankaMP):
         quat_err = orientation_error(self.goal_ee[:, 3:], current_ee[:, 3:])
         self.goal_reaching = (pos_err < 0.05) & (quat_err < 15.0) # making it slightly more tolerant atm
         # self.goal_reaching = (pos_err < 0.01) & (quat_err < 15.0) # TODO: should apply this metric later
-
-        dyn_sdf = self.frankacc.check_scene_sdf_batch(current_angles, self.current_moving_obs_pcds.view(self.num_envs, -1, 3), debug=False, sphere_repr_only=True) # (num_envs, num_dyn_points)
-        static_sdf = self.frankacc.check_scene_sdf_batch(current_angles, self.static_pcds, debug=False, sphere_repr_only=True) # (num_envs, num_static_points)
-
-        self.dyn_sdf = torch.min(dyn_sdf, dim=1)[0] # (num_envs, )
-        self.static_sdf = torch.min(static_sdf, dim=1)[0] # (num_envs, )
 
         sdf_curri_idx = min(self.curri_idx, len(self.sdf_rw_max_curri)-1)
         flag_curri_idx = min(self.curri_idx, len(self.flag_rw_max_curri)-1)
@@ -615,6 +659,15 @@ class FrankaMPRRL(FrankaMP):
             self.updated_goal[is_residual_disabled] = self.goal_config[is_residual_disabled]
         else:
             self.updated_goal = self.goal_config.clone()
+
+        self.update_robot_pcds(current_joint_state)
+        obs_base = OrderedDict()
+        obs_base["current_angles"] = current_joint_state
+        obs_base["goal_angles"] = self.updated_goal.clone()
+        obs_base["compute_pcd_params"] = self.combined_pcds.clone()
+        with torch.no_grad():
+            with torch.autocast('cuda', dtype=torch.float16):
+                self.base_delta_action = self.base_model.policy.get_action(obs_dict=obs_base, mean_actions=self.use_mean_actions)
 
         if not self.is_rrl:
             self.base_delta_action[~is_residual_disabled] = 0.0

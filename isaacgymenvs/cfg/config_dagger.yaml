@@ -81,7 +81,7 @@ num_subscenes: 4 # Splits the simulation into N physics scenes and runs each one
 
 # logging cfg
 logging:
-  suppress_timing: False
+  suppress_timing: True
 
 # resume training
 resume: ''

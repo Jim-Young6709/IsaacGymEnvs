@@ -255,6 +255,10 @@ class Dagger(object):
         self.expert_collision_rate /= (eval_iter * self.world_size)
         self.expert_reaching_rate /= (eval_iter * self.world_size)
 
+        print(f"Expert success rate: {self.expert_success_rate:.4f}")
+        print(f"Expert collision rate: {self.expert_collision_rate:.4f}")
+        print(f"Expert reaching rate: {self.expert_reaching_rate:.4f}")
+
     def reset_student_rnn(self, reset_idx):
         if reset_idx.any():
             # this is very specific to LSTM policies
@@ -311,6 +315,8 @@ class Dagger(object):
                 ep=self.total_episodes,
                 test_success=f"{test_success['success_rate']:.4f}",
             )
+            print(f"global rank{self.global_rank} success rate: {test_success['success_rate']:.4f}")
+
 
             count_reaching = torch.zeros(self.env.num_envs, dtype=torch.int, device=self.env.device) # count reaching for goal reaching reset
             has_reached = torch.zeros(self.env.num_envs, dtype=torch.bool, device=self.env.device) # count whether goal has been reached during this episode, for logging purposes
@@ -364,6 +370,7 @@ class Dagger(object):
 
                     if (self.total_steps) % (self.env.max_episode_length * self.cfg.test_frequency) == 0:
                         test_success = self.test(num_test_iterations=self.cfg.test_episodes, run=run)
+                        print(f"global rank{self.global_rank} success rate: {test_success['success_rate']:.4f}")
 
                         if self.cfg.multi_gpu:
                             for k, value in test_success.items():
