@@ -191,9 +191,9 @@ class FrankaMPRRL(FrankaMP):
                 *_
             ) = self.obstacle_configs[i]
 
-            cuboid_dims = cuboid_dims[[0]]
-            cuboid_centers = cuboid_centers[[0]]
-            cuboid_quats = cuboid_quats[[0]]
+            # cuboid_dims = cuboid_dims[[0]]
+            # cuboid_centers = cuboid_centers[[0]]
+            # cuboid_quats = cuboid_quats[[0]]
 
             # num_cylinders = len(cylinder_radii) #pausing cylinders due to incorrect spawning. Likely an actor indexing issue.
 

@@ -107,7 +107,7 @@ reward:
 pcd_spec:
   num_robot_points: 2048
   num_obstacle_points: 4096
-  num_moving_obstacle_points_per_obj: 700
+  num_moving_obstacle_points_per_obj: 500
   num_extra_points_per_obj: 500
   num_ground_plane_points: 500
   num_target_points: 2048
@@ -118,7 +118,7 @@ dyn_obj:
   type: ["cuboid"] # ["cuboid", "sphere", "mesh"]
   dim_range: [[0.05, 0.05, 0.05], [0.2, 0.2, 0.2]]
   dist_range: [0.3, 0.4]
-  vel_range: [0.1, 0.5]
+  vel_range: [0.1, 0.3]
   num_obj: 1
   xyz_threshold: [[-0.3, 0.2], [-0.2, 0.2], [-0.1, 0.6]] # a safety region to prevent the dynamic object from colliding with the robot base
   # xyz_threshold: [[-10.3, 0.2], [-10.2, 10.2], [-10.1, 10.6]] # block motion beyond x=0.2 plane
