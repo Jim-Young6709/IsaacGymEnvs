@@ -144,7 +144,9 @@ class FrankaMP(VecTask):
         self.collision_flags = torch.zeros(cfg["env"]["numEnvs"], device=self.device) # 0 for no collision, 1 for collision
         self.reaching_flags = torch.zeros(cfg["env"]["numEnvs"], device=self.device) # 0 for not reached, 1 for reached
         self.base_model = NeuralMPModel.from_pretrained(self.base_policy_url)
+        self.pcd_encoder = self.base_model.policy.nets['policy'].model.nets['encoder'].nets['obs']
         self.base_model.eval()
+        self.pcd_encoder.eval()
 
         # Refresh tensors & Reset all environments
         self._refresh()
@@ -952,9 +954,6 @@ class FrankaMP(VecTask):
         self.compute_observations()
         self.compute_reward(self.actions)
 
-        if self.pcd_his_len > 0:
-            self.pcd_feat_buffer.append(self.pcd_feats[:, :-14].clone())
-
         # reset the robot to start if it collides with the obstacles
         if sum(self.scene_collision) > 0:
             # if self.cfg["env"]["reset_on_collision"]:
@@ -973,7 +972,7 @@ class FrankaMP(VecTask):
             robot_config = torch.cat((robot_config, gripper_states), dim=1)
 
         robot_pcd = self.gpu_fk_sampler.sample(robot_config, num_robot_points)
-        target_pcd = self.gpu_fk_sampler.sample(self.goal_config, num_target_points) # TODO: don't need to calculate this everytime
+        target_pcd = self.gpu_fk_sampler.sample(self.updated_goal, num_target_points) # TODO: don't need to calculate this everytime
         self.combined_pcds[:, :num_robot_points, :3] = robot_pcd
         self.combined_pcds[:, -num_target_points:, :3] = target_pcd
 
