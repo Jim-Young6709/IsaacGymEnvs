@@ -555,7 +555,16 @@ class FrankaMPRRL(FrankaMP):
                 his_pcd_feats = self.pcd_feat_buffer[0]
             obs = torch.cat((his_pcd_feats, pcd_latent), dim=1)
         else:
-            obs = pcd_latent
+            num_scene_points = self.num_static_points + self.num_moving_points
+            dyn_pcd = self.combined_pcds[:, self.num_robot_points+self.num_static_points:self.num_robot_points+num_scene_points, :3].clone()
+            idx = torch.randint(0, self.num_moving_points, (dyn_pcd.shape[0], num_scene_points,), device=dyn_pcd.device)
+            idx_expanded = idx.unsqueeze(-1).expand(-1, -1, 3)
+            upsampled_dyn_pcd = torch.gather(dyn_pcd, dim=1, index=idx_expanded)
+            obs_base["compute_pcd_params"][:, self.num_robot_points:self.num_robot_points+num_scene_points, :3] = upsampled_dyn_pcd
+            with torch.no_grad():
+                with torch.autocast('cuda', dtype=torch.float16):
+                    dyn_pcd_latent = self.pcd_encoder(obs_base)
+            obs = torch.cat((dyn_pcd_latent[:, :-14], pcd_latent), dim=1)
 
         assert self.obs_buf.size(1) == 2055
 
