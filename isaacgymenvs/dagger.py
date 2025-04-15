@@ -96,10 +96,10 @@ class Dagger(object):
 
         if self.global_rank == 0:
             if os.path.exists(self.log_dir) and not self.cfg.resume:
-                ans = input("WARNING: training directory ({}) already exists! \noverwrite? (y/n)\n".format(self.log_dir))
-                if ans == "y":
-                    print("REMOVING")
-                    shutil.rmtree(self.log_dir)
+                # ans = input("WARNING: training directory ({}) already exists! \noverwrite? (y/n)\n".format(self.log_dir))
+                # if ans == "y":
+                print("REMOVING")
+                shutil.rmtree(self.log_dir)
             os.makedirs(self.log_dir, exist_ok=True)
             os.makedirs(self.video_dir, exist_ok=True)
             os.makedirs(self.checkpoint_dir, exist_ok=True)
