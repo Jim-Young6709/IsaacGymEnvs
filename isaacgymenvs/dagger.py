@@ -447,18 +447,19 @@ class Dagger(object):
                         concat_actions_expert = torch.cat(tuple(actions_expert_buffer), dim=1)
 
                     if self.env.scene_collision.any() and (self.step_back_on_collision or self.reset_on_collision):
+                        reset_envs_bool = self.env.scene_collision.bool().clone()
                         if self.step_back_on_collision:
                             # TODO: clearly bug here, now resetting all the buffers when a single env collides!!!
                             reset_angles = self.abs_angles_his[0].clone()
                             reset_vels = self.vel_angles_his[0].clone()
-                            self.abs_angles_his = deque([reset_angles.clone() for _ in range(self.step_back_on_collision)], maxlen=self.step_back_on_collision)
-                            self.vel_angles_his = deque([reset_vels.clone() for _ in range(self.step_back_on_collision)], maxlen=self.step_back_on_collision)
+                            for i in range(self.step_back_on_collision):
+                                self.abs_angles_his[i][reset_envs_bool] = reset_angles[reset_envs_bool].clone()
+                                self.vel_angles_his[i][reset_envs_bool] = reset_vels[reset_envs_bool].clone()
                         elif self.reset_on_collision:
                             reset_angles = self.env.start_config.clone()
                             reset_vels = torch.zeros_like(self.env.start_config)
 
                         # this part feels junky, maybe just use reset_idx?
-                        reset_envs_bool = self.env.scene_collision.bool().clone()
                         self.env.set_robot_joint_state(joint_state=reset_angles[reset_envs_bool], joint_vel=reset_vels[reset_envs_bool], env_ids=torch.where(reset_envs_bool)[0])
                         self.reset_student_rnn(reset_envs_bool)
                         count_reaching[reset_envs_bool] = 0

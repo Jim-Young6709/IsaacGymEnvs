@@ -127,7 +127,7 @@ if __name__ == "__main__":
             f"task.fabric.lock_in_pos_err={args.fabric_lockin}", f"task.env.base_policy_url={args.expert_base_policy_url}",
             f"debug_training={args.skip_init_eval}", f"dagger.step_expert={args.step_expert}",
             f"task.env.tight_space_config_prob={args.ts_prob}",
-            f"task.env.goal_blk.prob={args.gblk}"
+            f"task.env.goal_blk.prob={args.gblk}",
         ]
 
         # check if {log_dir}/nn/checkpoint_latest.pth exists, if so resume from that path
