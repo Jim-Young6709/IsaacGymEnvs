@@ -70,9 +70,7 @@ class Eval:
 
         while True:
             self.reset_envs()
-            
             # state_obs = self.env.compute_observations()
-
             for test_step in range(self.env.max_episode_length - 1):
                 actions = torch.zeros((self.env.num_envs, self.env.num_actions), device=self.sim_device)
                 obs_dict, rews, dones, infos = self.env.step(actions)
