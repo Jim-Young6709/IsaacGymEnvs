@@ -90,12 +90,7 @@ if __name__ == "__main__":
             print("removing previous runs")
             shutil.rmtree(log_dir)
         else:
-            ans = input("WARNING: training directory ({}) already exists! \n type 'y' to overwrite, 'n' to resume (y/n)\n".format(log_dir))
-            if ans == "y":
-                print("removing previous runs")
-                shutil.rmtree(log_dir)
-            else:
-                print("resuming from previous runs")
+            print("resuming from previous runs")
 
     gpu_cmd = {
         # "DISABLE_LAYER_NV_OPTIMUS_1": "1",
