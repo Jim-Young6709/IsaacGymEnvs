@@ -4,6 +4,7 @@ import shutil
 import argparse
 import torch
 import socket
+from neural_mp.real_utils.model import NeuralMPModel
 
 def find_free_port():
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -103,6 +104,9 @@ if __name__ == "__main__":
         # "VULKAN_DEVICE_INDEX": f"{gpu_id}",
         # "CUDA_VISIBLE_DEVICES": f"{gpu_id}",
     }
+
+    # dummy load the model to download it to cache
+    base_model_dummy_load = NeuralMPModel.from_pretrained(args.expert_base_policy_url)
 
     for outer_epoch in range(1000):
         if os.path.exists(f"{log_dir}/nn/checkpoint_latest.pth"):
