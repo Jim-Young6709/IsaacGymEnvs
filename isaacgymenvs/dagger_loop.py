@@ -5,6 +5,7 @@ import argparse
 import torch
 import socket
 from neural_mp.real_utils.model import NeuralMPModel
+from huggingface_hub import login
 
 def find_free_port():
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -48,6 +49,7 @@ if __name__ == "__main__":
     parser.add_argument("--step_expert", action='store_true')
     parser.add_argument("--rm_previous", action='store_true')
     parser.add_argument("--ckpt_upload", action='store_true')
+    parser.add_argument("--hf_token", type=str, default='')
 
     parser.add_argument("--loss_type", type=str, default='l1')
     parser.add_argument("--colli_reset", action='store_true')
@@ -106,7 +108,11 @@ if __name__ == "__main__":
     }
 
     # dummy load the model to download it to cache
-    base_model_dummy_load = NeuralMPModel.from_pretrained(args.expert_base_policy_url)
+    login(token=args.hf_token)
+    base_model_dummy_load = NeuralMPModel.from_pretrained(
+        args.expert_base_policy_url,
+        use_auth_token=True,
+    ) # pulls weights into ~/.cache/huggingface
 
     for outer_epoch in range(1000):
         if os.path.exists(f"{log_dir}/nn/checkpoint_latest.pth"):
