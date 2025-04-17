@@ -12,11 +12,6 @@ from isaacgymenvs.tasks.utils.pcd_utils import decompose_scene_pcd_params_obs, c
 from robofin.pointcloud.torch import FrankaSampler
 
 
-# def orientation_error(desired, current):
-#     cc = quat_conjugate(current)
-#     q_r = quat_mul(desired, cc)
-#     return q_r[:, 0:3] * torch.sign(q_r[:, 3]).unsqueeze(-1)
-
 def orientation_error(q1, q2):
     """
     batched orientation error computation
