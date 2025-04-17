@@ -41,14 +41,14 @@ class DRPEvals(VecTask):
         # len(data_batch) = self.num_envs
         data_batch = self.demo_loader.get_next_batch()
 
-        self.start_config = torch.zeros((self.cfg["env"]["numEnvs"], 7), device=self.device)
-        self.goal_config = torch.zeros((self.cfg["env"]["numEnvs"], 7), device=self.device)
+        self.start_joint_pos = torch.zeros((self.cfg["env"]["numEnvs"], 7), device=self.device)
+        self.goal_joint_pos = torch.zeros((self.cfg["env"]["numEnvs"], 7), device=self.device)
         self.obstacle_configs = list()
         self.max_obstacles = 0
 
         for env_idx, demo in enumerate(data_batch):
-            self.start_config[env_idx] = torch.tensor(demo['states'][0][0:7], device=self.device)
-            self.goal_config[env_idx] = torch.tensor(demo['states'][0][7:14], device=self.device)
+            self.start_joint_pos[env_idx] = torch.tensor(demo['states'][0][0:7], device=self.device)
+            self.goal_joint_pos[env_idx] = torch.tensor(demo['states'][0][7:14], device=self.device)
             pcd_params = demo['states'][0][15:]
             obstacle_config = decompose_scene_pcd_params_obs(pcd_params)
             self.obstacle_configs.append(obstacle_config)
@@ -133,12 +133,12 @@ class DRPEvals(VecTask):
         
         # set up pcd buffers
         self.num_robot_points = self.pcd_spec_dict['num_robot_points']
+        self.num_goal_robot_points = self.pcd_spec_dict['num_goal_robot_points']
         self.num_obstacle_points = self.pcd_spec_dict['num_obstacle_points']
-        self.num_target_points = self.pcd_spec_dict['num_target_points']
 
         self.static_obstacle_pcd = torch.zeros((self.num_envs, self.num_obstacle_points, 3), device=self.device)
         self.robot_pcd = torch.zeros((self.num_envs, self.num_robot_points, 3), device=self.device)
-        self.target_robot_pcd = torch.zeros((self.num_envs, self.num_target_points, 3), device=self.device)
+        self.goal_robot_pcd = torch.zeros((self.num_envs, self.num_goal_robot_points, 3), device=self.device)
 
         # set up handle buffers
         self.franka_handles = list()
@@ -246,6 +246,9 @@ class DRPEvals(VecTask):
         self.scene_collision = torch.zeros(self.num_envs, dtype=bool)
         self.collision = torch.zeros(self.num_envs, dtype=bool)
 
+        # create target robot pcd
+        self.goal_robot_pcd = self.get_robot_pcds(self.goal_joint_pos)
+
     
     def _refresh(self):
         self.gym.refresh_actor_root_state_tensor(self.sim)
@@ -332,7 +335,7 @@ class DRPEvals(VecTask):
     def reset_idx(self, env_ids=None):
         # will refresh tensors here via set_robot_joint_state
         self.set_robot_joint_state(
-            joint_pos=self.start_config[env_ids], env_ids=env_ids,
+            joint_pos=self.start_joint_pos[env_ids], env_ids=env_ids,
         )
 
         self.progress_buf[env_ids] = 0
@@ -347,10 +350,15 @@ class DRPEvals(VecTask):
 
     def get_observations(self):
         self._refresh()
+        joint_pos = self.states['q'][:, 0:7].clone()
+        self.robot_pcd[:, :, :] = self.get_robot_pcds(joint_pos)
+
         env_obs_dict = dict()
-        env_obs_dict["joint_pos"] = self.states['q'][:, 0:7].clone()
+        env_obs_dict["joint_pos"] = joint_pos
         env_obs_dict["total_collision_status"] = self.collision
         env_obs_dict["scene_collision_status"] = self.scene_collision
+        env_obs_dict["robot_pcd"] = self.robot_pcd
+        env_obs_dict["goal_robot_pcd"] = self.goal_robot_pcd
         env_obs_dict["static_obstacle_pcd"] = self.static_obstacle_pcd
         return env_obs_dict
 

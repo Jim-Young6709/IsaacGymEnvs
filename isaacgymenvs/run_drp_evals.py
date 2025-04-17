@@ -10,7 +10,7 @@ from isaacgymenvs.utils.media_utils import camera_shot
 
 NUM_ROBOT_POINTS = 2048
 NUM_OBSTACLE_POINTS = 4096
-NUM_TARGET_POINTS = 2048
+NUM_GOAL_ROBOT_POINTS = 2048
 
 class Eval:
     def __init__(self):
@@ -31,8 +31,8 @@ class Eval:
         virtual_screen_capture = False
 
         self.cfg["pcd_spec"]["num_robot_points"] = NUM_ROBOT_POINTS
+        self.cfg["pcd_spec"]["num_goal_robot_points"] = NUM_GOAL_ROBOT_POINTS
         self.cfg["pcd_spec"]["num_obstacle_points"] = NUM_OBSTACLE_POINTS
-        self.cfg["pcd_spec"]["num_target_points"] = NUM_TARGET_POINTS
 
         self.env = DRPEvals(
             self.cfg, self.sim_device, graphics_device_id, headless, virtual_screen_capture, force_render
