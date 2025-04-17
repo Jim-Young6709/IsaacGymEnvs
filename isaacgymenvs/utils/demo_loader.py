@@ -1,6 +1,6 @@
 import h5py
+
 class DemoLoader:
-    
     def __init__(self, hdf5_path, batch_size):
         """
         Initialize the demo loader

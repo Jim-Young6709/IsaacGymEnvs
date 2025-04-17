@@ -4,20 +4,17 @@ physics_engine: 'physx'
 headless: False
 
 env:
-  numEnvs: 1024
+  numEnvs: 12
   envSpacing: 1.5
   episodeLength: 1000
   enableDebugVis: False
-  clipObservations: 5.0
-  clipActions: 1.0
-  aggregateMode: 3
-  actionScale: 0.01
 
   asset:
     assetRoot: "../../assets"
     assetFileNameFranka: "urdf/franka_description/robots/franka_panda_gripper.urdf"
+    data_set_path: "../../assets/drp/hybrid1000.hdf5"
 
-  numObservations: 14
+  numObservations: 7
   numActions: 7
 
 

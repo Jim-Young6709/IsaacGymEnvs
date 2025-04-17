@@ -5,12 +5,50 @@ import torch
 from isaacgym import gymutil, gymtorch, gymapi
 from .base.vec_task import VecTask
 
+from isaacgymenvs.utils.demo_loader import DemoLoader
+from isaacgymenvs.tasks.utils.pcd_utils import decompose_scene_pcd_params_obs, compute_scene_oracle_pcd
+
 
 class DRPEvals(VecTask):
     def __init__(self, cfg, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
         self.cfg = cfg
-        self.max_episode_length = 1000
-        super().__init__(config=self.cfg, rl_device=sim_device, sim_device=sim_device, graphics_device_id=graphics_device_id, headless=headless, virtual_screen_capture=virtual_screen_capture, force_render=force_render)
+        self.device = sim_device
+        self.max_episode_length = self.cfg["env"]["episodeLength"]
+        self.debug_viz = self.cfg["env"]["enableDebugVis"]
+
+        super().__init__(
+            config=self.cfg, rl_device=sim_device, sim_device=sim_device, graphics_device_id=graphics_device_id, 
+            headless=headless, virtual_screen_capture=virtual_screen_capture, force_render=force_render,
+        )
+
+        # self.load_data_set()
+    
+        self._refresh()
+        self.reset_idx(torch.arange(self.num_envs, device=self.device))
+    
+
+    def load_data_set(self):
+        # Loading environment dataset
+        hdf5_path = self.cfg["env"]["asset"]["data_set_path"]
+        self.demo_loader = DemoLoader(hdf5_path, self.num_envs)
+        # need to change the logic here (2 layers of reset ; multiple start & goal in one env ; relaunch IG)
+        data_batch = self.demo_loader.get_next_batch()
+
+        self.start_config = torch.zeros((self.num_envs, 7), device=self.device)
+        self.goal_config = torch.zeros((self.num_envs, 7), device=self.device)
+        self.obstacle_configs = []
+        self.obstacle_handles = []
+        self.max_obstacles = 0
+
+        for env_idx, demo in enumerate(data_batch):
+            self.start_config[env_idx] = torch.tensor(demo['states'][0][0:7], device=self.device)
+            self.goal_config[env_idx] = torch.tensor(demo['states'][0][7:14], device=self.device)
+
+            pcd_params = demo['states'][0][15:]
+            obstacle_config = decompose_scene_pcd_params_obs(pcd_params)
+            self.obstacle_configs.append(obstacle_config)
+            self.max_obstacles = max(len(obstacle_config[0]), self.max_obstacles)
+
 
 
     def create_sim(self):
@@ -70,6 +108,20 @@ class DRPEvals(VecTask):
 
             self.envs.append(env_ptr)
             self.cartpole_handles.append(cartpole_handle)
+    
+
+    def _refresh(self):
+        self.gym.refresh_actor_root_state_tensor(self.sim)
+        self.gym.refresh_dof_state_tensor(self.sim)
+        self.gym.refresh_rigid_body_state_tensor(self.sim)
+        self.gym.refresh_jacobian_tensors(self.sim)
+        self.gym.refresh_mass_matrix_tensors(self.sim)
+        self.gym.refresh_net_contact_force_tensor(self.sim)
+
+
+    def reset_idx(self, env_ids=None):
+        self.progress_buf[env_ids] = 0
+        self.reset_buf[env_ids] = 0
 
 
     def pre_physics_step(self, actions):
