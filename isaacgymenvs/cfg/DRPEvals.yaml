@@ -1,7 +1,7 @@
 name: DRPEvals
 physics_engine: 'physx'
 
-headless: True
+headless: False #True
 
 env:
   numEnvs: 128 #256

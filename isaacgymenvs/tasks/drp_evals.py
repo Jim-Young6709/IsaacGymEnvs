@@ -8,8 +8,10 @@ from isaacgym import gymutil, gymtorch, gymapi
 from isaacgymenvs.utils.demo_loader import DemoLoader
 from isaacgymenvs.tasks.base.vec_task import VecTask
 from isaacgymenvs.tasks.utils.pcd_utils import decompose_scene_pcd_params_obs, compute_scene_oracle_pcd
+from isaacgymenvs.tasks.utils.geometry import construct_mixed_point_cloud
 
 from robofin.pointcloud.torch import FrankaSampler
+from geometrout.primitive import Cuboid
 
 
 def orientation_error(q1, q2):
@@ -28,6 +30,14 @@ def orientation_error(q1, q2):
     err = 2 * torch.acos(torch.clamp(w, -1.0, 1.0)) / torch.pi * 180  # Clamp for numerical stability, return in degrees
     return err
 
+def random_quaternion_xyzw():
+    u1, u2, u3 = np.random.uniform(0, 1, 3)
+    qx = np.sqrt(1 - u1) * np.sin(2 * np.pi * u2)
+    qy = np.sqrt(1 - u1) * np.cos(2 * np.pi * u2)
+    qz = np.sqrt(u1) * np.sin(2 * np.pi * u3)
+    qw = np.sqrt(u1) * np.cos(2 * np.pi * u3)
+    return np.array([qx, qy, qz, qw])
+
 
 class DRPEvals(VecTask):
     def __init__(self, cfg, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
@@ -38,9 +48,12 @@ class DRPEvals(VecTask):
         self.debug_viz = self.cfg["env"]["enableDebugVis"]
         if self.headless:
             self.debug_viz = False
+        
 
-        self.max_obstacles = 0
-        self.num_dyn_objs = 0
+        self.use_dynamic_obstacles = True
+
+        self.max_num_static_obstacles = 0
+        self.max_num_dynamic_obstacles = 0
         self.load_data_set()
         self.gpu_fk_sampler = FrankaSampler(sim_device, use_cache=True)
 
@@ -61,8 +74,9 @@ class DRPEvals(VecTask):
 
         self.start_joint_pos = torch.zeros((self.cfg["env"]["numEnvs"], 7), device=self.device)
         self.goal_joint_pos = torch.zeros((self.cfg["env"]["numEnvs"], 7), device=self.device)
+        
         self.obstacle_configs = list()
-        self.max_obstacles = 0
+        self.max_num_static_obstacles = 0
 
         for env_idx, demo in enumerate(data_batch):
             self.start_joint_pos[env_idx] = torch.tensor(demo['states'][0][0:7], device=self.device)
@@ -70,7 +84,7 @@ class DRPEvals(VecTask):
             pcd_params = demo['states'][0][15:]
             obstacle_config = decompose_scene_pcd_params_obs(pcd_params)
             self.obstacle_configs.append(obstacle_config)
-            self.max_obstacles = max(len(obstacle_config[0]), self.max_obstacles)
+            self.max_num_static_obstacles = max(len(obstacle_config[0]), self.max_num_static_obstacles)
           
 
     def create_sim(self):
@@ -152,23 +166,29 @@ class DRPEvals(VecTask):
         # set up handle buffers
         self.franka_handles = list()
         self.env_handles = list()
-        self.obstacle_handles = list()
+        self.static_obstacle_handles = list()
+        self.dynamic_obstacle_handles = list()
+
+        # (num_envs, num_dynamic_obstacles, num_moving_points_per_obj, 3)
+        self.dynamic_obstacle_pcd = list()
 
         # create environments
         for i in range(num_envs):
             env_ptr = self.gym.create_env(self.sim, lower, upper, num_per_row)
+            self.env_handles.append(env_ptr)
 
             # ----- create Franka ----- 
             franka_actor = self.gym.create_actor(
                 env_ptr, self.franka_asset, franka_start_pose, "franka", i, 0, 0
             )
             self.gym.set_actor_dof_properties(env_ptr, franka_actor, franka_dof_props)
+            self.franka_handles.append(franka_actor)
 
             # ----- create static obstacles ----- 
-            env_obstacles = list()
+            static_obstacles_handles = list()
             cuboid_dims, cuboid_centers, cuboid_quats, *_ = self.obstacle_configs[i]
             num_cubes = len(cuboid_dims)
-            for j in range(self.max_obstacles):
+            for j in range(self.max_num_static_obstacles):
                 if j < num_cubes:
                     # create obstacle with actual size and position
                     obstacle_asset, obstacle_pose = self._create_cube(
@@ -184,19 +204,44 @@ class DRPEvals(VecTask):
                         quat=[0, 0, 0, 1]
                     )
                 obstacle_actor = self.gym.create_actor(env_ptr, obstacle_asset, obstacle_pose, f"obstacle_{j}", i, 1, 0)
-                env_obstacles.append(obstacle_actor)
+                static_obstacles_handles.append(obstacle_actor)
+            self.static_obstacle_handles.append(static_obstacles_handles)
 
 
-            # ----- create dynamic obstacles ----- 
-            pass
+            # ----- create dynamic obstacles -----
+            if self.use_dynamic_obstacles:
+                self.max_num_dynamic_obstacles = 10
+                self.num_points_per_dynamic_obstacle = 500
 
-            # ----- store the created env pointers ----- 
-            self.env_handles.append(env_ptr)
-            self.franka_handles.append(franka_actor)
-            self.obstacle_handles.append(env_obstacles)
+                dynamic_obstacle_handles = list()
+                dynamic_obstacles = list()
+                for j in range(self.max_num_dynamic_obstacles):
+                    dyn_objs_dim = np.random.uniform([0.1, 0.1, 0.1], [0.3, 0.3, 0.3])
+                    dyn_objs_pos = np.array([0.5, 0., 0.5])
+                    dyn_objs_xyzw = random_quaternion_xyzw()
+                    dyn_asset, dyn_pose = self._create_cube(
+                        pos=dyn_objs_pos,
+                        size=dyn_objs_dim.tolist(),
+                        quat=dyn_objs_xyzw.tolist(),
+                    )
+                    dynamic_obstacle_actor = self.gym.create_actor(env_ptr, dyn_asset, dyn_pose, f"dyn_{j}", i, 1, 0)
+                    self.gym.set_rigid_body_color(env_ptr, dynamic_obstacle_actor, 0, gymapi.MESH_VISUAL, gymapi.Vec3(0.0, 0.0, 1.0))
+                    dynamic_obstacle_handles.append(dynamic_obstacle_actor)
 
+                    dynamic_obstacles.append(Cuboid(np.array([0.0, 0.0, 0.0]), dyn_objs_dim, np.array([1.0, 0.0, 0.0, 0.0])))
 
-        actor_num = 1 + self.max_obstacles + self.num_dyn_objs
+                self.dynamic_obstacle_handles.append(dynamic_obstacle_handles)
+
+                # (num_dynamic_obstacles, num_moving_points_per_obj, 3)
+                dynamic_pcd = torch.tensor(
+                    construct_mixed_point_cloud(
+                        dynamic_obstacles, num_points=self.num_points_per_dynamic_obstacle*len(dynamic_obstacles), return_point_list=True, even=True
+                    ), device=self.device
+                )[..., 0:3]
+                self.dynamic_obstacle_pcd.append(dynamic_pcd)
+        
+
+        actor_num = 1 + self.max_num_static_obstacles + self.max_num_dynamic_obstacles
         self._init_data(actor_num=actor_num)
     
 
@@ -242,12 +287,22 @@ class DRPEvals(VecTask):
             self.num_envs * actor_num, dtype=torch.int32, device=self.device
         ).view(self.num_envs, -1)
 
+        # global indices for dynamic obstacles
+        if self.use_dynamic_obstacles:
+            # (num_envs, max_num_dynamic_obstacles)
+            self.dynamic_obstacle_indices = torch.tensor(self.dynamic_obstacle_handles, device=self.device, dtype=torch.int32)
+            for i in range(self.num_envs):
+                self.dynamic_obstacle_indices[i] += actor_num * i
+            self.dynamic_obstacle_pcd = torch.stack(self.dynamic_obstacle_pcd, dim=0)
+
         # initialize useful buffers
         self.states = dict()
         self.scene_collision = torch.zeros(self.num_envs, dtype=bool, device=self.device)
         self.collision = torch.zeros(self.num_envs, dtype=bool, device=self.device)
         self.scene_collision_counter = torch.zeros(self.num_envs, dtype=int, device=self.device)
         self.ee_goal_pose = self.get_ee_from_joint(self.goal_joint_pos)
+        self.start_joint_pos = tensor_clamp(self.start_joint_pos, self.franka_dof_lower_limits[:7], self.franka_dof_upper_limits[:7])
+        self.goal_joint_pos = tensor_clamp(self.goal_joint_pos, self.franka_dof_lower_limits[:7], self.franka_dof_upper_limits[:7])
 
     
     def _refresh(self):
@@ -385,8 +440,20 @@ class DRPEvals(VecTask):
         self._refresh()
         if not self.headless:
             self.render()
-        
+    
 
+    def set_dynamic_obstacle_pose(self, dynamic_obstacle_poses, env_ids=None):
+        # dynamic_obstacle_poses: (num_envs, num_dynamic_obstacles, 7)
+        if env_ids is None:
+            env_ids = torch.arange(self.num_envs, device=self.device)
+        flat_dyn_indices = self.dynamic_obstacle_indices[env_ids].view(-1)
+        flat_root_state = self._root_state.view(-1, 13)
+        flat_root_state[flat_dyn_indices, 0:7] = dynamic_obstacle_poses[env_ids, :, :].view(-1, 7) #(num_envs*num_dyn_obs, 7)
+        self.gym.set_actor_root_state_tensor_indexed(
+            self.sim, gymtorch.unwrap_tensor(flat_root_state), gymtorch.unwrap_tensor(flat_dyn_indices), flat_dyn_indices.numel(),
+        )
+
+    
     def get_observations(self):
         self._refresh()
         joint_pos = self.states['q'][:, 0:7].clone()
@@ -403,9 +470,16 @@ class DRPEvals(VecTask):
         return env_obs_dict
 
 
-    def pre_physics_step(self, actions):
+    def pre_physics_step(self, actions, dynamic_obstacle_poses=None):
         joint_position_targets = actions
         self.apply_joint_pos_targets(joint_position_targets)
+
+        if self.use_dynamic_obstacles:
+            dynamic_obstacle_poses = torch.zeros((self.num_envs, self.max_num_dynamic_obstacles, 7), device=self.device)
+            dynamic_obstacle_poses[:, :, 0:3] = torch.rand((self.num_envs, self.max_num_dynamic_obstacles, 3), device=self.device)
+            dynamic_obstacle_poses[:, :, 3:] = torch.tensor([0.0, 0.0, 0.0, 1.0], device=self.device)
+            if dynamic_obstacle_poses is not None:
+                self.set_dynamic_obstacle_pose(dynamic_obstacle_poses)
         
 
     def post_physics_step(self):
@@ -461,7 +535,6 @@ class DRPEvals(VecTask):
                     [p0[0], p0[1], p0[2], pz[0], pz[1], pz[2]], 
                     [0.1, 0.1, 0.85]
                 )
-
 
 
     def get_eval_info(self):
