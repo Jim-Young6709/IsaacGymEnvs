@@ -295,6 +295,15 @@
     </collision>
   </link>
 
+  <link name="right_gripper">
+  </link>
+  <joint name="right_gripper" type="fixed">
+    <origin rpy="0 0 3.1415926" xyz="0 0 0.1"/>
+      <axis xyz="0 0 1"/>
+    <parent link="panda_hand"/>
+    <child link="right_gripper"/>
+  </joint>
+
 </robot>
 
 

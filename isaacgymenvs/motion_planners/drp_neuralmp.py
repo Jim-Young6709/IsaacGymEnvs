@@ -81,7 +81,7 @@ class DRPNeuralMP(MotionPlannerBase):
             with torch.no_grad():
                 with torch.autocast('cuda', dtype=torch.float16):
                     delta_joint_pos_action = self.model.get_action_robomimic(obs_dict)
-            open_loop_joint_pos += delta_joint_pos_action
+            open_loop_joint_pos += delta_joint_pos_action * 1.0
         joint_pos_target = open_loop_joint_pos
         return joint_pos_target
     

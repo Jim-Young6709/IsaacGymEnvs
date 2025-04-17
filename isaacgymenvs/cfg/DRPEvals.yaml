@@ -4,10 +4,10 @@ physics_engine: 'physx'
 headless: False
 
 env:
-  numEnvs: 256
+  numEnvs: 128 #256
   envSpacing: 1.5
   episodeLength: 1000
-  enableDebugVis: False
+  enableDebugVis: True
 
   asset:
     data_set_path: "/home/avenger/Projects/drp/drp_eval/IsaacGymEnvs/assets/drp/hybrid1000.hdf5"

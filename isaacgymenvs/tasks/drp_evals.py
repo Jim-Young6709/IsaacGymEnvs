@@ -1,7 +1,7 @@
 import os
 import torch
 import numpy as np
-
+from scipy.spatial.transform import Rotation
 
 from isaacgym.torch_utils import *
 from isaacgym import gymutil, gymtorch, gymapi
@@ -190,7 +190,7 @@ class DRPEvals(VecTask):
             "hand": self.gym.find_actor_rigid_body_handle(env_ptr, franka_handle, "panda_hand"),
             "leftfinger_tip": self.gym.find_actor_rigid_body_handle(env_ptr, franka_handle, "panda_leftfinger_tip"),
             "rightfinger_tip": self.gym.find_actor_rigid_body_handle(env_ptr, franka_handle, "panda_rightfinger_tip"),
-            "grip_site": self.gym.find_actor_rigid_body_handle(env_ptr, franka_handle, "panda_grip_site"),
+            "grip_site": self.gym.find_actor_rigid_body_handle(env_ptr, franka_handle, "right_gripper"),
         }
 
         # get total DOFs
@@ -227,6 +227,7 @@ class DRPEvals(VecTask):
         self.states = dict()
         self.scene_collision = torch.zeros(self.num_envs, dtype=bool)
         self.collision = torch.zeros(self.num_envs, dtype=bool)
+        self.ee_goal_pose = self.get_ee_from_joint(self.goal_joint_pos)
 
     
     def _refresh(self):
@@ -290,16 +291,30 @@ class DRPEvals(VecTask):
         self.goal_robot_pcd = self.get_robot_pcds(self.goal_joint_pos)
     
 
+    def get_ee_from_joint(self, joint_pos, frame="right_gripper"):
+        """
+        Get the end effector pose from the joint angles.
+        Args:
+            joint_pos (torch.Tensor): 7-dof joint angles. (B, 7)
+        Returns:
+            ee_pose (torch.Tensor)): 7D end effector pose. xyz, xyzw
+        """
+        eef_tranforms = self.gpu_fk_sampler.end_effector_pose(joint_pos, frame)
+        eef_xyz = eef_tranforms[:, :3, 3]
+        eef_rotations = eef_tranforms[:, :3, :3].cpu().numpy()
+        eef_xyzw = Rotation.from_matrix(eef_rotations).as_quat()
+        eef_xyzw = torch.Tensor(eef_xyzw).to(self.device)
+        return torch.cat((eef_xyz, eef_xyzw), dim=1)
+
 
     def reset_idx(self, env_ids=None):
         # will refresh tensors here via set_robot_joint_state
         self.set_robot_joint_state(
             joint_pos=self.start_joint_pos[env_ids], env_ids=env_ids,
         )
-
         self.progress_buf[env_ids] = 0
         self.reset_buf[env_ids] = 0
-    
+
 
     def apply_joint_pos_targets(self, joint_pos_targets):
         gripper_targets = torch.tensor([0.04, 0.04], device=self.device).repeat(self.num_envs, 1)
@@ -376,4 +391,50 @@ class DRPEvals(VecTask):
     def post_physics_step(self):
         self._refresh()
         self.progress_buf += 1
+
+        if self.debug_viz:
+            self.gym.clear_lines(self.viewer)
+            for i in range(self.num_envs):
+                # visualize goal
+                px = (self.ee_goal_pose[:, 0:3][i] + quat_apply(self.ee_goal_pose[:, 3:7][i], torch.tensor([1, 0, 0], device=self.device) * 0.2)).cpu().numpy()
+                py = (self.ee_goal_pose[:, 0:3][i] + quat_apply(self.ee_goal_pose[:, 3:7][i], torch.tensor([0, 1, 0], device=self.device) * 0.2)).cpu().numpy()
+                pz = (self.ee_goal_pose[:, 0:3][i] + quat_apply(self.ee_goal_pose[:, 3:7][i], torch.tensor([0, 0, 1], device=self.device) * 0.2)).cpu().numpy()
+                p0 = self.ee_goal_pose[:, 0:3][i].cpu().numpy()
+                self.gym.add_lines(
+                    self.viewer, self.env_handles[i], 1, 
+                    [p0[0], p0[1], p0[2], px[0], px[1], px[2]], 
+                    [0.85, 0.1, 0.1]
+                )
+                self.gym.add_lines(
+                    self.viewer, self.env_handles[i], 1, 
+                    [p0[0], p0[1], p0[2], py[0], py[1], py[2]], 
+                    [0.1, 0.85, 0.1]
+                )
+                self.gym.add_lines(
+                    self.viewer, self.env_handles[i], 1, 
+                    [p0[0], p0[1], p0[2], pz[0], pz[1], pz[2]], 
+                    [0.1, 0.1, 0.85]
+                )
+
+                # visualize current ee
+                current_ee_pose = torch.cat((self.states["eef_pos"], self.states["eef_quat"]), dim=1)
+                px = (current_ee_pose[:, 0:3][i] + quat_apply(current_ee_pose[:, 3:7][i], torch.tensor([1, 0, 0], device=self.device) * 0.2)).cpu().numpy()
+                py = (current_ee_pose[:, 0:3][i] + quat_apply(current_ee_pose[:, 3:7][i], torch.tensor([0, 1, 0], device=self.device) * 0.2)).cpu().numpy()
+                pz = (current_ee_pose[:, 0:3][i] + quat_apply(current_ee_pose[:, 3:7][i], torch.tensor([0, 0, 1], device=self.device) * 0.2)).cpu().numpy()
+                p0 = current_ee_pose[:, 0:3][i].cpu().numpy()
+                self.gym.add_lines(
+                    self.viewer, self.env_handles[i], 1, 
+                    [p0[0], p0[1], p0[2], px[0], px[1], px[2]], 
+                    [0.85, 0.1, 0.1]
+                )
+                self.gym.add_lines(
+                    self.viewer, self.env_handles[i], 1, 
+                    [p0[0], p0[1], p0[2], py[0], py[1], py[2]], 
+                    [0.1, 0.85, 0.1]
+                )
+                self.gym.add_lines(
+                    self.viewer, self.env_handles[i], 1, 
+                    [p0[0], p0[1], p0[2], pz[0], pz[1], pz[2]], 
+                    [0.1, 0.1, 0.85]
+                )
 
