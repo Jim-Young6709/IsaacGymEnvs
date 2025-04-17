@@ -8,6 +8,9 @@ from isaacgymenvs.tasks import DRPEvals
 from isaacgymenvs.utils.utils import set_seed
 from isaacgymenvs.utils.media_utils import camera_shot
 
+NUM_ROBOT_POINTS = 2048
+NUM_OBSTACLE_POINTS = 4096
+NUM_TARGET_POINTS = 2048
 
 class Eval:
     def __init__(self):
@@ -20,13 +23,16 @@ class Eval:
         config_file_path = "./cfg/DRPEvals.yaml"
         with open(config_file_path, 'r') as file:
             self.cfg = yaml.safe_load(file)
-
         headless = self.cfg['headless']
         force_render = True
         if headless:
             force_render = False
         graphics_device_id = 0
         virtual_screen_capture = False
+
+        self.cfg["pcd_spec"]["num_robot_points"] = NUM_ROBOT_POINTS
+        self.cfg["pcd_spec"]["num_obstacle_points"] = NUM_OBSTACLE_POINTS
+        self.cfg["pcd_spec"]["num_target_points"] = NUM_TARGET_POINTS
 
         self.env = DRPEvals(
             self.cfg, self.sim_device, graphics_device_id, headless, virtual_screen_capture, force_render
@@ -35,7 +41,6 @@ class Eval:
     def reset_envs(self):
         env_ids = torch.arange(self.env.num_envs, device=self.env.device)
         self.env.reset_idx(env_ids)
-        # self.env.base_model.policy.reset()
 
 
     @torch.no_grad()

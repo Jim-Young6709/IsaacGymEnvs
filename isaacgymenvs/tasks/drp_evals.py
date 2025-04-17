@@ -8,7 +8,7 @@ from isaacgym.torch_utils import *
 from isaacgym import gymutil, gymtorch, gymapi
 
 from isaacgymenvs.utils.demo_loader import DemoLoader
-# from isaacgymenvs.tasks.utils.pcd_utils import decompose_scene_pcd_params_obs, compute_scene_oracle_pcd
+from isaacgymenvs.tasks.utils.pcd_utils import decompose_scene_pcd_params_obs, compute_scene_oracle_pcd
 
 
 class DRPEvals(VecTask):
@@ -17,10 +17,11 @@ class DRPEvals(VecTask):
         self.device = sim_device
         self.max_episode_length = self.cfg["env"]["episodeLength"]
         self.debug_viz = self.cfg["env"]["enableDebugVis"]
+        self.pcd_spec_dict = cfg['pcd_spec']
 
         self.max_obstacles = 0
         self.num_dyn_objs = 0
-        # self.load_data_set()
+        self.load_data_set()
 
         super().__init__(
             config=self.cfg, rl_device=sim_device, sim_device=sim_device, graphics_device_id=graphics_device_id, 
@@ -31,27 +32,28 @@ class DRPEvals(VecTask):
         self.reset_idx(torch.arange(self.num_envs, device=self.device))
     
 
-    # def load_data_set(self):
-    #     # Loading environment dataset
-    #     hdf5_path = self.cfg["env"]["asset"]["data_set_path"]
-    #     self.demo_loader = DemoLoader(hdf5_path, self.num_envs)
-    #     # need to change the logic here (2 layers of reset ; multiple start & goal in one env ; relaunch IG)
-    #     data_batch = self.demo_loader.get_next_batch()
+    def load_data_set(self):
+        # Loading environment dataset
+        hdf5_path = self.cfg["env"]["asset"]["data_set_path"]
+        self.demo_loader = DemoLoader(hdf5_path, self.cfg["env"]["numEnvs"])\
+        # len(data_batch) = self.num_envs
+        data_batch = self.demo_loader.get_next_batch()
 
-    #     self.start_config = torch.zeros((self.num_envs, 7), device=self.device)
-    #     self.goal_config = torch.zeros((self.num_envs, 7), device=self.device)
-    #     self.obstacle_configs = []
-    #     self.obstacle_handles = []
-    #     self.max_obstacles = 0
+        self.start_config = torch.zeros((self.cfg["env"]["numEnvs"], 7), device=self.device)
+        self.goal_config = torch.zeros((self.cfg["env"]["numEnvs"], 7), device=self.device)
+        self.obstacle_configs = []
+        self.obstacle_handles = []
+        self.max_obstacles = 0
 
-    #     for env_idx, demo in enumerate(data_batch):
-    #         self.start_config[env_idx] = torch.tensor(demo['states'][0][0:7], device=self.device)
-    #         self.goal_config[env_idx] = torch.tensor(demo['states'][0][7:14], device=self.device)
-
-    #         pcd_params = demo['states'][0][15:]
-    #         obstacle_config = decompose_scene_pcd_params_obs(pcd_params)
-    #         self.obstacle_configs.append(obstacle_config)
-    #         self.max_obstacles = max(len(obstacle_config[0]), self.max_obstacles)
+        for env_idx, demo in enumerate(data_batch):
+            self.start_config[env_idx] = torch.tensor(demo['states'][0][0:7], device=self.device)
+            self.goal_config[env_idx] = torch.tensor(demo['states'][0][7:14], device=self.device)
+            pcd_params = demo['states'][0][15:]
+            obstacle_config = decompose_scene_pcd_params_obs(pcd_params)
+            self.obstacle_configs.append(obstacle_config)
+            self.max_obstacles = max(len(obstacle_config[0]), self.max_obstacles)
+          
+        # self.max_obstacles = 0 # temporarily setting this here
 
 
     def create_sim(self):
@@ -106,6 +108,17 @@ class DRPEvals(VecTask):
         franka_dof_props['effort'][7] = 200
         franka_dof_props['effort'][8] = 200
         return franka_dof_props
+
+    def _create_cube(self, pos, size, quat=[0, 0, 0, 1]):
+        # create cube asset
+        opts = gymapi.AssetOptions()
+        opts.fix_base_link = True
+        asset = self.gym.create_box(self.sim, *size, opts)
+        # define start pose
+        start_pose = gymapi.Transform()
+        start_pose.p = gymapi.Vec3(*pos)
+        start_pose.r = gymapi.Quat(*quat)
+        return asset, start_pose
     
 
     def _create_envs(self, num_envs, spacing, num_per_row):
@@ -131,10 +144,33 @@ class DRPEvals(VecTask):
             )
             self.gym.set_actor_dof_properties(env_ptr, franka_actor, franka_dof_props)
 
+            # create static obstacles
+            env_obstacles = list()
+            cuboid_dims, cuboid_centers, cuboid_quats, cylinder_radii, cylinder_heights, cylinder_centers, cylinder_quats, *_ = self.obstacle_configs[i]
+            # cuboid_dims, cuboid_centers, cuboid_quats, *_ = self.obstacle_configs[i]
+            num_cubes = len(cuboid_dims)
+            for j in range(self.max_obstacles):
+                if j < num_cubes:
+                    # create obstacle with actual size and position
+                    obstacle_asset, obstacle_pose = self._create_cube(
+                        pos=cuboid_centers[j].tolist(),
+                        size=cuboid_dims[j].tolist(),
+                        quat=cuboid_quats[j].tolist()
+                    )
+                else:
+                    # create minimal placeholder obstacles far away
+                    obstacle_asset, obstacle_pose = self._create_cube(
+                        pos=[0., 0., -100.0],
+                        size=[0.001, 0.001, 0.001],
+                        quat=[0, 0, 0, 1]
+                    )
+                obstacle_actor = self.gym.create_actor(env_ptr, obstacle_asset, obstacle_pose, f"obstacle_{j}", i, 1, 0)
+                env_obstacles.append(obstacle_actor)
 
             # store the created env pointers
             self.env_ptrs.append(env_ptr)
             self.frankas.append(franka_actor)
+            self.obstacle_handles.append(env_obstacles)
 
 
         actor_num = 1 + self.max_obstacles + self.num_dyn_objs
@@ -274,7 +310,7 @@ class DRPEvals(VecTask):
     def reset_idx(self, env_ids=None):
         # will refresh tensors here via set_robot_joint_state
         self.set_robot_joint_state(
-            joint_pos=self.franka_default_joint_pos[env_ids, :], env_ids=env_ids,
+            joint_pos=self.start_config[env_ids], env_ids=env_ids,
         )
 
         self.progress_buf[env_ids] = 0
@@ -292,7 +328,7 @@ class DRPEvals(VecTask):
 
     def pre_physics_step(self, actions):
         joint_position_targets = actions
-        self.apply_joint_pos_targets(joint_position_targets)
+        # self.apply_joint_pos_targets(joint_position_targets)
         
 
     def post_physics_step(self):

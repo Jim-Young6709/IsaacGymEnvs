@@ -10,7 +10,7 @@ env:
   enableDebugVis: False
 
   asset:
-    data_set_path: "../../assets/drp/hybrid1000.hdf5"
+    data_set_path: "/home/avenger/Projects/drp/drp_eval/IsaacGymEnvs/assets/drp/hybrid1000.hdf5"
 
   numObservations: 7
   numActions: 7
@@ -39,3 +39,10 @@ sim:
 
 task:
   randomize: False
+
+pcd_spec:
+  num_robot_points: 2048
+  num_obstacle_points: 4096
+  num_extra_points_per_obj: 500
+  num_ground_plane_points: 500
+  num_target_points: 2048
