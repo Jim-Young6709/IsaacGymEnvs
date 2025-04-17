@@ -18,12 +18,16 @@ class DRPEvals(VecTask):
         self.max_episode_length = self.cfg["env"]["episodeLength"]
         self.debug_viz = self.cfg["env"]["enableDebugVis"]
 
+        self.max_obstacles = 0
+        self.num_dyn_objs = 0
+        # self.load_data_set()
+
         super().__init__(
             config=self.cfg, rl_device=sim_device, sim_device=sim_device, graphics_device_id=graphics_device_id, 
             headless=headless, virtual_screen_capture=virtual_screen_capture, force_render=force_render,
         )
 
-        # self.load_data_set()
+        
     
         self._refresh()
         self.reset_idx(torch.arange(self.num_envs, device=self.device))
@@ -107,7 +111,6 @@ class DRPEvals(VecTask):
         lower = gymapi.Vec3(-spacing, -spacing, 0.0)
         upper = gymapi.Vec3(spacing, spacing, spacing)
         
-
         # setup franka
         franka_dof_props = self._create_franka()
         franka_start_pose = gymapi.Transform()
@@ -117,20 +120,70 @@ class DRPEvals(VecTask):
         self.frankas = []
         self.env_ptrs = []
 
-        # Create environments
+        # create environments
         for i in range(num_envs):
             # create env instance
             env_ptr = self.gym.create_env(self.sim, lower, upper, num_per_row)
-            
             # create franka
             franka_actor = self.gym.create_actor(
                 env_ptr, self.franka_asset, franka_start_pose, "franka", i, 0, 0
             )
             self.gym.set_actor_dof_properties(env_ptr, franka_actor, franka_dof_props)
 
+
+
+
+
             # store the created env pointers
             self.env_ptrs.append(env_ptr)
             self.frankas.append(franka_actor)
+
+
+        actor_num = 1 + self.max_obstacles + self.num_dyn_objs
+        self._init_data(actor_num=actor_num)
+    
+
+    def _init_data(self, actor_num):
+        # setup sim handles
+        env_ptr = self.env_ptrs[0]
+        franka_handle = 0
+        self.handles = {
+            # Franka
+            "hand": self.gym.find_actor_rigid_body_handle(env_ptr, franka_handle, "panda_hand"),
+            "leftfinger_tip": self.gym.find_actor_rigid_body_handle(env_ptr, franka_handle, "panda_leftfinger_tip"),
+            "rightfinger_tip": self.gym.find_actor_rigid_body_handle(env_ptr, franka_handle, "panda_rightfinger_tip"),
+            "grip_site": self.gym.find_actor_rigid_body_handle(env_ptr, franka_handle, "panda_grip_site"),
+        }
+
+        # get total DOFs
+        self.num_dofs = self.gym.get_sim_dof_count(self.sim) // self.num_envs
+
+        # set up tensor buffers
+        _net_contact_forces = self.gym.acquire_net_contact_force_tensor(self.sim)
+        self.contact_forces = gymtorch.wrap_tensor(_net_contact_forces).view(self.num_envs, -1, 3)
+        _actor_root_state_tensor = self.gym.acquire_actor_root_state_tensor(self.sim)
+        _dof_state_tensor = self.gym.acquire_dof_state_tensor(self.sim)
+        _rigid_body_state_tensor = self.gym.acquire_rigid_body_state_tensor(self.sim)
+        self._root_state = gymtorch.wrap_tensor(_actor_root_state_tensor).view(self.num_envs, -1, 13)
+        self._dof_state = gymtorch.wrap_tensor(_dof_state_tensor).view(self.num_envs, -1, 2)
+        self._rigid_body_state = gymtorch.wrap_tensor(_rigid_body_state_tensor).view(self.num_envs, -1, 13)
+        self._q = self._dof_state[..., 0]
+        self._qd = self._dof_state[..., 1]
+        self._eef_state = self._rigid_body_state[:, self.handles["grip_site"], :]
+        self._eef_lf_state = self._rigid_body_state[:, self.handles["leftfinger_tip"], :]
+        self._eef_rf_state = self._rigid_body_state[:, self.handles["rightfinger_tip"], :]
+        _jacobian = self.gym.acquire_jacobian_tensor(self.sim, "franka")
+        jacobian = gymtorch.wrap_tensor(_jacobian)
+        hand_joint_index = self.gym.get_actor_joint_dict(env_ptr, franka_handle)['panda_hand_joint']
+        self._j_eef = jacobian[:, hand_joint_index, :, :7]
+
+        # initialize actions
+        self._pos_control = torch.zeros((self.num_envs, self.num_dofs), dtype=torch.float, device=self.device)
+
+        # initialize indices
+        self._global_indices = torch.arange(
+            self.num_envs * actor_num, dtype=torch.int32, device=self.device
+        ).view(self.num_envs, -1)
 
     
 
@@ -143,16 +196,29 @@ class DRPEvals(VecTask):
         self.gym.refresh_net_contact_force_tensor(self.sim)
 
 
+
+    def apply_joint_pos_targets(self, joint_pos_targets):
+        gripper_targets = torch.tensor([0.04, 0.04], device=self.device).repeat(self.num_envs, 1)
+        franka_actions = torch.cat([joint_pos_targets, gripper_targets], dim=1)
+        self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(franka_actions))
+
+
     def reset_idx(self, env_ids=None):
         self.progress_buf[env_ids] = 0
         self.reset_buf[env_ids] = 0
+        
 
 
     def pre_physics_step(self, actions):
-        pass
+        joint_position_targets = actions
+        self.apply_joint_pos_targets(joint_position_targets)
+        
 
-
+        
+        
 
     def post_physics_step(self):
+        self._refresh()
+
         self.progress_buf += 1
 
