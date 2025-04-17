@@ -777,7 +777,7 @@ def compute_franka_reward(
     # Compute resets
     reset_buf = torch.where((progress_buf >= max_episode_length - 1), torch.ones_like(reset_buf), reset_buf)
 
-    reset_buf[(collision_status == 1) & (progress_buf > 30)] = 1
+    # reset_buf[(collision_status == 1) & (progress_buf > 30)] = 1
 
     return rewards, reset_buf, sdf_rewards, flag_rewards
 

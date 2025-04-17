@@ -93,6 +93,7 @@ class Dagger(object):
         self.log_dir = os.path.join(self.cfg.train_dir, run_name)
         self.checkpoint_dir = os.path.join(self.log_dir, "nn")
         self.video_dir = os.path.join(self.log_dir, "videos")
+        self.ckpt_upload = self.cfg.ckpt_upload
 
         if self.global_rank == 0:
             if os.path.exists(self.log_dir) and not self.cfg.resume:
@@ -387,7 +388,7 @@ class Dagger(object):
                             test_success=f"{test_success['success_rate']:.4f}",
                         )
 
-                        self.save_checkpoint(f"checkpoint_step{self.total_steps}_success_{test_success['success_rate']:.4f}.pth")
+                        self.save_checkpoint(f"checkpoint_step{self.total_steps}_success_{test_success['success_rate']:.4f}.pth", wandb_run=run)
 
                     # TODO: get action from (base_policy + fabric), kinda messy, cleanup later
                     abs_base_policy_action = self.env.base_delta_action + self.env.get_joint_angles()
@@ -447,18 +448,19 @@ class Dagger(object):
                         concat_actions_expert = torch.cat(tuple(actions_expert_buffer), dim=1)
 
                     if self.env.scene_collision.any() and (self.step_back_on_collision or self.reset_on_collision):
+                        reset_envs_bool = self.env.scene_collision.bool().clone()
                         if self.step_back_on_collision:
                             # TODO: clearly bug here, now resetting all the buffers when a single env collides!!!
                             reset_angles = self.abs_angles_his[0].clone()
                             reset_vels = self.vel_angles_his[0].clone()
-                            self.abs_angles_his = deque([reset_angles.clone() for _ in range(self.step_back_on_collision)], maxlen=self.step_back_on_collision)
-                            self.vel_angles_his = deque([reset_vels.clone() for _ in range(self.step_back_on_collision)], maxlen=self.step_back_on_collision)
+                            for i in range(self.step_back_on_collision):
+                                self.abs_angles_his[i][reset_envs_bool] = reset_angles[reset_envs_bool].clone()
+                                self.vel_angles_his[i][reset_envs_bool] = reset_vels[reset_envs_bool].clone()
                         elif self.reset_on_collision:
                             reset_angles = self.env.start_config.clone()
                             reset_vels = torch.zeros_like(self.env.start_config)
 
                         # this part feels junky, maybe just use reset_idx?
-                        reset_envs_bool = self.env.scene_collision.bool().clone()
                         self.env.set_robot_joint_state(joint_state=reset_angles[reset_envs_bool], joint_vel=reset_vels[reset_envs_bool], env_ids=torch.where(reset_envs_bool)[0])
                         self.reset_student_rnn(reset_envs_bool)
                         count_reaching[reset_envs_bool] = 0
@@ -640,9 +642,6 @@ class Dagger(object):
                 visual_obs = torch.arange(self.env.num_envs, device=self.device)
 
                 for test_step in range(self.env.max_episode_length - 1):
-                    # temporarily save this comment for debugging purposes, clean up later
-                    # if test_step >= 997:
-                    #     import ipdb ; ipdb.set_trace()
                     obs_student = OrderedDict()
                     obs_student["current_angles"] = self.env.get_joint_angles().clone()
                     obs_student["goal_angles"] = self.env.goal_config.clone()
@@ -715,7 +714,7 @@ class Dagger(object):
 
         return {k: v / total_iters_per_key[k] for k, v in num_success.items()}
 
-    def save_checkpoint(self, prefix='checkpoint_latest'):
+    def save_checkpoint(self, prefix='checkpoint_latest', wandb_run=None):
         if self.global_rank == 0:
             start_time = time.time()
             distillation_ckpt_path = os.path.join(self.checkpoint_dir, f"{prefix}.pth")
@@ -729,6 +728,13 @@ class Dagger(object):
                 checkpoint,
                 distillation_ckpt_path,
             )
+
+            if (wandb_run is not None) and self.cfg.wandb_activate and self.ckpt_upload:
+                # if wandb run handle is provided, will upload the checkpoint
+                artifact = wandb.Artifact(name=f"{wandb_run.id}_{prefix}", type="checkpoint")
+                artifact.add_file(distillation_ckpt_path)
+                wandb_run.log_artifact(artifact)
+
             if not self.cfg.logging.suppress_timing:
                 print("Time to save checkpoint:", time.time() - start_time, "s")
 
