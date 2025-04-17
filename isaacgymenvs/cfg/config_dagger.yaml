@@ -86,5 +86,6 @@ logging:
 # resume training
 resume: ''
 ckpt_path: 'None'
+ckpt_upload: False # whether to upload checkpoints to wandb
 
 storage_devices: [0]

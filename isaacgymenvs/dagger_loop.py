@@ -46,6 +46,7 @@ if __name__ == "__main__":
     parser.add_argument("--gblk", type=float, default=0.0) # proportion of env that has goal blocks
     parser.add_argument("--step_expert", action='store_true')
     parser.add_argument("--rm_previous", action='store_true')
+    parser.add_argument("--ckpt_upload", action='store_true')
 
     parser.add_argument("--loss_type", type=str, default='l1')
     parser.add_argument("--colli_reset", action='store_true')
@@ -127,7 +128,7 @@ if __name__ == "__main__":
             f"task.fabric.lock_in_pos_err={args.fabric_lockin}", f"task.env.base_policy_url={args.expert_base_policy_url}",
             f"debug_training={args.skip_init_eval}", f"dagger.step_expert={args.step_expert}",
             f"task.env.tight_space_config_prob={args.ts_prob}",
-            f"task.env.goal_blk.prob={args.gblk}",
+            f"task.env.goal_blk.prob={args.gblk}", f"ckpt_upload={args.ckpt_upload}",
         ]
 
         # check if {log_dir}/nn/checkpoint_latest.pth exists, if so resume from that path
