@@ -355,6 +355,7 @@ class DRPEvals(VecTask):
 
         env_obs_dict = dict()
         env_obs_dict["joint_pos"] = joint_pos
+        env_obs_dict["goal_joint_pos"] = self.goal_joint_pos
         env_obs_dict["total_collision_status"] = self.collision
         env_obs_dict["scene_collision_status"] = self.scene_collision
         env_obs_dict["robot_pcd"] = self.robot_pcd
