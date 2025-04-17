@@ -255,6 +255,7 @@ class DRPEvals(VecTask):
             if self.use_dynamic_obstacles:
                 self.max_num_dynamic_obstacles = 10
                 self.num_points_per_dynamic_obstacle = 500
+                self.dynamic_obstacle_pcd_combined = torch.zeros((self.num_envs, self.max_num_dynamic_obstacles*self.num_points_per_dynamic_obstacle, 3), device=self.device)
 
                 dynamic_obstacle_handles = list()
                 dynamic_obstacles = list()
@@ -497,8 +498,8 @@ class DRPEvals(VecTask):
 
         # need to update dynamic pcd
         dynamic_obstacle_pcd_world = transform_pcds_to_world(self.dynamic_obstacle_pcd, dynamic_obstacle_poses)
-        dynamic_obstacle_pcd_combined = dynamic_obstacle_pcd_world.view(dynamic_obstacle_pcd_world.shape[0], -1, 3)
-        print(dynamic_obstacle_pcd_combined.shape)
+        self.dynamic_obstacle_pcd_combined = dynamic_obstacle_pcd_world.view(dynamic_obstacle_pcd_world.shape[0], -1, 3)
+        
 
 
     
@@ -515,6 +516,7 @@ class DRPEvals(VecTask):
         env_obs_dict["robot_pcd"] = self.robot_pcd
         env_obs_dict["goal_robot_pcd"] = self.goal_robot_pcd
         env_obs_dict["static_obstacle_pcd"] = self.static_obstacle_pcd
+        env_obs_dict["dynamic_obstacle_pcd"] = self.dynamic_obstacle_pcd_combined
         return env_obs_dict
 
 
