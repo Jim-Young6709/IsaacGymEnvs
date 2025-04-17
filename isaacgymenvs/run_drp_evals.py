@@ -1,30 +1,28 @@
 import yaml
-
+import hydra
 import isaacgym # must import isaacgym before pytorch
 import torch
 import numpy as np
 
+from omegaconf import DictConfig
 from isaacgymenvs.tasks import DRPEvals
 from isaacgymenvs.utils.utils import set_seed
 from isaacgymenvs.utils.media_utils import camera_shot
 from isaacgymenvs.motion_planners import DRPNeuralMP
+from isaacgymenvs.motion_planners import Curobo
 
 
 class Eval:
-    def __init__(self):
+    def __init__(self, cfg):
         self.sim_device = 'cuda:0'
         self.seed = 42
+        self.env_cfg = cfg
         set_seed(self.seed)
 
         self.set_up_env()
         self.set_up_motion_planner()
 
-
     def set_up_env(self):
-        config_file_path = "./cfg/DRPEvals.yaml"
-        with open(config_file_path, 'r') as file:
-            self.env_cfg = yaml.safe_load(file)
-
         headless = self.env_cfg['headless']
         force_render = True
         if headless:
@@ -36,20 +34,22 @@ class Eval:
             self.env_cfg, self.sim_device, graphics_device_id, headless, virtual_screen_capture, force_render
         )
 
-    def set_up_motion_planner(self):
-        self.motion_planner = DRPNeuralMP(self.env)
+    def set_up_motion_planner(self, planner="Curobo"):
+        if planner == "Curobo":
+            self.motion_planner = Curobo(self.env)
+        elif planner == "DRP":
+            self.motion_planner = DRPNeuralMP(self.env)
 
     def reset_envs(self):
         env_ids = torch.arange(self.env.num_envs, device=self.env.device)
         self.env.reset_idx(env_ids)
         self.motion_planner.reset()
 
-
     @torch.no_grad()
     def test_closed_loop(self):
         self.env.generate_scene_pcd(
             num_robot_points=self.motion_planner.num_robot_points,
-            num_goal_robot_points=self.motion_planner.num_goal_robot_points, 
+            num_goal_robot_points=self.motion_planner.num_goal_robot_points,
             num_obstacle_points=self.motion_planner.num_obstacle_points,
         )
         testing_epoch_num = 1
@@ -67,7 +67,6 @@ class Eval:
             print("Reach Rate:",     eval_info_dict["reach_rate"])
             print("Collision Rate:", eval_info_dict["collision_rate"])
             print("Success Rate:",   eval_info_dict["success_rate"])
-    
 
     @torch.no_grad()
     def test_open_loop(self):
@@ -97,12 +96,9 @@ class Eval:
             print("Success Rate:",   eval_info_dict["success_rate"])
 
 
-
-            
-
-            
-def main():
-    agent = Eval()
+@hydra.main(version_base="1.1", config_name="DRPEvals", config_path="./cfg")
+def main(cfg: DictConfig):
+    agent = Eval(cfg)
     agent.test_closed_loop()
 
 if __name__ == "__main__":

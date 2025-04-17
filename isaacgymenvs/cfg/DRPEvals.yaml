@@ -39,3 +39,8 @@ sim:
 
 task:
   randomize: False
+
+hydra:
+  output_subdir: null
+  run:
+    dir: .
