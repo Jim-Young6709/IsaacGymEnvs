@@ -2,13 +2,15 @@ import os
 import torch
 import numpy as np
 
-from .base.vec_task import VecTask
 
 from isaacgym.torch_utils import *
 from isaacgym import gymutil, gymtorch, gymapi
-
 from isaacgymenvs.utils.demo_loader import DemoLoader
+from isaacgymenvs.tasks.base.vec_task import VecTask
 from isaacgymenvs.tasks.utils.pcd_utils import decompose_scene_pcd_params_obs, compute_scene_oracle_pcd
+
+from robofin.pointcloud.torch import FrankaSampler
+
 
 
 class DRPEvals(VecTask):
@@ -22,12 +24,12 @@ class DRPEvals(VecTask):
         self.max_obstacles = 0
         self.num_dyn_objs = 0
         self.load_data_set()
+        self.gpu_fk_sampler = FrankaSampler(sim_device, use_cache=True)
 
         super().__init__(
             config=self.cfg, rl_device=sim_device, sim_device=sim_device, graphics_device_id=graphics_device_id, 
             headless=headless, virtual_screen_capture=virtual_screen_capture, force_render=force_render,
         )
-
         self._refresh()
         self.reset_idx(torch.arange(self.num_envs, device=self.device))
     
@@ -41,8 +43,7 @@ class DRPEvals(VecTask):
 
         self.start_config = torch.zeros((self.cfg["env"]["numEnvs"], 7), device=self.device)
         self.goal_config = torch.zeros((self.cfg["env"]["numEnvs"], 7), device=self.device)
-        self.obstacle_configs = []
-        self.obstacle_handles = []
+        self.obstacle_configs = list()
         self.max_obstacles = 0
 
         for env_idx, demo in enumerate(data_batch):
@@ -53,8 +54,6 @@ class DRPEvals(VecTask):
             self.obstacle_configs.append(obstacle_config)
             self.max_obstacles = max(len(obstacle_config[0]), self.max_obstacles)
           
-        # self.max_obstacles = 0 # temporarily setting this here
-
 
     def create_sim(self):
         self.up_axis = self.cfg["sim"]["up_axis"]
@@ -107,7 +106,11 @@ class DRPEvals(VecTask):
         self.franka_dof_upper_limits = torch.tensor(self.franka_dof_upper_limits, device=self.device)
         franka_dof_props['effort'][7] = 200
         franka_dof_props['effort'][8] = 200
-        return franka_dof_props
+
+        franka_start_pose = gymapi.Transform()
+        franka_start_pose.p = gymapi.Vec3(0.0, 0.0, 0.0)
+        franka_start_pose.r = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
+        return franka_dof_props, franka_start_pose
 
     def _create_cube(self, pos, size, quat=[0, 0, 0, 1]):
         # create cube asset
@@ -125,29 +128,36 @@ class DRPEvals(VecTask):
         lower = gymapi.Vec3(-spacing, -spacing, 0.0)
         upper = gymapi.Vec3(spacing, spacing, spacing)
         
-        # setup franka
-        franka_dof_props = self._create_franka()
-        franka_start_pose = gymapi.Transform()
-        franka_start_pose.p = gymapi.Vec3(0.0, 0.0, 0.0)
-        franka_start_pose.r = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
+        # set up franka
+        franka_dof_props, franka_start_pose = self._create_franka()
+        
+        # set up pcd buffers
+        self.num_robot_points = self.pcd_spec_dict['num_robot_points']
+        self.num_obstacle_points = self.pcd_spec_dict['num_obstacle_points']
+        self.num_target_points = self.pcd_spec_dict['num_target_points']
 
-        self.frankas = []
-        self.env_ptrs = []
+        self.static_obstacle_pcd = torch.zeros((self.num_envs, self.num_obstacle_points, 3), device=self.device)
+        self.robot_pcd = torch.zeros((self.num_envs, self.num_robot_points, 3), device=self.device)
+        self.target_robot_pcd = torch.zeros((self.num_envs, self.num_target_points, 3), device=self.device)
+
+        # set up handle buffers
+        self.franka_handles = list()
+        self.env_handles = list()
+        self.obstacle_handles = list()
 
         # create environments
         for i in range(num_envs):
-            # create env instance
             env_ptr = self.gym.create_env(self.sim, lower, upper, num_per_row)
-            # create franka
+
+            # ----- create Franka ----- 
             franka_actor = self.gym.create_actor(
                 env_ptr, self.franka_asset, franka_start_pose, "franka", i, 0, 0
             )
             self.gym.set_actor_dof_properties(env_ptr, franka_actor, franka_dof_props)
 
-            # create static obstacles
+            # ----- create static obstacles ----- 
             env_obstacles = list()
-            cuboid_dims, cuboid_centers, cuboid_quats, cylinder_radii, cylinder_heights, cylinder_centers, cylinder_quats, *_ = self.obstacle_configs[i]
-            # cuboid_dims, cuboid_centers, cuboid_quats, *_ = self.obstacle_configs[i]
+            cuboid_dims, cuboid_centers, cuboid_quats, *_ = self.obstacle_configs[i]
             num_cubes = len(cuboid_dims)
             for j in range(self.max_obstacles):
                 if j < num_cubes:
@@ -167,9 +177,21 @@ class DRPEvals(VecTask):
                 obstacle_actor = self.gym.create_actor(env_ptr, obstacle_asset, obstacle_pose, f"obstacle_{j}", i, 1, 0)
                 env_obstacles.append(obstacle_actor)
 
-            # store the created env pointers
-            self.env_ptrs.append(env_ptr)
-            self.frankas.append(franka_actor)
+            # compute the static scene pcd (num_obstacle_points, 3)
+            static_obstacle_pcd = compute_scene_oracle_pcd(
+                num_obstacle_points=self.num_obstacle_points,
+                cuboid_dims=cuboid_dims,
+                cuboid_centers=cuboid_centers,
+                cuboid_quats=cuboid_quats,
+            )
+            self.static_obstacle_pcd[i,:, :] = torch.tensor(static_obstacle_pcd, device=self.device)
+
+            # ----- create dynamic obstacles ----- 
+            pass
+
+            # ----- store the created env pointers ----- 
+            self.env_handles.append(env_ptr)
+            self.franka_handles.append(franka_actor)
             self.obstacle_handles.append(env_obstacles)
 
 
@@ -179,7 +201,7 @@ class DRPEvals(VecTask):
 
     def _init_data(self, actor_num):
         # setup sim handles
-        env_ptr = self.env_ptrs[0]
+        env_ptr = self.env_handles[0]
         franka_handle = 0
         self.handles = {
             # Franka
@@ -317,12 +339,19 @@ class DRPEvals(VecTask):
         self.reset_buf[env_ids] = 0
 
 
+
+    def get_robot_pcds(self, joint_pos):
+        robot_pcd = self.gpu_fk_sampler.sample(joint_pos, self.num_robot_points)
+        return robot_pcd
+
+
     def get_observations(self):
         self._refresh()
         env_obs_dict = dict()
         env_obs_dict["joint_pos"] = self.states['q'][:, 0:7].clone()
         env_obs_dict["total_collision_status"] = self.collision
         env_obs_dict["scene_collision_status"] = self.scene_collision
+        env_obs_dict["static_obstacle_pcd"] = self.static_obstacle_pcd
         return env_obs_dict
 
 
