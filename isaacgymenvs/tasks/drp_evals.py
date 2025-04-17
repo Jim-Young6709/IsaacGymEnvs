@@ -132,9 +132,6 @@ class DRPEvals(VecTask):
             self.gym.set_actor_dof_properties(env_ptr, franka_actor, franka_dof_props)
 
 
-
-
-
             # store the created env pointers
             self.env_ptrs.append(env_ptr)
             self.frankas.append(franka_actor)
@@ -186,8 +183,12 @@ class DRPEvals(VecTask):
             self.num_envs * actor_num, dtype=torch.int32, device=self.device
         ).view(self.num_envs, -1)
 
-    
+        # initialize useful buffers
+        self.states = dict()
+        self.scene_collision = torch.zeros(self.num_envs, dtype=bool)
+        self.collision = torch.zeros(self.num_envs, dtype=bool)
 
+    
     def _refresh(self):
         self.gym.refresh_actor_root_state_tensor(self.sim)
         self.gym.refresh_dof_state_tensor(self.sim)
@@ -195,7 +196,28 @@ class DRPEvals(VecTask):
         self.gym.refresh_jacobian_tensors(self.sim)
         self.gym.refresh_mass_matrix_tensors(self.sim)
         self.gym.refresh_net_contact_force_tensor(self.sim)
+        # refresh states
+        self.states.update({
+            "q": self._q[:, :],
+            "qd": self._qd[:, :],
+            "q_gripper": self._q[:, -2:],
+            "eef_pos": self._eef_state[:, :3],
+            "eef_quat": self._eef_state[:, 3:7],
+            "eef_vel": self._eef_state[:, 7:],
+            "eef_lf_pos": self._eef_lf_state[:, :3],
+            "eef_rf_pos": self._eef_rf_state[:, :3],
+        })
+        self.check_robot_collision()
 
+
+    def check_robot_collision(self):
+        self.gym.refresh_net_contact_force_tensor(self.sim)
+        self.scene_collision = torch.where(
+            torch.norm(torch.sum(self.contact_forces[:, :16, :], dim=1), dim=1) > 1.0, 1.0, 0.0
+        )  # the first 16 elements belong to franka robot
+        self.collision = torch.where(
+            torch.sum(torch.norm(self.contact_forces[:, :16, :], dim=2), dim=1) > 1.0, 1.0, 0.0
+        )  # the first 16 elements belong to franka robot, this includes self collision
 
 
     def apply_joint_pos_targets(self, joint_pos_targets):
@@ -250,6 +272,7 @@ class DRPEvals(VecTask):
 
 
     def reset_idx(self, env_ids=None):
+        # will refresh tensors here via set_robot_joint_state
         self.set_robot_joint_state(
             joint_pos=self.franka_default_joint_pos[env_ids, :], env_ids=env_ids,
         )
@@ -258,16 +281,21 @@ class DRPEvals(VecTask):
         self.reset_buf[env_ids] = 0
 
 
+    def get_observations(self):
+        self._refresh()
+        env_obs_dict = dict()
+        env_obs_dict["joint_pos"] = self.states['q'][:, 0:7].clone()
+        env_obs_dict["total_collision_status"] = self.collision
+        env_obs_dict["scene_collision_status"] = self.scene_collision
+        return env_obs_dict
+
+
     def pre_physics_step(self, actions):
         joint_position_targets = actions
-        # self.apply_joint_pos_targets(joint_position_targets)
-        
-
-        
+        self.apply_joint_pos_targets(joint_position_targets)
         
 
     def post_physics_step(self):
         self._refresh()
-
         self.progress_buf += 1
 
