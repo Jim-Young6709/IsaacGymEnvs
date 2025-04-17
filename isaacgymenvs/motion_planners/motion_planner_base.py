@@ -5,6 +5,10 @@ from abc import ABC, abstractmethod
 
 
 class MotionPlannerBase(ABC):
+    def __init__(self, env):
+        self.env = env
+        self.num_envs = self.env.num_envs
+
     @property
     @abstractmethod
     def num_robot_points(self):
@@ -19,7 +23,6 @@ class MotionPlannerBase(ABC):
     @abstractmethod
     def num_obstacle_points(self):
         pass
-
 
     @abstractmethod
     def get_actions(self, env_obs_dict):

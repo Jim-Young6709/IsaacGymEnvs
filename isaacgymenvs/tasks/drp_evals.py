@@ -19,7 +19,6 @@ class DRPEvals(VecTask):
         self.device = sim_device
         self.max_episode_length = self.cfg["env"]["episodeLength"]
         self.debug_viz = self.cfg["env"]["enableDebugVis"]
-        self.pcd_spec_dict = cfg['pcd_spec']
 
         self.max_obstacles = 0
         self.num_dyn_objs = 0
@@ -37,7 +36,7 @@ class DRPEvals(VecTask):
     def load_data_set(self):
         # Loading environment dataset
         hdf5_path = self.cfg["env"]["asset"]["data_set_path"]
-        self.demo_loader = DemoLoader(hdf5_path, self.cfg["env"]["numEnvs"])\
+        self.demo_loader = DemoLoader(hdf5_path, self.cfg["env"]["numEnvs"])
         # len(data_batch) = self.num_envs
         data_batch = self.demo_loader.get_next_batch()
 
@@ -131,15 +130,6 @@ class DRPEvals(VecTask):
         # set up franka
         franka_dof_props, franka_start_pose = self._create_franka()
         
-        # set up pcd buffers
-        self.num_robot_points = self.pcd_spec_dict['num_robot_points']
-        self.num_goal_robot_points = self.pcd_spec_dict['num_goal_robot_points']
-        self.num_obstacle_points = self.pcd_spec_dict['num_obstacle_points']
-
-        self.static_obstacle_pcd = torch.zeros((self.num_envs, self.num_obstacle_points, 3), device=self.device)
-        self.robot_pcd = torch.zeros((self.num_envs, self.num_robot_points, 3), device=self.device)
-        self.goal_robot_pcd = torch.zeros((self.num_envs, self.num_goal_robot_points, 3), device=self.device)
-
         # set up handle buffers
         self.franka_handles = list()
         self.env_handles = list()
@@ -177,14 +167,6 @@ class DRPEvals(VecTask):
                 obstacle_actor = self.gym.create_actor(env_ptr, obstacle_asset, obstacle_pose, f"obstacle_{j}", i, 1, 0)
                 env_obstacles.append(obstacle_actor)
 
-            # compute the static scene pcd (num_obstacle_points, 3)
-            static_obstacle_pcd = compute_scene_oracle_pcd(
-                num_obstacle_points=self.num_obstacle_points,
-                cuboid_dims=cuboid_dims,
-                cuboid_centers=cuboid_centers,
-                cuboid_quats=cuboid_quats,
-            )
-            self.static_obstacle_pcd[i,:, :] = torch.tensor(static_obstacle_pcd, device=self.device)
 
             # ----- create dynamic obstacles ----- 
             pass
@@ -246,9 +228,6 @@ class DRPEvals(VecTask):
         self.scene_collision = torch.zeros(self.num_envs, dtype=bool)
         self.collision = torch.zeros(self.num_envs, dtype=bool)
 
-        # create target robot pcd
-        self.goal_robot_pcd = self.get_robot_pcds(self.goal_joint_pos)
-
     
     def _refresh(self):
         self.gym.refresh_actor_root_state_tensor(self.sim)
@@ -279,7 +258,48 @@ class DRPEvals(VecTask):
         self.collision = torch.where(
             torch.sum(torch.norm(self.contact_forces[:, :16, :], dim=2), dim=1) > 1.0, 1.0, 0.0
         )  # the first 16 elements belong to franka robot, this includes self collision
+    
 
+    def get_robot_pcds(self, joint_pos):
+        robot_pcd = self.gpu_fk_sampler.sample(joint_pos, self.num_robot_points)
+        return robot_pcd
+    
+
+    def generate_scene_pcd(self, num_robot_points, num_goal_robot_points, num_obstacle_points):
+        # set up pcd buffers
+        self.num_robot_points = num_robot_points
+        self.num_goal_robot_points = num_goal_robot_points
+        self.num_obstacle_points = num_obstacle_points
+        self.static_obstacle_pcd = torch.zeros((self.num_envs, self.num_obstacle_points, 3), device=self.device)
+        self.robot_pcd = torch.zeros((self.num_envs, self.num_robot_points, 3), device=self.device)
+        self.goal_robot_pcd = torch.zeros((self.num_envs, self.num_goal_robot_points, 3), device=self.device)
+
+        # generate static obstacle pcd
+        for i in range(self.num_envs):
+            cuboid_dims, cuboid_centers, cuboid_quats, *_ = self.obstacle_configs[i]
+            # (num_obstacle_points, 3)
+            static_obstacle_pcd = compute_scene_oracle_pcd(
+                num_obstacle_points=self.num_obstacle_points,
+                cuboid_dims=cuboid_dims,
+                cuboid_centers=cuboid_centers,
+                cuboid_quats=cuboid_quats,
+            )
+            self.static_obstacle_pcd[i,:, :] = torch.tensor(static_obstacle_pcd, device=self.device)
+        
+        # create target robot pcd
+        self.goal_robot_pcd = self.get_robot_pcds(self.goal_joint_pos)
+    
+
+
+    def reset_idx(self, env_ids=None):
+        # will refresh tensors here via set_robot_joint_state
+        self.set_robot_joint_state(
+            joint_pos=self.start_joint_pos[env_ids], env_ids=env_ids,
+        )
+
+        self.progress_buf[env_ids] = 0
+        self.reset_buf[env_ids] = 0
+    
 
     def apply_joint_pos_targets(self, joint_pos_targets):
         gripper_targets = torch.tensor([0.04, 0.04], device=self.device).repeat(self.num_envs, 1)
@@ -330,23 +350,7 @@ class DRPEvals(VecTask):
         self._refresh()
         if not self.headless:
             self.render()
-
-
-    def reset_idx(self, env_ids=None):
-        # will refresh tensors here via set_robot_joint_state
-        self.set_robot_joint_state(
-            joint_pos=self.start_joint_pos[env_ids], env_ids=env_ids,
-        )
-
-        self.progress_buf[env_ids] = 0
-        self.reset_buf[env_ids] = 0
-
-
-
-    def get_robot_pcds(self, joint_pos):
-        robot_pcd = self.gpu_fk_sampler.sample(joint_pos, self.num_robot_points)
-        return robot_pcd
-
+        
 
     def get_observations(self):
         self._refresh()
@@ -366,7 +370,7 @@ class DRPEvals(VecTask):
 
     def pre_physics_step(self, actions):
         joint_position_targets = actions
-        # self.apply_joint_pos_targets(joint_position_targets)
+        self.apply_joint_pos_targets(joint_position_targets)
         
 
     def post_physics_step(self):

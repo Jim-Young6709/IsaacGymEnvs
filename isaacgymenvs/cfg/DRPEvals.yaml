@@ -39,8 +39,3 @@ sim:
 
 task:
   randomize: False
-
-pcd_spec:
-  num_robot_points: 2048
-  num_obstacle_points: 4096
-  num_goal_robot_points: 2048
