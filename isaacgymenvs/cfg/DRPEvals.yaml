@@ -10,8 +10,6 @@ env:
   enableDebugVis: False
 
   asset:
-    assetRoot: "../../assets"
-    assetFileNameFranka: "urdf/franka_description/robots/franka_panda_gripper.urdf"
     data_set_path: "../../assets/drp/hybrid1000.hdf5"
 
   numObservations: 7
