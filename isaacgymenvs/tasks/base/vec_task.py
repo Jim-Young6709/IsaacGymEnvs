@@ -52,7 +52,7 @@ import sys
 import abc
 from abc import ABC
 
-from fabrics_sim.utils.utils import initialize_warp
+# from fabrics_sim.utils.utils import initialize_warp
 
 EXISTING_SIM = None
 SCREEN_CAPTURE_RESOLUTION = (1027, 768)
@@ -223,7 +223,7 @@ class VecTask(Env):
         """
         
         warp_cache_dir = rl_device
-        initialize_warp(warp_cache_dir)
+        # initialize_warp(warp_cache_dir)
         
         # super().__init__(config, rl_device, sim_device, graphics_device_id, headless, use_dict_obs)
         super().__init__(config, rl_device, sim_device, graphics_device_id, headless)

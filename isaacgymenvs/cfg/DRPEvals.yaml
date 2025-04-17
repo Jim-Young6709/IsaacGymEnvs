@@ -1,0 +1,46 @@
+name: DRPEvals
+physics_engine: 'physx'
+
+headless: False
+
+env:
+  numEnvs: 1024
+  envSpacing: 1.5
+  episodeLength: 1000
+  enableDebugVis: False
+  clipObservations: 5.0
+  clipActions: 1.0
+  aggregateMode: 3
+  actionScale: 0.01
+
+  asset:
+    assetRoot: "../../assets"
+    assetFileNameFranka: "urdf/franka_description/robots/franka_panda_gripper.urdf"
+
+  numObservations: 14
+  numActions: 7
+
+
+sim:
+  dt: 0.01667 # 1/60
+  substeps: 1
+  up_axis: "z"
+  use_gpu_pipeline: True
+  gravity: [0.0, 0.0, -9.81]
+  physx:
+    num_threads: 4
+    solver_type: 1
+    use_gpu: True
+    num_position_iterations: 8
+    num_velocity_iterations: 1
+    contact_offset: 0.005
+    rest_offset: 0.0
+    bounce_threshold_velocity: 0.2
+    max_depenetration_velocity: 1000.0
+    default_buffer_size_multiplier: 5.0
+    max_gpu_contact_pairs: 1048576 # 1024*1024
+    num_subscenes: 4
+    contact_collection: 1
+
+task:
+  randomize: False
