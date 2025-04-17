@@ -54,15 +54,23 @@ class Eval:
         while True:
             self.reset_envs()
             for test_step in range(self.env.max_episode_length - 1):
+                print(test_step)
                 env_obs_dict = self.env.get_observations()
                 joint_pos_targets = self.motion_planner.get_actions(env_obs_dict)
 
                 # joint_pos_targets = torch.zeros((self.env.num_envs, self.env.num_actions), device=self.sim_device)
                 # joint_pos_targets = torch.rand((self.env.num_envs, self.env.num_actions), device=self.sim_device)
+                self.env.step(joint_pos_targets)
+            
+            eval_info_dict = self.env.get_eval_info()
+
+            print("Reach Rate:",     eval_info_dict["reach_rate"])
+            print("Collision Rate:", eval_info_dict["collision_rate"])
+            print("Success Rate:",   eval_info_dict["success_rate"])
+
+            assert 1==2
 
 
-                obs_dict, rews, dones, infos = self.env.step(joint_pos_targets)
-                pass
 
             
 

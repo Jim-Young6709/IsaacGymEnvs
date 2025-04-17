@@ -12,13 +12,37 @@ from isaacgymenvs.tasks.utils.pcd_utils import decompose_scene_pcd_params_obs, c
 from robofin.pointcloud.torch import FrankaSampler
 
 
+# def orientation_error(desired, current):
+#     cc = quat_conjugate(current)
+#     q_r = quat_mul(desired, cc)
+#     return q_r[:, 0:3] * torch.sign(q_r[:, 3]).unsqueeze(-1)
+
+def orientation_error(q1, q2):
+    """
+    batched orientation error computation
+    input shape [B, 4(xyzw)], input ordering doesn't matter
+    return absolute difference in degrees
+    """
+    assert q1.shape == q2.shape, "Desired and current orientations must have the same shape"
+
+    cc = quat_conjugate(q2)
+    q_r = quat_mul(q1, cc)
+
+    # Compute the angle difference using the scalar part (w) of q_r
+    w = torch.abs(q_r[:, 3])
+    err = 2 * torch.acos(torch.clamp(w, -1.0, 1.0)) / torch.pi * 180  # Clamp for numerical stability, return in degrees
+    return err
+
 
 class DRPEvals(VecTask):
     def __init__(self, cfg, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
         self.cfg = cfg
+        self.headless = headless
         self.device = sim_device
         self.max_episode_length = self.cfg["env"]["episodeLength"]
         self.debug_viz = self.cfg["env"]["enableDebugVis"]
+        if self.headless:
+            self.debug_viz = False
 
         self.max_obstacles = 0
         self.num_dyn_objs = 0
@@ -225,8 +249,9 @@ class DRPEvals(VecTask):
 
         # initialize useful buffers
         self.states = dict()
-        self.scene_collision = torch.zeros(self.num_envs, dtype=bool)
-        self.collision = torch.zeros(self.num_envs, dtype=bool)
+        self.scene_collision = torch.zeros(self.num_envs, dtype=bool, device=self.device)
+        self.collision = torch.zeros(self.num_envs, dtype=bool, device=self.device)
+        self.scene_collision_counter = torch.zeros(self.num_envs, dtype=int, device=self.device)
         self.ee_goal_pose = self.get_ee_from_joint(self.goal_joint_pos)
 
     
@@ -390,6 +415,10 @@ class DRPEvals(VecTask):
 
     def post_physics_step(self):
         self._refresh()
+
+        self.check_robot_collision()
+        self.scene_collision_counter += self.scene_collision.int()
+
         self.progress_buf += 1
 
         if self.debug_viz:
@@ -437,4 +466,44 @@ class DRPEvals(VecTask):
                     [p0[0], p0[1], p0[2], pz[0], pz[1], pz[2]], 
                     [0.1, 0.1, 0.85]
                 )
+
+
+
+    def get_eval_info(self):
+        # reaching rate calculation
+        ee_pose = torch.cat((self.states["eef_pos"], self.states["eef_quat"]), dim=1)
+        pos_err = torch.norm(ee_pose[:, 0:3] - self.ee_goal_pose[:, 0:3], dim=1)
+        quat_err = orientation_error(self.ee_goal_pose[:, 3:], ee_pose[:, 3:])
+
+        # import ipdb; ipdb.set_trace()
+
+        has_reached = (pos_err < 0.05) & (quat_err < 15.0) # 5.0
+        reach_rate = torch.sum(has_reached) / self.num_envs
+
+        # collision rate calculation
+        total_scene_collision_num = self.scene_collision_counter
+        has_collided = self.scene_collision_counter > 0
+        collision_rate = torch.sum(has_collided) / self.num_envs
+
+        # success rate calculation
+        has_succeeded = has_reached & (~has_collided)
+        success_rate = torch.sum(has_succeeded) / self.num_envs
+
+        eval_info_dict = dict()
+        eval_info_dict["has_reached"] = has_reached
+        eval_info_dict["reach_rate"] = reach_rate
+        eval_info_dict["total_scene_collision_num"] = total_scene_collision_num
+        eval_info_dict["collision_rate"] = collision_rate
+        eval_info_dict["has_succeeded"] = has_succeeded
+        eval_info_dict["success_rate"] = success_rate
+        return eval_info_dict
+
+
+
+
+
+
+        
+
+
 
