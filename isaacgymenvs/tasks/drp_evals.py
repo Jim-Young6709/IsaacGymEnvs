@@ -39,6 +39,49 @@ def random_quaternion_xyzw():
     return np.array([qx, qy, qz, qw])
 
 
+import torch.nn.functional as F
+def quaternion_to_rotation_matrix(q):
+    # q: (..., 4) -> (..., 3, 3)
+    # (qx, qy, qz, qw)
+    x, y, z, w = q.unbind(-1)
+
+    B = q.shape[:-1]
+
+    xx = x * x
+    yy = y * y
+    zz = z * z
+    ww = w * w
+    xy = x * y
+    xz = x * z
+    yz = y * z
+    wx = w * x
+    wy = w * y
+    wz = w * z
+
+    rot = torch.stack([
+        ww + xx - yy - zz, 2 * (xy - wz),       2 * (xz + wy),
+        2 * (xy + wz),     ww - xx + yy - zz,   2 * (yz - wx),
+        2 * (xz - wy),     2 * (yz + wx),       ww - xx - yy + zz
+    ], dim=-1).reshape(*B, 3, 3)
+    return rot
+
+
+def transform_pcds_to_world(pcds_local, poses):
+    # pcds_local: (N, D, P, 3)
+    # poses: (N, D, 7) -> (x, y, z, qx, qy, qz, qw)
+    trans = poses[:, :, :3]  # (N, D, 3)
+    quat = poses[:, :, 3:]   # (N, D, 4)
+
+    rot = quaternion_to_rotation_matrix(quat).to(pcds_local.dtype)  # (N, D, 3, 3)
+    
+    # Transform pointclouds
+    pcds_local = pcds_local.unsqueeze(-1)  # (N, D, P, 3, 1)
+    pcds_rotated = torch.matmul(rot.unsqueeze(2), pcds_local).squeeze(-1)  # (N, D, P, 3)
+    pcds_world = pcds_rotated + trans.unsqueeze(2)  # (N, D, P, 3)
+    return pcds_world
+
+
+
 class DRPEvals(VecTask):
     def __init__(self, cfg, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
         self.cfg = cfg
@@ -240,7 +283,6 @@ class DRPEvals(VecTask):
                 )[..., 0:3]
                 self.dynamic_obstacle_pcd.append(dynamic_pcd)
         
-
         actor_num = 1 + self.max_num_static_obstacles + self.max_num_dynamic_obstacles
         self._init_data(actor_num=actor_num)
     
@@ -452,6 +494,12 @@ class DRPEvals(VecTask):
         self.gym.set_actor_root_state_tensor_indexed(
             self.sim, gymtorch.unwrap_tensor(flat_root_state), gymtorch.unwrap_tensor(flat_dyn_indices), flat_dyn_indices.numel(),
         )
+
+        # need to update dynamic pcd
+        dynamic_obstacle_pcd_world = transform_pcds_to_world(self.dynamic_obstacle_pcd, dynamic_obstacle_poses)
+        dynamic_obstacle_pcd_combined = dynamic_obstacle_pcd_world.view(dynamic_obstacle_pcd_world.shape[0], -1, 3)
+        print(dynamic_obstacle_pcd_combined.shape)
+
 
     
     def get_observations(self):
