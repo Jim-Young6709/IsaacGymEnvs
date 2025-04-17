@@ -42,10 +42,11 @@ class Eval:
     def reset_envs(self):
         env_ids = torch.arange(self.env.num_envs, device=self.env.device)
         self.env.reset_idx(env_ids)
+        self.motion_planner.reset()
 
 
     @torch.no_grad()
-    def test(self):
+    def test_closed_loop(self):
         self.env.generate_scene_pcd(
             num_robot_points=self.motion_planner.num_robot_points,
             num_goal_robot_points=self.motion_planner.num_goal_robot_points, 
@@ -102,7 +103,7 @@ class Eval:
             
 def main():
     agent = Eval()
-    agent.test()
+    agent.test_closed_loop()
 
 if __name__ == "__main__":
     main()

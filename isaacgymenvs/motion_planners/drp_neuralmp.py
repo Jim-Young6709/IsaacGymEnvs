@@ -113,3 +113,8 @@ class DRPNeuralMP(MotionPlannerBase):
 
 
 
+    def reset(self):
+        self.model.policy.reset()
+
+
+

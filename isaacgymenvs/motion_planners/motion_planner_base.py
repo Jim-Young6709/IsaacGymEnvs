@@ -28,4 +28,8 @@ class MotionPlannerBase(ABC):
     def get_actions(self, env_obs_dict):
         pass
 
+    @abstractmethod
+    def reset(self):
+        pass
+
 
