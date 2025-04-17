@@ -39,6 +39,7 @@ sim:
 
 task:
   randomize: False
+  close_loop: True
 
 hydra:
   output_subdir: null

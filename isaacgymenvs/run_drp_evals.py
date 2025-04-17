@@ -99,7 +99,10 @@ class Eval:
 @hydra.main(version_base="1.1", config_name="DRPEvals", config_path="./cfg")
 def main(cfg: DictConfig):
     agent = Eval(cfg)
-    agent.test_closed_loop()
+    if cfg.task.close_loop:
+        agent.test_closed_loop()
+    else:
+        agent.test_open_loop()
 
 if __name__ == "__main__":
     main()

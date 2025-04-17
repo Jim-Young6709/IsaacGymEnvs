@@ -339,10 +339,8 @@ class Curobo(MotionPlannerBase):
         nn_pcd_obs[:, 0:self.num_robot_points, 0:3] = current_robot_pcd
         return nn_pcd_obs
 
-
-
     def reset(self):
-        self.model.policy.reset()
+        pass
 
 
 
