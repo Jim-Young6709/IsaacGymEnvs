@@ -134,6 +134,9 @@ class Curobo(MotionPlannerBase):
         joint_pos_target = open_loop_joint_pos
         return joint_pos_target
 
+    def get_actions_open_loop(self, env_obs_dict, gt_info=None):
+        return self.get_actions(env_obs_dict, gt_info=gt_info)
+
     def mp_curobo(
         self,
         start_angles,

@@ -34,7 +34,8 @@ class Eval:
             self.env_cfg, self.sim_device, graphics_device_id, headless, virtual_screen_capture, force_render
         )
 
-    def set_up_motion_planner(self, planner="Curobo"):
+    def set_up_motion_planner(self):
+        planner = self.env_cfg.task.planner
         if planner == "Curobo":
             self.motion_planner = Curobo(self.env)
         elif planner == "DRP":
@@ -79,9 +80,10 @@ class Eval:
         for _ in range(testing_epoch_num):
             self.reset_envs()
             env_obs_dict = self.env.get_observations()
+            gt_state = self.env.obstacle_configs
 
             # (max_episode_length, num_envs, 7)
-            joint_pos_targets_buffer = self.motion_planner.get_actions_open_loop(env_obs_dict)
+            joint_pos_targets_buffer = self.motion_planner.get_actions_open_loop(env_obs_dict, gt_state)
 
             # roll out open loop
             for i in range(self.env.max_episode_length):
