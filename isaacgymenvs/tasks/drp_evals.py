@@ -1,6 +1,6 @@
-import numpy as np
 import os
 import torch
+import numpy as np
 
 from .base.vec_task import VecTask
 
@@ -27,8 +27,6 @@ class DRPEvals(VecTask):
             headless=headless, virtual_screen_capture=virtual_screen_capture, force_render=force_render,
         )
 
-        
-    
         self._refresh()
         self.reset_idx(torch.arange(self.num_envs, device=self.device))
     
@@ -83,6 +81,9 @@ class DRPEvals(VecTask):
         franka_asset = self.gym.load_asset(self.sim, asset_root, franka_asset_file, asset_options)
         self.franka_asset = franka_asset
 
+        self.franka_default_joint_pos = torch.tensor(
+            [0.0, -np.pi/4, 0.0, -3*np.pi/4, 0.0, np.pi/2, np.pi/4], device=self.device
+        ).repeat(self.num_envs, 1)
         franka_dof_stiffness = torch.tensor([1000.0]*7 + [800., 800.], dtype=torch.float, device=self.device)
         franka_dof_damping = torch.tensor([50]* 7 + [40., 40.], dtype=torch.float, device=self.device)
 
@@ -200,18 +201,66 @@ class DRPEvals(VecTask):
     def apply_joint_pos_targets(self, joint_pos_targets):
         gripper_targets = torch.tensor([0.04, 0.04], device=self.device).repeat(self.num_envs, 1)
         franka_actions = torch.cat([joint_pos_targets, gripper_targets], dim=1)
+        self._pos_control[:, :] = franka_actions
         self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(franka_actions))
+
+    
+    def set_robot_joint_state(self, joint_pos, joint_vel=None, env_ids=None):
+        if env_ids is None:
+            env_ids = np.arange(self.num_envs)
+        assert len(joint_pos) == len(env_ids)
+        
+        gripper_pos = torch.tensor([0.04, 0.04], device=self.device).repeat(len(env_ids), 1)
+        arm_gripper_joint_pos = torch.cat([joint_pos, gripper_pos], dim=1)
+
+        # prepare full joint state tensor (len(env_ids), 9, 2)
+        state_tensor = arm_gripper_joint_pos.unsqueeze(2)
+        state_tensor = torch.cat((state_tensor, torch.zeros_like(state_tensor)), dim=2)
+        # fill in joint velocity if given
+        if joint_vel is not None:
+            state_tensor[:, 0:7, 1] = joint_vel
+
+        # reset the internal obs accordingly
+        pos = state_tensor[:, :, 0].contiguous()
+        vel = state_tensor[:, :, 1].contiguous()
+        self._q[env_ids, :] = pos
+        self._qd[env_ids, :] = vel
+        self._dof_state[env_ids, :] = state_tensor
+        self._pos_control[env_ids, :] = pos
+
+        multi_env_ids_int32 = self._global_indices[env_ids, 0].flatten()
+        self.gym.set_dof_position_target_tensor_indexed(
+            self.sim,
+            gymtorch.unwrap_tensor(self._pos_control),
+            gymtorch.unwrap_tensor(multi_env_ids_int32),
+            len(multi_env_ids_int32),
+        )
+        self.gym.set_dof_state_tensor_indexed(
+            self.sim,
+            gymtorch.unwrap_tensor(self._dof_state),
+            gymtorch.unwrap_tensor(multi_env_ids_int32),
+            len(multi_env_ids_int32),
+        )
+
+        # update simulation
+        self.gym.simulate(self.sim)
+        self._refresh()
+        if not self.headless:
+            self.render()
 
 
     def reset_idx(self, env_ids=None):
+        self.set_robot_joint_state(
+            joint_pos=self.franka_default_joint_pos[env_ids, :], env_ids=env_ids,
+        )
+
         self.progress_buf[env_ids] = 0
         self.reset_buf[env_ids] = 0
-        
 
 
     def pre_physics_step(self, actions):
         joint_position_targets = actions
-        self.apply_joint_pos_targets(joint_position_targets)
+        # self.apply_joint_pos_targets(joint_position_targets)
         
 
         
