@@ -27,6 +27,7 @@ class ObstacleSpawner:
             self.initialize_obstacles("goal_blocker")
         if self.use_quasi_dynamic:
             self.initialize_obstacles("quasi_dynamic")
+            self.quasi_dynamic_obstacle_enable_num = 0
         if self.use_floating:
             self.initialize_obstacles("floating")
 
@@ -75,12 +76,12 @@ class ObstacleSpawner:
     
     def update_obstacle_poses(self, timestep):
         current_ee_pose = torch.cat((self.env.states["eef_pos"], self.env.states["eef_quat"]), dim=1)
+        current_ee_trans_vel = self.env.states["eef_vel"][:, 0:3]
         goal_ee_pose = self.env.ee_goal_pose
 
         if self.use_goal_blocker:
             retract_timestep = self.max_episode_length - 200
             ee_error = torch.norm(current_ee_pose[:, 0:3] - goal_ee_pose[:, 0:3], dim=1)
-
             # enable the goal blocker if the ee is close to the goal. retract the goal blocker
             # if the timestep is 100 steps before the max episode length
             enable_idx = (ee_error < 0.4) & (timestep < retract_timestep)
@@ -88,7 +89,23 @@ class ObstacleSpawner:
             self.obstacle_poses[enable_idx, goal_blocker_idx, :] = goal_ee_pose[enable_idx, :]
             self.obstacle_poses[~enable_idx, goal_blocker_idx, :] = self.disable_pose[~enable_idx, goal_blocker_idx, :]
         
+        if self.use_quasi_dynamic:
+            time_interal = self.max_episode_length // (self.spawner_cfg["quasi_dynamic"]["num"] + 1)
+            if timestep % time_interal == 0:
+                quasi_dynamic_obstacle_id = self.obstacle_index_dict["quasi_dynamic"][self.quasi_dynamic_obstacle_enable_num]
+                self.quasi_dynamic_obstacle_enable_num += 1
+                # direction of motion of the robot ee (num_envs, 3)
+                current_ee_trans_vel_dir = current_ee_trans_vel / (torch.norm(current_ee_trans_vel, dim=1, keepdim=True) + 1e-8)
+                # (num_envs, ) TODO: may need to divide by 2
+                safe_radius = torch.norm(self.combined_obstacle_dim_tensor[:, quasi_dynamic_obstacle_id, 0:3], dim=1)
+                # set the obstacle to a certain distance along the direction of motion
+                obstacle_pose = current_ee_pose.clone()
+                obstacle_pose[:, 0:3] += current_ee_trans_vel_dir * safe_radius * 1.2
+                # set the obstalce pose
+                self.obstacle_poses[:, quasi_dynamic_obstacle_id, :] = obstacle_pose
+            
 
+        
         return self.obstacle_poses
             
 
