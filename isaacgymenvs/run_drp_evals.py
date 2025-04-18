@@ -35,6 +35,7 @@ class Eval:
             self.env_cfg, self.sim_device, graphics_device_id, headless, virtual_screen_capture, force_render
         )
         self.use_controller = self.env_cfg.env.useController
+        self.interpolated_substeps = self.env_cfg.env.interpolated_substeps
 
     def set_up_motion_planner(self):
         planner = self.env_cfg.task.planner
@@ -89,13 +90,19 @@ class Eval:
 
             # roll out open loop
             for i in tqdm(range(self.env.max_episode_length), desc="Env step"):
+                env_obs_dict = self.env.get_observations()
+                current_joint_pos = env_obs_dict["joint_pos"]
                 joint_pos_targets = joint_pos_targets_buffer[i]
-                if self.use_controller:
-                    self.env.step(joint_pos_targets)
-                else:
-                    self.env.set_robot_joint_state(joint_pos_targets)
-                    self.env.check_robot_collision()
-                    self.env.scene_collision_counter += self.env.scene_collision.int()
+                for i in range(self.interpolated_substeps):
+                    sub_joint_pos_targets = (
+                        current_joint_pos + (joint_pos_targets - current_joint_pos) * (i + 1) / self.interpolated_substeps
+                    )
+                    if self.use_controller:
+                        self.env.step(sub_joint_pos_targets)
+                    else:
+                        self.env.set_robot_joint_state(sub_joint_pos_targets)
+                        self.env.check_robot_collision()
+                        self.env.scene_collision_counter += self.env.scene_collision.int()
 
             # get the eval information
             eval_info_dict = self.env.get_eval_info()

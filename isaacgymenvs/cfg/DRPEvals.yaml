@@ -16,6 +16,7 @@ env:
   numActions: 7
 
   useController: True
+  interpolated_substeps: 1 # curobo might need 100 here
 
 sim:
   dt: 0.01667 # 1/60
