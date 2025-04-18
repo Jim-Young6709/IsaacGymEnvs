@@ -253,7 +253,7 @@ class DRPEvals(VecTask):
 
             # ----- create dynamic obstacles -----
             if self.use_dynamic_obstacles:
-                self.max_num_dynamic_obstacles = 10
+                self.max_num_dynamic_obstacles = 2 #10
                 self.num_points_per_dynamic_obstacle = 500
                 self.dynamic_obstacle_pcd_combined = torch.zeros((self.num_envs, self.max_num_dynamic_obstacles*self.num_points_per_dynamic_obstacle, 3), device=self.device)
 
@@ -499,10 +499,8 @@ class DRPEvals(VecTask):
         # need to update dynamic pcd
         dynamic_obstacle_pcd_world = transform_pcds_to_world(self.dynamic_obstacle_pcd, dynamic_obstacle_poses)
         self.dynamic_obstacle_pcd_combined = dynamic_obstacle_pcd_world.view(dynamic_obstacle_pcd_world.shape[0], -1, 3)
-        
 
 
-    
     def get_observations(self):
         self._refresh()
         joint_pos = self.states['q'][:, 0:7].clone()
@@ -516,7 +514,7 @@ class DRPEvals(VecTask):
         env_obs_dict["robot_pcd"] = self.robot_pcd
         env_obs_dict["goal_robot_pcd"] = self.goal_robot_pcd
         env_obs_dict["static_obstacle_pcd"] = self.static_obstacle_pcd
-        env_obs_dict["dynamic_obstacle_pcd"] = self.dynamic_obstacle_pcd_combined
+        env_obs_dict["dynamic_obstacle_pcd"] = self.dynamic_obstacle_pcd_combined    
         return env_obs_dict
 
 
@@ -526,8 +524,9 @@ class DRPEvals(VecTask):
 
         if self.use_dynamic_obstacles:
             dynamic_obstacle_poses = torch.zeros((self.num_envs, self.max_num_dynamic_obstacles, 7), device=self.device)
-            dynamic_obstacle_poses[:, :, 0:3] = torch.rand((self.num_envs, self.max_num_dynamic_obstacles, 3), device=self.device)
+            dynamic_obstacle_poses[:, :, 0:3] = torch.tensor([1.0, 3, 2.0], device=self.device) #torch.rand((self.num_envs, self.max_num_dynamic_obstacles, 3), device=self.device)
             dynamic_obstacle_poses[:, :, 3:] = torch.tensor([0.0, 0.0, 0.0, 1.0], device=self.device)
+
             if dynamic_obstacle_poses is not None:
                 self.set_dynamic_obstacle_pose(dynamic_obstacle_poses)
         
