@@ -34,7 +34,9 @@ class DRPEvals(VecTask):
         self.load_data_set()
         self.gpu_fk_sampler = FrankaSampler(sim_device, use_cache=True)
 
-        self.obstacle_spawner = ObstacleSpawner(self)
+        self.obstacle_spawner = ObstacleSpawner(
+            self, num_envs=self.cfg["env"]["numEnvs"], config_path=self.cfg["env"]["asset"]["obstacle_spawner_cfg"],
+        )
 
         super().__init__(
             config=self.cfg, rl_device=sim_device, sim_device=sim_device, graphics_device_id=graphics_device_id, 
@@ -150,6 +152,7 @@ class DRPEvals(VecTask):
 
         # (num_envs, num_dynamic_obstacles, num_moving_points_per_obj, 3)
         self.dynamic_obstacle_pcd = list()
+        self.max_num_dynamic_obstacles = self.obstacle_spawner.num_obstacles
 
         # create environments
         for i in range(num_envs):
@@ -189,14 +192,13 @@ class DRPEvals(VecTask):
 
             # ----- create dynamic obstacles -----
             if self.use_dynamic_obstacles:
-                self.max_num_dynamic_obstacles = 2 #10
                 self.num_points_per_dynamic_obstacle = 500
                 self.dynamic_obstacle_pcd_combined = torch.zeros((self.num_envs, self.max_num_dynamic_obstacles*self.num_points_per_dynamic_obstacle, 3), device=self.device)
 
                 dynamic_obstacle_handles = list()
                 dynamic_obstacles = list()
                 for j in range(self.max_num_dynamic_obstacles):
-                    dyn_objs_dim = np.random.uniform([0.1, 0.1, 0.1], [0.3, 0.3, 0.3])
+                    dyn_objs_dim = self.obstacle_spawner.combined_obstacle_dim_tensor[i, j].cpu().numpy()
                     dyn_objs_pos = np.array([0.5, 0., 0.5])
                     dyn_objs_xyzw = random_quaternion_xyzw()
                     dyn_asset, dyn_pose = self._create_cube(
@@ -454,17 +456,17 @@ class DRPEvals(VecTask):
         return env_obs_dict
 
 
-    def pre_physics_step(self, actions, dynamic_obstacle_poses=None):
+    def pre_physics_step(self, actions):
         joint_position_targets = actions
         self.apply_joint_pos_targets(joint_position_targets)
 
         if self.use_dynamic_obstacles:
-            dynamic_obstacle_poses = torch.zeros((self.num_envs, self.max_num_dynamic_obstacles, 7), device=self.device)
-            dynamic_obstacle_poses[:, :, 0:3] = torch.tensor([1.0, 3, 2.0], device=self.device) #torch.rand((self.num_envs, self.max_num_dynamic_obstacles, 3), device=self.device)
-            dynamic_obstacle_poses[:, :, 3:] = torch.tensor([0.0, 0.0, 0.0, 1.0], device=self.device)
+            # dynamic_obstacle_poses = torch.zeros((self.num_envs, self.max_num_dynamic_obstacles, 7), device=self.device)
+            # dynamic_obstacle_poses[:, :, 0:3] = torch.tensor([1.0, 3, 2.0], device=self.device) #torch.rand((self.num_envs, self.max_num_dynamic_obstacles, 3), device=self.device)
+            # dynamic_obstacle_poses[:, :, 3:] = torch.tensor([0.0, 0.0, 0.0, 1.0], device=self.device)
 
-            if dynamic_obstacle_poses is not None:
-                self.set_dynamic_obstacle_pose(dynamic_obstacle_poses)
+            dynamic_obstacle_poses = self.obstacle_spawner.update_obstacle_poses(timestep=self.progress_buf)
+            self.set_dynamic_obstacle_pose(dynamic_obstacle_poses)
         
 
     def post_physics_step(self):

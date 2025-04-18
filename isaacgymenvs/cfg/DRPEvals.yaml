@@ -6,11 +6,12 @@ headless: False #True
 env:
   numEnvs: 128 #256
   envSpacing: 1.5
-  episodeLength: 10000000 #1000
+  episodeLength: 200 #1000
   enableDebugVis: True
 
   asset:
     data_set_path: "/home/avenger/Projects/drp/drp_eval/IsaacGymEnvs/assets/drp/hybrid1000.hdf5"
+    obstacle_spawner_cfg: "/home/avenger/Projects/drp/drp_eval/IsaacGymEnvs/isaacgymenvs/obstacle_spawner/obstacle_spanwer_cfg/test_config.yaml"
 
   numObservations: 7
   numActions: 7
