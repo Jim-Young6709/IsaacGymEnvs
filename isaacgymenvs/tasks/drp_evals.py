@@ -488,8 +488,9 @@ class DRPEvals(VecTask):
 
         # ------------ updating dynamic obstacle pcd for obstacles that are currently moving ------------
         # (num_envs, num_moving_dynamic_obstacles, num_points_per_obstacle, 3)
-        self.moving_dynamic_obstacle_pcb_combined = dynamic_obstacle_pcd_world[:, self.obstacle_spawner.moving_obstacle_flag, :, :]
-
+        moving_dynamic_obstacle_pcd_world = dynamic_obstacle_pcd_world[:, self.obstacle_spawner.moving_obstacle_flag, :, :]
+        self.moving_dynamic_obstacle_pcb_combined = moving_dynamic_obstacle_pcd_world.view(moving_dynamic_obstacle_pcd_world.shape[0], -1, 3)
+        
 
     def get_observations(self):
         self._refresh()

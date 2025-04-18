@@ -1,7 +1,7 @@
 
 
 goal_blocker:
-  enable: True
+  enable: False
   num: 1
   size:
     low: [0.1, 0.1, 0.1]
@@ -9,7 +9,7 @@ goal_blocker:
 
 
 quasi_dynamic:
-  enable: False
+  enable: True
   num: 2
   size:
     low: [0.1, 0.1, 0.1]
@@ -17,7 +17,7 @@ quasi_dynamic:
 
 
 floating:
-  enable: True
+  enable: False
   num: 5
   size:
     low: [0.1, 0.1, 0.1]
