@@ -58,12 +58,12 @@ class ObstacleSpawner:
         goal_ee_pose = self.env.ee_goal_pose
 
         if self.use_goal_blocker:
-            retract_timestep = self.max_episode_length - 100
+            retract_timestep = self.max_episode_length - 200
             ee_error = torch.norm(current_ee_pose[:, 0:3] - goal_ee_pose[:, 0:3], dim=1)
 
             # enable the goal blocker if the ee is close to the goal. retract the goal blocker
             # if the timestep is 100 steps before the max episode length
-            enable_idx = (ee_error < 0.2) & (timestep < retract_timestep)
+            enable_idx = (ee_error < 0.4) & (timestep < retract_timestep)
             goal_blocker_idx = self.obstacle_index_dict["goal_blocker"]
             self.obstacle_poses[enable_idx, goal_blocker_idx, :] = goal_ee_pose[enable_idx, :]
             self.obstacle_poses[~enable_idx, goal_blocker_idx, :] = self.disable_pose[~enable_idx, goal_blocker_idx, :]

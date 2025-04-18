@@ -4,9 +4,9 @@ physics_engine: 'physx'
 headless: False #True
 
 env:
-  numEnvs: 128 #256
+  numEnvs: 16 #256
   envSpacing: 1.5
-  episodeLength: 200 #1000
+  episodeLength: 1000 #1000
   enableDebugVis: True
 
   asset:

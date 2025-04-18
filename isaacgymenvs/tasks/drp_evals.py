@@ -436,6 +436,7 @@ class DRPEvals(VecTask):
 
         # need to update dynamic pcd
         dynamic_obstacle_pcd_world = transform_pcds_to_world(self.dynamic_obstacle_pcd, dynamic_obstacle_poses)
+        # (num_envs, num_dynamic_pcd, 3)
         self.dynamic_obstacle_pcd_combined = dynamic_obstacle_pcd_world.view(dynamic_obstacle_pcd_world.shape[0], -1, 3)
 
 
@@ -443,6 +444,18 @@ class DRPEvals(VecTask):
         self._refresh()
         joint_pos = self.states['q'][:, 0:7].clone()
         self.robot_pcd[:, :, :] = self.get_robot_pcds(joint_pos)
+
+        # [(num_dynamic_obstacles, 3), (num_dynamic_obstacles, 3), ... ] -> length is num_envs
+        filtered_dynamic_obstacle_pcd_list = [self.dynamic_obstacle_pcd_combined[i] for i in range(self.num_envs)]
+        # remove any points in the pcd where the z value is below 0. This will result in a list of varying sized pcd
+        # [(n, 3), (m, 3), ... ] -> length is num_envs
+        filtered_dynamic_obstacle_pcd_list = [pcd[pcd[:, 2] >= 0] for pcd in filtered_dynamic_obstacle_pcd_list]
+
+        # combined pcd
+        combined_pcd_list = [
+            torch.cat((self.static_obstacle_pcd[i], filtered_dynamic_obstacle_pcd_list[i]), dim=0)
+            for i in range(self.num_envs)
+        ]
 
         env_obs_dict = dict()
         env_obs_dict["joint_pos"] = joint_pos
@@ -452,7 +465,8 @@ class DRPEvals(VecTask):
         env_obs_dict["robot_pcd"] = self.robot_pcd
         env_obs_dict["goal_robot_pcd"] = self.goal_robot_pcd
         env_obs_dict["static_obstacle_pcd"] = self.static_obstacle_pcd
-        env_obs_dict["dynamic_obstacle_pcd"] = self.dynamic_obstacle_pcd_combined    
+        env_obs_dict["dynamic_obstacle_pcd"] = filtered_dynamic_obstacle_pcd_list
+        env_obs_dict["combined_obstacle_pcd"] = combined_pcd_list
         return env_obs_dict
 
 
@@ -461,10 +475,6 @@ class DRPEvals(VecTask):
         self.apply_joint_pos_targets(joint_position_targets)
 
         if self.use_dynamic_obstacles:
-            # dynamic_obstacle_poses = torch.zeros((self.num_envs, self.max_num_dynamic_obstacles, 7), device=self.device)
-            # dynamic_obstacle_poses[:, :, 0:3] = torch.tensor([1.0, 3, 2.0], device=self.device) #torch.rand((self.num_envs, self.max_num_dynamic_obstacles, 3), device=self.device)
-            # dynamic_obstacle_poses[:, :, 3:] = torch.tensor([0.0, 0.0, 0.0, 1.0], device=self.device)
-
             dynamic_obstacle_poses = self.obstacle_spawner.update_obstacle_poses(timestep=self.progress_buf)
             self.set_dynamic_obstacle_pose(dynamic_obstacle_poses)
         
