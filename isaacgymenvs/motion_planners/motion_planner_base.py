@@ -1,14 +1,16 @@
 
 import torch
 import numpy as np
+from isaacgymenvs.tasks import DRPEvals
 from abc import ABC, abstractmethod
 
 
 class MotionPlannerBase(ABC):
-    def __init__(self, env):
+    def __init__(self, env: DRPEvals):
         self.env = env
         self.device = self.env.device
         self.num_envs = self.env.num_envs
+        self.device = self.env.device
 
     @property
     @abstractmethod

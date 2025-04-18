@@ -33,3 +33,4 @@ outputs/
 *.hydra*
 /isaacgymenvs/wandb
 *.hdf5
+*.log

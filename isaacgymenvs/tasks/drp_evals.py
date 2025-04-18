@@ -78,6 +78,7 @@ class DRPEvals(VecTask):
         plane_params = gymapi.PlaneParams()
         # set the normal force to be z dimension
         plane_params.normal = gymapi.Vec3(0.0, 0.0, 1.0) if self.up_axis == 'z' else gymapi.Vec3(0.0, 1.0, 0.0)
+        plane_params.distance = 0.3 # according to current randomization params, -0.275 would be the lowest surface from the env
         self.gym.add_ground(self.sim, plane_params)
     
     def _create_franka(self, ):
@@ -231,7 +232,7 @@ class DRPEvals(VecTask):
         
         actor_num = 1 + self.max_num_static_obstacles + self.max_num_dynamic_obstacles
         self._init_data(actor_num=actor_num)
-    
+
 
     def _init_data(self, actor_num):
         # setup sim handles
@@ -314,6 +315,33 @@ class DRPEvals(VecTask):
             "eef_rf_pos": self._eef_rf_state[:, :3],
         })
         self.check_robot_collision()
+
+
+    def set_viewer(self):
+        """
+        Create the viewer.
+        NOTE: hardcoded for single env setup.
+        """
+
+        self.enable_viewer_sync = True
+        self.viewer = None
+
+        # if running with a viewer, set up keyboard shortcuts and camera
+        if self.headless == False:
+            # subscribe to keyboard shortcuts
+            self.viewer = self.gym.create_viewer(self.sim, gymapi.CameraProperties())
+            self.gym.subscribe_viewer_keyboard_event(self.viewer, gymapi.KEY_ESCAPE, "QUIT")
+            self.gym.subscribe_viewer_keyboard_event(
+                self.viewer, gymapi.KEY_V, "toggle_viewer_sync"
+            )
+
+            # set the camera position based on up axis
+            centre = self.cfg["env"]['envSpacing'] + int(np.sqrt(self.num_envs))
+            
+            cam_pos = gymapi.Vec3(0, 0, 5)
+            cam_target = gymapi.Vec3(centre, centre, 0)
+
+            self.gym.viewer_camera_look_at(self.viewer, None, cam_pos, cam_target)
 
 
     def check_robot_collision(self):
