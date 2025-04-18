@@ -4,6 +4,7 @@ import isaacgym # must import isaacgym before pytorch
 import torch
 import numpy as np
 
+from tqdm import tqdm
 from omegaconf import DictConfig
 from isaacgymenvs.tasks import DRPEvals
 from isaacgymenvs.utils.utils import set_seed
@@ -33,6 +34,7 @@ class Eval:
         self.env = DRPEvals(
             self.env_cfg, self.sim_device, graphics_device_id, headless, virtual_screen_capture, force_render
         )
+        self.use_controller = self.env_cfg.env.useController
 
     def set_up_motion_planner(self):
         planner = self.env_cfg.task.planner
@@ -77,7 +79,7 @@ class Eval:
             num_obstacle_points=self.motion_planner.num_obstacle_points,
         )
         testing_epoch_num = 1
-        for _ in range(testing_epoch_num):
+        for _ in tqdm(range(testing_epoch_num), desc="Eval epoch"):
             self.reset_envs()
             env_obs_dict = self.env.get_observations()
             gt_state = self.env.obstacle_configs
@@ -86,9 +88,14 @@ class Eval:
             joint_pos_targets_buffer = self.motion_planner.get_actions_open_loop(env_obs_dict, gt_state)
 
             # roll out open loop
-            for i in range(self.env.max_episode_length):
+            for i in tqdm(range(self.env.max_episode_length), desc="Env step"):
                 joint_pos_targets = joint_pos_targets_buffer[i]
-                self.env.step(joint_pos_targets)
+                if self.use_controller:
+                    self.env.step(joint_pos_targets)
+                else:
+                    self.env.set_robot_joint_state(joint_pos_targets)
+                    self.env.check_robot_collision()
+                    self.env.scene_collision_counter += self.env.scene_collision.int()
 
             # get the eval information
             eval_info_dict = self.env.get_eval_info()

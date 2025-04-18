@@ -3,6 +3,7 @@ import time
 import torch
 import numpy as np
 import logging
+from tqdm import tqdm
 from robofin.robots import FrankaRobot
 from scipy.spatial.transform import Rotation as R
 
@@ -62,9 +63,9 @@ class Curobo(MotionPlannerBase):
 
     def set_up_policy(
         self,
-        n_cubes: int = 100,
+        n_cubes: int = 300,
         collision_spheres_for_in_hand: int = 300,
-        mesh_mode: bool = True,
+        mesh_mode: bool = False,
         collision_buffer: float = 0.0,
         parallel_finetune=True,
     ):
@@ -113,15 +114,28 @@ class Curobo(MotionPlannerBase):
         goal_robot_pcd = env_obs_dict["goal_robot_pcd"]
         static_obstacle_pcd = env_obs_dict["static_obstacle_pcd"]
 
+        num_planning_success = 0
         planning_actions_abs = []
 
-        for i in range(self.num_envs):
+        for i in tqdm(range(self.num_envs), desc="Curobo Planning"):
             if gt_info is not None:
                 (
                     planning_actions,
                     plan_log,
                 ) = self.mp_curobo(joint_pos[i], goal_joint_pos[i], gt_info[i])
-            # import ipdb ; ipdb.set_trace()
+            if plan_log == "success":
+                planning_actions = torch.from_numpy(planning_actions).to(self.device)
+                num_planning_success += 1
+            else:
+                planning_actions = joint_pos[i].unsqueeze(0)
+
+            padding_num = self.env.max_episode_length - planning_actions.shape[0]
+            last_row = planning_actions[-1].unsqueeze(0).repeat(padding_num, 1)
+            planning_actions = torch.cat([planning_actions, last_row], dim=0).unsqueeze(1)
+            planning_actions_abs.append(planning_actions)
+
+        planning_actions_abs = torch.cat(planning_actions_abs, dim=1).to(self.device)
+        print("Planning success rate: ", num_planning_success / self.num_envs)
 
         return planning_actions_abs
 

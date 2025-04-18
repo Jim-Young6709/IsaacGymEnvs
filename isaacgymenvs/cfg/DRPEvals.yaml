@@ -15,6 +15,7 @@ env:
   numObservations: 7
   numActions: 7
 
+  useController: True
 
 sim:
   dt: 0.01667 # 1/60
