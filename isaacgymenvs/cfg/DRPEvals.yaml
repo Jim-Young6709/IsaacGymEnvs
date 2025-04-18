@@ -1,10 +1,10 @@
 name: DRPEvals
 physics_engine: 'physx'
 
-headless: False #True
+headless: True
 
 env:
-  numEnvs: 16 #256
+  numEnvs: 800 #256
   envSpacing: 1.5
   episodeLength: 1000 #1000
   enableDebugVis: True

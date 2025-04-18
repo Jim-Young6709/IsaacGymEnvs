@@ -192,7 +192,7 @@ class DRPEvals(VecTask):
 
             # ----- create dynamic obstacles -----
             if self.use_dynamic_obstacles:
-                self.num_points_per_dynamic_obstacle = 500
+                self.num_points_per_dynamic_obstacle = 200 #500
                 self.dynamic_obstacle_pcd_combined = torch.zeros((self.num_envs, self.max_num_dynamic_obstacles*self.num_points_per_dynamic_obstacle, 3), device=self.device)
 
                 dynamic_obstacle_handles = list()
