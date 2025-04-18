@@ -1,16 +1,16 @@
 name: DRPEvals
 physics_engine: 'physx'
 
-headless: False
+headless: True
 
 env:
-  numEnvs: 64 #256
+  numEnvs: 150 #64 #64 #256
   envSpacing: 1.5
   episodeLength: 1000 #1000
   enableDebugVis: True
 
   asset:
-    data_set_path: "/home/avenger/Projects/drp/drp_eval/IsaacGymEnvs/assets/drp/hybrid1000.hdf5"
+    data_set_path: "/home/avenger/Projects/drp/drp_eval/IsaacGymEnvs/assets/drp/hybrid_tf_150.hdf5" #hybrid1000
     obstacle_spawner_cfg: "/home/avenger/Projects/drp/drp_eval/IsaacGymEnvs/isaacgymenvs/obstacle_spawner/obstacle_spanwer_cfg/test_config.yaml"
 
   numObservations: 7

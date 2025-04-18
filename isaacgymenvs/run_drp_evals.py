@@ -71,6 +71,9 @@ class Eval:
             print("Reach Rate:",     eval_info_dict["reach_rate"])
             print("Collision Rate:", eval_info_dict["collision_rate"])
             print("Success Rate:",   eval_info_dict["success_rate"])
+            print("Mean Scene Collision Timestep Percentage:", eval_info_dict["mean_scene_collision_timestep_percentage"])
+            print("Mean Scene Contact Force Norm Sum:", eval_info_dict["mean_scene_contact_force_norm_sum"])
+
 
     @torch.no_grad()
     def test_open_loop(self):
@@ -110,6 +113,8 @@ class Eval:
             print("Reach Rate:",     eval_info_dict["reach_rate"])
             print("Collision Rate:", eval_info_dict["collision_rate"])
             print("Success Rate:",   eval_info_dict["success_rate"])
+            print("Mean Scene Collision Timestep Percentage:", eval_info_dict["mean_scene_collision_timestep_percentage"])
+            print("Mean Scene Contact Force Norm Sum:", eval_info_dict["mean_scene_contact_force_norm_sum"])
 
 
 @hydra.main(version_base="1.1", config_name="DRPEvals", config_path="./cfg")

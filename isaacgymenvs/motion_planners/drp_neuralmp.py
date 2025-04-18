@@ -77,7 +77,7 @@ class DRPNeuralMP(MotionPlannerBase):
 
         # Stack into final tensor of shape (num_envs, num_obstacle_points, 3)
         subsampled_pcd = torch.stack(subsampled_pcd_list, dim=0)
-        
+
         nn_pcd_obs = self._prepare_neuralmp_observation(obstacle_pcd=subsampled_pcd, goal_robot_pcd=goal_robot_pcd, current_robot_pcd=None)
         # roll out open loop
         open_loop_steps = 1
@@ -93,7 +93,7 @@ class DRPNeuralMP(MotionPlannerBase):
             with torch.no_grad():
                 with torch.autocast('cuda', dtype=torch.float16):
                     delta_joint_pos_action = self.model.get_action_robomimic(obs_dict)
-            open_loop_joint_pos += delta_joint_pos_action * 1.0
+            open_loop_joint_pos += delta_joint_pos_action * 1.0 #* 1.0
         joint_pos_target = open_loop_joint_pos
         return joint_pos_target
     

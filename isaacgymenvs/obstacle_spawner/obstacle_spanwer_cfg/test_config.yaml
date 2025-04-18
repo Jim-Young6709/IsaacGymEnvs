@@ -10,9 +10,9 @@ goal_blocker:
 
 quasi_dynamic:
   enable: True
-  num: 2
+  num: 1
   size:
-    low: [0.1, 0.1, 0.1]
+    low: [0.05, 0.05, 0.05]
     high: [0.3, 0.3, 0.3]
 
 
