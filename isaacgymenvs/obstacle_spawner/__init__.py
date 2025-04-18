@@ -1,0 +1,1 @@
+from .obstacle_spawner import ObstacleSpawner

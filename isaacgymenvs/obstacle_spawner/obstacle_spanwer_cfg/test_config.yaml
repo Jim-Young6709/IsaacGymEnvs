@@ -1,0 +1,23 @@
+
+
+goal_blocker:
+  enable: True
+  size:
+    low: [0.1, 0.1, 0.1]
+    high: [0.3, 0.3, 0.3]
+
+
+quasi_dynamic:
+  enable: False
+  num: 2
+  size:
+    low: [0.1, 0.1, 0.1]
+    high: [0.3, 0.3, 0.3]
+
+
+dynamic:
+  enable: False
+  num: 5
+  size:
+    low: [0.1, 0.1, 0.1]
+    high: [0.3, 0.3, 0.3]

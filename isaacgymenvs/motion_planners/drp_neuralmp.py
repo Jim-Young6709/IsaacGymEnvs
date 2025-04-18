@@ -8,9 +8,6 @@ from hydra.utils import instantiate
 from isaacgymenvs.motion_planners import MotionPlannerBase
 
 
-
-
-
 class DRPNeuralMP(MotionPlannerBase):
     def __init__(self, env):
         super().__init__(env)
@@ -110,8 +107,7 @@ class DRPNeuralMP(MotionPlannerBase):
     def _update_neuralmp_robot_pcd_observation(self, nn_pcd_obs, current_robot_pcd):
         nn_pcd_obs[:, 0:self.num_robot_points, 0:3] = current_robot_pcd
         return nn_pcd_obs
-
-
+    
 
     def reset(self):
         self.model.policy.reset()
