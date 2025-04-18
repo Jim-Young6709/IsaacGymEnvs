@@ -193,8 +193,16 @@ class DRPEvals(VecTask):
             # ----- create dynamic obstacles -----
             if self.use_dynamic_obstacles:
                 self.num_points_per_dynamic_obstacle = 200 #500
-                self.dynamic_obstacle_pcd_combined = torch.zeros((self.num_envs, self.max_num_dynamic_obstacles*self.num_points_per_dynamic_obstacle, 3), device=self.device)
-
+                # buffers for holding the combined pcd for dynamic obstacles
+                self.dynamic_obstacle_pcd_combined = torch.zeros(
+                    (self.num_envs, self.max_num_dynamic_obstacles*self.num_points_per_dynamic_obstacle, 3), 
+                    device=self.device,
+                )
+                # buffers for holding the combined pcd for moving dynamic obstacles
+                self.moving_dynamic_obstacle_pcb_combined = torch.zeros(
+                    (self.num_envs, self.obstacle_spawner.num_moving_obstacles*self.num_points_per_dynamic_obstacle, 3), 
+                    device=self.device,
+                )
                 dynamic_obstacle_handles = list()
                 dynamic_obstacles = list()
                 for j in range(self.max_num_dynamic_obstacles):
@@ -209,7 +217,6 @@ class DRPEvals(VecTask):
                     dynamic_obstacle_actor = self.gym.create_actor(env_ptr, dyn_asset, dyn_pose, f"dyn_{j}", i, 1, 0)
                     self.gym.set_rigid_body_color(env_ptr, dynamic_obstacle_actor, 0, gymapi.MESH_VISUAL, gymapi.Vec3(0.0, 0.0, 1.0))
                     dynamic_obstacle_handles.append(dynamic_obstacle_actor)
-
                     dynamic_obstacles.append(Cuboid(np.array([0.0, 0.0, 0.0]), dyn_objs_dim, np.array([1.0, 0.0, 0.0, 0.0])))
 
                 self.dynamic_obstacle_handles.append(dynamic_obstacle_handles)
@@ -436,6 +443,8 @@ class DRPEvals(VecTask):
         # dynamic_obstacle_poses: (num_envs, num_dynamic_obstacles, 7)
         if env_ids is None:
             env_ids = torch.arange(self.num_envs, device=self.device)
+            
+        # ------------ updating dynamic obstacle poses ------------
         flat_dyn_indices = self.dynamic_obstacle_indices[env_ids].view(-1)
         flat_root_state = self._root_state.view(-1, 13)
         flat_root_state[flat_dyn_indices, 0:7] = dynamic_obstacle_poses[env_ids, :, :].view(-1, 7) #(num_envs*num_dyn_obs, 7)
@@ -443,10 +452,15 @@ class DRPEvals(VecTask):
             self.sim, gymtorch.unwrap_tensor(flat_root_state), gymtorch.unwrap_tensor(flat_dyn_indices), flat_dyn_indices.numel(),
         )
 
-        # need to update dynamic pcd
+        # ------------ updating dynamic obstacle pcd ------------
+        # (num_envs, num_dynamic_obstacles, num_points_per_obstacle, 3)
         dynamic_obstacle_pcd_world = transform_pcds_to_world(self.dynamic_obstacle_pcd, dynamic_obstacle_poses)
-        # (num_envs, num_dynamic_pcd, 3)
+        # all potentially moving obstacle pcd (num_envs, num_dynamic_pcd, 3)
         self.dynamic_obstacle_pcd_combined = dynamic_obstacle_pcd_world.view(dynamic_obstacle_pcd_world.shape[0], -1, 3)
+
+        # ------------ updating dynamic obstacle pcd for obstacles that are currently moving ------------
+        # (num_envs, num_moving_dynamic_obstacles, num_points_per_obstacle, 3)
+        self.moving_dynamic_obstacle_pcb_combined = dynamic_obstacle_pcd_world[:, self.obstacle_spawner.moving_obstacle_flag, :, :]
 
 
     def get_observations(self):
@@ -454,16 +468,23 @@ class DRPEvals(VecTask):
         joint_pos = self.states['q'][:, 0:7].clone()
         self.robot_pcd[:, :, :] = self.get_robot_pcds(joint_pos)
 
+        # ----------- filtering dynamic obstacle pcd for points not in workspace -----------
         # [(num_dynamic_obstacles, 3), (num_dynamic_obstacles, 3), ... ] -> length is num_envs
         filtered_dynamic_obstacle_pcd_list = [self.dynamic_obstacle_pcd_combined[i] for i in range(self.num_envs)]
         # remove any points in the pcd where the z value is below 0. This will result in a list of varying sized pcd
         # [(n, 3), (m, 3), ... ] -> length is num_envs
-        filtered_dynamic_obstacle_pcd_list = [pcd[pcd[:, 2] >= 0] for pcd in filtered_dynamic_obstacle_pcd_list]
+        filtered_dynamic_obstacle_pcd_list = [pcd[pcd[:, 2] > 0] for pcd in filtered_dynamic_obstacle_pcd_list]
 
-        # combined pcd
+        # ----------- filtering moving obstacle pcd for points not in workspace -----------
+        # [(num_moving_dynamic_obstacles, 3), (num_moving_dynamic_obstacles, 3), ... ] -> length is num_envs
+        filtered_moving_dynamic_obstacle_pcd_list = [self.moving_dynamic_obstacle_pcb_combined[i] for i in range(self.num_envs)]
+        # remove any points in the pcd where the z value is below 0. This will result in a list of varying sized pcd
+        # [(n, 3), (m, 3), ... ] -> length is num_envs
+        filtered_moving_dynamic_obstacle_pcd_list = [pcd[pcd[:, 2] > 0] for pcd in filtered_moving_dynamic_obstacle_pcd_list]
+
+        # ----------- all obstacle pcd list -----------
         combined_pcd_list = [
-            torch.cat((self.static_obstacle_pcd[i], filtered_dynamic_obstacle_pcd_list[i]), dim=0)
-            for i in range(self.num_envs)
+            torch.cat((self.static_obstacle_pcd[i], filtered_dynamic_obstacle_pcd_list[i]), dim=0) for i in range(self.num_envs)
         ]
 
         env_obs_dict = dict()
@@ -475,6 +496,7 @@ class DRPEvals(VecTask):
         env_obs_dict["goal_robot_pcd"] = self.goal_robot_pcd
         env_obs_dict["static_obstacle_pcd"] = self.static_obstacle_pcd
         env_obs_dict["dynamic_obstacle_pcd"] = filtered_dynamic_obstacle_pcd_list
+        env_obs_dict["moving_dynamic_obstacle_pcd"] = filtered_moving_dynamic_obstacle_pcd_list
         env_obs_dict["combined_obstacle_pcd"] = combined_pcd_list
         return env_obs_dict
 
