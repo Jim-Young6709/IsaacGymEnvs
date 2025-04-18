@@ -281,9 +281,11 @@ class DRPEvals(VecTask):
         self.scene_collision = torch.zeros(self.num_envs, dtype=bool, device=self.device)
         self.collision = torch.zeros(self.num_envs, dtype=bool, device=self.device)
         self.scene_collision_counter = torch.zeros(self.num_envs, dtype=int, device=self.device)
+        self.total_scene_contact_forces = torch.zeros(self.num_envs, device=self.device)
         self.ee_goal_pose = self.get_ee_from_joint(self.goal_joint_pos)
         self.start_joint_pos = tensor_clamp(self.start_joint_pos, self.franka_dof_lower_limits[:7], self.franka_dof_upper_limits[:7])
         self.goal_joint_pos = tensor_clamp(self.goal_joint_pos, self.franka_dof_lower_limits[:7], self.franka_dof_upper_limits[:7])
+
 
     
     def _refresh(self):
@@ -315,7 +317,12 @@ class DRPEvals(VecTask):
         self.collision = torch.where(
             torch.sum(torch.norm(self.contact_forces[:, :16, :], dim=2), dim=1) > 1.0, 1.0, 0.0
         )  # the first 16 elements belong to franka robot, this includes self collision
-    
+
+        # compute the scene contact force norm
+        robot_contact_force = torch.sum(torch.norm(self.contact_forces[:, :16, :], dim=2), dim=1)
+        # sum up the contact force norm only
+        self.total_scene_contact_forces[self.scene_collision.bool()] += robot_contact_force[self.scene_collision.bool()]
+
 
     def get_robot_pcds(self, joint_pos):
         robot_pcd = self.gpu_fk_sampler.sample(joint_pos, self.num_robot_points)
@@ -368,6 +375,8 @@ class DRPEvals(VecTask):
         self.set_robot_joint_state(
             joint_pos=self.start_joint_pos[env_ids], env_ids=env_ids,
         )
+        self.total_scene_contact_forces[env_ids] = 0.0 
+        self.scene_collision_counter[env_ids] = 0
         self.progress_buf[env_ids] = 0
         self.reset_buf[env_ids] = 0
 
@@ -555,11 +564,14 @@ class DRPEvals(VecTask):
 
         eval_info_dict = dict()
         eval_info_dict["has_reached"] = has_reached
-        eval_info_dict["reach_rate"] = reach_rate
-        eval_info_dict["total_scene_collision_num"] = total_scene_collision_num
-        eval_info_dict["collision_rate"] = collision_rate
         eval_info_dict["has_succeeded"] = has_succeeded
+        eval_info_dict["total_scene_collision_num"] = total_scene_collision_num
+        eval_info_dict["reach_rate"] = reach_rate
+        eval_info_dict["collision_rate"] = collision_rate
+        eval_info_dict["mean_scene_collision_timestep_percentage"] = torch.mean(total_scene_collision_num.float() / self.max_episode_length)
+        eval_info_dict["mean_scene_contact_force_norm_sum"] = torch.mean(self.total_scene_contact_forces)
         eval_info_dict["success_rate"] = success_rate
+
         return eval_info_dict
 
 
