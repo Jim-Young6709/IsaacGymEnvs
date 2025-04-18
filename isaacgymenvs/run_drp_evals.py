@@ -89,7 +89,7 @@ class Eval:
             for i in range(self.env.max_episode_length):
                 joint_pos_targets = joint_pos_targets_buffer[i]
                 self.env.step(joint_pos_targets)
-            
+
             # get the eval information
             eval_info_dict = self.env.get_eval_info()
 

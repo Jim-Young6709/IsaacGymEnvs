@@ -2,12 +2,12 @@ import yaml
 import time
 import torch
 import numpy as np
-from pathlib import Path
-from hydra.utils import instantiate
+import logging
+from robofin.robots import FrankaRobot
+from scipy.spatial.transform import Rotation as R
 
 from isaacgymenvs.motion_planners import MotionPlannerBase
 try:
-    import logging
     from curobo.geom.sdf.world import CollisionCheckerType
     from curobo.geom.sphere_fit import SphereFitType
     from curobo.geom.types import Cuboid, Cylinder, Mesh, Sphere, WorldConfig
@@ -38,7 +38,15 @@ class Curobo(MotionPlannerBase):
         self._num_robot_points = 2048
         self._num_goal_robot_points = 2048
         self._num_obstacle_points = 4096
+        self.in_hand = False
         self.set_up_policy()
+        self.profiling = {
+            "formatting input": 0,
+            "update world to curobo": 0,
+            "setup in hand obj in curobo": 0,
+            "curobo plan": 0,
+            "pybullet execution": 0,
+        }
 
     @property
     def num_robot_points(self):
@@ -66,10 +74,12 @@ class Curobo(MotionPlannerBase):
         robot_cfg = load_yaml(join_path(get_robot_configs_path(), "franka.yml"))["robot_cfg"]
         robot_cfg["kinematics"]["collision_sphere_buffer"] = collision_buffer
         robot_cfg["kinematics"]["collision_spheres"] = "spheres/franka_mesh.yml"
-        robot_cfg["kinematics"]["extra_collision_spheres"] = {
-            "attached_object": collision_spheres_for_in_hand
-        }
         robot_cfg["kinematics"]["ee_link"] = "panda_hand"
+
+        if self.in_hand:
+            robot_cfg["kinematics"]["extra_collision_spheres"] = {
+                "attached_object": collision_spheres_for_in_hand
+            }
 
         world_cfg = WorldConfig.from_dict(
             load_yaml(join_path(get_world_configs_path(), "collision_table.yml"))
@@ -103,36 +113,17 @@ class Curobo(MotionPlannerBase):
         goal_robot_pcd = env_obs_dict["goal_robot_pcd"]
         static_obstacle_pcd = env_obs_dict["static_obstacle_pcd"]
 
-        if gt_info is not None:
-            (
-                planning_actions,
-                planning_success,
-                failure_reason,
-            ) = self.mp_curobo(joint_pos, goal_joint_pos)
-            return (
-                planning_actions,
-                planning_success,
-                failure_reason,
-            )
+        planning_actions_abs = []
 
-        nn_pcd_obs = self._prepare_neuralmp_observation(obstacle_pcd=static_obstacle_pcd, goal_robot_pcd=goal_robot_pcd, current_robot_pcd=None)
-        # roll out open loop
-        open_loop_steps = 1
-        open_loop_joint_pos = joint_pos.clone()
-        for i in range(open_loop_steps):
-            current_robot_pcd = self.env.get_robot_pcds(open_loop_joint_pos)
-            nn_pcd_obs = self._update_neuralmp_robot_pcd_observation(nn_pcd_obs, current_robot_pcd)
-            obs_dict = {
-                "compute_pcd_params": nn_pcd_obs,       # (num_envs, NUM_TOTAL_POINTS, 4)
-                "current_angles": open_loop_joint_pos,  # (num_envs, 7)
-                "goal_angles": goal_joint_pos,          # (num_envs, 7)
-            }
-            with torch.no_grad():
-                with torch.autocast('cuda', dtype=torch.float16):
-                    delta_joint_pos_action = self.model.get_action_robomimic(obs_dict)
-            open_loop_joint_pos += delta_joint_pos_action * 1.0
-        joint_pos_target = open_loop_joint_pos
-        return joint_pos_target
+        for i in range(self.num_envs):
+            if gt_info is not None:
+                (
+                    planning_actions,
+                    plan_log,
+                ) = self.mp_curobo(joint_pos[i], goal_joint_pos[i], gt_info[i])
+            # import ipdb ; ipdb.set_trace()
+
+        return planning_actions_abs
 
     def get_actions_open_loop(self, env_obs_dict, gt_info=None):
         return self.get_actions(env_obs_dict, gt_info=gt_info)
@@ -141,7 +132,8 @@ class Curobo(MotionPlannerBase):
         self,
         start_angles,
         target_angles,
-        mesh_mode=True,
+        gt_info,
+        mesh_mode=False,
         debug=False,
     ):
         """
@@ -167,10 +159,10 @@ class Curobo(MotionPlannerBase):
             ],
         )
 
-        goal_SE3 = FrankaRobot.fk(target_angles, eff_frame="panda_hand")
+        goal_SE3 = FrankaRobot.fk(target_angles.cpu().numpy(), eff_frame="panda_hand")
         goal_pose = Pose(
             position=tensor_args.to_device(np.array(goal_SE3._xyz)),
-            quaternion=tensor_args.to_device(flip_quaternion(np.array(goal_SE3._so3.wxyz))),
+            quaternion=tensor_args.to_device(self.flip_quaternion(np.array(goal_SE3._so3.wxyz))),
         )
 
         # extract obstacle information and prepare world config (first testing without meshes)
@@ -178,52 +170,23 @@ class Curobo(MotionPlannerBase):
             cuboid_dims,
             cuboid_centers,
             cuboid_quats,
-            cylinder_radii,
-            cylinder_heights,
-            cylinder_centers,
-            cylinder_quats,
-            sphere_centers,
-            sphere_radii,
-            mesh_positions,
-            mesh_scales,
-            mesh_quaternions,
-            obj_ids,
-            mesh_ids,
-        ) = decompose_scene_pcd_params_obs(self.scene_pcd_params)
+            *_,
+        ) = gt_info
 
-        max_len = int(self.scene_pcd_params[0])
         cuboids = []
         cylinders = []
         spheres = []
         meshes = []
 
-        for i in range(max_len):
+        for i in range(len(cuboid_dims)):
             # need to convert quaternions to wxyz format
-            if sum(cuboid_dims[i]) != 0:
-                cuboids.append(
-                    Cuboid(
-                        name=f"cuboid_{i}",
-                        pose=[*cuboid_centers[i], *cuboid_quats[i, [3, 0, 1, 2]]],
-                        dims=cuboid_dims[i].tolist(),
-                    )
+            cuboids.append(
+                Cuboid(
+                    name=f"cuboid_{i}",
+                    pose=[*cuboid_centers[i], *cuboid_quats[i, [3, 0, 1, 2]]],
+                    dims=cuboid_dims[i].tolist(),
                 )
-            if cylinder_radii[i] != 0:
-                cylinders.append(
-                    Cylinder(
-                        name=f"cylinder_{i}",
-                        pose=[*cylinder_centers[i], *cylinder_quats[i, [3, 0, 1, 2]]],
-                        radius=cylinder_radii[i],
-                        height=cylinder_heights[i],
-                    )
-                )
-            if sphere_radii[i] != 0:
-                spheres.append(
-                    Sphere(
-                        name=f"sphere_{i}",
-                        pose=[*sphere_centers[i], 1, 0, 0, 0],
-                        radius=sphere_radii[i],
-                    )
-                )
+            )
 
         t01 = time.time()
 
@@ -248,51 +211,30 @@ class Curobo(MotionPlannerBase):
 
         t02 = time.time()
 
-        # setup in hand object
-        if self.in_hand_obj:
-            in_hand_obj_pose = self.get_in_hand_obj_state()  # xyz, xyzw
-            in_hand_obj_pose = in_hand_obj_pose[[0, 1, 2, 6, 3, 4, 5]]  # xyz, wxyz
+        # setup in hand object, worry about this later when implementing in hand
+        # self.curobo_planner.detach_object_from_robot()
 
-            in_hand_type = ["box", "cylinder", "sphere", "mesh"][int(self.in_hand_type_idx)]
-
-            if in_hand_type == "box":
-                in_hand_obj = Cuboid(
-                    name="in_hand_obj", pose=[*in_hand_obj_pose], dims=self.in_hand_size
-                )
-            elif in_hand_type == "cylinder":
-                in_hand_obj = Cylinder(
-                    name="in_hand_obj",
-                    pose=[*in_hand_obj_pose],
-                    radius=self.in_hand_size[0] / 2,
-                    height=self.in_hand_size[1],
-                )
-            elif in_hand_type == "sphere":
-                in_hand_obj = Sphere(
-                    name="in_hand_obj", pose=[*in_hand_obj_pose], radius=self.in_hand_size[0] / 2
-                )
-
-            self.curobo_planner.attach_external_objects_to_robot(
-                start_state,
-                [in_hand_obj],
-                # surface_sphere_radius=0.01,
-                sphere_fit_type=SphereFitType.SAMPLE_SURFACE,
-            )
-        else:
-            self.curobo_planner.detach_object_from_robot()
         t03 = time.time()
         plan_config = MotionGenPlanConfig(max_attempts=20)
         result = self.curobo_planner.plan_single(
             start_state, goal_pose, plan_config
         )  # TODO: seems the number of attempts is gonna affect the TrajOpt part a lot
-        solved_prob = result.success
-        fail_info = None
-        if solved_prob:
+
+        if result.success:
             traj = result.get_interpolated_plan()
-            converted_path = traj.position.cpu().numpy()
-            print("Len(path): ", len(converted_path))
+            planning_actions = traj.position.cpu().numpy()
+            print("Len(path): ", len(planning_actions))
+
+            planning_success = (result.position_error < 0.01) and (
+                result.rotation_error < 15
+            )
+            if planning_success:
+                plan_log = "success"
+            else:
+                plan_log = "failed to reach the goal"
         else:
-            fail_info = result.status.value
-            converted_path = []
+            plan_log = result.status.value
+            planning_actions = None
 
         t04 = time.time()
 
@@ -301,49 +243,27 @@ class Curobo(MotionPlannerBase):
         self.profiling["setup in hand obj in curobo"] += t03 - t02
         self.profiling["curobo plan"] += t04 - t03
 
-        if not result.success:
-            success = "failed to plan"
-            failure_reason = "planner"
-            planning_actions = None
-        else:
-            planning_success = (result.position_error < 0.01) and (
-                result.rotation_error < 5
-            )  # check if errors are within 1cm and 15 degrees
-
-        print(fail_info)
+        print(plan_log)
         return (
             planning_actions,
-            planning_success,
-            failure_reason,
+            plan_log,
         )
-
-    def _prepare_neuralmp_observation(self, obstacle_pcd, goal_robot_pcd, current_robot_pcd=None): 
-        # (num_envs, num_points, 4)
-        nn_pcd_obs = torch.cat((
-                torch.zeros(self.num_robot_points, 4), # mask robot pcd with 0
-                torch.ones(self.num_obstacle_points, 4), # mask obstacle pcd with 1
-                2 * torch.ones(self.num_robot_points, 4), # mask goal obstacle pcd with 2
-        ), dim=0).unsqueeze(0).repeat(self.num_envs, 1, 1).cuda()
-
-
-        # add robot points
-        if current_robot_pcd is not None:
-            nn_pcd_obs[:, 0:self.num_robot_points, 0:3] = current_robot_pcd
-        
-        # add obstacle points
-        nn_pcd_obs[:, self.num_robot_points:self.num_robot_points+self.num_obstacle_points, 0:3] = obstacle_pcd
-
-        # add goal robot points
-        nn_pcd_obs[:, self.num_robot_points+self.num_obstacle_points:, 0:3] = goal_robot_pcd
-        return nn_pcd_obs
-
-
-    def _update_neuralmp_robot_pcd_observation(self, nn_pcd_obs, current_robot_pcd):
-        nn_pcd_obs[:, 0:self.num_robot_points, 0:3] = current_robot_pcd
-        return nn_pcd_obs
 
     def reset(self):
         pass
 
+    @staticmethod
+    def flip_quaternion(quat):
+        """_summary_
 
+        Args:
+            quat (np.ndarray): in wxyz format
+        """
+        ori = R.from_quat(quat[[1, 2, 3, 0]])
+        ori_euler = ori.as_euler("XYZ")
+        ori_euler[2] -= np.pi
+        flip = R.from_euler("XYZ", ori_euler)
+        flip_quat = flip.as_quat()[[3, 0, 1, 2]]
+
+        return flip_quat
 
