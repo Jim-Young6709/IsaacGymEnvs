@@ -6,7 +6,7 @@ headless: False
 env:
   numEnvs: 100
   envSpacing: 1.5
-  episodeLength: 1000
+  episodeLength: 500 #1000
   enableDebugVis: True
   numObservations: 7
   numActions: 7
@@ -40,7 +40,7 @@ task:
 
   # "static", "quasi_dynamic", "goal_blocker", "floating"
   task_type: "quasi_dynamic"
-  task_name: "level_1"
+  task_name: "level_2"
 
 
 hydra:

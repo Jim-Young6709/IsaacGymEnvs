@@ -40,6 +40,7 @@ class Eval:
         if self.cfg.task.task_type == "quasi_dynamic":
             self.testing_epoch_num = 2
         
+        
 
     def set_up_env(self):
         headless = self.cfg.headless
@@ -47,7 +48,9 @@ class Eval:
         if headless:
             force_render = False
         else:
-            self.cfg.env.numEnvs = 32
+            self.cfg.env.numEnvs = 4
+            self.testing_epoch_num = 100000
+
         graphics_device_id = 0
         virtual_screen_capture = False
 
@@ -83,11 +86,6 @@ class Eval:
         for current_epoch_num in range(self.testing_epoch_num):
             self.env.test_epoch = current_epoch_num
             self.reset_envs()
-            
-            if self.action_chunking:
-                iteration = self.env.max_episode_length // 15 + 1
-            else:
-                iteration = self.env.max_episode_length
 
             step_size = 15 if self.action_chunking else 1
             for t in tqdm(range(0, self.env.max_episode_length, step_size), desc=f"Eval Epoch Num {current_epoch_num}"):

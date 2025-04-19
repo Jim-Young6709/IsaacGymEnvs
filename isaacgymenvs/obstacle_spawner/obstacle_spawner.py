@@ -80,6 +80,7 @@ class ObstacleSpawner:
         current_ee_pose = torch.cat((self.env.states["eef_pos"], self.env.states["eef_quat"]), dim=1)
         current_ee_trans_vel = self.env.states["eef_vel"][:, 0:3]
         goal_ee_pose = self.env.ee_goal_pose
+        set_quasi_dynamic_obs = False
 
         if self.use_goal_blocker:
             retract_timestep = self.max_episode_length - 200
@@ -116,7 +117,8 @@ class ObstacleSpawner:
 
 
             if self.env.test_epoch > 0:
-                start_time = 30
+                start_time = self.spawner_cfg["quasi_dynamic"]["start_time"]
+                safe_buffer_dist = self.spawner_cfg["quasi_dynamic"]["safe_buffer_dist"]
                 time_interval = 100
                 last_spawning_timestep = time_interval * self.spawner_cfg["quasi_dynamic"]["num"] + start_time
 
@@ -147,7 +149,7 @@ class ObstacleSpawner:
                     dist_to_current = torch.norm(future_pos - current_pos, dim=2)                 # (num_envs, T)
                     dist_to_goal = torch.norm(future_pos - goal_pos, dim=2)                       # (num_envs, T)
                     # Find where both distances exceed threshold
-                    mask = (dist_to_current > safe_radius_expand + 0.15) #& (dist_to_goal > safe_radius_expand + 0.15)  # (num_envs, T)
+                    mask = (dist_to_current > safe_radius_expand + safe_buffer_dist) #& (dist_to_goal > safe_radius_expand + 0.15)  # (num_envs, T)
                     # Find first j index where condition is satisfied for each env
                     valid_mask_any = mask.any(dim=1)
                     first_valid_indices = mask.float().argmax(dim=1)  # if no valid, this will be 0, need to handle
@@ -158,6 +160,7 @@ class ObstacleSpawner:
                     selected_future_pose = self.env.ee_pose_trajectory[valid_envs, j_range[valid_js], :]  # (num_valid_envs, 7)
                     # Update obstacle poses
                     self.obstacle_poses[valid_envs, quasi_dynamic_obstacle_id, :] = selected_future_pose
+                    set_quasi_dynamic_obs = True
 
 
                 if timestep[0] > (self.max_episode_length - 100):
@@ -165,8 +168,8 @@ class ObstacleSpawner:
                     self.obstacle_poses[:, quasi_dynamic_idx, :] = self.disable_pose[:, quasi_dynamic_idx, :]
 
                             
-                            
-        return self.obstacle_poses
+
+        return self.obstacle_poses, set_quasi_dynamic_obs
             
 
 

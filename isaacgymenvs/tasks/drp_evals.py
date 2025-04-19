@@ -303,11 +303,9 @@ class DRPEvals(VecTask):
         self.ee_goal_pose = self.get_ee_from_joint(self.goal_joint_pos)
         self.start_joint_pos = tensor_clamp(self.start_joint_pos, self.franka_dof_lower_limits[:7], self.franka_dof_upper_limits[:7])
         self.goal_joint_pos = tensor_clamp(self.goal_joint_pos, self.franka_dof_lower_limits[:7], self.franka_dof_upper_limits[:7])
-        
         self.ee_pose_trajectory = torch.zeros((self.num_envs, self.max_episode_length, 7), device=self.device)
 
 
-    
     def _refresh(self):
         self.gym.refresh_actor_root_state_tensor(self.sim)
         self.gym.refresh_dof_state_tensor(self.sim)
@@ -560,7 +558,10 @@ class DRPEvals(VecTask):
         self.apply_joint_pos_targets(joint_position_targets)
 
         if self.use_dynamic_obstacles:
-            dynamic_obstacle_poses = self.obstacle_spawner.update_obstacle_poses(timestep=self.progress_buf)
+            dynamic_obstacle_poses, has_updated_quasi_dynamic_obstacle = self.obstacle_spawner.update_obstacle_poses(timestep=self.progress_buf)
+            if has_updated_quasi_dynamic_obstacle:
+                print("ASDASD")
+                self.gym.simulate(self.sim)
             self.set_dynamic_obstacle_pose(dynamic_obstacle_poses)
         
 
