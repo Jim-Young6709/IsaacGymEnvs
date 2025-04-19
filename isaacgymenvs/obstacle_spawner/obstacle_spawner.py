@@ -3,7 +3,6 @@ import yaml
 import torch
 import numpy as np
 
-
 class ObstacleSpawner:
     def __init__(self, env, num_envs, config):
         self.env = env
@@ -72,6 +71,10 @@ class ObstacleSpawner:
         # ---------- updating obstacle counter ----------
         self.obstacle_counter += num_obstacles
     
+
+    def reset(self):
+        self.obstacle_poses = self.disable_pose.clone()
+    
     
     def update_obstacle_poses(self, timestep):
         current_ee_pose = torch.cat((self.env.states["eef_pos"], self.env.states["eef_quat"]), dim=1)
@@ -89,32 +92,50 @@ class ObstacleSpawner:
             self.obstacle_poses[~enable_idx, goal_blocker_idx, :] = self.disable_pose[~enable_idx, goal_blocker_idx, :]
         
         if self.use_quasi_dynamic:
-            time_interal = 100
-            retract_timestep = time_interal * self.spawner_cfg["quasi_dynamic"]["num"]
+            # time_interal = 100
+            # retract_timestep = time_interal * self.spawner_cfg["quasi_dynamic"]["num"]
 
-            if ((timestep[0] + 1) % time_interal == 0) and (timestep[0] < retract_timestep):
-                quasi_dynamic_obstacle_id = self.obstacle_index_dict["quasi_dynamic"][self.quasi_dynamic_obstacle_enable_num]
-                self.quasi_dynamic_obstacle_enable_num += 1
-                # direction of motion of the robot ee (num_envs, 3)
-                current_ee_trans_vel_dir = current_ee_trans_vel / (torch.norm(current_ee_trans_vel, dim=1, keepdim=True) + 1e-8)
-                # (num_envs, ) TODO: may need to divide by 2
-                safe_radius = torch.norm(self.combined_obstacle_dim_tensor[:, quasi_dynamic_obstacle_id, 0:3]/2, dim=1)
-                # set the obstacle to a certain distance along the direction of motion
-                obstacle_pose = current_ee_pose.clone()
+            # if ((timestep[0] + 1) % time_interal == 0) and (timestep[0] < retract_timestep):
+            #     quasi_dynamic_obstacle_id = self.obstacle_index_dict["quasi_dynamic"][self.quasi_dynamic_obstacle_enable_num]
+            #     self.quasi_dynamic_obstacle_enable_num += 1
+            #     # direction of motion of the robot ee (num_envs, 3)
+            #     current_ee_trans_vel_dir = current_ee_trans_vel / (torch.norm(current_ee_trans_vel, dim=1, keepdim=True) + 1e-8)
+            #     # (num_envs, )
+            #     safe_radius = torch.norm(self.combined_obstacle_dim_tensor[:, quasi_dynamic_obstacle_id, 0:3]/2, dim=1)
+            #     # set the obstacle to a certain distance along the direction of motion
+            #     obstacle_pose = current_ee_pose.clone()
 
-                obstacle_pose[:, 0:3] += current_ee_trans_vel_dir * (safe_radius.unsqueeze(1) + 0.2)
+            #     obstacle_pose[:, 0:3] += current_ee_trans_vel_dir * (safe_radius.unsqueeze(1) + 0.2)
 
-                # set the obstalce pose
-                self.obstacle_poses[:, quasi_dynamic_obstacle_id, :] = obstacle_pose
+            #     # set the obstalce pose
+            #     self.obstacle_poses[:, quasi_dynamic_obstacle_id, :] = obstacle_pose
             
-            if timestep[0] > (self.max_episode_length - 100):
-                quasi_dynamic_idx = self.obstacle_index_dict["quasi_dynamic"]
-                self.obstacle_poses[:, quasi_dynamic_idx, :] = self.disable_pose[:, quasi_dynamic_idx, :]
+            # if timestep[0] > (self.max_episode_length - 100):
+            #     quasi_dynamic_idx = self.obstacle_index_dict["quasi_dynamic"]
+            #     self.obstacle_poses[:, quasi_dynamic_idx, :] = self.disable_pose[:, quasi_dynamic_idx, :]
 
 
+            if self.env.test_epoch > 0:
+                time_interval = 50
+                retract_timestep = time_interval * self.spawner_cfg["quasi_dynamic"]["num"]
 
+                if ((timestep[0] + 1) % time_interval == 0) and (timestep[0] < retract_timestep):
+                    quasi_dynamic_obstacle_id = self.obstacle_index_dict["quasi_dynamic"][self.quasi_dynamic_obstacle_enable_num]
+                    # future_time_step = min(timestep[0].item()+60, self.max_episode_length-100)
+                    safe_radius = torch.norm(self.combined_obstacle_dim_tensor[:, quasi_dynamic_obstacle_id, 0:3]/2, dim=1)
+                    for i in range(self.num_envs):
+                        future_time_step = min(timestep[0].item()+60, self.max_episode_length)
+                        for j in range(future_time_step, self.max_episode_length-100):
+                            future_ee_pose = self.env.ee_pose_trajectory[i, j, :]
+                            if torch.norm(future_ee_pose[0:3] - current_ee_pose[i, 0:3]) > (safe_radius[i]+0.15):
+                                if torch.norm(future_ee_pose[0:3] - self.env.ee_goal_pose[i, 0:3]) > (safe_radius[i]+0.15):
+                                    self.obstacle_poses[i, quasi_dynamic_obstacle_id, :] = future_ee_pose.clone()
+                                    break
 
-            
+                            
+
+                    # import ipdb; ipdb.set_trace()
+                    # self.obstacle_poses[:, quasi_dynamic_obstacle_id, :] = future_ee_pose.clone()
 
         
         return self.obstacle_poses

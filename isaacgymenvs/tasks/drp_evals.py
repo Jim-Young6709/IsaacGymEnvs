@@ -28,8 +28,6 @@ class DRPEvals(VecTask):
         if self.headless:
             self.debug_viz = False
         
-        
-
         self.max_num_static_obstacles = 0
         self.max_num_dynamic_obstacles = 0
         self.load_data_set()
@@ -49,6 +47,8 @@ class DRPEvals(VecTask):
         )
         self._refresh()
         self.reset_idx(torch.arange(self.num_envs, device=self.device))
+
+        self.test_epoch = 0
 
 
     def load_data_set(self):
@@ -304,7 +304,7 @@ class DRPEvals(VecTask):
         self.start_joint_pos = tensor_clamp(self.start_joint_pos, self.franka_dof_lower_limits[:7], self.franka_dof_upper_limits[:7])
         self.goal_joint_pos = tensor_clamp(self.goal_joint_pos, self.franka_dof_lower_limits[:7], self.franka_dof_upper_limits[:7])
         
-        self.ee_pose_history = torch.zeros((self.num_envs, self.max_episode_length, 7), device=self.device)
+        self.ee_pose_trajectory = torch.zeros((self.num_envs, self.max_episode_length, 7), device=self.device)
 
 
     
@@ -422,6 +422,10 @@ class DRPEvals(VecTask):
         self.set_robot_joint_state(
             joint_pos=self.start_joint_pos[env_ids], env_ids=env_ids,
         )
+        if self.use_dynamic_obstacles:
+            self.obstacle_spawner.reset()
+            self.set_dynamic_obstacle_pose(self.obstacle_spawner.obstacle_poses)
+
         self.total_scene_contact_forces[env_ids] = 0.0 
         self.scene_collision_counter[env_ids] = 0
         self.progress_buf[env_ids] = 0
@@ -508,6 +512,10 @@ class DRPEvals(VecTask):
         self._refresh()
         joint_pos = self.states['q'][:, 0:7].clone()
         self.robot_pcd[:, :, :] = self.get_robot_pcds(joint_pos)
+
+        if self.test_epoch == 0:
+            current_ee_pose = torch.cat((self.states["eef_pos"], self.states["eef_quat"]), dim=1)
+            self.ee_pose_trajectory[:, self.progress_buf[0], :] = current_ee_pose
 
         if self.use_dynamic_obstacles:
             # ----------- filtering dynamic obstacle pcd for points not in workspace -----------

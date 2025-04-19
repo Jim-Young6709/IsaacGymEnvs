@@ -36,6 +36,9 @@ class Eval:
         self.problem_config["static_scene_path"] = os.path.join(
             current_file_dir, "static_scenes", f"{self.problem_config['static_scene']}.hdf5"
         )
+        self.testing_epoch_num = 1
+        if self.cfg.task.task_type == "quasi_dynamic":
+            self.testing_epoch_num = 2
         
 
     def set_up_env(self):
@@ -44,7 +47,7 @@ class Eval:
         if headless:
             force_render = False
         else:
-            self.cfg.env.numEnvs = 32
+            self.cfg.env.numEnvs = 2
         graphics_device_id = 0
         virtual_screen_capture = False
 
@@ -77,8 +80,8 @@ class Eval:
             num_goal_robot_points=self.motion_planner.num_goal_robot_points,
             num_obstacle_points=self.motion_planner.num_obstacle_points,
         )
-        testing_epoch_num = 1
-        for current_epoch_num in range(testing_epoch_num):
+        for current_epoch_num in range(self.testing_epoch_num):
+            self.env.test_epoch = current_epoch_num
             self.reset_envs()
             # for test_step in range(self.env.max_episode_length):
             while self.env.progress_buf[0] < self.env.max_episode_length:
@@ -114,8 +117,7 @@ class Eval:
             num_goal_robot_points=self.motion_planner.num_goal_robot_points, 
             num_obstacle_points=self.motion_planner.num_obstacle_points,
         )
-        testing_epoch_num = 1
-        for _ in tqdm(range(testing_epoch_num), desc="Eval epoch"):
+        for _ in tqdm(range(self.testing_epoch_num), desc="Eval epoch"):
             self.reset_envs()
             env_obs_dict = self.env.get_observations()
 
