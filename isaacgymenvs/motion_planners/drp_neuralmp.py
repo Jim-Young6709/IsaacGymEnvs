@@ -8,9 +8,6 @@ from hydra.utils import instantiate
 from isaacgymenvs.motion_planners import MotionPlannerBase
 
 
-
-
-
 class DRPNeuralMP(MotionPlannerBase):
     def __init__(self, env):
         super().__init__(env)
@@ -45,7 +42,8 @@ class DRPNeuralMP(MotionPlannerBase):
 
         # checkpoint_name = "checkpoint_2ep_step50000_success_0.6914.pth.pth"
         # checkpoint_name = 'checkpoint_step60000_success_0.3132.pth.pth' # my second favourite so far (really good obstacle avoiding capability, but less good for goal reaching)
-        checkpoint_name = 'checkpoint_step60000_success_0.5142.pth.pth' # my favourite so far. slightly better at goal reaching and slightly worse at obstacle avoiding
+        # checkpoint_name = 'checkpoint_step60000_success_0.5142.pth.pth' # my favourite so far. slightly better at goal reaching and slightly worse at obstacle avoiding
+        checkpoint_name = 'checkpoint_gblk0.3_step170000_success_0.5400.pth.pth'
 
         checkpoint_file = Path(checkpoint_folder) / checkpoint_name
         with open(config_file, "r") as f:
@@ -64,9 +62,24 @@ class DRPNeuralMP(MotionPlannerBase):
         goal_joint_pos = env_obs_dict["goal_joint_pos"]
         current_robot_pcd = env_obs_dict["robot_pcd"]
         goal_robot_pcd = env_obs_dict["goal_robot_pcd"]
-        static_obstacle_pcd = env_obs_dict["static_obstacle_pcd"]
-        
-        nn_pcd_obs = self._prepare_neuralmp_observation(obstacle_pcd=static_obstacle_pcd, goal_robot_pcd=goal_robot_pcd, current_robot_pcd=None)
+
+        # [(n, 3), (m, 3), ... ] -> length is num_envs
+        obstacle_pcd_list = env_obs_dict["combined_obstacle_pcd"]
+        subsampled_pcd_list = []
+        for pcd in obstacle_pcd_list:
+            num_points = pcd.shape[0]
+            if num_points >= self.num_obstacle_points:
+                indices = torch.randperm(num_points)[0:self.num_obstacle_points]
+                sampled = pcd[indices]
+            else:
+                indices = torch.randint(0, num_points, (self.num_obstacle_points,), device=self.device)
+                sampled = pcd[indices]
+            subsampled_pcd_list.append(sampled)
+
+        # Stack into final tensor of shape (num_envs, num_obstacle_points, 3)
+        subsampled_pcd = torch.stack(subsampled_pcd_list, dim=0)
+
+        nn_pcd_obs = self._prepare_neuralmp_observation(obstacle_pcd=subsampled_pcd, goal_robot_pcd=goal_robot_pcd, current_robot_pcd=None)
         # roll out open loop
         open_loop_steps = 1
         open_loop_joint_pos = joint_pos.clone()
@@ -81,7 +94,7 @@ class DRPNeuralMP(MotionPlannerBase):
             with torch.no_grad():
                 with torch.autocast('cuda', dtype=torch.float16):
                     delta_joint_pos_action = self.model.get_action_robomimic(obs_dict)
-            open_loop_joint_pos += delta_joint_pos_action * 1.0
+            open_loop_joint_pos += delta_joint_pos_action * 1.0 #* 1.0
         joint_pos_target = open_loop_joint_pos
         return joint_pos_target
     
@@ -110,8 +123,7 @@ class DRPNeuralMP(MotionPlannerBase):
     def _update_neuralmp_robot_pcd_observation(self, nn_pcd_obs, current_robot_pcd):
         nn_pcd_obs[:, 0:self.num_robot_points, 0:3] = current_robot_pcd
         return nn_pcd_obs
-
-
+    
 
     def reset(self):
         self.model.policy.reset()

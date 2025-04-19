@@ -1,22 +1,15 @@
 name: DRPEvals
 physics_engine: 'physx'
 
-headless: True
+headless: False
 
 env:
-  numEnvs: 128 #256
+  numEnvs: 100
   envSpacing: 1.5
   episodeLength: 1000
   enableDebugVis: True
-
-  asset:
-    data_set_path: "/home/avenger/Projects/drp/drp_eval/IsaacGymEnvs/assets/drp/hybrid1000.hdf5"
-
   numObservations: 7
   numActions: 7
-
-  useController: True
-  interpolated_substeps: 1 # curobo might need 100 here
 
 sim:
   dt: 0.01667 # 1/60
@@ -42,7 +35,19 @@ sim:
 task:
   randomize: False
   close_loop: True
-  planner: "DRP"
+
+  # "DRP", "Curobo"
+  planner: "Curobo"
+
+  # "static", "quasi_dynamic", "goal_blocker", "floating"
+  # task_type: "static"
+  # task_name: "static_box_ff"
+
+  task_type: "goal_blocker"
+  task_name: "level_1"
+
+
+
 
 hydra:
   output_subdir: null

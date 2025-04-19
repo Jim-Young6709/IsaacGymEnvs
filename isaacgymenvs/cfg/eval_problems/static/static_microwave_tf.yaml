@@ -1,0 +1,32 @@
+
+
+static_scene: "microwave_tf_172"
+
+dynamic_scene:
+  goal_blocker:
+      enable: False
+      num: 1
+      size:
+        low: [0.1, 0.1, 0.1]
+        high: [0.2, 0.2, 0.2]
+
+  quasi_dynamic:
+    enable: False
+    num: 1
+    size:
+      low: [0.05, 0.05, 0.05]
+      high: [0.3, 0.3, 0.3]
+
+  floating:
+    enable: False
+    num: 5
+    size:
+      low: [0.1, 0.1, 0.1]
+      high: [0.3, 0.3, 0.3]
+
+
+
+
+
+
+
