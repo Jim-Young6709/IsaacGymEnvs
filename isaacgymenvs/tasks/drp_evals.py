@@ -18,25 +18,30 @@ from geometrout.primitive import Cuboid
 
 
 class DRPEvals(VecTask):
-    def __init__(self, cfg, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
+    def __init__(self, cfg, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render, problem_config):
         self.cfg = cfg
         self.headless = headless
         self.device = sim_device
         self.max_episode_length = self.cfg["env"]["episodeLength"]
         self.debug_viz = self.cfg["env"]["enableDebugVis"]
+        self.problem_config = problem_config
         if self.headless:
             self.debug_viz = False
         
-        self.use_dynamic_obstacles = False
+        
 
         self.max_num_static_obstacles = 0
         self.max_num_dynamic_obstacles = 0
         self.load_data_set()
         self.gpu_fk_sampler = FrankaSampler(sim_device, use_cache=True)
 
-        self.obstacle_spawner = ObstacleSpawner(
-            self, num_envs=self.cfg["env"]["numEnvs"], config_path=self.cfg["env"]["asset"]["obstacle_spawner_cfg"],
-        )
+        if self.cfg["task"]["task_type"] == "static":
+            self.use_dynamic_obstacles = False
+        else:
+            self.use_dynamic_obstacles = True
+            self.obstacle_spawner = ObstacleSpawner(
+                self, num_envs=self.cfg["env"]["numEnvs"], config=self.problem_config["dynamic_scene"],
+            )
 
         super().__init__(
             config=self.cfg, rl_device=sim_device, sim_device=sim_device, graphics_device_id=graphics_device_id, 
@@ -44,11 +49,11 @@ class DRPEvals(VecTask):
         )
         self._refresh()
         self.reset_idx(torch.arange(self.num_envs, device=self.device))
-    
+
 
     def load_data_set(self):
         # Loading environment dataset
-        hdf5_path = self.cfg["env"]["asset"]["data_set_path"]
+        hdf5_path = self.problem_config["static_scene_path"]
         self.demo_loader = DemoLoader(hdf5_path, self.cfg["env"]["numEnvs"])
         # len(data_batch) = self.num_envs
         data_batch = self.demo_loader.get_next_batch()
@@ -298,6 +303,8 @@ class DRPEvals(VecTask):
         self.ee_goal_pose = self.get_ee_from_joint(self.goal_joint_pos)
         self.start_joint_pos = tensor_clamp(self.start_joint_pos, self.franka_dof_lower_limits[:7], self.franka_dof_upper_limits[:7])
         self.goal_joint_pos = tensor_clamp(self.goal_joint_pos, self.franka_dof_lower_limits[:7], self.franka_dof_upper_limits[:7])
+        
+        self.ee_pose_history = torch.zeros((self.num_envs, self.max_episode_length, 7), device=self.device)
 
 
     

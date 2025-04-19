@@ -5,15 +5,14 @@ import numpy as np
 
 
 class ObstacleSpawner:
-    def __init__(self, env, num_envs, config_path):
+    def __init__(self, env, num_envs, config):
         self.env = env
         self.num_envs = num_envs
         self.device = self.env.device
         self.max_episode_length = self.env.max_episode_length
         
         # --------------- loading obstacle spawner configs ---------------
-        with open(config_path, 'r') as file:
-            self.spawner_cfg = yaml.safe_load(file)
+        self.spawner_cfg = config
         self.use_goal_blocker = self.spawner_cfg["goal_blocker"]["enable"]
         self.use_quasi_dynamic = self.spawner_cfg["quasi_dynamic"]["enable"]
         self.use_floating = self.spawner_cfg["floating"]["enable"]
@@ -112,7 +111,7 @@ class ObstacleSpawner:
             #     self.obstacle_poses[:, quasi_dynamic_idx, :] = self.disable_pose[:, quasi_dynamic_idx, :]
 
 
-            # self.obstacle_poses = torch.tensor([[[ 0.1408,  0.2131,  0.9726,  0.5651,  0.0265,  0.8240, -0.0313]], [[ 0.0295,  0.5411,  0.6855,  0.6543, -0.5741,  0.2228, -0.4389]]], device='cuda:0')
+
 
             
 

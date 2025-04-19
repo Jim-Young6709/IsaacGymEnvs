@@ -1,3 +1,4 @@
+import os
 import yaml
 import hydra
 import isaacgym # must import isaacgym before pytorch
@@ -17,14 +18,28 @@ class Eval:
     def __init__(self, cfg):
         self.sim_device = 'cuda:0'
         self.seed = 10 #42
-        self.env_cfg = cfg
         set_seed(self.seed)
+        self.cfg = cfg
 
+        self.set_up_problem_configs()
         self.set_up_env()
         self.set_up_motion_planner()
+    
+
+    def set_up_problem_configs(self):
+        current_file_dir = os.path.dirname(os.path.abspath(__file__))
+        problem_config_path = os.path.join(
+            current_file_dir, "cfg/eval_problems", self.cfg.task.task_type, f"{self.cfg.task.task_name}.yaml"
+        )
+        with open(problem_config_path, 'r') as file:
+            self.problem_config = yaml.safe_load(file)
+        self.problem_config["static_scene_path"] = os.path.join(
+            current_file_dir, "static_scenes", f"{self.problem_config['static_scene']}.hdf5"
+        )
+        
 
     def set_up_env(self):
-        headless = self.env_cfg['headless']
+        headless = self.cfg['headless']
         force_render = True
         if headless:
             force_render = False
@@ -32,13 +47,13 @@ class Eval:
         virtual_screen_capture = False
 
         self.env = DRPEvals(
-            self.env_cfg, self.sim_device, graphics_device_id, headless, virtual_screen_capture, force_render
+            self.cfg, self.sim_device, graphics_device_id, headless, virtual_screen_capture, force_render, self.problem_config
         )
-        self.use_controller = self.env_cfg.env.useController
-        self.interpolated_substeps = self.env_cfg.env.interpolated_substeps
+        self.interpolated_substeps = 10
+
 
     def set_up_motion_planner(self):
-        planner = self.env_cfg.task.planner
+        planner = self.cfg.task.planner
         self.action_chunking = False
         if planner == "Curobo":
             self.motion_planner = Curobo(self.env)
@@ -46,10 +61,12 @@ class Eval:
         elif planner == "DRP":
             self.motion_planner = DRPNeuralMP(self.env)
 
+
     def reset_envs(self):
         env_ids = torch.arange(self.env.num_envs, device=self.env.device)
         self.env.reset_idx(env_ids)
         self.motion_planner.reset()
+
 
     @torch.no_grad()
     def test_closed_loop(self):
@@ -59,7 +76,7 @@ class Eval:
             num_obstacle_points=self.motion_planner.num_obstacle_points,
         )
         testing_epoch_num = 1
-        for _ in range(testing_epoch_num):
+        for current_epoch_num in range(testing_epoch_num):
             self.reset_envs()
             # for test_step in range(self.env.max_episode_length):
             while self.env.progress_buf[0] < self.env.max_episode_length:
@@ -75,8 +92,8 @@ class Eval:
                     test_step = self.env.progress_buf[0]
                     print(test_step)
                     self.env.step(joint_pos_targets)
+                    test_step = self.env.progress_buf[0]
 
-            
             # get the eval information
             eval_info_dict = self.env.get_eval_info()
 
@@ -112,12 +129,7 @@ class Eval:
                     sub_joint_pos_targets = (
                         current_joint_pos + (joint_pos_targets - current_joint_pos) * (i + 1) / self.interpolated_substeps
                     )
-                    if self.use_controller:
-                        self.env.step(sub_joint_pos_targets)
-                    else:
-                        self.env.set_robot_joint_state(sub_joint_pos_targets)
-                        self.env.check_robot_collision()
-                        self.env.scene_collision_counter += self.env.scene_collision.int()
+                    self.env.step(sub_joint_pos_targets)
 
             # get the eval information
             eval_info_dict = self.env.get_eval_info()

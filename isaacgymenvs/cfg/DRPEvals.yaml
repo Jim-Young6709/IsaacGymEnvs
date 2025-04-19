@@ -1,23 +1,15 @@
 name: DRPEvals
 physics_engine: 'physx'
 
-headless: True
+headless: False
 
 env:
-  numEnvs: 100
+  numEnvs: 32 #100
   envSpacing: 1.5
-  episodeLength: 500 #1000 #500 for curobo
+  episodeLength: 1000
   enableDebugVis: True
-
-  asset:
-    data_set_path: "/home/avenger/Projects/drp/drp_eval/IsaacGymEnvs/assets/drp/eval_set/box_tt_192.hdf5"
-    obstacle_spawner_cfg: "/home/avenger/Projects/drp/drp_eval/IsaacGymEnvs/isaacgymenvs/obstacle_spawner/obstacle_spanwer_cfg/test_config.yaml"
-
   numObservations: 7
   numActions: 7
-
-  useController: True
-  interpolated_substeps: 10 # curobo might need 100 here
 
 sim:
   dt: 0.01667 # 1/60
@@ -43,7 +35,13 @@ sim:
 task:
   randomize: False
   close_loop: True
-  planner: "Curobo"
+
+  planner: "DRP"
+
+  # "static", "quasi_dynamic", "goal_blocker", "floating"
+  task_type: "quasi_dynamic"
+  task_name: "hybrid_1"
+
 
 hydra:
   output_subdir: null
