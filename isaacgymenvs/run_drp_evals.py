@@ -83,11 +83,6 @@ class Eval:
         for _ in tqdm(range(testing_epoch_num), desc="Eval epoch"):
             self.reset_envs()
             env_obs_dict = self.env.get_observations()
-            gt_info = False
-            if gt_info:
-                gt_state = self.env.obstacle_configs
-            else:
-                gt_state = None
 
             # (max_episode_length, num_envs, 7)
             joint_pos_targets_buffer = self.motion_planner.get_actions_open_loop(env_obs_dict, gt_state)
