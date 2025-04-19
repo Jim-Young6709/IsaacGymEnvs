@@ -32,5 +32,5 @@ runs_dagger/
 outputs/
 *.hydra*
 /isaacgymenvs/wandb
-*.hdf5
+# *.hdf5
 *.log
