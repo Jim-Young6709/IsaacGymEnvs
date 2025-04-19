@@ -300,6 +300,7 @@ class DRPEvals(VecTask):
         self.collision = torch.zeros(self.num_envs, dtype=bool, device=self.device)
         self.scene_collision_counter = torch.zeros(self.num_envs, dtype=int, device=self.device)
         self.total_scene_contact_forces = torch.zeros(self.num_envs, device=self.device)
+        self.ee_start_pose = self.get_ee_from_joint(self.start_joint_pos)
         self.ee_goal_pose = self.get_ee_from_joint(self.goal_joint_pos)
         self.start_joint_pos = tensor_clamp(self.start_joint_pos, self.franka_dof_lower_limits[:7], self.franka_dof_upper_limits[:7])
         self.goal_joint_pos = tensor_clamp(self.goal_joint_pos, self.franka_dof_lower_limits[:7], self.franka_dof_upper_limits[:7])

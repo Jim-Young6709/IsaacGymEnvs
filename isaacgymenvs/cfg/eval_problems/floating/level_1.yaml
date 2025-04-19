@@ -21,7 +21,7 @@ dynamic_scene:
 
   floating:
     enable: True
-    num: 2
+    num: 3
     size:
       low: [0.1, 0.1, 0.1]
       high: [0.3, 0.3, 0.3]

@@ -164,7 +164,7 @@ class ObstacleSpawner:
         if self.use_floating:
             floating_obstacle_id = self.obstacle_index_dict["floating"]
             num_floating_obstacles = len(floating_obstacle_id)
-            sphere_center = torch.tensor([0.5, 0.0, 0.5], device=self.device)
+            sphere_center = ((self.env.ee_goal_pose[:, 0:3] + self.env.ee_start_pose[:, 0:3])/2).unsqueeze(1).repeat(1, num_floating_obstacles, 1) #torch.tensor([0.5, 0.0, 0.5], device=self.device)
             if timestep[0].item() == 0:
                 # set initial floating obstacles pose
                 total_num_floating_obstacles = self.num_envs * num_floating_obstacles
@@ -203,6 +203,8 @@ class ObstacleSpawner:
                     self.floating_obstacle_moving_dir * -1,
                     self.floating_obstacle_moving_dir,
                 )
+
+                if
 
 
 
