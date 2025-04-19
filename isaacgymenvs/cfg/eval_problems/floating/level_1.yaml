@@ -4,7 +4,7 @@ static_scene: "box_ff_192"
 
 dynamic_scene:
   goal_blocker:
-      enable: True
+      enable: False
       num: 1
       size:
         low: [0.1, 0.1, 0.1]
@@ -20,8 +20,16 @@ dynamic_scene:
     safe_buffer_dist: 0.2
 
   floating:
-    enable: False
-    num: 5
+    enable: True
+    num: 2
     size:
       low: [0.1, 0.1, 0.1]
       high: [0.3, 0.3, 0.3]
+    
+    init_radius:
+      low: 0.8
+      high: 1.0
+    velocity:
+      low: 0.001
+      high: 0.003
+    

@@ -37,13 +37,13 @@ task:
   close_loop: True
 
   # "DRP", "Curobo"
-  planner: "Curobo"
+  planner: "DRP"
 
   # "static", "quasi_dynamic", "goal_blocker", "floating"
   # task_type: "static"
   # task_name: "static_box_ff"
 
-  task_type: "quasi_dynamic"
+  task_type: "floating"
   task_name: "level_1"
 
 

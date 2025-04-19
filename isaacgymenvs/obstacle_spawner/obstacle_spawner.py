@@ -109,29 +109,6 @@ class ObstacleSpawner:
             self.obstacle_poses[~enable_idx, goal_blocker_idx, :] = self.disable_pose[~enable_idx, goal_blocker_idx, :]
         
         if self.use_quasi_dynamic:
-            # time_interal = 100
-            # retract_timestep = time_interal * self.spawner_cfg["quasi_dynamic"]["num"]
-
-            # if ((timestep[0] + 1) % time_interal == 0) and (timestep[0] < retract_timestep):
-            #     quasi_dynamic_obstacle_id = self.obstacle_index_dict["quasi_dynamic"][self.quasi_dynamic_obstacle_enable_num]
-            #     self.quasi_dynamic_obstacle_enable_num += 1
-            #     # direction of motion of the robot ee (num_envs, 3)
-            #     current_ee_trans_vel_dir = current_ee_trans_vel / (torch.norm(current_ee_trans_vel, dim=1, keepdim=True) + 1e-8)
-            #     # (num_envs, )
-            #     safe_radius = torch.norm(self.combined_obstacle_dim_tensor[:, quasi_dynamic_obstacle_id, 0:3]/2, dim=1)
-            #     # set the obstacle to a certain distance along the direction of motion
-            #     obstacle_pose = current_ee_pose.clone()
-
-            #     obstacle_pose[:, 0:3] += current_ee_trans_vel_dir * (safe_radius.unsqueeze(1) + 0.2)
-
-            #     # set the obstalce pose
-            #     self.obstacle_poses[:, quasi_dynamic_obstacle_id, :] = obstacle_pose
-            
-            # if timestep[0] > (self.max_episode_length - 100):
-            #     quasi_dynamic_idx = self.obstacle_index_dict["quasi_dynamic"]
-            #     self.obstacle_poses[:, quasi_dynamic_idx, :] = self.disable_pose[:, quasi_dynamic_idx, :]
-
-
             if self.env.test_epoch > 0:
                 start_time = self.spawner_cfg["quasi_dynamic"]["start_time"]
                 safe_buffer_dist = self.spawner_cfg["quasi_dynamic"]["safe_buffer_dist"]
@@ -182,6 +159,56 @@ class ObstacleSpawner:
                 if timestep[0] > (self.max_episode_length - 100):
                     quasi_dynamic_idx = self.obstacle_index_dict["quasi_dynamic"]
                     self.obstacle_poses[:, quasi_dynamic_idx, :] = self.disable_pose[:, quasi_dynamic_idx, :]
+        
+
+        if self.use_floating:
+            floating_obstacle_id = self.obstacle_index_dict["floating"]
+            num_floating_obstacles = len(floating_obstacle_id)
+            sphere_center = torch.tensor([0.5, 0.0, 0.5], device=self.device)
+            if timestep[0].item() == 0:
+                # set initial floating obstacles pose
+                total_num_floating_obstacles = self.num_envs * num_floating_obstacles
+                rand_dirs = torch.randn((total_num_floating_obstacles, 3), device=self.device)
+                rand_dirs = rand_dirs / rand_dirs.norm(dim=1, keepdim=True)  # normalize
+                # explicit low and high radius range
+                radius_low = self.spawner_cfg["floating"]["init_radius"]["low"]
+                radius_high = self.spawner_cfg["floating"]["init_radius"]["high"]
+                radii = torch.rand((total_num_floating_obstacles, 1), device=self.device) * (radius_high - radius_low) + radius_low
+                positions = radii * rand_dirs
+                rand_quats = torch.randn((total_num_floating_obstacles, 4), device=self.device)
+                rand_quats = rand_quats / rand_quats.norm(dim=1, keepdim=True)
+                poses = torch.cat([positions, rand_quats], dim=1)
+                poses = poses.view(self.num_envs, num_floating_obstacles, 7)
+                poses[:, :, 0:3] += sphere_center
+                self.obstacle_poses[:, floating_obstacle_id, :] = poses
+
+                # generate random movement direction
+                noise_std = 0.2
+                self.floating_obstacle_moving_dir = -1 * rand_dirs.reshape(self.num_envs, num_floating_obstacles, 3)
+                noisy_dirs = self.floating_obstacle_moving_dir + torch.randn_like(self.floating_obstacle_moving_dir) * noise_std
+                self.floating_obstacle_moving_dir = noisy_dirs / noisy_dirs.norm(dim=2, keepdim=True)
+
+                # generate random velocity
+                velocity_low = self.spawner_cfg["floating"]["velocity"]["low"]#0.0001
+                velocity_high = self.spawner_cfg["floating"]["velocity"]["high"] #0.003
+                self.floating_obstacle_velocity = torch.rand(
+                    (self.num_envs, num_floating_obstacles), device=self.device
+                ) * (velocity_high - velocity_low) + velocity_low
+
+            else:
+                self.obstacle_poses[:, floating_obstacle_id, 0:3] += self.floating_obstacle_velocity.unsqueeze(-1) * self.floating_obstacle_moving_dir
+                # flip moving direction if obstacles are too far
+                self.floating_obstacle_moving_dir = torch.where(
+                    torch.norm(self.obstacle_poses[:, floating_obstacle_id, 0:3] - sphere_center, dim=2, keepdim=True) > 1.2,
+                    self.floating_obstacle_moving_dir * -1,
+                    self.floating_obstacle_moving_dir,
+                )
+
+
+
+
+
+
 
                             
 
