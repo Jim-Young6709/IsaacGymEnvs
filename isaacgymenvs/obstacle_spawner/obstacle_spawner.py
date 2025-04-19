@@ -204,7 +204,16 @@ class ObstacleSpawner:
                     self.floating_obstacle_moving_dir,
                 )
 
-                if
+                xy_positions = self.obstacle_poses[:, floating_obstacle_id, :2]  # shape: (num_envs, num_selected_obstacles, 2)
+                dist_squared = torch.sum(xy_positions ** 2, dim=-1)  # shape: (num_envs, num_selected_obstacles)
+                safe_zone_radius = 0.25
+                is_in_safe_zone = dist_squared <= safe_zone_radius ** 2  # shape: (num_envs, num_selected_obstacles)
+                is_in_safe_zone = is_in_safe_zone.unsqueeze(-1).expand(-1, -1, 3) #(num_envs, num_selected_obstacles, 3)
+
+                self.floating_obstacle_moving_dir[is_in_safe_zone] *= -1
+                noise_std = 0.2
+                self.floating_obstacle_moving_dir[is_in_safe_zone] += torch.randn_like(self.floating_obstacle_moving_dir[is_in_safe_zone]) * noise_std
+                self.floating_obstacle_moving_dir = self.floating_obstacle_moving_dir / self.floating_obstacle_moving_dir.norm(dim=2, keepdim=True)
 
 
 
