@@ -38,7 +38,7 @@ class Eval:
         )
         self.testing_epoch_num = 1
         if self.cfg.task.task_type == "quasi_dynamic":
-            self.testing_epoch_num = 2
+            self.testing_epoch_num = 20
         
 
     def set_up_env(self):
@@ -47,7 +47,7 @@ class Eval:
         if headless:
             force_render = False
         else:
-            self.cfg.env.numEnvs = 2
+            self.cfg.env.numEnvs = 32
         graphics_device_id = 0
         virtual_screen_capture = False
 

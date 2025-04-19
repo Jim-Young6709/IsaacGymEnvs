@@ -116,28 +116,56 @@ class ObstacleSpawner:
 
 
             if self.env.test_epoch > 0:
-                time_interval = 50
-                retract_timestep = time_interval * self.spawner_cfg["quasi_dynamic"]["num"]
+                start_time = 30
+                time_interval = 100
+                last_spawning_timestep = time_interval * self.spawner_cfg["quasi_dynamic"]["num"] + start_time
 
-                if ((timestep[0] + 1) % time_interval == 0) and (timestep[0] < retract_timestep):
+                if ((timestep[0] - start_time) % time_interval == 0) and (timestep[0] < last_spawning_timestep):
                     quasi_dynamic_obstacle_id = self.obstacle_index_dict["quasi_dynamic"][self.quasi_dynamic_obstacle_enable_num]
                     # future_time_step = min(timestep[0].item()+60, self.max_episode_length-100)
                     safe_radius = torch.norm(self.combined_obstacle_dim_tensor[:, quasi_dynamic_obstacle_id, 0:3]/2, dim=1)
-                    for i in range(self.num_envs):
-                        future_time_step = min(timestep[0].item()+60, self.max_episode_length)
-                        for j in range(future_time_step, self.max_episode_length-100):
-                            future_ee_pose = self.env.ee_pose_trajectory[i, j, :]
-                            if torch.norm(future_ee_pose[0:3] - current_ee_pose[i, 0:3]) > (safe_radius[i]+0.15):
-                                if torch.norm(future_ee_pose[0:3] - self.env.ee_goal_pose[i, 0:3]) > (safe_radius[i]+0.15):
-                                    self.obstacle_poses[i, quasi_dynamic_obstacle_id, :] = future_ee_pose.clone()
-                                    break
+
+                    # for i in range(self.num_envs):
+                    #     future_time_step = min(timestep[0].item()+60, self.max_episode_length)
+                    #     for j in range(future_time_step, self.max_episode_length-100):
+                    #         future_ee_pose = self.env.ee_pose_trajectory[i, j, :]
+                    #         if torch.norm(future_ee_pose[0:3] - current_ee_pose[i, 0:3]) > (safe_radius[i]+0.15):
+                    #             if torch.norm(future_ee_pose[0:3] - self.env.ee_goal_pose[i, 0:3]) > (safe_radius[i]+0.15):
+                    #                 self.obstacle_poses[i, quasi_dynamic_obstacle_id, :] = future_ee_pose.clone()
+                    #                 break
+
+                    # Get start and end time indices for each env
+                    start_ts = torch.clamp(timestep[0] + 60, max=self.max_episode_length - 100)
+                    j_range = torch.arange(start_ts, self.max_episode_length - 100, device=self.device)
+                    # Create expanded versions for broadcasting
+                    future_ee_pose = self.env.ee_pose_trajectory[:, j_range, :]                    # (num_envs, T, 7)
+                    future_pos = future_ee_pose[:, :, 0:3]                                         # (num_envs, T, 3)
+                    current_pos = current_ee_pose[:, 0:3].unsqueeze(1)                             # (num_envs, 1, 3)
+                    goal_pos = self.env.ee_goal_pose[:, 0:3].unsqueeze(1)                          # (num_envs, 1, 3)
+                    safe_radius_expand = safe_radius.view(-1, 1)                                   # (num_envs, 1)
+                    # Calculate distance from future EE to current and goal
+                    dist_to_current = torch.norm(future_pos - current_pos, dim=2)                 # (num_envs, T)
+                    dist_to_goal = torch.norm(future_pos - goal_pos, dim=2)                       # (num_envs, T)
+                    # Find where both distances exceed threshold
+                    mask = (dist_to_current > safe_radius_expand + 0.15) #& (dist_to_goal > safe_radius_expand + 0.15)  # (num_envs, T)
+                    # Find first j index where condition is satisfied for each env
+                    valid_mask_any = mask.any(dim=1)
+                    first_valid_indices = mask.float().argmax(dim=1)  # if no valid, this will be 0, need to handle
+                    # Only update for environments that found a valid index
+                    valid_envs = torch.nonzero(valid_mask_any).squeeze(-1)  # shape (num_valid_envs,)
+                    valid_js = first_valid_indices[valid_envs]              # shape (num_valid_envs,)
+                    # Gather corresponding future poses
+                    selected_future_pose = self.env.ee_pose_trajectory[valid_envs, j_range[valid_js], :]  # (num_valid_envs, 7)
+                    # Update obstacle poses
+                    self.obstacle_poses[valid_envs, quasi_dynamic_obstacle_id, :] = selected_future_pose
+
+
+                if timestep[0] > (self.max_episode_length - 100):
+                    quasi_dynamic_idx = self.obstacle_index_dict["quasi_dynamic"]
+                    self.obstacle_poses[:, quasi_dynamic_idx, :] = self.disable_pose[:, quasi_dynamic_idx, :]
 
                             
-
-                    # import ipdb; ipdb.set_trace()
-                    # self.obstacle_poses[:, quasi_dynamic_obstacle_id, :] = future_ee_pose.clone()
-
-        
+                            
         return self.obstacle_poses
             
 
