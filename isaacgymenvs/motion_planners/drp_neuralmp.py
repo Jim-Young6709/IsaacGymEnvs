@@ -42,7 +42,8 @@ class DRPNeuralMP(MotionPlannerBase):
 
         # checkpoint_name = "checkpoint_2ep_step50000_success_0.6914.pth.pth"
         # checkpoint_name = 'checkpoint_step60000_success_0.3132.pth.pth' # my second favourite so far (really good obstacle avoiding capability, but less good for goal reaching)
-        checkpoint_name = 'checkpoint_step60000_success_0.5142.pth.pth' # my favourite so far. slightly better at goal reaching and slightly worse at obstacle avoiding
+        # checkpoint_name = 'checkpoint_step60000_success_0.5142.pth.pth' # my favourite so far. slightly better at goal reaching and slightly worse at obstacle avoiding
+        checkpoint_name = 'checkpoint_gblk0.3_step170000_success_0.5400.pth.pth'
 
         checkpoint_file = Path(checkpoint_folder) / checkpoint_name
         with open(config_file, "r") as f:

@@ -16,7 +16,7 @@ from isaacgymenvs.motion_planners import Curobo
 class Eval:
     def __init__(self, cfg):
         self.sim_device = 'cuda:0'
-        self.seed = 42
+        self.seed = 10 #42
         self.env_cfg = cfg
         set_seed(self.seed)
 
@@ -39,8 +39,10 @@ class Eval:
 
     def set_up_motion_planner(self):
         planner = self.env_cfg.task.planner
+        self.action_chunking = False
         if planner == "Curobo":
             self.motion_planner = Curobo(self.env)
+            self.action_chunking = True
         elif planner == "DRP":
             self.motion_planner = DRPNeuralMP(self.env)
 
@@ -59,11 +61,21 @@ class Eval:
         testing_epoch_num = 1
         for _ in range(testing_epoch_num):
             self.reset_envs()
-            for test_step in range(self.env.max_episode_length):
-                print(test_step)
+            # for test_step in range(self.env.max_episode_length):
+            while self.env.progress_buf[0] < self.env.max_episode_length:
                 env_obs_dict = self.env.get_observations()
                 joint_pos_targets = self.motion_planner.get_actions(env_obs_dict)
-                self.env.step(joint_pos_targets)
+                if self.action_chunking:
+                    # action chunking is for curobo, where joint_pos_targets is of shape (15, num_envs, 7)
+                    for i in range(15):
+                        test_step = self.env.progress_buf[0]
+                        print(test_step)
+                        self.env.step(joint_pos_targets[i])
+                else:
+                    test_step = self.env.progress_buf[0]
+                    print(test_step)
+                    self.env.step(joint_pos_targets)
+
             
             # get the eval information
             eval_info_dict = self.env.get_eval_info()
@@ -73,6 +85,7 @@ class Eval:
             print("Success Rate:",   eval_info_dict["success_rate"])
             print("Mean Scene Collision Timestep Percentage:", eval_info_dict["mean_scene_collision_timestep_percentage"])
             print("Mean Scene Contact Force Norm Sum:", eval_info_dict["mean_scene_contact_force_norm_sum"])
+            print(f"{eval_info_dict['reach_rate'].item():.4f}, {eval_info_dict['collision_rate'].item():.4f}, {eval_info_dict['success_rate'].item():.4f}, {eval_info_dict['mean_scene_collision_timestep_percentage'].item():.4f}, {eval_info_dict['mean_scene_contact_force_norm_sum'].item():.4f}")
 
 
     @torch.no_grad()
@@ -86,10 +99,9 @@ class Eval:
         for _ in tqdm(range(testing_epoch_num), desc="Eval epoch"):
             self.reset_envs()
             env_obs_dict = self.env.get_observations()
-            gt_state = self.env.obstacle_configs
 
             # (max_episode_length, num_envs, 7)
-            joint_pos_targets_buffer = self.motion_planner.get_actions_open_loop(env_obs_dict, gt_state)
+            joint_pos_targets_buffer = self.motion_planner.get_actions_open_loop(env_obs_dict)
 
             # roll out open loop
             for i in tqdm(range(self.env.max_episode_length), desc="Env step"):

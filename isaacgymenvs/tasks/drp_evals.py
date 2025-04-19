@@ -27,7 +27,7 @@ class DRPEvals(VecTask):
         if self.headless:
             self.debug_viz = False
         
-        self.use_dynamic_obstacles = True
+        self.use_dynamic_obstacles = False
 
         self.max_num_static_obstacles = 0
         self.max_num_dynamic_obstacles = 0
