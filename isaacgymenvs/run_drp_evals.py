@@ -39,10 +39,12 @@ class Eval:
         
 
     def set_up_env(self):
-        headless = self.cfg['headless']
+        headless = self.cfg.headless
         force_render = True
         if headless:
             force_render = False
+        else:
+            self.cfg.env.numEnvs = 32
         graphics_device_id = 0
         virtual_screen_capture = False
 

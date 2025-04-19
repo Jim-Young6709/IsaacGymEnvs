@@ -103,12 +103,13 @@ class ObstacleSpawner:
                 obstacle_pose = current_ee_pose.clone()
 
                 obstacle_pose[:, 0:3] += current_ee_trans_vel_dir * (safe_radius.unsqueeze(1) + 0.2)
+
                 # set the obstalce pose
                 self.obstacle_poses[:, quasi_dynamic_obstacle_id, :] = obstacle_pose
             
-            # if timestep[0] > (self.max_episode_length - 200):
-            #     quasi_dynamic_idx = self.obstacle_index_dict["quasi_dynamic"]
-            #     self.obstacle_poses[:, quasi_dynamic_idx, :] = self.disable_pose[:, quasi_dynamic_idx, :]
+            if timestep[0] > (self.max_episode_length - 100):
+                quasi_dynamic_idx = self.obstacle_index_dict["quasi_dynamic"]
+                self.obstacle_poses[:, quasi_dynamic_idx, :] = self.disable_pose[:, quasi_dynamic_idx, :]
 
 
 

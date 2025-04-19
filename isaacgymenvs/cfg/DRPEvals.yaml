@@ -4,7 +4,7 @@ physics_engine: 'physx'
 headless: False
 
 env:
-  numEnvs: 32 #100
+  numEnvs: 100
   envSpacing: 1.5
   episodeLength: 1000
   enableDebugVis: True
@@ -40,7 +40,7 @@ task:
 
   # "static", "quasi_dynamic", "goal_blocker", "floating"
   task_type: "quasi_dynamic"
-  task_name: "hybrid_1"
+  task_name: "level_1"
 
 
 hydra:
