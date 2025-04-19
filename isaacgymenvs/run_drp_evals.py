@@ -38,7 +38,7 @@ class Eval:
         )
         self.testing_epoch_num = 1
         if self.cfg.task.task_type == "quasi_dynamic":
-            self.testing_epoch_num = 20
+            self.testing_epoch_num = 2
         
 
     def set_up_env(self):
@@ -83,21 +83,22 @@ class Eval:
         for current_epoch_num in range(self.testing_epoch_num):
             self.env.test_epoch = current_epoch_num
             self.reset_envs()
-            # for test_step in range(self.env.max_episode_length):
-            while self.env.progress_buf[0] < self.env.max_episode_length:
+            
+            if self.action_chunking:
+                iteration = self.env.max_episode_length // 15 + 1
+            else:
+                iteration = self.env.max_episode_length
+
+            step_size = 15 if self.action_chunking else 1
+            for t in tqdm(range(0, self.env.max_episode_length, step_size), desc=f"Eval Epoch Num {current_epoch_num}"):
                 env_obs_dict = self.env.get_observations()
                 joint_pos_targets = self.motion_planner.get_actions(env_obs_dict)
                 if self.action_chunking:
                     # action chunking is for curobo, where joint_pos_targets is of shape (15, num_envs, 7)
                     for i in range(15):
-                        test_step = self.env.progress_buf[0]
-                        print(test_step)
                         self.env.step(joint_pos_targets[i])
                 else:
-                    test_step = self.env.progress_buf[0]
-                    print(test_step)
                     self.env.step(joint_pos_targets)
-                    test_step = self.env.progress_buf[0]
 
             # get the eval information
             eval_info_dict = self.env.get_eval_info()
