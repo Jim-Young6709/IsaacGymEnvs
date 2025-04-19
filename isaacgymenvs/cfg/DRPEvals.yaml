@@ -6,7 +6,7 @@ headless: False
 env:
   numEnvs: 100
   envSpacing: 1.5
-  episodeLength: 500 #1000
+  episodeLength: 1000
   enableDebugVis: True
   numObservations: 7
   numActions: 7
@@ -36,11 +36,17 @@ task:
   randomize: False
   close_loop: True
 
-  planner: "DRP"
+  # "DRP", "Curobo"
+  planner: "Curobo"
 
   # "static", "quasi_dynamic", "goal_blocker", "floating"
-  task_type: "quasi_dynamic"
-  task_name: "level_2"
+  # task_type: "static"
+  # task_name: "static_box_ff"
+
+  task_type: "goal_blocker"
+  task_name: "level_1"
+
+
 
 
 hydra:

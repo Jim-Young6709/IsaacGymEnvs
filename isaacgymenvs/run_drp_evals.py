@@ -48,7 +48,7 @@ class Eval:
         if headless:
             force_render = False
         else:
-            self.cfg.env.numEnvs = 4
+            self.cfg.env.numEnvs = 2 #4
             self.testing_epoch_num = 100000
 
         graphics_device_id = 0

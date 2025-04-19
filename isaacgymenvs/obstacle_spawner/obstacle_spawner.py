@@ -50,6 +50,21 @@ class ObstacleSpawner:
             self.moving_obstacle_flag[self.obstacle_index_dict["floating"]] = True
         self.num_moving_obstacles = self.moving_obstacle_flag.sum().item()
 
+    
+
+    def generate_obstacle_gt(self):
+        obstacle_configs = list()
+        for i in range(self.num_envs):
+            obstacle_config_i = (
+                self.combined_obstacle_dim_tensor[i].cpu().numpy().astype(np.float32),
+                self.obstacle_poses[i, :, 0:3].cpu().numpy().astype(np.float32),
+                self.obstacle_poses[i, :, 3:].cpu().numpy().astype(np.float32),
+                None,
+            )
+            obstacle_configs.append(obstacle_config_i)
+        return obstacle_configs
+
+
 
     @property
     def obstacle_dims(self):
@@ -124,6 +139,7 @@ class ObstacleSpawner:
 
                 if ((timestep[0] - start_time) % time_interval == 0) and (timestep[0] < last_spawning_timestep):
                     quasi_dynamic_obstacle_id = self.obstacle_index_dict["quasi_dynamic"][self.quasi_dynamic_obstacle_enable_num]
+                    self.quasi_dynamic_obstacle_enable_num += 1
                     # future_time_step = min(timestep[0].item()+60, self.max_episode_length-100)
                     safe_radius = torch.norm(self.combined_obstacle_dim_tensor[:, quasi_dynamic_obstacle_id, 0:3]/2, dim=1)
 
@@ -162,7 +178,7 @@ class ObstacleSpawner:
                     self.obstacle_poses[valid_envs, quasi_dynamic_obstacle_id, :] = selected_future_pose
                     set_quasi_dynamic_obs = True
 
-
+                # disable quasi-dynamic obstacles
                 if timestep[0] > (self.max_episode_length - 100):
                     quasi_dynamic_idx = self.obstacle_index_dict["quasi_dynamic"]
                     self.obstacle_poses[:, quasi_dynamic_idx, :] = self.disable_pose[:, quasi_dynamic_idx, :]
