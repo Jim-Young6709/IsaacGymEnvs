@@ -89,6 +89,7 @@ class ObstacleSpawner:
 
     def reset(self):
         self.obstacle_poses = self.disable_pose.clone()
+        self.quasi_dynamic_obstacle_enable_num = 0
     
     
     def update_obstacle_poses(self, timestep):
@@ -142,7 +143,6 @@ class ObstacleSpawner:
                     self.quasi_dynamic_obstacle_enable_num += 1
                     # future_time_step = min(timestep[0].item()+60, self.max_episode_length-100)
                     safe_radius = torch.norm(self.combined_obstacle_dim_tensor[:, quasi_dynamic_obstacle_id, 0:3]/2, dim=1)
-
                     # for i in range(self.num_envs):
                     #     future_time_step = min(timestep[0].item()+60, self.max_episode_length)
                     #     for j in range(future_time_step, self.max_episode_length-100):

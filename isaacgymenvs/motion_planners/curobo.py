@@ -308,7 +308,7 @@ class Curobo(MotionPlannerBase):
         )
 
     def reset(self):
-        pass
+        self.env_planning_success_flag[:] = True
 
     @staticmethod
     def flip_quaternion(quat):
