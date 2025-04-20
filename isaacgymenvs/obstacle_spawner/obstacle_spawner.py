@@ -211,12 +211,12 @@ class ObstacleSpawner:
                 is_in_safe_zone = is_in_safe_zone.unsqueeze(-1).expand(-1, -1, 3) #(num_envs, num_selected_obstacles, 3)
 
                 self.floating_obstacle_moving_dir[is_in_safe_zone] *= -1
-                noise_std = 0.2
-                self.floating_obstacle_moving_dir[is_in_safe_zone] += torch.randn_like(self.floating_obstacle_moving_dir[is_in_safe_zone]) * noise_std
+                # noise_std = 0.02
+                # self.floating_obstacle_moving_dir[is_in_safe_zone] += torch.randn_like(self.floating_obstacle_moving_dir[is_in_safe_zone]) * noise_std
                 self.floating_obstacle_moving_dir = self.floating_obstacle_moving_dir / self.floating_obstacle_moving_dir.norm(dim=2, keepdim=True)
 
             # disable quasi-dynamic obstacles
-            if timestep[0] > (self.max_episode_length - 100):
+            if timestep[0] > (self.max_episode_length - 300):
                 floating_obstacle_id = self.obstacle_index_dict["floating"]
                 self.obstacle_poses[:, floating_obstacle_id, :] = self.disable_pose[:, floating_obstacle_id, :]
 

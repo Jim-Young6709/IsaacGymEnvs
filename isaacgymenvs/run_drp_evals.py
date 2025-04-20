@@ -26,7 +26,6 @@ class Eval:
         self.set_up_motion_planner()
         self.set_up_artificial_potential()
 
-
     def set_up_problem_configs(self):
         current_file_dir = os.path.dirname(os.path.abspath(__file__))
         problem_config_path = os.path.join(

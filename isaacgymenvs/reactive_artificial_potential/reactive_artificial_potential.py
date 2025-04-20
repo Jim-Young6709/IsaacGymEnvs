@@ -137,18 +137,16 @@ class ReactiveArtificialPotential:
             joint_pos = joint_pos_array[i]
             dynamic_pcd_np = dynamic_pcd_torch.cpu().numpy()
 
-            
             if len(dynamic_pcd_np) > 0:
                 J_surface, link_name, surface_point, closest_point = self.get_closest_surface_point_jacobian(dynamic_pcd_np, joint_pos)
                 tau_repulsion, f_repulse, closest_surface_point, closest_pcd_point = self.compute_repulsive_joint_torque(
-                    J_surface, link_name, surface_point, closest_point, d0=0.2, eta=3.0,
+                    J_surface, link_name, surface_point, closest_point, d0=0.1, eta=3.0, # d0=0.2
                 )
                 if closest_surface_point is not None:
                     # should run through forward dynamics, but in practice, this works too
                     new_joint_pos_target = torch.tensor(joint_pos + tau_repulsion, device=self.device)
                     env_obs_dict["goal_joint_pos"][i] = new_joint_pos_target.clone()
         
-
         env_obs_dict["goal_robot_pcd"] = self.env.get_robot_pcds(env_obs_dict["goal_joint_pos"])
         return env_obs_dict
 

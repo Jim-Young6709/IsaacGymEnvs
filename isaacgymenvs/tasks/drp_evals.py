@@ -374,7 +374,7 @@ class DRPEvals(VecTask):
         robot_pcd = self.gpu_fk_sampler.sample(joint_pos, self.num_robot_points)
         return robot_pcd
     
-    
+
     def generate_scene_pcd(self, num_robot_points, num_goal_robot_points, num_obstacle_points):
         # set up pcd buffers
         self.num_robot_points = num_robot_points
@@ -538,11 +538,11 @@ class DRPEvals(VecTask):
 
         env_obs_dict = dict()
         env_obs_dict["joint_pos"] = joint_pos
-        env_obs_dict["goal_joint_pos"] = self.goal_joint_pos
+        env_obs_dict["goal_joint_pos"] = self.goal_joint_pos.clone()
         env_obs_dict["total_collision_status"] = self.collision
         env_obs_dict["scene_collision_status"] = self.scene_collision
         env_obs_dict["robot_pcd"] = self.robot_pcd
-        env_obs_dict["goal_robot_pcd"] = self.goal_robot_pcd
+        env_obs_dict["goal_robot_pcd"] = self.goal_robot_pcd.clone()
         env_obs_dict["static_obstacle_pcd"] = self.static_obstacle_pcd
         env_obs_dict["dynamic_obstacle_pcd"] = filtered_dynamic_obstacle_pcd_list
         env_obs_dict["moving_dynamic_obstacle_pcd"] = filtered_moving_dynamic_obstacle_pcd_list
