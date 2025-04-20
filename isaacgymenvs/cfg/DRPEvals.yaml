@@ -43,8 +43,8 @@ task:
   # task_type: "static"
   # task_name: "static_box_ff"
 
-  task_type: "static"
-  task_name: "static_box_tt"
+  task_type: "floating"
+  task_name: "level_1"
 
 
 
