@@ -134,7 +134,7 @@ class Eval:
             joint_pos_targets_buffer = self.motion_planner.get_actions_open_loop(env_obs_dict)
 
             # roll out open loop
-            for i in tqdm(range(self.env.max_episode_length), desc="Env step"):
+            for i in tqdm(range(self.env.max_episode_length//self.interpolated_substeps), desc="Env step"):
                 env_obs_dict = self.env.get_observations()
                 current_joint_pos = env_obs_dict["joint_pos"]
                 joint_pos_targets = joint_pos_targets_buffer[i]
@@ -152,6 +152,9 @@ class Eval:
             print("Success Rate:",   eval_info_dict["success_rate"])
             print("Mean Scene Collision Timestep Percentage:", eval_info_dict["mean_scene_collision_timestep_percentage"])
             print("Mean Scene Contact Force Norm Sum:", eval_info_dict["mean_scene_contact_force_norm_sum"])
+            output_line = f"{self.cfg.task.planner} Open Loop | {self.cfg.task.task_name}:   {eval_info_dict['reach_rate'].item():.4f}, {eval_info_dict['collision_rate'].item():.4f}, {eval_info_dict['success_rate'].item():.4f}, {eval_info_dict['mean_scene_collision_timestep_percentage'].item():.4f}, {eval_info_dict['mean_scene_contact_force_norm_sum'].item():.4f}"
+            with open("/home/avenger/Projects/drp/drp_eval/IsaacGymEnvs/isaacgymenvs/eval_scripts/curobo_static_evals.txt", "a") as f:
+                f.write(output_line + "\n")
 
 
 @hydra.main(version_base="1.1", config_name="DRPEvals", config_path="./cfg")
