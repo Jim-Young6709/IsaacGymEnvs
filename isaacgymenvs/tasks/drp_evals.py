@@ -300,6 +300,7 @@ class DRPEvals(VecTask):
         self.collision = torch.zeros(self.num_envs, dtype=bool, device=self.device)
         self.scene_collision_counter = torch.zeros(self.num_envs, dtype=int, device=self.device)
         self.total_scene_contact_forces = torch.zeros(self.num_envs, device=self.device)
+        self.ee_start_pose = self.get_ee_from_joint(self.start_joint_pos)
         self.ee_goal_pose = self.get_ee_from_joint(self.goal_joint_pos)
         self.start_joint_pos = tensor_clamp(self.start_joint_pos, self.franka_dof_lower_limits[:7], self.franka_dof_upper_limits[:7])
         self.goal_joint_pos = tensor_clamp(self.goal_joint_pos, self.franka_dof_lower_limits[:7], self.franka_dof_upper_limits[:7])
@@ -511,10 +512,6 @@ class DRPEvals(VecTask):
         joint_pos = self.states['q'][:, 0:7].clone()
         self.robot_pcd[:, :, :] = self.get_robot_pcds(joint_pos)
 
-        if self.test_epoch == 0:
-            current_ee_pose = torch.cat((self.states["eef_pos"], self.states["eef_quat"]), dim=1)
-            self.ee_pose_trajectory[:, self.progress_buf[0], :] = current_ee_pose
-
         if self.use_dynamic_obstacles:
             # ----------- filtering dynamic obstacle pcd for points not in workspace -----------
             # [(num_dynamic_obstacles, 3), (num_dynamic_obstacles, 3), ... ] -> length is num_envs
@@ -566,6 +563,10 @@ class DRPEvals(VecTask):
 
     def post_physics_step(self):
         self._refresh()
+        if self.test_epoch == 0:
+            current_ee_pose = torch.cat((self.states["eef_pos"], self.states["eef_quat"]), dim=1)
+            self.ee_pose_trajectory[:, self.progress_buf[0], :] = current_ee_pose
+
 
         self.check_robot_collision()
         self.scene_collision_counter += self.scene_collision.int()

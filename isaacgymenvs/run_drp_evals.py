@@ -95,6 +95,8 @@ class Eval:
                     # action chunking is for curobo, where joint_pos_targets is of shape (15, num_envs, 7)
                     for i in range(15):
                         self.env.step(joint_pos_targets[i])
+                        if self.env.progress_buf[0].item() >= self.env.max_episode_length:
+                            break
                 else:
                     self.env.step(joint_pos_targets)
 
