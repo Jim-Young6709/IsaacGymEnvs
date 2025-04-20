@@ -94,7 +94,8 @@ class Eval:
                 env_obs_dict = self.env.get_observations()
 
                 if self.use_artificial_potential:
-                    env_obs_dict = self.artificial_potential.apply_reactive_artificial_potential(env_obs_dict)
+                    # env_obs_dict = self.artificial_potential.apply_reactive_artificial_potential(env_obs_dict)
+                    env_obs_dict = self.artificial_potential.apply_reactive_artificial_potential_vectorized(env_obs_dict)
 
                 joint_pos_targets = self.motion_planner.get_actions(env_obs_dict)
                 if self.action_chunking:

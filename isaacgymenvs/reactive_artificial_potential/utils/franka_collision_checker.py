@@ -387,7 +387,11 @@ class FrankaCollisionChecker:
                 link_transforms[:, i, :, :] = torch.matmul(
                     link_transforms[:, i - 1, :, :], dh_transform
                 )
-
+        # Add identity at index 0
+        identity = torch.eye(4).unsqueeze(0).unsqueeze(0).repeat(batch_size, 1, 1, 1).to(self.device)
+        link_transforms = torch.cat((identity, link_transforms), dim=1)  # (batch, num_links + 1, 4, 4)
+        # ignore the second last transform to be consistent with fk_link
+        link_transforms = link_transforms[:, [0, 1, 2, 3, 4, 5, 6, 7, 9], :, :]
         return link_transforms
 
     def spheres(self, config):

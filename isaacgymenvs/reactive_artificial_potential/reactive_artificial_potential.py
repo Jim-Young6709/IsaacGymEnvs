@@ -50,7 +50,7 @@ class ReactiveArtificialPotential:
                 closest_point = point_cloud[closest_idx]
                 closest_sphere_center = sphere_center
                 closest_sphere_radius = radius
-
+        
         if closest_link is None:
             raise RuntimeError("Could not find a closest link.")
 
@@ -138,9 +138,18 @@ class ReactiveArtificialPotential:
             dynamic_pcd_np = dynamic_pcd_torch.cpu().numpy()
 
             if len(dynamic_pcd_np) > 0:
-                J_surface, link_name, surface_point, closest_point = self.get_closest_surface_point_jacobian(dynamic_pcd_np, joint_pos)
+                # add obstacle points
+                num_obstacle_points = 1000 #500
+                if len(dynamic_pcd_np) > num_obstacle_points:
+                    random_obstacle_indices = np.random.choice(len(dynamic_pcd_np), size=num_obstacle_points, replace=False)
+                else:
+                    random_obstacle_indices = np.random.choice(len(dynamic_pcd_np), size=num_obstacle_points, replace=True)
+              
+                dynamic_pcd_np_downsample = dynamic_pcd_np[random_obstacle_indices, 0:3]
+
+                J_surface, link_name, surface_point, closest_point = self.get_closest_surface_point_jacobian(dynamic_pcd_np_downsample, joint_pos)
                 tau_repulsion, f_repulse, closest_surface_point, closest_pcd_point = self.compute_repulsive_joint_torque(
-                    J_surface, link_name, surface_point, closest_point, d0=0.1, eta=3.0, # d0=0.2
+                    J_surface, link_name, surface_point, closest_point, d0=0.2, eta=3.0, # d0=0.
                 )
                 if closest_surface_point is not None:
                     # should run through forward dynamics, but in practice, this works too
@@ -153,3 +162,133 @@ class ReactiveArtificialPotential:
 
 
 
+    def apply_reactive_artificial_potential_vectorized(self, env_obs_dict):
+        joint_pos_tensor = env_obs_dict["joint_pos"]
+        dynamic_obstacles_list = env_obs_dict["moving_dynamic_obstacle_pcd"]
+        num_obstacle_points = 1000
+
+        subsampled_pcd_list = list()
+        has_dynamic_obstacles_flag = torch.ones(self.num_envs, device=self.device, dtype=bool)
+
+        for i, pcd in enumerate(dynamic_obstacles_list):
+            num_points = pcd.shape[0]
+            if num_points == 0:
+                # Avoid sampling from empty tensor
+                sampled = torch.zeros((num_obstacle_points, 3), device=self.device)
+                has_dynamic_obstacles_flag[i] = False
+            elif num_points >= num_obstacle_points:
+                indices = torch.randperm(num_points, device=self.device)[:num_obstacle_points]
+                sampled = pcd[indices]
+            else:
+                indices = torch.randint(0, num_points, (num_obstacle_points,), device=self.device)
+                sampled = pcd[indices]
+            subsampled_pcd_list.append(sampled)
+        # (num_envs, num_obstacle_points, 3)
+        dynamic_pcd_downsample = torch.stack(subsampled_pcd_list, dim=0)
+        dynamic_pcd_downsample = torch.ones_like(dynamic_pcd_downsample, device=self.device)
+
+        # ([num_envs, 9, 4, 4]) | 9 links = link 0-7 + panda hand
+        link_transforms = self.collision_checker.compute_transformations(joint_pos_tensor)#[:, 0:9, :, :]
+
+        link_name_to_index = {
+            "panda_link0": 0,
+            "panda_link1": 1,
+            "panda_link2": 2,
+            "panda_link3": 3,
+            "panda_link4": 4,
+            "panda_link5": 5,
+            "panda_link6": 6,
+            "panda_link7": 7,
+            "panda_hand": 8,
+            # "franka_ee": 8,  # optional alias, in case you're mapping "panda_hand" to "franka_ee"
+        }
+
+        # Prepare all sphere centers in local frame
+        sphere_offsets = torch.tensor([center for _, center, _ in SELF_COLLISION_SPHERES], device='cuda')  # (num_spheres, 3)
+        sphere_offsets_homo = torch.cat([sphere_offsets, torch.ones((len(SELF_COLLISION_SPHERES), 1), device='cuda')], dim=1)  # (num_spheres, 4)
+        sphere_radii = torch.tensor([r for _, _, r in SELF_COLLISION_SPHERES], device='cuda')  # (num_spheres,)
+        sphere_link_indices = torch.tensor([link_name_to_index[name] for name, _, _ in SELF_COLLISION_SPHERES], device='cuda')  # (num_spheres,)
+
+        # Expand transforms for each sphere
+        selected_transforms = link_transforms[:, sphere_link_indices]  # (num_envs, num_spheres, 4, 4)
+        # sphere_offsets_homo: (num_spheres, 4)
+        # expand it to (1, num_spheres, 4, 1) and broadcast
+        sphere_offsets_expanded = sphere_offsets_homo[None, :, :, None]  # (1, num_spheres, 4, 1)
+        sphere_offsets_expanded = sphere_offsets_expanded.expand(self.num_envs, -1, -1, -1)  # (num_envs, num_spheres, 4, 1)
+        # now matmul works: (num_envs, num_spheres, 4, 4) @ (num_envs, num_spheres, 4, 1)
+        sphere_offsets_world = torch.matmul(selected_transforms, sphere_offsets_expanded)  # (num_envs, num_spheres, 4, 1)
+        sphere_centers_world = sphere_offsets_world[:, :, 0:3, 0]  # (num_envs, num_spheres, 3)
+
+
+        # Compute distances between each sphere center and all points in the pointcloud
+        # (num_envs, num_spheres, num_obstacle_points)
+        dists = torch.norm(
+            dynamic_pcd_downsample[:, None, :, :] - sphere_centers_world[:, :, None, :],
+            dim=3
+        )
+
+        # Get closest point index and corresponding distance for each env and sphere
+        min_dist_vals, min_point_indices = torch.min(dists, dim=2)  # (num_envs, num_spheres)
+
+        # Adjust for surface distance
+        dist_to_surface = min_dist_vals - sphere_radii[None, :]  # (num_envs, num_spheres)
+
+        # Get the closest sphere per env
+        closest_sphere_dists, closest_sphere_idx = torch.min(dist_to_surface, dim=1)  # (num_envs,)
+        closest_point_idx = min_point_indices[torch.arange(self.num_envs, device='cuda'), closest_sphere_idx]  # (num_envs,)
+
+        # Extract results
+        closest_link_indices = sphere_link_indices[closest_sphere_idx]  # (num_envs,)
+        closest_sphere_centers = sphere_centers_world[torch.arange(self.num_envs, device='cuda'), closest_sphere_idx]  # (num_envs, 3)
+        closest_pcd_points = dynamic_pcd_downsample[torch.arange(self.num_envs, device='cuda'), closest_point_idx]  # (num_envs, 3)
+        closest_sphere_radii = sphere_radii[closest_sphere_idx]  # (num_envs,)
+
+        # Surface point calculation
+        direction = closest_pcd_points - closest_sphere_centers
+        direction = direction / torch.norm(direction, dim=1, keepdim=True)
+        surface_points = closest_sphere_centers + closest_sphere_radii.unsqueeze(1) * direction  # (num_envs, 3)
+
+        link_index_to_name = [
+            "panda_link0",
+            "panda_link1",
+            "panda_link2",
+            "panda_link3",
+            "panda_link4",
+            "panda_link5",
+            "panda_link6",
+            "panda_link7",
+            "panda_hand",
+        ]
+        closest_link_names = [link_index_to_name[i] for i in closest_link_indices.tolist()]
+
+        print(closest_link_names)
+        print(surface_points)
+        print(closest_pcd_points)
+        print("\n")
+        torch.set_printoptions(precision=4, sci_mode=False)
+
+        # print(sphere_centers_world)
+        # print("\n")
+        
+        surface_point_list = list()
+        link_name_list = list()
+        closest_point_list = list()
+        joint_pos_array = env_obs_dict["joint_pos"].cpu().numpy()
+        for i, dynamic_pcd_torch in enumerate(dynamic_obstacles_list):
+            joint_pos = joint_pos_array[i]
+            dynamic_pcd_np = dynamic_pcd_torch.cpu().numpy()
+
+            
+            dynamic_pcd_np_downsample = dynamic_pcd_downsample[i].cpu().numpy()
+            J_surface, link_name, surface_point, closest_point = self.get_closest_surface_point_jacobian(dynamic_pcd_np_downsample, joint_pos)
+            surface_point_list.append(surface_point)
+            link_name_list.append(link_name)
+            closest_point_list.append(closest_point)
+        
+        print(link_name_list)
+        print(surface_point_list)
+        print(closest_point_list)
+        assert 1==2
+
+
+    
