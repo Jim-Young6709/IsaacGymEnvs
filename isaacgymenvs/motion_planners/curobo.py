@@ -35,14 +35,14 @@ except:
 
 
 class Curobo(MotionPlannerBase):
-    def __init__(self, env):
+    def __init__(self, env, use_gt):
         super().__init__(env)
         self._num_robot_points = 2048
         self._num_goal_robot_points = 2048
         self._num_obstacle_points = 4096
         self._voxel_size = 0.05 # same as curobo's realsense example script
         self.in_hand = False
-        self.use_gt = False
+        self.use_gt = use_gt
         self.set_up_policy()
         self.profiling = {
             "formatting input": 0,

@@ -37,21 +37,33 @@ task_names=(
   static_wallcabinet_tt
 )
 
-# # Loop through each task name and run the Python script
-# for task in "${task_names[@]}"; do
-#   echo "Running task: $task"
-#   python3 run_drp_evals.py headless=True task.planner="Curobo" task.task_type="static" task.task_name="$task"
-# done
 
+
+# # DRP Closed Loop
 # # Loop through each task name and run the Python script
 # for task in "${task_names[@]}"; do
 #   echo "Running task: $task"
 #   python3 run_drp_evals.py headless=True task.planner="DRP" task.task_type="static" task.task_name="$task"
 # done
 
+# # Curobo Closed Loop
+# # Loop through each task name and run the Python script
+# for task in "${task_names[@]}"; do
+#   echo "Running task: $task"
+#   python3 run_drp_evals.py headless=True task.planner="Curobo" task.task_type="static" task.task_name="$task"
+# done
 
+# # Curobo Open Loop
+# # Loop through each task name and run the Python script
+# for task in "${task_names[@]}"; do
+#   echo "Running task: $task"
+#   python3 run_drp_evals.py headless=True task.planner="Curobo" task.close_loop=False task.task_type="static" task.task_name="$task"
+# done
+
+
+# Curobo PCD Open Loop
 # Loop through each task name and run the Python script
 for task in "${task_names[@]}"; do
   echo "Running task: $task"
-  python3 run_drp_evals.py headless=True task.planner="Curobo" task.close_loop=False task.task_type="static" task.task_name="$task"
+  python3 run_drp_evals.py headless=True task.planner="Curobo_PCD" task.close_loop=False task.task_type="static" task.task_name="$task"
 done

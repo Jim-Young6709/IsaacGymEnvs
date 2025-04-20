@@ -61,7 +61,10 @@ class Eval:
         planner = self.cfg.task.planner
         self.action_chunking = False
         if planner == "Curobo":
-            self.motion_planner = Curobo(self.env)
+            self.motion_planner = Curobo(self.env, True)
+            self.action_chunking = True
+        elif planner == "Curobo_PCD":
+            self.motion_planner = Curobo(self.env, False)
             self.action_chunking = True
         elif planner == "DRP":
             self.motion_planner = DRPNeuralMP(self.env)
@@ -135,7 +138,7 @@ class Eval:
             joint_pos_targets_buffer = self.motion_planner.get_actions_open_loop(env_obs_dict)
 
             # roll out open loop
-            for i in tqdm(range(self.env.max_episode_length//self.interpolated_substeps), desc="Env step"):
+            for i in tqdm(range(self.env.max_episode_length), desc="Env step"):
                 env_obs_dict = self.env.get_observations()
                 current_joint_pos = env_obs_dict["joint_pos"]
                 joint_pos_targets = joint_pos_targets_buffer[i]
