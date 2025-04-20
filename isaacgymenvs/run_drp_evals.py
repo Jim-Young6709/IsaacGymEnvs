@@ -39,6 +39,12 @@ class Eval:
         self.testing_epoch_num = 1
         if self.cfg.task.task_type == "quasi_dynamic":
             self.testing_epoch_num = 2
+        
+        self.allow_curobo_replanning = True
+        if self.cfg.task.task_type == "goal_blocker":
+            self.allow_curobo_replanning = False
+        
+        
 
     def set_up_env(self):
         headless = self.cfg.headless
@@ -61,10 +67,10 @@ class Eval:
         planner = self.cfg.task.planner
         self.action_chunking = False
         if planner == "Curobo":
-            self.motion_planner = Curobo(self.env, True)
+            self.motion_planner = Curobo(self.env, True, self.allow_curobo_replanning)
             self.action_chunking = True
         elif planner == "Curobo_PCD":
-            self.motion_planner = Curobo(self.env, False)
+            self.motion_planner = Curobo(self.env, False, self.allow_curobo_replanning)
             self.action_chunking = True
         elif planner == "DRP":
             self.motion_planner = DRPNeuralMP(self.env)
@@ -81,7 +87,7 @@ class Eval:
         self.motion_planner.reset()
 
 
-    # @torch.no_grad()
+
     def test_closed_loop(self):
         self.env.generate_scene_pcd(
             num_robot_points=self.motion_planner.num_robot_points,
@@ -97,7 +103,6 @@ class Eval:
                 env_obs_dict = self.env.get_observations()
 
                 if self.use_artificial_potential:
-                    # env_obs_dict = self.artificial_potential.apply_reactive_artificial_potential(env_obs_dict)
                     env_obs_dict = self.artificial_potential.apply_reactive_artificial_potential_vectorized(env_obs_dict)
 
                 joint_pos_targets = self.motion_planner.get_actions(env_obs_dict)
@@ -123,7 +128,7 @@ class Eval:
             with open("/home/avenger/Projects/drp/drp_eval/IsaacGymEnvs/isaacgymenvs/eval_scripts/curobo_static_evals.txt", "a") as f:
                 f.write(output_line + "\n")
 
-    # @torch.no_grad()
+
     def test_open_loop(self):
         self.env.generate_scene_pcd(
             num_robot_points=self.motion_planner.num_robot_points,

@@ -115,6 +115,8 @@ class ObstacleSpawner:
                 time_interval = 200
                 last_spawning_timestep = time_interval * self.spawner_cfg["quasi_dynamic"]["num"] + start_time
 
+
+
                 if ((timestep[0] - start_time) % time_interval == 0) and (timestep[0] < last_spawning_timestep):
                     quasi_dynamic_obstacle_id = self.obstacle_index_dict["quasi_dynamic"][self.quasi_dynamic_obstacle_enable_num]
                     self.quasi_dynamic_obstacle_enable_num += 1
@@ -130,7 +132,7 @@ class ObstacleSpawner:
                     #                 break
 
                     # Get start and end time indices for each env
-                    start_ts = torch.clamp(timestep[0] + 60, max=self.max_episode_length - 100)
+                    start_ts = torch.clamp(timestep[0] + 0, max=self.max_episode_length - 100)
                     j_range = torch.arange(start_ts, self.max_episode_length - 100, device=self.device)
                     # Create expanded versions for broadcasting
                     future_ee_pose = self.env.ee_pose_trajectory[:, j_range, :]                    # (num_envs, T, 7)
