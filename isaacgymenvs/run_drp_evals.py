@@ -46,7 +46,7 @@ class Eval:
         if headless:
             force_render = False
         else:
-            self.cfg.env.numEnvs = 4
+            self.cfg.env.numEnvs = 2
             self.testing_epoch_num = 100000
 
         graphics_device_id = 0
@@ -115,8 +115,9 @@ class Eval:
             print("Success Rate:",   eval_info_dict["success_rate"])
             print("Mean Scene Collision Timestep Percentage:", eval_info_dict["mean_scene_collision_timestep_percentage"])
             print("Mean Scene Contact Force Norm Sum:", eval_info_dict["mean_scene_contact_force_norm_sum"])
-            print(f"{eval_info_dict['reach_rate'].item():.4f}, {eval_info_dict['collision_rate'].item():.4f}, {eval_info_dict['success_rate'].item():.4f}, {eval_info_dict['mean_scene_collision_timestep_percentage'].item():.4f}, {eval_info_dict['mean_scene_contact_force_norm_sum'].item():.4f}")
-
+            output_line = f"{self.cfg.task.planner} | {self.cfg.task.task_name}:   {eval_info_dict['reach_rate'].item():.4f}, {eval_info_dict['collision_rate'].item():.4f}, {eval_info_dict['success_rate'].item():.4f}, {eval_info_dict['mean_scene_collision_timestep_percentage'].item():.4f}, {eval_info_dict['mean_scene_contact_force_norm_sum'].item():.4f}"
+            with open("/home/avenger/Projects/drp/drp_eval/IsaacGymEnvs/isaacgymenvs/eval_scripts/curobo_static_evals.txt", "a") as f:
+                f.write(output_line + "\n")
 
     @torch.no_grad()
     def test_open_loop(self):

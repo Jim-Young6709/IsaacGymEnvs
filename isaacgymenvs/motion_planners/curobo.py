@@ -127,7 +127,7 @@ class Curobo(MotionPlannerBase):
 
         # for i in tqdm(range(self.num_envs), desc="Curobo Planning"):
         for i in range(self.num_envs):
-            if self.env_planning_success_flag[i]:
+            if True: #self.env_planning_success_flag[i]:
                 # only run environments where the plan succeeded
                 if gt_info is not None:
                     (
