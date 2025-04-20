@@ -112,7 +112,7 @@ class ObstacleSpawner:
             if self.env.test_epoch > 0:
                 start_time = self.spawner_cfg["quasi_dynamic"]["start_time"]
                 safe_buffer_dist = self.spawner_cfg["quasi_dynamic"]["safe_buffer_dist"]
-                time_interval = 100
+                time_interval = 200
                 last_spawning_timestep = time_interval * self.spawner_cfg["quasi_dynamic"]["num"] + start_time
 
                 if ((timestep[0] - start_time) % time_interval == 0) and (timestep[0] < last_spawning_timestep):
@@ -203,7 +203,7 @@ class ObstacleSpawner:
                     self.floating_obstacle_moving_dir * -1,
                     self.floating_obstacle_moving_dir,
                 )
-
+                # flip moving direction if obstacles are approaching the base of the robot
                 xy_positions = self.obstacle_poses[:, floating_obstacle_id, :2]  # shape: (num_envs, num_selected_obstacles, 2)
                 dist_squared = torch.sum(xy_positions ** 2, dim=-1)  # shape: (num_envs, num_selected_obstacles)
                 safe_zone_radius = 0.25
@@ -214,6 +214,11 @@ class ObstacleSpawner:
                 noise_std = 0.2
                 self.floating_obstacle_moving_dir[is_in_safe_zone] += torch.randn_like(self.floating_obstacle_moving_dir[is_in_safe_zone]) * noise_std
                 self.floating_obstacle_moving_dir = self.floating_obstacle_moving_dir / self.floating_obstacle_moving_dir.norm(dim=2, keepdim=True)
+
+            # disable quasi-dynamic obstacles
+            if timestep[0] > (self.max_episode_length - 100):
+                floating_obstacle_id = self.obstacle_index_dict["floating"]
+                self.obstacle_poses[:, floating_obstacle_id, :] = self.disable_pose[:, floating_obstacle_id, :]
 
 
 

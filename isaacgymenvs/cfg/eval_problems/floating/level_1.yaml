@@ -25,7 +25,6 @@ dynamic_scene:
     size:
       low: [0.1, 0.1, 0.1]
       high: [0.3, 0.3, 0.3]
-    
     init_radius:
       low: 0.8
       high: 1.0

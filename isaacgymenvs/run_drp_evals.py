@@ -10,6 +10,7 @@ from omegaconf import DictConfig
 from isaacgymenvs.tasks import DRPEvals
 from isaacgymenvs.utils.utils import set_seed
 from isaacgymenvs.utils.media_utils import camera_shot
+from isaacgymenvs.reactive_artificial_potential import ReactiveArtificialPotential
 from isaacgymenvs.motion_planners import DRPNeuralMP
 from isaacgymenvs.motion_planners import Curobo
 
@@ -20,11 +21,11 @@ class Eval:
         self.seed = 10 #42
         set_seed(self.seed)
         self.cfg = cfg
-
         self.set_up_problem_configs()
         self.set_up_env()
         self.set_up_motion_planner()
-    
+        self.set_up_artificial_potential()
+
 
     def set_up_problem_configs(self):
         current_file_dir = os.path.dirname(os.path.abspath(__file__))
@@ -39,8 +40,6 @@ class Eval:
         self.testing_epoch_num = 1
         if self.cfg.task.task_type == "quasi_dynamic":
             self.testing_epoch_num = 2
-        
-        
 
     def set_up_env(self):
         headless = self.cfg.headless
@@ -48,7 +47,7 @@ class Eval:
         if headless:
             force_render = False
         else:
-            self.cfg.env.numEnvs = 2 #4
+            self.cfg.env.numEnvs = 4
             self.testing_epoch_num = 100000
 
         graphics_device_id = 0
@@ -59,7 +58,6 @@ class Eval:
         )
         self.interpolated_substeps = 10
 
-
     def set_up_motion_planner(self):
         planner = self.cfg.task.planner
         self.action_chunking = False
@@ -68,6 +66,11 @@ class Eval:
             self.action_chunking = True
         elif planner == "DRP":
             self.motion_planner = DRPNeuralMP(self.env)
+        
+    def set_up_artificial_potential(self):
+        self.use_artificial_potential = self.cfg.task.use_artificial_potential
+        if self.use_artificial_potential:
+            self.artificial_potential = ReactiveArtificialPotential(self.env)
 
 
     def reset_envs(self):
@@ -90,6 +93,10 @@ class Eval:
             step_size = 15 if self.action_chunking else 1
             for t in tqdm(range(0, self.env.max_episode_length, step_size), desc=f"Eval Epoch Num {current_epoch_num}"):
                 env_obs_dict = self.env.get_observations()
+
+                if self.use_artificial_potential:
+                    env_obs_dict = self.artificial_potential.apply_reactive_artificial_potential(env_obs_dict)
+
                 joint_pos_targets = self.motion_planner.get_actions(env_obs_dict)
                 if self.action_chunking:
                     # action chunking is for curobo, where joint_pos_targets is of shape (15, num_envs, 7)

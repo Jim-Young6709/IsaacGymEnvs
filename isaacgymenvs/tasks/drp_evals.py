@@ -374,7 +374,7 @@ class DRPEvals(VecTask):
         robot_pcd = self.gpu_fk_sampler.sample(joint_pos, self.num_robot_points)
         return robot_pcd
     
-
+    
     def generate_scene_pcd(self, num_robot_points, num_goal_robot_points, num_obstacle_points):
         # set up pcd buffers
         self.num_robot_points = num_robot_points

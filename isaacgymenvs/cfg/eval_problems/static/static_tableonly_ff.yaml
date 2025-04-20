@@ -1,6 +1,6 @@
 
 
-static_scene: "tableonly_ff_200"
+static_scene: "tableonly_ff_100"
 
 dynamic_scene:
   goal_blocker:
