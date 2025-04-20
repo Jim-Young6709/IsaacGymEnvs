@@ -1,5 +1,1 @@
-Curobo Open Loop | static_box_ff:   0.9500, 0.0100, 0.9400, 0.0050, 274.3914
-Curobo Open Loop | static_box_ft:   0.9500, 0.0500, 0.9200, 0.0158, 3796.6365
-Curobo Open Loop | static_box_tf:   0.9600, 0.0600, 0.9200, 0.0121, 2543.0671
-Curobo Open Loop | static_box_tt:   0.9600, 0.1000, 0.8700, 0.0476, 5676.5981
-Curobo Open Loop | static_cage_ff:   0.9600, 0.0500, 0.9100, 0.0173, 710.1858
+DRP | static_tableonly_ff:   0.9700, 0.0300, 0.9500, 0.0020, 20.5818

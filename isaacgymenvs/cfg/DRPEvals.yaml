@@ -37,7 +37,7 @@ task:
   close_loop: True
 
   # "DRP", "Curobo"
-  planner: "Curobo"
+  planner: "DRP"
   use_artificial_potential: False
 
   # "static", "quasi_dynamic", "goal_blocker", "floating"
