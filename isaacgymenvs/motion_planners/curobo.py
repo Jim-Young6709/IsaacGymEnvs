@@ -139,9 +139,9 @@ class Curobo(MotionPlannerBase):
         else:
             dynamic_gt_info = [None for i in range(self.num_envs)]
 
-        for i in tqdm(range(self.num_envs), desc="Curobo Planning"):
-        # for i in range(self.num_envs):
-            if self.env_planning_success_flag[i]:
+        # for i in tqdm(range(self.num_envs), desc="Curobo Planning"):
+        for i in range(self.num_envs):
+            if True: #self.env_planning_success_flag[i]:
                 # only run environments where the plan succeeded
                 if self.use_gt:
                     (
