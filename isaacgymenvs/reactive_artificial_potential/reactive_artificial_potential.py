@@ -185,7 +185,7 @@ class ReactiveArtificialPotential:
             subsampled_pcd_list.append(sampled)
         # (num_envs, num_obstacle_points, 3)
         dynamic_pcd_downsample = torch.stack(subsampled_pcd_list, dim=0)
-        dynamic_pcd_downsample = torch.ones_like(dynamic_pcd_downsample, device=self.device)
+        # dynamic_pcd_downsample = torch.ones_like(dynamic_pcd_downsample, device=self.device)
 
         # ([num_envs, 9, 4, 4]) | 9 links = link 0-7 + panda hand
         link_transforms = self.collision_checker.compute_transformations(joint_pos_tensor)#[:, 0:9, :, :]
@@ -265,8 +265,8 @@ class ReactiveArtificialPotential:
         # print(surface_points)
         # print(closest_pcd_points)
         # print("\n")
-        torch.set_printoptions(precision=4, sci_mode=False)
-        np.set_printoptions(suppress=True, precision=4)
+        # torch.set_printoptions(precision=4, sci_mode=False)
+        # np.set_printoptions(suppress=True, precision=4)
 
         # torch.Size([4, 16, 6, 9])
 
@@ -295,6 +295,8 @@ class ReactiveArtificialPotential:
         eta = 3.0
         valid_mask = (d_norm > 1e-5) & (d_norm < d0) & is_repulsive_link & has_dynamic_obstacles_flag # (num_envs,)
 
+        print(valid_mask)
+
         # Normalize direction vectors safely
         direction = torch.zeros_like(d_vec)
         direction[valid_mask] = d_vec[valid_mask] / d_norm[valid_mask].unsqueeze(1)
@@ -311,8 +313,9 @@ class ReactiveArtificialPotential:
         # closest_link_jacobians: (num_envs, 6, 7), F: (num_envs, 6) → unsqueeze F to (num_envs, 6, 1)
         tau = torch.bmm(closest_link_jacobians.transpose(1, 2), F.unsqueeze(2)).squeeze(2)  # (num_envs, 7)
 
+        print(valid_mask)
 
-        env_obs_dict["goal_joint_pos"][valid_mask] = joint_pos_tensor[valid_mask] + tau[valid_mask]
+        env_obs_dict["goal_joint_pos"][valid_mask] = (joint_pos_tensor[valid_mask] + tau[valid_mask]).clone()
         env_obs_dict["goal_robot_pcd"] = self.env.get_robot_pcds(env_obs_dict["goal_joint_pos"])
         return env_obs_dict
 
