@@ -274,10 +274,19 @@ class DRPEvals(VecTask):
         self._eef_lf_state = self._rigid_body_state[:, self.handles["leftfinger_tip"], :]
         self._eef_rf_state = self._rigid_body_state[:, self.handles["rightfinger_tip"], :]
         _jacobian = self.gym.acquire_jacobian_tensor(self.sim, "franka")
-        jacobian = gymtorch.wrap_tensor(_jacobian)
+        self.jacobian = gymtorch.wrap_tensor(_jacobian)
         hand_joint_index = self.gym.get_actor_joint_dict(env_ptr, franka_handle)['panda_hand_joint']
-        self._j_eef = jacobian[:, hand_joint_index, :, :7]
+        self._j_eef = self.jacobian[:, hand_joint_index, :, :7]
 
+        # these should match the frame jacobians
+        jacobian_joint_names = [
+            "panda_joint1", "panda_joint1", "panda_joint2", "panda_joint3", "panda_joint4", 
+            "panda_joint5", "panda_joint6", "panda_joint7", "panda_hand_joint",
+        ]
+        self.jacobian_link_idx = list()
+        for joint_name in jacobian_joint_names:
+            self.jacobian_link_idx.append(self.gym.get_actor_joint_dict(env_ptr, franka_handle)[joint_name])
+    
         # initialize actions
         self._pos_control = torch.zeros((self.num_envs, self.num_dofs), dtype=torch.float, device=self.device)
 
@@ -373,6 +382,10 @@ class DRPEvals(VecTask):
     def get_robot_pcds(self, joint_pos):
         robot_pcd = self.gpu_fk_sampler.sample(joint_pos, self.num_robot_points)
         return robot_pcd
+    
+    
+    def get_link_jacobians(self):
+        return self.jacobian[:, self.jacobian_link_idx, :, 0:7]
     
 
     def generate_scene_pcd(self, num_robot_points, num_goal_robot_points, num_obstacle_points):
@@ -538,11 +551,11 @@ class DRPEvals(VecTask):
 
         env_obs_dict = dict()
         env_obs_dict["joint_pos"] = joint_pos
-        env_obs_dict["goal_joint_pos"] = self.goal_joint_pos
+        env_obs_dict["goal_joint_pos"] = self.goal_joint_pos.clone()
         env_obs_dict["total_collision_status"] = self.collision
         env_obs_dict["scene_collision_status"] = self.scene_collision
         env_obs_dict["robot_pcd"] = self.robot_pcd
-        env_obs_dict["goal_robot_pcd"] = self.goal_robot_pcd
+        env_obs_dict["goal_robot_pcd"] = self.goal_robot_pcd.clone()
         env_obs_dict["static_obstacle_pcd"] = self.static_obstacle_pcd
         env_obs_dict["dynamic_obstacle_pcd"] = filtered_dynamic_obstacle_pcd_list
         env_obs_dict["moving_dynamic_obstacle_pcd"] = filtered_moving_dynamic_obstacle_pcd_list

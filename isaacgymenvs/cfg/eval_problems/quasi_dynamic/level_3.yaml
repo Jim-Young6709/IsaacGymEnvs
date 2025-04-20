@@ -1,6 +1,6 @@
 
 
-static_scene: "box_ff_192"
+static_scene: "hybrid_ff_165"
 
 dynamic_scene:
   goal_blocker:
@@ -15,9 +15,9 @@ dynamic_scene:
     num: 1
     size:
       low: [0.05, 0.05, 0.05]
-      high: [0.3, 0.3, 0.3]
+      high: [0.2, 0.2, 0.2]
     start_time: 30
-    safe_buffer_dist: 0.2
+    safe_buffer_dist: 0.3
 
   floating:
     enable: False
