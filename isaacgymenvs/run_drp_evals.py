@@ -76,7 +76,7 @@ class Eval:
         self.motion_planner.reset()
 
 
-    @torch.no_grad()
+    # @torch.no_grad()
     def test_closed_loop(self):
         self.env.generate_scene_pcd(
             num_robot_points=self.motion_planner.num_robot_points,
@@ -109,7 +109,7 @@ class Eval:
             print(f"{eval_info_dict['reach_rate'].item():.4f}, {eval_info_dict['collision_rate'].item():.4f}, {eval_info_dict['success_rate'].item():.4f}, {eval_info_dict['mean_scene_collision_timestep_percentage'].item():.4f}, {eval_info_dict['mean_scene_contact_force_norm_sum'].item():.4f}")
 
 
-    @torch.no_grad()
+    # @torch.no_grad()
     def test_open_loop(self):
         self.env.generate_scene_pcd(
             num_robot_points=self.motion_planner.num_robot_points,

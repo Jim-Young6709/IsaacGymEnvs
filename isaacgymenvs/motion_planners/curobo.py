@@ -3,6 +3,7 @@ import time
 import torch
 import numpy as np
 import logging
+import matplotlib.pyplot as plt
 from tqdm import tqdm
 from robofin.robots import FrankaRobot
 from scipy.spatial.transform import Rotation as R
@@ -11,7 +12,7 @@ from isaacgymenvs.motion_planners import MotionPlannerBase
 try:
     from curobo.geom.sdf.world import CollisionCheckerType
     from curobo.geom.sphere_fit import SphereFitType
-    from curobo.geom.types import Cuboid, Cylinder, Mesh, Sphere, WorldConfig
+    from curobo.geom.types import Cuboid, Cylinder, Mesh, Sphere, VoxelGrid, WorldConfig
     from curobo.types.base import TensorDeviceType
     from curobo.types.math import Pose
     from curobo.types.robot import JointState, RobotConfig
@@ -39,7 +40,9 @@ class Curobo(MotionPlannerBase):
         self._num_robot_points = 2048
         self._num_goal_robot_points = 2048
         self._num_obstacle_points = 4096
+        self._voxel_size = 0.02 # 0.05
         self.in_hand = False
+        self.use_gt = False
         self.set_up_policy()
         self.profiling = {
             "formatting input": 0,
@@ -65,7 +68,7 @@ class Curobo(MotionPlannerBase):
         self,
         n_cubes: int = 300,
         collision_spheres_for_in_hand: int = 300,
-        mesh_mode: bool = False,
+        pcd_mode: bool = True,
         collision_buffer: float = 0.0,
         parallel_finetune=True,
     ):
@@ -82,15 +85,27 @@ class Curobo(MotionPlannerBase):
                 "attached_object": collision_spheres_for_in_hand
             }
 
-        world_cfg = WorldConfig.from_dict(
-            load_yaml(join_path(get_world_configs_path(), "collision_table.yml"))
-        ).get_obb_world()
-        c_checker = CollisionCheckerType.PRIMITIVE
-        c_cache = {"obb": n_cubes}
-        if mesh_mode:
-            c_checker = CollisionCheckerType.MESH
-            c_cache = {"mesh": n_cubes}
-            world_cfg = world_cfg.get_mesh_world()
+        if pcd_mode:
+            c_checker = CollisionCheckerType.VOXEL
+            c_cache = None
+            world_cfg = WorldConfig.from_dict(
+                {
+                    "voxel": {
+                        "base": {
+                            "dims": [2.0, 2.0, 2.0],
+                            "pose": [0, 0, 0, 1, 0, 0, 0],
+                            "voxel_size": self._voxel_size,
+                            "feature_dtype": torch.bfloat16,
+                        },
+                    }
+                }
+            )
+        else:
+            c_checker = CollisionCheckerType.PRIMITIVE
+            c_cache = {"obb": n_cubes}
+            world_cfg = WorldConfig.from_dict(
+                load_yaml(join_path(get_world_configs_path(), "collision_table.yml"))
+            ).get_obb_world()
 
         robot_cfg_instance = RobotConfig.from_dict(robot_cfg, tensor_args=TensorDeviceType())
 
@@ -129,11 +144,16 @@ class Curobo(MotionPlannerBase):
         for i in range(self.num_envs):
             if self.env_planning_success_flag[i]:
                 # only run environments where the plan succeeded
-                if gt_info is not None:
+                if self.use_gt:
                     (
                         planning_actions,
                         plan_log,
                     ) = self.mp_curobo(joint_pos[i], goal_joint_pos[i], gt_info[i], dynamic_gt_info[i])
+                else:
+                    (
+                        planning_actions,
+                        plan_log,
+                    ) = self.mp_curobo_pcd(joint_pos[i], goal_joint_pos[i], static_obstacle_pcd[i]) # TODO: add dynamic obstacle pcd
                 if plan_log == "success":
                     planning_actions = torch.from_numpy(planning_actions).to(self.device)
                     num_planning_success += 1
@@ -170,7 +190,6 @@ class Curobo(MotionPlannerBase):
         gt_info,
         dynamic_gt_info=None,
         mesh_mode=False,
-        debug=False,
     ):
         """
         now force execute plan to true. TODO: fix this later
@@ -307,6 +326,100 @@ class Curobo(MotionPlannerBase):
             plan_log,
         )
 
+    def mp_curobo_pcd(
+        self,
+        start_angles,
+        target_angles,
+        obstacle_pcd,
+        debug=False,
+    ):
+        t00 = time.time()
+        # formatting start and goal
+        tensor_args = TensorDeviceType()
+        start_state = JointState.from_position(
+            tensor_args.to_device(start_angles).unsqueeze(0),
+            joint_names=[
+                "panda_joint1",
+                "panda_joint2",
+                "panda_joint3",
+                "panda_joint4",
+                "panda_joint5",
+                "panda_joint6",
+                "panda_joint7",
+            ],
+        )
+
+        goal_SE3 = FrankaRobot.fk(target_angles.cpu().numpy(), eff_frame="panda_hand")
+        goal_pose = Pose(
+            position=tensor_args.to_device(np.array(goal_SE3._xyz)),
+            quaternion=tensor_args.to_device(self.flip_quaternion(np.array(goal_SE3._so3.wxyz))),
+        )
+
+        t01 = time.time()
+
+        # pcd to voxel & update world
+        voxel_pcd = self.voxelgrid_from_point_cloud(obstacle_pcd, voxel_size=self._voxel_size)
+        voxels = [voxel_pcd]
+        if debug:
+            print("Voxels created from the point cloud")
+            self.plot_voxels(voxels[0])
+        world_config = WorldConfig(voxel=voxels)
+
+        # update world config
+        self.curobo_planner.reset(reset_seed=False)
+        self.curobo_planner.world_coll_checker.clear_cache()
+        self.curobo_planner.update_world(world_config)
+
+        self.curobo_planner.world_collision.update_voxel_features(features=voxel_pcd.feature_tensor.unsqueeze(1), name=voxel_pcd.name, env_idx=0)
+
+        if debug:
+            voxel_occu = self.curobo_planner.world_collision.get_occupancy_in_bounding_box(
+                voxel_size=self._voxel_size,
+                cuboid=Cuboid(name="test", pose=[0, 0, 0, 1, 0, 0, 0], dims=[2, 2, 2])
+            )
+            print("Voxels reload from the collision world")
+            self.plot_voxels(voxel_occu)
+
+        t02 = time.time()
+
+        # setup in hand object, worry about this later when implementing in hand
+        # self.curobo_planner.detach_object_from_robot()
+
+        t03 = time.time()
+        plan_config = MotionGenPlanConfig(max_attempts=20)
+        result = self.curobo_planner.plan_single(
+            start_state, goal_pose, plan_config
+        )  # TODO: seems the number of attempts is gonna affect the TrajOpt part a lot
+
+        if result.success:
+            traj = result.get_interpolated_plan()
+            planning_actions = traj.position.cpu().numpy()
+            # print("Len(path): ", len(planning_actions))
+
+            planning_success = (result.position_error < 0.01) and (
+                result.rotation_error < 15
+            )
+            if planning_success:
+                plan_log = "success"
+            else:
+                plan_log = "failed to reach the goal"
+        else:
+            plan_log = result.status.value
+            planning_actions = None
+
+        t04 = time.time()
+
+        self.profiling["formatting input"] += t01 - t00
+        self.profiling["update world to curobo"] += t02 - t01
+        self.profiling["setup in hand obj in curobo"] += t03 - t02
+        self.profiling["curobo plan"] += t04 - t03
+
+        # print(plan_log)
+        return (
+            planning_actions,
+            plan_log,
+        )
+
     def reset(self):
         pass
 
@@ -324,4 +437,58 @@ class Curobo(MotionPlannerBase):
         flip_quat = flip.as_quat()[[3, 0, 1, 2]]
 
         return flip_quat
+
+    @staticmethod
+    def voxelgrid_from_point_cloud(point_cloud, voxel_size, pose=[0.0, 0, 0.0, 1, 0, 0, 0], dims=[2.0, 2.0, 2.0]):
+        voxel_grid = VoxelGrid(name='voxel_pcd', pose=pose, dims=dims, voxel_size=voxel_size)
+        grid_shape, low, high = voxel_grid.get_grid_shape()
+        num_voxels = np.prod(grid_shape)
+
+        # Create an empty feature tensor
+        feature_tensor = torch.ones(num_voxels, device=point_cloud.device) * -100
+        # feature_tensor = torch.Tensor(range(num_voxels)) / 1000
+        # Create a mapping from points to voxel indices
+        indices = ((point_cloud - torch.tensor(low, device=point_cloud.device)) / voxel_size).int()
+
+        # Filter indices that fall within the grid shape
+        valid_indices = (indices >= 0) & (indices < torch.tensor(grid_shape, device=point_cloud.device))
+        valid_indices = torch.all(valid_indices, axis=1)
+        indices = indices[valid_indices]
+
+        # Calculate the voxel index in the feature_tensor
+        voxel_indices = (
+            indices[:, 0] * (grid_shape[1] * grid_shape[2]) +
+            indices[:, 1] * grid_shape[2] +
+            indices[:, 2]
+        )
+
+        # Mark occupied voxels
+        feature_tensor[voxel_indices] = 100  # or some other feature value
+        xyzr_tensor = voxel_grid.create_xyzr_tensor()
+
+        voxel_grid.feature_tensor = feature_tensor
+        voxel_grid.xyzr_tensor = xyzr_tensor
+        # Return the populated VoxelGrid object
+        return voxel_grid
+
+    @staticmethod
+    def plot_voxels(voxel_grid: VoxelGrid):
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+
+        # Get the indices of the occupied voxels
+        indices = torch.nonzero(voxel_grid.feature_tensor > 0, as_tuple=False)[:, 0]
+        indices = indices.cpu().numpy()
+
+        xyz_occu = voxel_grid.xyzr_tensor[indices]
+        xyz_occu = xyz_occu.cpu().numpy()
+        # Plot the occupied voxels
+        ax.scatter(xyz_occu[:, 0], xyz_occu[:, 1], xyz_occu[:, 2], c='r', marker='o')
+
+        ax.set_xlabel('X Label')
+        ax.set_ylabel('Y Label')
+        ax.set_zlabel('Z Label')
+
+        plt.show()
+
 
