@@ -188,16 +188,8 @@ class Curobo(MotionPlannerBase):
         target_angles,
         gt_info,
         dynamic_gt_info=None,
-        mesh_mode=False,
     ):
-        """
-        now force execute plan to true. TODO: fix this later
-        """
-
-        # initialize curobo planner if not already initialized
-
         t00 = time.time()
-
         # formatting start and goal
         tensor_args = TensorDeviceType()
         start_state = JointState.from_position(
@@ -268,20 +260,12 @@ class Curobo(MotionPlannerBase):
 
         # update world config
         self.curobo_planner.reset(reset_seed=False)
-        if mesh_mode:
-            world_config = WorldConfig(
-                cuboid=cuboids,
-                cylinder=cylinders,
-                sphere=spheres,
-                mesh=meshes,
-            ).get_mesh_world(merge_meshes=False)
-        else:
-            world_config = WorldConfig(
-                cuboid=cuboids,
-                cylinder=cylinders,
-                sphere=spheres,
-                mesh=meshes,
-            ).get_obb_world()
+        world_config = WorldConfig(
+            cuboid=cuboids,
+            cylinder=cylinders,
+            sphere=spheres,
+            mesh=meshes,
+        ).get_obb_world()
         self.curobo_planner.world_coll_checker.clear_cache()
         self.curobo_planner.update_world(world_config)
 
@@ -294,13 +278,11 @@ class Curobo(MotionPlannerBase):
         plan_config = MotionGenPlanConfig(max_attempts=20)
         result = self.curobo_planner.plan_single(
             start_state, goal_pose, plan_config
-        )  # TODO: seems the number of attempts is gonna affect the TrajOpt part a lot
+        )
 
         if result.success:
             traj = result.get_interpolated_plan()
             planning_actions = traj.position.cpu().numpy()
-            # print("Len(path): ", len(planning_actions))
-
             planning_success = (result.position_error < 0.01) and (
                 result.rotation_error < 15
             )
@@ -319,7 +301,6 @@ class Curobo(MotionPlannerBase):
         self.profiling["setup in hand obj in curobo"] += t03 - t02
         self.profiling["curobo plan"] += t04 - t03
 
-        # print(plan_log)
         return (
             planning_actions,
             plan_log,
@@ -393,13 +374,11 @@ class Curobo(MotionPlannerBase):
         plan_config = MotionGenPlanConfig(max_attempts=20)
         result = self.curobo_planner.plan_single(
             start_state, goal_pose, plan_config
-        )  # TODO: seems the number of attempts is gonna affect the TrajOpt part a lot
+        )
 
         if result.success:
             traj = result.get_interpolated_plan()
             planning_actions = traj.position.cpu().numpy()
-            # print("Len(path): ", len(planning_actions))
-
             planning_success = (result.position_error < 0.01) and (
                 result.rotation_error < 15
             )
@@ -418,7 +397,6 @@ class Curobo(MotionPlannerBase):
         self.profiling["setup in hand obj in curobo"] += t03 - t02
         self.profiling["curobo plan"] += t04 - t03
 
-        # print(plan_log)
         return (
             planning_actions,
             plan_log,
