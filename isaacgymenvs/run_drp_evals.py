@@ -135,6 +135,9 @@ class Eval:
                         current_joint_pos + (joint_pos_targets - current_joint_pos) * (i + 1) / self.interpolated_substeps
                     )
                     self.env.step(sub_joint_pos_targets)
+                    self.env.progress_buf -= 1
+
+                self.env.progress_buf += 1
 
             # get the eval information
             eval_info_dict = self.env.get_eval_info()

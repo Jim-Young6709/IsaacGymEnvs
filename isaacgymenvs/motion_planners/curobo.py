@@ -39,8 +39,8 @@ class Curobo(MotionPlannerBase):
         super().__init__(env)
         self._num_robot_points = 2048
         self._num_goal_robot_points = 2048
-        self._num_obstacle_points = 4096
-        self._voxel_size = 0.02 # 0.05
+        self._num_obstacle_points = 1000000
+        self._voxel_size = 0.005 # 0.05
         self.in_hand = False
         self.use_gt = False
         self.set_up_policy()
@@ -68,7 +68,6 @@ class Curobo(MotionPlannerBase):
         self,
         n_cubes: int = 300,
         collision_spheres_for_in_hand: int = 300,
-        pcd_mode: bool = True,
         collision_buffer: float = 0.0,
         parallel_finetune=True,
     ):
@@ -85,7 +84,13 @@ class Curobo(MotionPlannerBase):
                 "attached_object": collision_spheres_for_in_hand
             }
 
-        if pcd_mode:
+        if self.use_gt:
+            c_checker = CollisionCheckerType.PRIMITIVE
+            c_cache = {"obb": n_cubes}
+            world_cfg = WorldConfig.from_dict(
+                load_yaml(join_path(get_world_configs_path(), "collision_table.yml"))
+            ).get_obb_world()
+        else:
             c_checker = CollisionCheckerType.VOXEL
             c_cache = None
             world_cfg = WorldConfig.from_dict(
@@ -100,12 +105,6 @@ class Curobo(MotionPlannerBase):
                     }
                 }
             )
-        else:
-            c_checker = CollisionCheckerType.PRIMITIVE
-            c_cache = {"obb": n_cubes}
-            world_cfg = WorldConfig.from_dict(
-                load_yaml(join_path(get_world_configs_path(), "collision_table.yml"))
-            ).get_obb_world()
 
         robot_cfg_instance = RobotConfig.from_dict(robot_cfg, tensor_args=TensorDeviceType())
 
@@ -174,7 +173,7 @@ class Curobo(MotionPlannerBase):
 
 
         planning_actions_abs = torch.cat(planning_actions_abs, dim=1).to(self.device)
-        # print("Planning success rate: ", num_planning_success / self.num_envs)
+        print("Planning success rate: ", num_planning_success / self.num_envs)
 
         return planning_actions_abs
 
