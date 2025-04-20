@@ -78,7 +78,7 @@ class Eval:
         self.motion_planner.reset()
 
 
-    @torch.no_grad()
+    # @torch.no_grad()
     def test_closed_loop(self):
         self.env.generate_scene_pcd(
             num_robot_points=self.motion_planner.num_robot_points,
@@ -119,7 +119,7 @@ class Eval:
             with open("/home/avenger/Projects/drp/drp_eval/IsaacGymEnvs/isaacgymenvs/eval_scripts/curobo_static_evals.txt", "a") as f:
                 f.write(output_line + "\n")
 
-    @torch.no_grad()
+    # @torch.no_grad()
     def test_open_loop(self):
         self.env.generate_scene_pcd(
             num_robot_points=self.motion_planner.num_robot_points,
@@ -143,6 +143,9 @@ class Eval:
                         current_joint_pos + (joint_pos_targets - current_joint_pos) * (i + 1) / self.interpolated_substeps
                     )
                     self.env.step(sub_joint_pos_targets)
+                    self.env.progress_buf -= 1
+
+                self.env.progress_buf += 1
 
             # get the eval information
             eval_info_dict = self.env.get_eval_info()
