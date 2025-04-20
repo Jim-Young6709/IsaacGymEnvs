@@ -89,7 +89,7 @@ class ReactiveArtificialPotential:
 
 
 
-    def compute_repulsive_joint_torque(self, J_surface, link_name, surface_point, closest_point, d0=0.1, eta=5.0):
+    def compute_repulsive_joint_torque(self, J_surface, link_name, surface_point, closest_point, d0=0.2, eta=3.0):
         """
         Compute joint torques caused by a repulsive potential field from the closest
         point cloud point, exerted at the closest point on the robot's surface.
@@ -261,28 +261,69 @@ class ReactiveArtificialPotential:
         ]
         closest_link_names = [link_index_to_name[i] for i in closest_link_indices.tolist()]
 
-        print(closest_link_names)
-        print(surface_points)
-        print(closest_pcd_points)
-        print("\n")
+        # print(closest_link_names)
+        # print(surface_points)
+        # print(closest_pcd_points)
+        # print("\n")
         torch.set_printoptions(precision=4, sci_mode=False)
+        np.set_printoptions(suppress=True, precision=4)
 
-        torch.Size([4, 16, 6, 9])
+        # torch.Size([4, 16, 6, 9])
 
         # (num_envs, 9, 6, 7)
         jacobians = self.env.get_link_jacobians()
-        print(jacobians.shape)
-        print(jacobians[0])
-        # print(self.env._j_eef)
+        batch_indices = torch.arange(self.num_envs, device=jacobians.device)
+        # (num_envs, 6, 7)
+        closest_link_jacobians = jacobians[batch_indices, closest_link_indices]
+
+
+        # ------ compute torque ------
+        # Define valid repulsive links
+        repulsive_link_names = {"panda_link3", "panda_link4", "panda_link5", "panda_link6", "panda_link7", "panda_hand"}
+        # (num_envs,) bool mask
+        is_repulsive_link = torch.tensor(
+            [link_index_to_name[i] in repulsive_link_names for i in closest_link_indices.tolist()],
+            device=self.device
+        )
+
+        # Compute distance vectors and norms
+        d_vec = surface_points - closest_pcd_points  # (num_envs, 3)
+        d_norm = torch.norm(d_vec, dim=1)  # (num_envs,)
+
+        # Conditions: non-zero, less than d0, and valid repulsive link
+        d0 = 0.2
+        eta = 3.0
+        valid_mask = (d_norm > 1e-5) & (d_norm < d0) & is_repulsive_link & has_dynamic_obstacles_flag # (num_envs,)
+
+        # Normalize direction vectors safely
+        direction = torch.zeros_like(d_vec)
+        direction[valid_mask] = d_vec[valid_mask] / d_norm[valid_mask].unsqueeze(1)
+
+        # Compute repulsive force: (num_envs, 3)
+        f_repulse = torch.zeros_like(d_vec)
+        f_repulse[valid_mask] = eta * (d0 - d_norm[valid_mask]).unsqueeze(1) * direction[valid_mask]
+
+        # Construct spatial force: (num_envs, 6)
+        F = torch.zeros((d_vec.shape[0], 6), device=jacobians.device)
+        F[:, 0:3] = f_repulse
+
+        # tau = J^T @ F
+        # closest_link_jacobians: (num_envs, 6, 7), F: (num_envs, 6) → unsqueeze F to (num_envs, 6, 1)
+        tau = torch.bmm(closest_link_jacobians.transpose(1, 2), F.unsqueeze(2)).squeeze(2)  # (num_envs, 7)
+
+
+        env_obs_dict["goal_joint_pos"][valid_mask] = joint_pos_tensor[valid_mask] + tau[valid_mask]
+        env_obs_dict["goal_robot_pcd"] = self.env.get_robot_pcds(env_obs_dict["goal_joint_pos"])
+        return env_obs_dict
 
 
 
-        
-        assert 1==2
 
 
 
 
+
+# from isaac
 # tensor([[[     0.0308,      0.0000,      0.0000,      0.0000,      0.0000,
 #                0.0000,      0.0000],
 #          [     0.0057,      0.0000,      0.0000,      0.0000,      0.0000,
@@ -309,31 +350,19 @@ class ReactiveArtificialPotential:
 #          [     1.0000,      0.0000,      0.0000,      0.0000,      0.0000,
 #                0.0000,      0.0000]],
 
-#         [[    -0.0291,      0.0680,      0.0000,      0.0000,      0.0000,
-#                0.0000,      0.0000],
-#          [    -0.0146,      0.0125,      0.0000,      0.0000,      0.0000,
-#                0.0000,      0.0000],
-#          [     0.0000,      0.0091,      0.0000,      0.0000,      0.0000,
-#                0.0000,      0.0000],
-#          [     0.0000,     -0.1806,      0.0000,      0.0000,      0.0000,
-#                0.0000,      0.0000],
-#          [    -0.0000,      0.9836,      0.0000,      0.0000,      0.0000,
-#                0.0000,      0.0000],
-#          [     1.0000,     -0.0000,      0.0000,      0.0000,      0.0000,
-#                0.0000,      0.0000]],
+#         [[    -0.0291,      0.0680,      0.0000,      0.0000,      0.0000,  0.0000,      0.0000],
+#          [    -0.0146,      0.0125,      0.0000,      0.0000,      0.0000,  0.0000,      0.0000],
+#          [     0.0000,      0.0091,      0.0000,      0.0000,      0.0000,  0.0000,      0.0000],
+#          [     0.0000,     -0.1806,      0.0000,      0.0000,      0.0000,  0.0000,      0.0000],
+#          [    -0.0000,      0.9836,      0.0000,      0.0000,      0.0000,  0.0000,      0.0000],
+#          [     1.0000,     -0.0000,      0.0000,      0.0000,      0.0000,  0.0000,      0.0000]],
 
-#         [[     0.0116,      0.2777,      0.0048,      0.0000,      0.0000,
-#                0.0000,      0.0000],
-#          [     0.0146,      0.0510,      0.0509,      0.0000,      0.0000,
-#                0.0000,      0.0000],
-#          [    -0.0000,     -0.0123,      0.0018,      0.0000,      0.0000,
-#                0.0000,      0.0000],
-#          [     0.0000,     -0.1806,     -0.1289,      0.0000,      0.0000,
-#                0.0000,      0.0000],
-#          [    -0.0000,      0.9836,     -0.0237,      0.0000,      0.0000,
-#                0.0000,      0.0000],
-#          [     1.0000,     -0.0000,      0.9914,      0.0000,      0.0000,
-#                0.0000,      0.0000]],
+#         [[     0.0116,      0.2777,      0.0048,      0.0000,      0.0000,     0.0000,      0.0000],
+#          [     0.0146,      0.0510,      0.0509,      0.0000,      0.0000,     0.0000,      0.0000],
+#          [    -0.0000,     -0.0123,      0.0018,      0.0000,      0.0000,     0.0000,      0.0000],
+#          [     0.0000,     -0.1806,     -0.1289,      0.0000,      0.0000,     0.0000,      0.0000],
+#          [    -0.0000,      0.9836,     -0.0237,      0.0000,      0.0000,     0.0000,      0.0000],
+#          [     1.0000,     -0.0000,      0.9914,      0.0000,      0.0000,     0.0000,      0.0000]],
 
 #         [[     0.1050,      0.3374,      0.0960,     -0.0228,      0.0000,
 #                0.0000,      0.0000],
@@ -399,3 +428,77 @@ class ReactiveArtificialPotential:
 #                0.5440,     -0.7809],
 #          [     1.0000,     -0.0000,      0.9914,     -0.0931,     -0.3046,
 #                0.6039,      0.1105]]], device='cuda:0')
+
+
+
+# # from pin
+# [[0. 0. 0. 0. 0. 0. 0.]
+#  [0. 0. 0. 0. 0. 0. 0.]
+#  [0. 0. 0. 0. 0. 0. 0.]
+#  [0. 0. 0. 0. 0. 0. 0.]
+#  [0. 0. 0. 0. 0. 0. 0.]
+#  [0. 0. 0. 0. 0. 0. 0.]]
+
+
+# [[0. 0. 0. 0. 0. 0. 0.]
+#  [0. 0. 0. 0. 0. 0. 0.]
+#  [0. 0. 0. 0. 0. 0. 0.]
+#  [0. 0. 0. 0. 0. 0. 0.]
+#  [0. 0. 0. 0. 0. 0. 0.]
+#  [1. 0. 0. 0. 0. 0. 0.]]
+
+
+# [[ 0.      0.      0.      0.      0.      0.      0.    ]
+#  [ 0.      0.      0.      0.      0.      0.      0.    ]
+#  [ 0.      0.      0.      0.      0.      0.      0.    ]
+#  [ 0.     -0.1806  0.      0.      0.      0.      0.    ]
+#  [ 0.      0.9836  0.      0.      0.      0.      0.    ]
+#  [ 1.      0.      0.      0.      0.      0.      0.    ]]
+
+
+# [[ 0.0075  0.3081  0.      0.      0.      0.      0.    ]
+#  [-0.0407  0.0566  0.      0.      0.      0.      0.    ]
+#  [ 0.      0.0414  0.      0.      0.      0.      0.    ]
+#  [ 0.     -0.1806 -0.1289  0.      0.      0.      0.    ]
+#  [ 0.      0.9836 -0.0237  0.      0.      0.      0.    ]
+#  [ 1.      0.      0.9914  0.      0.      0.      0.    ]]
+
+
+# [[ 0.0548  0.3156  0.0467  0.      0.      0.      0.    ]
+#  [ 0.0264  0.058   0.0676  0.      0.      0.      0.    ]
+#  [ 0.     -0.0161  0.0077  0.      0.      0.      0.    ]
+#  [ 0.     -0.1806 -0.1289 -0.5661  0.      0.      0.    ]
+#  [ 0.      0.9836 -0.0237 -0.819   0.      0.      0.    ]
+#  [ 1.      0.      0.9914 -0.0931  0.      0.      0.    ]]
+
+
+# [[ 0.274   0.2775  0.265   0.0113  0.      0.      0.    ]
+#  [ 0.35    0.051   0.3834 -0.0521  0.      0.      0.    ]
+#  [ 0.     -0.2948  0.0436  0.3891  0.      0.      0.    ]
+#  [ 0.     -0.1806 -0.1289 -0.5661  0.7994  0.      0.    ]
+#  [ 0.      0.9836 -0.0237 -0.819  -0.5179  0.      0.    ]
+#  [ 1.      0.      0.9914 -0.0931 -0.3046  0.      0.    ]]
+
+
+# [[ 0.274   0.2775  0.265   0.0113  0.      0.      0.    ]
+#  [ 0.35    0.051   0.3834 -0.0521  0.      0.      0.    ]
+#  [ 0.     -0.2948  0.0436  0.3891  0.      0.      0.    ]
+#  [ 0.     -0.1806 -0.1289 -0.5661  0.7994  0.5825  0.    ]
+#  [ 0.      0.9836 -0.0237 -0.819  -0.5179  0.544   0.    ]
+#  [ 1.      0.      0.9914 -0.0931 -0.3046  0.6039  0.    ]]
+
+
+# [[ 0.247   0.2092  0.2398  0.0707  0.0442 -0.0541  0.    ]
+#  [ 0.3968  0.0384  0.4208 -0.0958  0.0413  0.0687  0.    ]
+#  [ 0.     -0.3457  0.0412  0.4122  0.0458 -0.0097  0.    ]
+#  [ 0.     -0.1806 -0.1289 -0.5661  0.7994  0.5825  0.6147]
+#  [ 0.      0.9836 -0.0237 -0.819  -0.5179  0.544  -0.7809]
+#  [ 1.      0.      0.9914 -0.0931 -0.3046  0.6039  0.1105]]
+
+
+# [[ 0.3384  0.2219  0.3301  0.0516  0.0097  0.0081  0.    ]
+#  [ 0.4687  0.0407  0.4938 -0.0951  0.009   0.1046  0.    ]
+#  [ 0.     -0.3999  0.0547  0.5228  0.01   -0.1021 -0.    ]
+#  [ 0.     -0.1806 -0.1289 -0.5661  0.7994  0.5825  0.6147]
+#  [ 0.      0.9836 -0.0237 -0.819  -0.5179  0.544  -0.7809]
+#  [ 1.      0.      0.9914 -0.0931 -0.3046  0.6039  0.1105]]
