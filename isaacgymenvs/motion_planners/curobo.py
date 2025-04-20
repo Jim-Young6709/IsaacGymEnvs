@@ -39,8 +39,8 @@ class Curobo(MotionPlannerBase):
         super().__init__(env)
         self._num_robot_points = 2048
         self._num_goal_robot_points = 2048
-        self._num_obstacle_points = 1000000
-        self._voxel_size = 0.005 # 0.05
+        self._num_obstacle_points = 4096
+        self._voxel_size = 0.05 # same as curobo's realsense example script
         self.in_hand = False
         self.use_gt = False
         self.set_up_policy()
@@ -92,7 +92,7 @@ class Curobo(MotionPlannerBase):
             ).get_obb_world()
         else:
             c_checker = CollisionCheckerType.VOXEL
-            c_cache = None
+            c_cache = {"obb": self._num_obstacle_points}
             world_cfg = WorldConfig.from_dict(
                 {
                     "voxel": {
@@ -139,8 +139,8 @@ class Curobo(MotionPlannerBase):
         else:
             dynamic_gt_info = [None for i in range(self.num_envs)]
 
-        # for i in tqdm(range(self.num_envs), desc="Curobo Planning"):
-        for i in range(self.num_envs):
+        for i in tqdm(range(self.num_envs), desc="Curobo Planning"):
+        # for i in range(self.num_envs):
             if self.env_planning_success_flag[i]:
                 # only run environments where the plan succeeded
                 if self.use_gt:
@@ -357,19 +357,24 @@ class Curobo(MotionPlannerBase):
         t01 = time.time()
 
         # pcd to voxel & update world
-        voxel_pcd = self.voxelgrid_from_point_cloud(obstacle_pcd, voxel_size=self._voxel_size)
-        voxels = [voxel_pcd]
-        if debug:
-            print("Voxels created from the point cloud")
-            self.plot_voxels(voxels[0])
-        world_config = WorldConfig(voxel=voxels)
+        cuboids = []
+        for i in range(len(obstacle_pcd)):
+            cuboids.append(
+                Cuboid(
+                    name=f"cuboid_{i}",
+                    pose=[*obstacle_pcd[i, :3].cpu().numpy(), 1, 0, 0, 0],
+                    dims=[0.001, 0.001, 0.001],
+                )
+            )
 
-        # update world config
-        self.curobo_planner.reset(reset_seed=False)
+        world_config = WorldConfig(
+            cuboid=cuboids,
+            cylinder=[],
+            sphere=[],
+            mesh=[],
+        ).get_obb_world()
         self.curobo_planner.world_coll_checker.clear_cache()
         self.curobo_planner.update_world(world_config)
-
-        self.curobo_planner.world_collision.update_voxel_features(features=voxel_pcd.feature_tensor.unsqueeze(1), name=voxel_pcd.name, env_idx=0)
 
         if debug:
             voxel_occu = self.curobo_planner.world_collision.get_occupancy_in_bounding_box(
