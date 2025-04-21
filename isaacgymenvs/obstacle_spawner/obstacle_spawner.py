@@ -100,18 +100,50 @@ class ObstacleSpawner:
     def update_obstacle_poses(self, timestep):
         current_ee_pose = torch.cat((self.env.states["eef_pos"], self.env.states["eef_quat"]), dim=1)
         current_ee_trans_vel = self.env.states["eef_vel"][:, 0:3]
+        current_joint_pos = self.env.states["q"][:, 0:7].clone()
         goal_ee_pose = self.env.ee_goal_pose
         set_quasi_dynamic_obs = False
 
         if self.use_goal_blocker:
+            goal_blocker_idx = self.obstacle_index_dict["goal_blocker"]
+            if timestep[0].item() == 0:
+                self.set_goal_blocking_flag = torch.zeros((self.num_envs), device=self.device, dtype=bool)
+                self.obstacle_poses[:, goal_blocker_idx, :] = self.disable_pose[:, goal_blocker_idx, :]
+
             retract_timestep = self.max_episode_length - 200
             ee_error = torch.norm(current_ee_pose[:, 0:3] - goal_ee_pose[:, 0:3], dim=1)
             # enable the goal blocker if the ee is close to the goal. retract the goal blocker
             # if the timestep is 100 steps before the max episode length
-            enable_idx = (ee_error < 0.4) & (timestep < retract_timestep)
-            goal_blocker_idx = self.obstacle_index_dict["goal_blocker"]
-            self.obstacle_poses[enable_idx, goal_blocker_idx, :] = goal_ee_pose[enable_idx, :]
-            self.obstacle_poses[~enable_idx, goal_blocker_idx, :] = self.disable_pose[~enable_idx, goal_blocker_idx, :]
+            # enable_idx = (ee_error < 0.4) & (timestep < retract_timestep)
+            # goal_blocker_idx = self.obstacle_index_dict["goal_blocker"]
+
+            # env_ids = torch.arange(self.num_envs, device=self.device)[enable_idx]
+            # if len(env_ids) > 0:
+            #     try:
+            #         is_safe = self.check_collisions(current_joint_pos[enable_idx, :], goal_ee_pose[enable_idx, :], goal_blocker_idx, 0.3, env_ids)
+            #         print(is_safe)
+            #     except:
+            #         import ipdb; ipdb.set_trace()
+            # self.obstacle_poses[enable_idx, goal_blocker_idx, :] = goal_ee_pose[enable_idx, :]
+            # self.obstacle_poses[~enable_idx, goal_blocker_idx, :] = self.disable_pose[~enable_idx, goal_blocker_idx, :]
+
+            
+            set_candidate_flag = (ee_error < 0.4) & (timestep < retract_timestep) & (~self.set_goal_blocking_flag)
+            set_candidate_ids = torch.arange(self.num_envs, device=self.device)[set_candidate_flag]
+
+
+            if len(set_candidate_ids) > 0:
+                # (len(set_candidate_ids),)
+                is_safe = self.check_collisions(current_joint_pos[set_candidate_ids, :], goal_ee_pose[set_candidate_ids, :], goal_blocker_idx, 0.01, set_candidate_ids)
+                safe_set_ids = set_candidate_ids[is_safe]
+                self.obstacle_poses[safe_set_ids, goal_blocker_idx, :] = goal_ee_pose[safe_set_ids, :]
+                self.set_goal_blocking_flag[safe_set_ids] = True
+            
+
+            if timestep[0] > (self.max_episode_length - 100):
+                self.obstacle_poses[:, goal_blocker_idx, :] = self.disable_pose[:, goal_blocker_idx, :]
+
+
 
         
         if self.use_quasi_dynamic:
@@ -121,7 +153,7 @@ class ObstacleSpawner:
                 safe_buffer_dist = self.spawner_cfg["quasi_dynamic"]["safe_buffer_dist"]
                 time_interval = self.spawner_cfg["quasi_dynamic"]["time_interval"]
                 last_spawning_timestep = time_interval * self.spawner_cfg["quasi_dynamic"]["num"] + start_time
-                current_joint_pos = self.env.states["q"][:, 0:7].clone()
+                
                 if ((timestep[0] - start_time) % time_interval == 0) and (timestep[0] < last_spawning_timestep):
                     # Get the obstacle ID for the current quasi-dynamic obstacle
                     quasi_dynamic_obstacle_id = self.obstacle_index_dict["quasi_dynamic"][self.quasi_dynamic_obstacle_enable_num]
@@ -234,15 +266,17 @@ class ObstacleSpawner:
 
 
 
-    def check_collisions(self, joint_pos, obstacle_poses, obstacle_id, threshold):
+    def check_collisions(self, joint_pos, obstacle_poses, obstacle_id, threshold, env_ids=None):
+        if env_ids is None:
+            env_ids = np.arange(self.num_envs)
         # (num_envs, 1, P, 3)
-        obstacle_pcd = self.env.dynamic_obstacle_pcd[:, [obstacle_id], :, :]
+        obstacle_pcd = self.env.dynamic_obstacle_pcd[env_ids, [obstacle_id], :, :]
         # obstacle_poses (num_envs, 1, 7)
         obstacle_poses = obstacle_poses[:, None, :]
         # (num_envs, 1, num_points_per_obstacle, 3)
         dynamic_obstacle_pcd_world = transform_pcds_to_world(obstacle_pcd, obstacle_poses)
         # all potentially moving obstacle pcd (num_envs, num_dynamic_pcd, 3)
-        dynamic_obstacle_pcd_world = dynamic_obstacle_pcd_world.view(self.num_envs, -1, 3)
+        dynamic_obstacle_pcd_world = dynamic_obstacle_pcd_world.view(len(env_ids), -1, 3)
         # (num_envs, num_points)
         sdf = self.collision_checker.check_scene_sdf_batch(
             joint_pos, dynamic_obstacle_pcd_world.float(), debug=False, sphere_repr_only=True

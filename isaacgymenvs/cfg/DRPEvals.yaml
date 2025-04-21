@@ -6,7 +6,7 @@ headless: False
 env:
   numEnvs: 100
   envSpacing: 1.5
-  episodeLength: 500 #1000
+  episodeLength: 700 #1000
   enableDebugVis: True
   numObservations: 7
   numActions: 7
@@ -37,22 +37,22 @@ task:
   close_loop: True
 
   # "DRP", "Curobo", "Curobo_PCD"
-  planner: "Curobo"
+  planner: "DRP"
   use_artificial_potential: False
+  use_speed_norm: True
 
   # "static", "quasi_dynamic", "goal_blocker", "floating"
-
   # task_type: "static"
   # task_name: "static_cubby_tt" # "static_box_tf"
 
-  task_type: "quasi_dynamic"
-  task_name: "level_3"
-
-  use_speed_norm: False
+  # task_type: "quasi_dynamic"
+  # task_name: "level_3"
 
   # task_type: "floating"
   # task_name: "level_1"
 
+  task_type: "goal_blocker"
+  task_name: "level_2"
 
 
 
