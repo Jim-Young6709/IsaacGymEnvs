@@ -14,10 +14,10 @@ dynamic_scene:
     enable: True
     num: 1
     size:
-      low: [0.05, 0.05, 0.05]
-      high: [0.3, 0.3, 0.3]
+      low: [0.1, 0.1, 0.1]
+      high: [0.2, 0.2, 0.2]
     start_time: 30
-    safe_buffer_dist: 0.2
+    safe_buffer_dist: 0.1
 
   floating:
     enable: False
