@@ -3,7 +3,7 @@ import yaml
 import torch
 import numpy as np
 
-from isaacgymenvs.tasks.utils.drp_evals_utils import transform_pcds_to_world
+from isaacgymenvs.tasks.utils.drp_evals_utils import transform_pcds_to_world, random_quaternion_xyzw
 from isaacgymenvs.reactive_artificial_potential.utils.franka_collision_checker import FrankaCollisionChecker
 
 
@@ -108,6 +108,7 @@ class ObstacleSpawner:
             goal_blocker_idx = self.obstacle_index_dict["goal_blocker"]
             if timestep[0].item() == 0:
                 self.set_goal_blocking_flag = torch.zeros((self.num_envs), device=self.device, dtype=bool)
+                self.successfully_set_flag = torch.zeros((self.num_envs), device=self.device, dtype=bool)
                 self.obstacle_poses[:, goal_blocker_idx, :] = self.disable_pose[:, goal_blocker_idx, :]
 
             retract_timestep = self.max_episode_length - 200
@@ -132,16 +133,32 @@ class ObstacleSpawner:
             set_candidate_ids = torch.arange(self.num_envs, device=self.device)[set_candidate_flag]
 
 
-            if len(set_candidate_ids) > 0:
-                # (len(set_candidate_ids),)
-                is_safe = self.check_collisions(current_joint_pos[set_candidate_ids, :], goal_ee_pose[set_candidate_ids, :], goal_blocker_idx, 0.01, set_candidate_ids)
-                safe_set_ids = set_candidate_ids[is_safe]
-                self.obstacle_poses[safe_set_ids, goal_blocker_idx, :] = goal_ee_pose[safe_set_ids, :]
-                self.set_goal_blocking_flag[safe_set_ids] = True
+            # if len(set_candidate_ids) > 0:
+            #     # (len(set_candidate_ids),)
+                
+            #         is_safe = self.check_collisions(current_joint_pos[set_candidate_ids, :], goal_ee_pose[set_candidate_ids, :], goal_blocker_idx, 0.01, set_candidate_ids)
+            #         safe_set_ids = set_candidate_ids[is_safe]
+            #         self.obstacle_poses[safe_set_ids, goal_blocker_idx, :] = goal_ee_pose[safe_set_ids, :]
+            #         self.set_goal_blocking_flag[safe_set_ids] = True
+
+
+            for set_candidate_id in set_candidate_ids:
+                for _ in range(100):
+                    goal_blocker_pose = goal_ee_pose[set_candidate_id, :].clone()
+                    goal_blocker_pose[3:7] = torch.tensor(random_quaternion_xyzw(), device=self.device)
+                    is_safe = self.check_collisions(current_joint_pos[[set_candidate_id], :], goal_ee_pose[[set_candidate_id], :], goal_blocker_idx, 0.01, [set_candidate_id])[0]
+                    if is_safe:
+                        self.obstacle_poses[set_candidate_id, goal_blocker_idx, :] = goal_blocker_pose
+                        self.successfully_set_flag[set_candidate_id] = True
+                        break
+                self.set_goal_blocking_flag[set_candidate_id] = True
             
 
             if timestep[0] > (self.max_episode_length - 100):
                 self.obstacle_poses[:, goal_blocker_idx, :] = self.disable_pose[:, goal_blocker_idx, :]
+            
+            if timestep[0] == self.max_episode_length -1:
+                print("Num goal blocking successfully set", self.successfully_set_flag.sum())
 
 
 

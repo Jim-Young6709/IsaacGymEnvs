@@ -571,6 +571,7 @@ class DRPEvals(VecTask):
 
         if self.use_dynamic_obstacles:
             dynamic_obstacle_poses, has_updated_quasi_dynamic_obstacle = self.obstacle_spawner.update_obstacle_poses(timestep=self.progress_buf)
+            # return valid env
             if has_updated_quasi_dynamic_obstacle:
                 self.gym.simulate(self.sim)
             self.set_dynamic_obstacle_pose(dynamic_obstacle_poses)

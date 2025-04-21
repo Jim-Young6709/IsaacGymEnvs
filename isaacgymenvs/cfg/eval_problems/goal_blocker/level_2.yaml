@@ -1,14 +1,15 @@
 
 
-static_scene: "box_ff_192"
+static_scene: "tableonly_ff_100_old"
 
 dynamic_scene:
   goal_blocker:
       enable: True
       num: 1
+      max_epsiode_length: 400
       size:
-        low: [0.1, 0.1, 0.1]
-        high: [0.3, 0.3, 0.3]
+        low: [0.05, 0.2, 0.2]
+        high: [0.1, 0.3, 0.3]
 
   quasi_dynamic:
     enable: False
