@@ -211,7 +211,7 @@ class DRPEvals(VecTask):
                 )
                 # buffers for holding the combined pcd for moving dynamic obstacles
                 self.moving_dynamic_obstacle_pcb_combined = torch.zeros(
-                    (self.num_envs, self.obstacle_spawner.num_moving_obstacles*self.num_points_per_dynamic_obstacle, 3), 
+                    (self.num_envs, self.max_num_dynamic_obstacles*self.num_points_per_dynamic_obstacle, 3), 
                     device=self.device,
                 )
                 dynamic_obstacle_handles = list()
@@ -383,7 +383,7 @@ class DRPEvals(VecTask):
         robot_pcd = self.gpu_fk_sampler.sample(joint_pos, self.num_robot_points)
         return robot_pcd
     
-    
+
     def get_link_jacobians(self):
         return self.jacobian[:, self.jacobian_link_idx, :, 0:7]
     
@@ -517,6 +517,7 @@ class DRPEvals(VecTask):
         # ------------ updating dynamic obstacle pcd for obstacles that are currently moving ------------
         # (num_envs, num_moving_dynamic_obstacles, num_points_per_obstacle, 3)
         moving_dynamic_obstacle_pcd_world = dynamic_obstacle_pcd_world[:, self.obstacle_spawner.moving_obstacle_flag, :, :]
+        # (num)envs, num_moving_dynamic_obstacles*num_points_per_obstacle, 3)
         self.moving_dynamic_obstacle_pcb_combined = moving_dynamic_obstacle_pcd_world.view(moving_dynamic_obstacle_pcd_world.shape[0], -1, 3)
         
 
@@ -527,14 +528,14 @@ class DRPEvals(VecTask):
 
         if self.use_dynamic_obstacles:
             # ----------- filtering dynamic obstacle pcd for points not in workspace -----------
-            # [(num_dynamic_obstacles, 3), (num_dynamic_obstacles, 3), ... ] -> length is num_envs
+            # [(num_dynamic_pcd, 3), (num_dynamic_pcd, 3), ... ] -> length is num_envs
             filtered_dynamic_obstacle_pcd_list = [self.dynamic_obstacle_pcd_combined[i] for i in range(self.num_envs)]
             # remove any points in the pcd where the z value is below 0. This will result in a list of varying sized pcd
             # [(n, 3), (m, 3), ... ] -> length is num_envs
             filtered_dynamic_obstacle_pcd_list = [pcd[pcd[:, 2] > 0] for pcd in filtered_dynamic_obstacle_pcd_list]
 
             # ----------- filtering moving obstacle pcd for points not in workspace -----------
-            # [(num_moving_dynamic_obstacles, 3), (num_moving_dynamic_obstacles, 3), ... ] -> length is num_envs
+            # [(num_moving_dynamic_pcd, 3), (num_moving_dynamic_pcd, 3), ... ] -> length is num_envs
             filtered_moving_dynamic_obstacle_pcd_list = [self.moving_dynamic_obstacle_pcb_combined[i] for i in range(self.num_envs)]
             # remove any points in the pcd where the z value is below 0. This will result in a list of varying sized pcd
             # [(n, 3), (m, 3), ... ] -> length is num_envs

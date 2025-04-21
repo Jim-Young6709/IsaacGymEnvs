@@ -6,7 +6,7 @@ headless: False
 env:
   numEnvs: 100
   envSpacing: 1.5
-  episodeLength: 1000
+  episodeLength: 500 #1000
   enableDebugVis: True
   numObservations: 7
   numActions: 7
@@ -37,7 +37,7 @@ task:
   close_loop: True
 
   # "DRP", "Curobo", "Curobo_PCD"
-  planner: "Curobo"
+  planner: "DRP"
   use_artificial_potential: False
 
   # "static", "quasi_dynamic", "goal_blocker", "floating"

@@ -107,20 +107,20 @@ class ObstacleSpawner:
             goal_blocker_idx = self.obstacle_index_dict["goal_blocker"]
             self.obstacle_poses[enable_idx, goal_blocker_idx, :] = goal_ee_pose[enable_idx, :]
             self.obstacle_poses[~enable_idx, goal_blocker_idx, :] = self.disable_pose[~enable_idx, goal_blocker_idx, :]
+
         
         if self.use_quasi_dynamic:
+            self.moving_obstacle_flag[self.obstacle_index_dict["quasi_dynamic"]] = False
+
             if self.env.test_epoch > 0:
                 start_time = self.spawner_cfg["quasi_dynamic"]["start_time"]
                 safe_buffer_dist = self.spawner_cfg["quasi_dynamic"]["safe_buffer_dist"]
                 time_interval = 200
                 last_spawning_timestep = time_interval * self.spawner_cfg["quasi_dynamic"]["num"] + start_time
 
-
-
                 if ((timestep[0] - start_time) % time_interval == 0) and (timestep[0] < last_spawning_timestep):
                     quasi_dynamic_obstacle_id = self.obstacle_index_dict["quasi_dynamic"][self.quasi_dynamic_obstacle_enable_num]
                     self.quasi_dynamic_obstacle_enable_num += 1
-                    # future_time_step = min(timestep[0].item()+60, self.max_episode_length-100)
                     safe_radius = torch.norm(self.combined_obstacle_dim_tensor[:, quasi_dynamic_obstacle_id, 0:3]/2, dim=1)
                     # for i in range(self.num_envs):
                     #     future_time_step = min(timestep[0].item()+60, self.max_episode_length)
@@ -157,6 +157,9 @@ class ObstacleSpawner:
                     self.obstacle_poses[valid_envs, quasi_dynamic_obstacle_id, :] = selected_future_pose
                     set_quasi_dynamic_obs = True
 
+                    # set quasi-dynamic obstacles as moving dynamic obstacles for one frame at the frame they appear
+                    self.moving_obstacle_flag[self.obstacle_index_dict["quasi_dynamic"]] = True
+
                 # disable quasi-dynamic obstacles
                 if timestep[0] > (self.max_episode_length - 100):
                     quasi_dynamic_idx = self.obstacle_index_dict["quasi_dynamic"]
@@ -169,22 +172,6 @@ class ObstacleSpawner:
             sphere_center = torch.tensor([0.15, 0.0, 0.5], device=self.device)
             #((self.env.ee_goal_pose[:, 0:3] + self.env.ee_start_pose[:, 0:3])/2).unsqueeze(1).repeat(1, num_floating_obstacles, 1) 
             if timestep[0].item() == 0:
-                # # set initial floating obstacles pose
-                # total_num_floating_obstacles = self.num_envs * num_floating_obstacles
-                # rand_dirs = torch.randn((total_num_floating_obstacles, 3), device=self.device)
-                # rand_dirs = rand_dirs / rand_dirs.norm(dim=1, keepdim=True)  # normalize
-                # # explicit low and high radius range
-                # radius_low = self.spawner_cfg["floating"]["init_radius"]["low"]
-                # radius_high = self.spawner_cfg["floating"]["init_radius"]["high"]
-                # radii = torch.rand((total_num_floating_obstacles, 1), device=self.device) * (radius_high - radius_low) + radius_low
-                # positions = radii * rand_dirs
-                # rand_quats = torch.randn((total_num_floating_obstacles, 4), device=self.device)
-                # rand_quats = rand_quats / rand_quats.norm(dim=1, keepdim=True)
-                # poses = torch.cat([positions, rand_quats], dim=1)
-                # poses = poses.view(self.num_envs, num_floating_obstacles, 7)
-                # # poses[:, :, 0:3] += sphere_center
-                # self.obstacle_poses[:, floating_obstacle_id, :] = poses
-
                 # set initial floating obstacles pose
                 total_num_floating_obstacles = self.num_envs * num_floating_obstacles
                 rand_dirs = torch.randn((total_num_floating_obstacles, 3), device=self.device)
