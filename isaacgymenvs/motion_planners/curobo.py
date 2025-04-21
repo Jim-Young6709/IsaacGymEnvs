@@ -36,7 +36,7 @@ except:
 
 
 class Curobo(MotionPlannerBase):
-    def __init__(self, env, use_gt, allow_replanning=True):
+    def __init__(self, env, use_gt, allow_replanning=True, normalize_speed=False):
         super().__init__(env)
         self._num_robot_points = 2048
         self._num_goal_robot_points = 2048
@@ -45,7 +45,7 @@ class Curobo(MotionPlannerBase):
         self.in_hand = False
         self.use_gt = use_gt
         self.allow_replanning = allow_replanning
-        self.normalize_speed = True
+        self.normalize_speed = normalize_speed
         self.set_up_policy()
         self.profiling = {
             "formatting input": 0,

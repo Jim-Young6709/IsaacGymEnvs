@@ -6,7 +6,7 @@ headless: False
 env:
   numEnvs: 100
   envSpacing: 1.5
-  episodeLength: 500 #1000
+  episodeLength: 1000
   enableDebugVis: True
   numObservations: 7
   numActions: 7
@@ -42,11 +42,11 @@ task:
 
   # "static", "quasi_dynamic", "goal_blocker", "floating"
 
-  task_type: "static"
-  task_name: "static_box_tf"
+  # task_type: "static"
+  # task_name: "static_cubby_tt" # "static_box_tf"
 
-  # task_type: "quasi_dynamic"
-  # task_name: "level_0"
+  task_type: "quasi_dynamic"
+  task_name: "level_0"
 
   # task_type: "floating"
   # task_name: "level_1"

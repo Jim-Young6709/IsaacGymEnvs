@@ -37,10 +37,15 @@ class Eval:
             current_file_dir, "static_scenes", f"{self.problem_config['static_scene']}.hdf5"
         )
         self.testing_epoch_num = 1
+        self.curobo_normalize_speed = True
+        self.allow_curobo_replanning = True
+
+        if self.cfg.task.task_type == "static":
+            self.allow_curobo_replanning = False
+
         if self.cfg.task.task_type == "quasi_dynamic":
             self.testing_epoch_num = 2
         
-        self.allow_curobo_replanning = True
         if self.cfg.task.task_type == "goal_blocker":
             self.allow_curobo_replanning = False
         
@@ -67,10 +72,14 @@ class Eval:
         planner = self.cfg.task.planner
         self.action_chunking = False
         if planner == "Curobo":
-            self.motion_planner = Curobo(self.env, True, self.allow_curobo_replanning)
+            self.motion_planner = Curobo(
+                self.env, use_gt=True, allow_replanning=self.allow_curobo_replanning, normalize_speed=self.curobo_normalize_speed,
+            )
             self.action_chunking = True
         elif planner == "Curobo_PCD":
-            self.motion_planner = Curobo(self.env, False, self.allow_curobo_replanning)
+            self.motion_planner = Curobo(
+                self.env, use_gt=False, allow_replanning=self.allow_curobo_replanning, normalize_speed=self.curobo_normalize_speed,
+            )
             self.action_chunking = True
         elif planner == "DRP":
             self.motion_planner = DRPNeuralMP(self.env)
