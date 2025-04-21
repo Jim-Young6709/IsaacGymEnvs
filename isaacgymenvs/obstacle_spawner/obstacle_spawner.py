@@ -231,15 +231,16 @@ class ObstacleSpawner:
                         future_ee_pose = self.env.ee_pose_trajectory[:, i, :]  # (num_envs, 7)
 
                         # Check collisions at that pose
-                        collision_flags = self.check_collisions(
+                        is_safe = self.check_collisions(
                             joint_pos=current_joint_pos,
                             obstacle_poses=future_ee_pose,
-                            obstacle_id=quasi_dynamic_obstacle_id
+                            obstacle_id=quasi_dynamic_obstacle_id,
+                            threshold=safe_buffer_dist,
                         )
-                        # print(collision_flags)
 
                         # Determine which envs are still unset and collision-free
-                        is_free_to_set = (~obstacle_set_idx) & (collision_flags == 0)
+                        # is_free_to_set = (~obstacle_set_idx) & (collision_flags == 0)
+                        is_free_to_set = (~obstacle_set_idx) & (is_safe)
 
                         if is_free_to_set.any():
                             # Get a slightly more future pose to assign the obstacle to
@@ -249,20 +250,12 @@ class ObstacleSpawner:
 
                         if obstacle_set_idx.all():
                             break
-                    # assert 1==2
+                
 
-
-
-
-
-                            # if torch.norm(future_ee_pose[0:3] - current_ee_pose[i, 0:3]) > (safe_radius[i]+0.15):
-                            #     if torch.norm(future_ee_pose[0:3] - self.env.ee_goal_pose[i, 0:3]) > (safe_radius[i]+0.15):
-                            #         self.obstacle_poses[i, quasi_dynamic_obstacle_id, :] = future_ee_pose.clone()
-                            #         break
-
-                    
-
-
+                # disable quasi-dynamic obstacles
+                if timestep[0] > (self.max_episode_length - 100):
+                    quasi_dynamic_idx = self.obstacle_index_dict["quasi_dynamic"]
+                    self.obstacle_poses[:, quasi_dynamic_idx, :] = self.disable_pose[:, quasi_dynamic_idx, :]
 
 
         if self.use_floating:
@@ -343,7 +336,7 @@ class ObstacleSpawner:
 
 
 
-    def check_collisions(self, joint_pos, obstacle_poses, obstacle_id):
+    def check_collisions(self, joint_pos, obstacle_poses, obstacle_id, threshold):
         from isaacgymenvs.tasks.utils.drp_evals_utils import transform_pcds_to_world
         # (num_envs, 1, P, 3)
         obstacle_pcd = self.env.dynamic_obstacle_pcd[:, [obstacle_id], :, :]
@@ -356,110 +349,21 @@ class ObstacleSpawner:
         # all potentially moving obstacle pcd (num_envs, num_dynamic_pcd, 3)
         dynamic_obstacle_pcd_world = dynamic_obstacle_pcd_world.view(self.num_envs, -1, 3)
 
-        # import ipdb
         # (num_envs,)   
-        cc = self.collision_checker.check_scene_collision_batch(
-            joint_pos, dynamic_obstacle_pcd_world.float(), thred=0.1
+        # cc = self.collision_checker.check_scene_collision_batch(
+        #     joint_pos, dynamic_obstacle_pcd_world.float(), thred=0.2, 
+        # )
+
+        # (num_envs, num_points)
+        sdf = self.collision_checker.check_scene_sdf_batch(
+            joint_pos, dynamic_obstacle_pcd_world.float(), debug=False, sphere_repr_only=True
         )
 
-        return cc
+        min_sdf_per_env = torch.min(sdf, dim=1).values
+        is_safe = min_sdf_per_env > threshold  # shape: (num_envs,), dtype: torch.bool
+
+        return is_safe #cc
     
 
 
-
-    
-
-def get_fractional_poses(ee_pose_trajectory, num_envs, fractions: int):
-    # positions: (num_envs, sequence_length, 3)
-    positions = ee_pose_trajectory[:, :, :3]
-
-    # Compute differences and distances
-    deltas = positions[:, 1:, :] - positions[:, :-1, :]
-    step_distances = torch.norm(deltas, dim=2)
-    cumulative_distances = torch.cumsum(step_distances, dim=1)
-    cumulative_distances = torch.cat([
-        torch.zeros((num_envs, 1), device=positions.device), cumulative_distances
-    ], dim=1)  # (num_envs, sequence_length)
-
-    total_distances = cumulative_distances[:, -1:]  # (num_envs, 1)
-    normalized_distances = cumulative_distances / (total_distances + 1e-8)
-
-    # Compute target fractions: [1/(n+1), 2/(n+1), ..., n/(n+1)]
-    targets = torch.linspace(1, fractions, steps=fractions, device=positions.device) / (fractions + 1)
-
-    # Find the indices where the normalized distance >= each target
-    all_indices = []
-    for t in targets:
-        mask = (normalized_distances >= t).float()
-        idx = torch.argmax(mask, dim=1)  # (num_envs,)
-        all_indices.append(idx)
-
-    # Stack: (num_envs, fractions)
-    fractional_indices = torch.stack(all_indices, dim=1)
-
-    # Expand for gather: (num_envs, fractions, 7)
-    fractional_indices_exp = fractional_indices.unsqueeze(-1).expand(-1, -1, 7)
-
-    # Gather the poses
-    fractional_poses = torch.gather(ee_pose_trajectory, dim=1, index=fractional_indices_exp)  # (num_envs, fractions, 7)
-
-    return fractional_poses, fractional_indices, cumulative_distances
-            
-
-
-# def get_safe_distance_backtrack_indices(ee_pose_trajectory, cumulative_distances, fractional_indices, safe_distance):
-#     num_envs, sequence_length = cumulative_distances.shape
-#     num_fractions = fractional_indices.shape[1]
-
-#     # Get cumulative distances at the fractional indices
-#     flat_env_idx = torch.arange(num_envs).unsqueeze(1).expand(-1, num_fractions)  # (num_envs, fractions)
-#     fractional_cum_dists = cumulative_distances[flat_env_idx, fractional_indices]  # (num_envs, fractions)
-
-#     # Target backtrack distances
-#     target_dists = fractional_cum_dists - safe_distance  # (num_envs, fractions)
-
-#     # For each (env, frac_idx), find the last index where cum_dist <= target_dist
-#     backtrack_indices = torch.zeros_like(fractional_indices)
-
-#     for env in range(num_envs):
-#         for f in range(num_fractions):
-#             # Get where cumulative_distances[env, :] <= target
-#             target = target_dists[env, f]
-#             valid_idxs = torch.nonzero(cumulative_distances[env] <= target, as_tuple=False)
-#             if valid_idxs.numel() > 0:
-#                 backtrack_indices[env, f] = valid_idxs[-1].item()  # last valid index
-#             else:
-#                 backtrack_indices[env, f] = 0  # fallback to start of traj
-
-#     return backtrack_indices  # (num_envs, fractions)
-
-
-
-def get_safe_distance_backtrack_indices(ee_pose_trajectory, cumulative_distances, fractional_indices, safe_distance):
-    num_envs, sequence_length, _ = ee_pose_trajectory.shape
-    num_fractions = fractional_indices.shape[1]
-
-    # Positions only
-    positions = ee_pose_trajectory[:, :, :3]  # (num_envs, sequence_length, 3)
-
-    backtrack_indices = torch.zeros_like(fractional_indices)
-
-    for env in range(num_envs):
-        for f in range(num_fractions):
-            idx = fractional_indices[env, f].item()
-            target_pos = positions[env, idx]  # (3,)
-
-            # Compute Euclidean distances to all previous positions
-            dists = torch.norm(positions[env, :idx + 1] - target_pos, dim=1)  # (idx+1,)
-
-            # Find last index where distance >= safe_distance
-            valid_idxs = torch.nonzero(dists >= safe_distance[env, f], as_tuple=False)
-            if valid_idxs.numel() > 0:
-                backtrack_indices[env, f] = valid_idxs[-1].item()
-            else:
-                backtrack_indices[env, f] = 0
-
-    return backtrack_indices  # (num_envs, fractions)
-
-    
 
