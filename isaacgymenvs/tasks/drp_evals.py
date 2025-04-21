@@ -314,6 +314,7 @@ class DRPEvals(VecTask):
         self.start_joint_pos = tensor_clamp(self.start_joint_pos, self.franka_dof_lower_limits[:7], self.franka_dof_upper_limits[:7])
         self.goal_joint_pos = tensor_clamp(self.goal_joint_pos, self.franka_dof_lower_limits[:7], self.franka_dof_upper_limits[:7])
         self.ee_pose_trajectory = torch.zeros((self.num_envs, self.max_episode_length, 7), device=self.device)
+        self.joint_pos_trajectory = torch.zeros((self.num_envs, self.max_episode_length, 7), device=self.device)
 
 
     def _refresh(self):
@@ -580,6 +581,7 @@ class DRPEvals(VecTask):
         if self.test_epoch == 0:
             current_ee_pose = torch.cat((self.states["eef_pos"], self.states["eef_quat"]), dim=1)
             self.ee_pose_trajectory[:, self.progress_buf[0], :] = current_ee_pose
+            self.joint_pos_trajectory[:, self.progress_buf[0], :] = self.states["q"][:, 0:7]
 
 
         self.check_robot_collision()

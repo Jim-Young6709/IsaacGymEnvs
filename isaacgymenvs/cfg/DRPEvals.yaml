@@ -6,7 +6,7 @@ headless: False
 env:
   numEnvs: 100
   envSpacing: 1.5
-  episodeLength: 1000
+  episodeLength: 300 #1000
   enableDebugVis: True
   numObservations: 7
   numActions: 7
