@@ -185,7 +185,7 @@ class Curobo(MotionPlannerBase):
         planning_actions_abs = self.get_actions_open_loop(env_obs_dict)
         if self.normalize_speed:
             start_id = 5
-            end_id = 10
+            end_id = 15 #10
             num_interp_steps = 15
             segment = planning_actions_abs[start_id:end_id]
             segment = segment.permute(1, 2, 0)  # (num_envs, 7, time)

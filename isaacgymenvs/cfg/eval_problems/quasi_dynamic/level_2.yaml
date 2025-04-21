@@ -17,6 +17,7 @@ dynamic_scene:
       low: [0.1, 0.1, 0.1]
       high: [0.2, 0.2, 0.2]
     start_time: 30
+    time_interval: 200
     safe_buffer_dist: 0.1
 
   floating:

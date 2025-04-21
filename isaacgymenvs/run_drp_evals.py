@@ -37,7 +37,7 @@ class Eval:
             current_file_dir, "static_scenes", f"{self.problem_config['static_scene']}.hdf5"
         )
         self.testing_epoch_num = 1
-        self.curobo_normalize_speed = True
+        self.curobo_normalize_speed = self.cfg.task.use_speed_norm #False #True
         self.allow_curobo_replanning = True
 
         if self.cfg.task.task_type == "static":
@@ -58,7 +58,7 @@ class Eval:
             force_render = False
             self.cfg.env.episodeLength = 1000
         else:
-            self.cfg.env.numEnvs = 9
+            self.cfg.env.numEnvs = 4
             self.testing_epoch_num = 100000
 
         graphics_device_id = 0

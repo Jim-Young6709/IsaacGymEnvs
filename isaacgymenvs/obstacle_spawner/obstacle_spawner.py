@@ -2,7 +2,10 @@
 import yaml
 import torch
 import numpy as np
+
+from isaacgymenvs.tasks.utils.drp_evals_utils import transform_pcds_to_world
 from isaacgymenvs.reactive_artificial_potential.utils.franka_collision_checker import FrankaCollisionChecker
+
 
 class ObstacleSpawner:
     def __init__(self, env, num_envs, config):
@@ -111,125 +114,25 @@ class ObstacleSpawner:
             self.obstacle_poses[~enable_idx, goal_blocker_idx, :] = self.disable_pose[~enable_idx, goal_blocker_idx, :]
 
         
-        # if self.use_quasi_dynamic:
-        #     self.moving_obstacle_flag[self.obstacle_index_dict["quasi_dynamic"]] = False
-
-        #     if self.env.test_epoch > 0:
-        #         start_time = self.spawner_cfg["quasi_dynamic"]["start_time"]
-        #         safe_buffer_dist = self.spawner_cfg["quasi_dynamic"]["safe_buffer_dist"]
-        #         time_interval = 200
-        #         last_spawning_timestep = time_interval * self.spawner_cfg["quasi_dynamic"]["num"] + start_time
-
-        #         if ((timestep[0] - start_time) % time_interval == 0) and (timestep[0] < last_spawning_timestep):
-        #             quasi_dynamic_obstacle_id = self.obstacle_index_dict["quasi_dynamic"][self.quasi_dynamic_obstacle_enable_num]
-        #             self.quasi_dynamic_obstacle_enable_num += 1
-        #             safe_radius = torch.norm(self.combined_obstacle_dim_tensor[:, quasi_dynamic_obstacle_id, 0:3]/2, dim=1)
-        #             for i in range(self.num_envs):
-        #                 future_time_step = min(timestep[0].item()+60, self.max_episode_length)
-        #                 for j in range(future_time_step, self.max_episode_length-100):
-        #                     future_ee_pose = self.env.ee_pose_trajectory[i, j, :]
-        #                     if torch.norm(future_ee_pose[0:3] - current_ee_pose[i, 0:3]) > (safe_radius[i]+0.15):
-        #                         if torch.norm(future_ee_pose[0:3] - self.env.ee_goal_pose[i, 0:3]) > (safe_radius[i]+0.15):
-        #                             self.obstacle_poses[i, quasi_dynamic_obstacle_id, :] = future_ee_pose.clone()
-        #                             break
-
-        #             # -------------------------
-        #             # Get start and end time indices for each env
-        #             start_ts = torch.clamp(timestep[0] + 0, max=self.max_episode_length - 100)
-        #             j_range = torch.arange(start_ts, self.max_episode_length - 100, device=self.device)
-        #             # Create expanded versions for broadcasting
-        #             future_ee_pose = self.env.ee_pose_trajectory[:, j_range, :]                    # (num_envs, T, 7)
-        #             future_pos = future_ee_pose[:, :, 0:3]                                         # (num_envs, T, 3)
-        #             current_pos = current_ee_pose[:, 0:3].unsqueeze(1)                             # (num_envs, 1, 3)
-        #             goal_pos = self.env.ee_goal_pose[:, 0:3].unsqueeze(1)                          # (num_envs, 1, 3)
-        #             safe_radius_expand = safe_radius.view(-1, 1)                                   # (num_envs, 1)
-        #             # Calculate distance from future EE to current and goal
-        #             dist_to_current = torch.norm(future_pos - current_pos, dim=2)                 # (num_envs, T)
-        #             dist_to_goal = torch.norm(future_pos - goal_pos, dim=2)                       # (num_envs, T)
-        #             # Find where both distances exceed threshold
-        #             mask = (dist_to_current > safe_radius_expand + safe_buffer_dist) #& (dist_to_goal > safe_radius_expand + 0.15)  # (num_envs, T)
-        #             # Find first j index where condition is satisfied for each env
-        #             valid_mask_any = mask.any(dim=1)
-        #             first_valid_indices = mask.float().argmax(dim=1)  # if no valid, this will be 0, need to handle
-        #             # Only update for environments that found a valid index
-        #             valid_envs = torch.nonzero(valid_mask_any).squeeze(-1)  # shape (num_valid_envs,)
-        #             valid_js = first_valid_indices[valid_envs]              # shape (num_valid_envs,)
-        #             # Gather corresponding future poses
-        #             selected_future_pose = self.env.ee_pose_trajectory[valid_envs, j_range[valid_js], :]  # (num_valid_envs, 7)
-        #             # Update obstacle poses
-        #             self.obstacle_poses[valid_envs, quasi_dynamic_obstacle_id, :] = selected_future_pose
-        #             set_quasi_dynamic_obs = True
-
-        #             # set quasi-dynamic obstacles as moving dynamic obstacles for one frame at the frame they appear
-        #             self.moving_obstacle_flag[self.obstacle_index_dict["quasi_dynamic"]] = True
-
-        #         # disable quasi-dynamic obstacles
-        #         if timestep[0] > (self.max_episode_length - 100):
-        #             quasi_dynamic_idx = self.obstacle_index_dict["quasi_dynamic"]
-        #             self.obstacle_poses[:, quasi_dynamic_idx, :] = self.disable_pose[:, quasi_dynamic_idx, :]
-
-
-
-        # if self.use_quasi_dynamic:
-        #     self.moving_obstacle_flag[self.obstacle_index_dict["quasi_dynamic"]] = False
-
-        #     if self.env.test_epoch > 0:
-        #         safe_buffer_dist = self.spawner_cfg["quasi_dynamic"]["safe_buffer_dist"]
-
-        #         if timestep[0].item() == 0:
-        #             # (num_envs, fractions, 7)
-        #             fractional_poses, fractional_indices, cumulative_distances = get_fractional_poses(self.env.ee_pose_trajectory, self.num_envs, self.spawner_cfg["quasi_dynamic"]["num"])
-        #             safe_distance = torch.norm(
-        #                 self.combined_obstacle_dim_tensor[:, self.obstacle_index_dict["quasi_dynamic"], 0:3] / 2,
-        #                 dim=2
-        #             ) + safe_buffer_dist
-        #             # (num_envs, num_quasi_dynamic_obs)
-        #             backtrack_indices = get_safe_distance_backtrack_indices(self.env.ee_pose_trajectory, cumulative_distances, fractional_indices, safe_distance)
-        #             self.fractional_poses = fractional_poses
-        #             self.backtrack_indices = backtrack_indices
-        #         else:
-        #             # Now we use the backtrack info to assign obstacle poses
-        #             timestep_now = timestep[0].item()
-        #             for obs_local_id, quasi_dynamic_obstacle_id in enumerate(self.obstacle_index_dict["quasi_dynamic"]):
-        #                 # Create a mask for which envs are ready to update this obstacle
-        #                 mask = (self.backtrack_indices[:, obs_local_id] == timestep_now)  # (num_envs,)
-        #                 if mask.any():
-        #                     # Set the pose for matching envs
-        #                     self.obstacle_poses[mask, quasi_dynamic_obstacle_id, :] = self.fractional_poses[mask, obs_local_id, :]
-                
-
-        #         # disable quasi-dynamic obstacles
-        #         if timestep[0] > (self.max_episode_length - 100):
-        #             quasi_dynamic_idx = self.obstacle_index_dict["quasi_dynamic"]
-        #             self.obstacle_poses[:, quasi_dynamic_idx, :] = self.disable_pose[:, quasi_dynamic_idx, :]
-
-
         if self.use_quasi_dynamic:
-            self.moving_obstacle_flag[self.obstacle_index_dict["quasi_dynamic"]] = False
-
+            # self.moving_obstacle_flag[self.obstacle_index_dict["quasi_dynamic"]] = False
             if self.env.test_epoch > 0:
                 start_time = self.spawner_cfg["quasi_dynamic"]["start_time"]
                 safe_buffer_dist = self.spawner_cfg["quasi_dynamic"]["safe_buffer_dist"]
-                time_interval = 200
+                time_interval = self.spawner_cfg["quasi_dynamic"]["time_interval"]
                 last_spawning_timestep = time_interval * self.spawner_cfg["quasi_dynamic"]["num"] + start_time
-
                 current_joint_pos = self.env.states["q"][:, 0:7].clone()
-
                 if ((timestep[0] - start_time) % time_interval == 0) and (timestep[0] < last_spawning_timestep):
                     # Get the obstacle ID for the current quasi-dynamic obstacle
                     quasi_dynamic_obstacle_id = self.obstacle_index_dict["quasi_dynamic"][self.quasi_dynamic_obstacle_enable_num]
                     self.quasi_dynamic_obstacle_enable_num += 1
-
                     # Initialize mask to track which envs have successfully placed the obstacle
                     obstacle_set_idx = torch.zeros(self.num_envs, dtype=bool, device=self.device)
-
                     # Determine the range of future timesteps to check
                     start_idx = min(timestep[0].item(), self.max_episode_length - 200)
-
                     for i in range(start_idx, self.max_episode_length , 5):
                         # Get future end-effector pose at current timestep
                         future_ee_pose = self.env.ee_pose_trajectory[:, i, :]  # (num_envs, 7)
-
                         # Check collisions at that pose
                         is_safe = self.check_collisions(
                             joint_pos=current_joint_pos,
@@ -237,21 +140,15 @@ class ObstacleSpawner:
                             obstacle_id=quasi_dynamic_obstacle_id,
                             threshold=safe_buffer_dist,
                         )
-
                         # Determine which envs are still unset and collision-free
-                        # is_free_to_set = (~obstacle_set_idx) & (collision_flags == 0)
                         is_free_to_set = (~obstacle_set_idx) & (is_safe)
-
                         if is_free_to_set.any():
                             # Get a slightly more future pose to assign the obstacle to
                             future_pose_target = self.env.ee_pose_trajectory[:, i, :]  # safe: i+10 < max_episode_length - 190
                             self.obstacle_poses[is_free_to_set, quasi_dynamic_obstacle_id, :] = future_pose_target[is_free_to_set, :]
                             obstacle_set_idx[is_free_to_set] = True
-
                         if obstacle_set_idx.all():
                             break
-                
-
                 # disable quasi-dynamic obstacles
                 if timestep[0] > (self.max_episode_length - 100):
                     quasi_dynamic_idx = self.obstacle_index_dict["quasi_dynamic"]
@@ -293,8 +190,8 @@ class ObstacleSpawner:
                 self.floating_obstacle_moving_dir = noisy_dirs / noisy_dirs.norm(dim=2, keepdim=True)
 
                 # generate random velocity
-                velocity_low = self.spawner_cfg["floating"]["velocity"]["low"]#0.0001
-                velocity_high = self.spawner_cfg["floating"]["velocity"]["high"] #0.003
+                velocity_low = self.spawner_cfg["floating"]["velocity"]["low"]
+                velocity_high = self.spawner_cfg["floating"]["velocity"]["high"]
                 self.floating_obstacle_velocity = torch.rand(
                     (self.num_envs, num_floating_obstacles), device=self.device
                 ) * (velocity_high - velocity_low) + velocity_low
@@ -324,11 +221,12 @@ class ObstacleSpawner:
                 x_below_threshold = x_below_threshold.unsqueeze(-1).expand(-1, -1, 3)  # shape: (num_envs, num_selected_obstacles, 3)
                 self.floating_obstacle_moving_dir[x_below_threshold] *= -1
 
-
             # disable quasi-dynamic obstacles
             if timestep[0] > (self.max_episode_length - 300):
                 floating_obstacle_id = self.obstacle_index_dict["floating"]
                 self.obstacle_poses[:, floating_obstacle_id, :] = self.disable_pose[:, floating_obstacle_id, :]
+
+
 
 
 
@@ -337,32 +235,21 @@ class ObstacleSpawner:
 
 
     def check_collisions(self, joint_pos, obstacle_poses, obstacle_id, threshold):
-        from isaacgymenvs.tasks.utils.drp_evals_utils import transform_pcds_to_world
         # (num_envs, 1, P, 3)
         obstacle_pcd = self.env.dynamic_obstacle_pcd[:, [obstacle_id], :, :]
-
         # obstacle_poses (num_envs, 1, 7)
         obstacle_poses = obstacle_poses[:, None, :]
-
         # (num_envs, 1, num_points_per_obstacle, 3)
         dynamic_obstacle_pcd_world = transform_pcds_to_world(obstacle_pcd, obstacle_poses)
         # all potentially moving obstacle pcd (num_envs, num_dynamic_pcd, 3)
         dynamic_obstacle_pcd_world = dynamic_obstacle_pcd_world.view(self.num_envs, -1, 3)
-
-        # (num_envs,)   
-        # cc = self.collision_checker.check_scene_collision_batch(
-        #     joint_pos, dynamic_obstacle_pcd_world.float(), thred=0.2, 
-        # )
-
         # (num_envs, num_points)
         sdf = self.collision_checker.check_scene_sdf_batch(
             joint_pos, dynamic_obstacle_pcd_world.float(), debug=False, sphere_repr_only=True
         )
-
         min_sdf_per_env = torch.min(sdf, dim=1).values
-        is_safe = min_sdf_per_env > threshold  # shape: (num_envs,), dtype: torch.bool
-
-        return is_safe #cc
+        is_safe = min_sdf_per_env > threshold
+        return is_safe 
     
 
 
