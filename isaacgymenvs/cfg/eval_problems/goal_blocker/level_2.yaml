@@ -7,8 +7,9 @@ dynamic_scene:
       enable: True
       num: 1
       max_epsiode_length: 1000
-      active_distance: 1.0
-      retract_time: 500
+      active_distance: 0.5
+      retract_time: 200
+
       size:
         low: [0.2, 0.2, 0.2]
         high: [0.4, 0.4, 0.4]
