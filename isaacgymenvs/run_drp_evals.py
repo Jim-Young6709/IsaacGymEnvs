@@ -37,7 +37,7 @@ class Eval:
             current_file_dir, "static_scenes", f"{self.problem_config['static_scene']}.hdf5"
         )
         self.testing_epoch_num = 1
-        self.curobo_normalize_speed = self.cfg.task.use_speed_norm #False #True
+        self.curobo_normalize_speed = self.cfg.task.use_speed_norm
         self.allow_curobo_replanning = True
 
         if self.cfg.task.task_type == "static":
@@ -57,8 +57,8 @@ class Eval:
         force_render = True
         if headless:
             force_render = False
-            self.cfg.env.episodeLength = 400 #1000
         else:
+            self.cfg.env.episodeLength = 500 #1000
             self.cfg.env.numEnvs = 32
             self.testing_epoch_num = 100000
 
@@ -129,6 +129,7 @@ class Eval:
             # get the eval information
             eval_info_dict = self.env.get_eval_info()
 
+            print("Number of Valid Envs:",  int(eval_info_dict["valid_envs"].sum()))
             print("Reach Rate:",     eval_info_dict["reach_rate"])
             print("Collision Rate:", eval_info_dict["collision_rate"])
             print("Success Rate:",   eval_info_dict["success_rate"])
@@ -170,6 +171,7 @@ class Eval:
             # get the eval information
             eval_info_dict = self.env.get_eval_info()
 
+            print("Number of Valid Envs:",  int(eval_info_dict["valid_envs"].sum()))
             print("Reach Rate:",     eval_info_dict["reach_rate"])
             print("Collision Rate:", eval_info_dict["collision_rate"])
             print("Success Rate:",   eval_info_dict["success_rate"])

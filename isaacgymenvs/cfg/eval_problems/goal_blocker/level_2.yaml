@@ -6,7 +6,7 @@ dynamic_scene:
   goal_blocker:
       enable: True
       num: 1
-      max_epsiode_length: 400
+      max_epsiode_length: 1000
       size:
         low: [0.05, 0.2, 0.2]
         high: [0.1, 0.3, 0.3]

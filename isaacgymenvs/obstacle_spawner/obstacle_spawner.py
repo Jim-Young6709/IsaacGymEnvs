@@ -54,7 +54,8 @@ class ObstacleSpawner:
         if self.use_floating:
             self.moving_obstacle_flag[self.obstacle_index_dict["floating"]] = True
         self.num_moving_obstacles = self.moving_obstacle_flag.sum().item()
-
+        
+        self.valid_envs = torch.zeros(self.num_envs, dtype=bool, device=self.device)
     
 
     def generate_obstacle_gt(self):
@@ -95,6 +96,8 @@ class ObstacleSpawner:
     def reset(self):
         self.obstacle_poses = self.disable_pose.clone()
         self.quasi_dynamic_obstacle_enable_num = 0
+        self.valid_envs[:] = True
+
     
     
     def update_obstacle_poses(self, timestep):
@@ -111,36 +114,11 @@ class ObstacleSpawner:
                 self.successfully_set_flag = torch.zeros((self.num_envs), device=self.device, dtype=bool)
                 self.obstacle_poses[:, goal_blocker_idx, :] = self.disable_pose[:, goal_blocker_idx, :]
 
-            retract_timestep = self.max_episode_length - 200
+            retract_timestep = self.max_episode_length - 100
             ee_error = torch.norm(current_ee_pose[:, 0:3] - goal_ee_pose[:, 0:3], dim=1)
-            # enable the goal blocker if the ee is close to the goal. retract the goal blocker
-            # if the timestep is 100 steps before the max episode length
-            # enable_idx = (ee_error < 0.4) & (timestep < retract_timestep)
-            # goal_blocker_idx = self.obstacle_index_dict["goal_blocker"]
 
-            # env_ids = torch.arange(self.num_envs, device=self.device)[enable_idx]
-            # if len(env_ids) > 0:
-            #     try:
-            #         is_safe = self.check_collisions(current_joint_pos[enable_idx, :], goal_ee_pose[enable_idx, :], goal_blocker_idx, 0.3, env_ids)
-            #         print(is_safe)
-            #     except:
-            #         import ipdb; ipdb.set_trace()
-            # self.obstacle_poses[enable_idx, goal_blocker_idx, :] = goal_ee_pose[enable_idx, :]
-            # self.obstacle_poses[~enable_idx, goal_blocker_idx, :] = self.disable_pose[~enable_idx, goal_blocker_idx, :]
-
-            
             set_candidate_flag = (ee_error < 0.4) & (timestep < retract_timestep) & (~self.set_goal_blocking_flag)
             set_candidate_ids = torch.arange(self.num_envs, device=self.device)[set_candidate_flag]
-
-
-            # if len(set_candidate_ids) > 0:
-            #     # (len(set_candidate_ids),)
-                
-            #         is_safe = self.check_collisions(current_joint_pos[set_candidate_ids, :], goal_ee_pose[set_candidate_ids, :], goal_blocker_idx, 0.01, set_candidate_ids)
-            #         safe_set_ids = set_candidate_ids[is_safe]
-            #         self.obstacle_poses[safe_set_ids, goal_blocker_idx, :] = goal_ee_pose[safe_set_ids, :]
-            #         self.set_goal_blocking_flag[safe_set_ids] = True
-
 
             for set_candidate_id in set_candidate_ids:
                 for _ in range(100):
@@ -154,7 +132,8 @@ class ObstacleSpawner:
                 self.set_goal_blocking_flag[set_candidate_id] = True
             
 
-            if timestep[0] > (self.max_episode_length - 100):
+            if timestep[0] > (retract_timestep):
+                self.valid_envs[~self.successfully_set_flag] = False
                 self.obstacle_poses[:, goal_blocker_idx, :] = self.disable_pose[:, goal_blocker_idx, :]
             
             if timestep[0] == self.max_episode_length -1:
@@ -279,7 +258,7 @@ class ObstacleSpawner:
 
 
 
-        return self.obstacle_poses, set_quasi_dynamic_obs
+        return self.obstacle_poses, set_quasi_dynamic_obs, self.valid_envs
 
 
 

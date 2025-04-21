@@ -316,6 +316,9 @@ class DRPEvals(VecTask):
         self.ee_pose_trajectory = torch.zeros((self.num_envs, self.max_episode_length, 7), device=self.device)
         self.joint_pos_trajectory = torch.zeros((self.num_envs, self.max_episode_length, 7), device=self.device)
 
+        self.valid_envs = torch.zeros(self.num_envs, dtype=bool, device=self.device)
+
+
 
     def _refresh(self):
         self.gym.refresh_actor_root_state_tensor(self.sim)
@@ -443,6 +446,7 @@ class DRPEvals(VecTask):
         self.scene_collision_counter[env_ids] = 0
         self.progress_buf[env_ids] = 0
         self.reset_buf[env_ids] = 0
+        self.valid_envs[env_ids] = 1
 
 
     def apply_joint_pos_targets(self, joint_pos_targets):
@@ -570,7 +574,8 @@ class DRPEvals(VecTask):
         self.apply_joint_pos_targets(joint_position_targets)
 
         if self.use_dynamic_obstacles:
-            dynamic_obstacle_poses, has_updated_quasi_dynamic_obstacle = self.obstacle_spawner.update_obstacle_poses(timestep=self.progress_buf)
+            dynamic_obstacle_poses, has_updated_quasi_dynamic_obstacle, valid_env_flag = self.obstacle_spawner.update_obstacle_poses(timestep=self.progress_buf)
+            self.valid_envs = valid_env_flag.clone()
             # return valid env
             if has_updated_quasi_dynamic_obstacle:
                 self.gym.simulate(self.sim)
@@ -687,29 +692,34 @@ class DRPEvals(VecTask):
         pos_err = torch.norm(ee_pose[:, 0:3] - self.ee_goal_pose[:, 0:3], dim=1)
         quat_err = orientation_error(self.ee_goal_pose[:, 3:], ee_pose[:, 3:])
 
-        # import ipdb; ipdb.set_trace()
+        
+        valid_env_num = int(self.valid_envs.sum())
 
         has_reached = (pos_err < 0.05) & (quat_err < 15.0) # 5.0
-        reach_rate = torch.sum(has_reached) / self.num_envs
+        reach_rate = torch.sum(has_reached[self.valid_envs]) / valid_env_num
 
         # collision rate calculation
         total_scene_collision_num = self.scene_collision_counter
         has_collided = self.scene_collision_counter > 0
-        collision_rate = torch.sum(has_collided) / self.num_envs
+        collision_rate = torch.sum(has_collided[self.valid_envs]) / valid_env_num
 
         # success rate calculation
         has_succeeded = has_reached & (~has_collided)
-        success_rate = torch.sum(has_succeeded) / self.num_envs
+        success_rate = torch.sum(has_succeeded[self.valid_envs]) / valid_env_num
 
+        
         eval_info_dict = dict()
         eval_info_dict["has_reached"] = has_reached
         eval_info_dict["has_succeeded"] = has_succeeded
         eval_info_dict["total_scene_collision_num"] = total_scene_collision_num
+        eval_info_dict["valid_envs"] = self.valid_envs
+        # the following only counts the valid envs
         eval_info_dict["reach_rate"] = reach_rate
         eval_info_dict["collision_rate"] = collision_rate
-        eval_info_dict["mean_scene_collision_timestep_percentage"] = torch.mean(total_scene_collision_num.float() / self.max_episode_length)
-        eval_info_dict["mean_scene_contact_force_norm_sum"] = torch.mean(self.total_scene_contact_forces)
+        eval_info_dict["mean_scene_collision_timestep_percentage"] = torch.mean(total_scene_collision_num[self.valid_envs].float() / self.max_episode_length)
+        eval_info_dict["mean_scene_contact_force_norm_sum"] = torch.mean(self.total_scene_contact_forces[self.valid_envs])
         eval_info_dict["success_rate"] = success_rate
+
 
         return eval_info_dict
 
