@@ -114,10 +114,10 @@ class ObstacleSpawner:
                 self.successfully_set_flag = torch.zeros((self.num_envs), device=self.device, dtype=bool)
                 self.obstacle_poses[:, goal_blocker_idx, :] = self.disable_pose[:, goal_blocker_idx, :]
 
-            retract_timestep = self.max_episode_length - 100
+            retract_timestep = self.max_episode_length - 200
             ee_error = torch.norm(current_ee_pose[:, 0:3] - goal_ee_pose[:, 0:3], dim=1)
 
-            set_candidate_flag = (ee_error < 0.4) & (timestep < retract_timestep) & (~self.set_goal_blocking_flag)
+            set_candidate_flag = (ee_error < 0.5) & (timestep < retract_timestep) & (~self.set_goal_blocking_flag)
             set_candidate_ids = torch.arange(self.num_envs, device=self.device)[set_candidate_flag]
 
             for set_candidate_id in set_candidate_ids:

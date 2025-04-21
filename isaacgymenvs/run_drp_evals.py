@@ -18,7 +18,7 @@ from isaacgymenvs.motion_planners import Curobo
 class Eval:
     def __init__(self, cfg):
         self.sim_device = 'cuda:0'
-        self.seed = 10 #42
+        self.seed = 50 #42
         set_seed(self.seed)
         self.cfg = cfg
         self.set_up_problem_configs()
