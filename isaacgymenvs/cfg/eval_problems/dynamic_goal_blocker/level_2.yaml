@@ -15,7 +15,7 @@ dynamic_scene:
 
   dynamic_goal_blocker:
     enable: True
-    num: 1
+    num: 3
     size:
       low: [0.1, 0.1, 0.1]
       high: [0.3, 0.3, 0.3]

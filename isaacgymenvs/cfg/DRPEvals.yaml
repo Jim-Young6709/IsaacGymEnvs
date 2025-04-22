@@ -39,7 +39,7 @@ task:
 
   # "DRP", "Curobo", "Curobo_PCD"
   planner: "DRP"
-  use_artificial_potential: True
+  use_artificial_potential: True 
   use_speed_norm: True
 
   # "static", "quasi_dynamic", "goal_blocker", "dynamic_goal_blocker", "floating"
@@ -49,14 +49,14 @@ task:
   # task_type: "quasi_dynamic"
   # task_name: "level_3"
 
-  # task_type: "floating"
-  # task_name: "level_1"
+  task_type: "floating"
+  task_name: "level_1"
 
   # task_type: "goal_blocker"
   # task_name: "level_3"
 
-  task_type: "dynamic_goal_blocker"
-  task_name: "level_1"
+  # task_type: "dynamic_goal_blocker"
+  # task_name: "level_4"
 
 hydra:
   output_subdir: null

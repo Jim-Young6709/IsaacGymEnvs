@@ -1,6 +1,6 @@
 
-
-static_scene: "tableonly_ff_100_old"
+ 
+static_scene: "box_ff_192"
 
 dynamic_scene:
   goal_blocker:

@@ -147,13 +147,11 @@ class ObstacleSpawner:
             sphere_center = (self.env.ee_goal_pose[:, 0:3]).unsqueeze(1).repeat(1, num_dgb_obstacles, 1) 
             if timestep[0].item() == 0:
                 # set initial dgb obstacles pose
-                rand_dir_tensor = torch.zeros((self.num_envs, num_dgb_obstacles, 3), device=self.device)
                 successfully_set_flag = torch.zeros((self.num_envs, num_dgb_obstacles), dtype=bool, device=self.device)
                 for i, dgb_id in enumerate(dgb_obstacle_idx):
                     for j in range(10):
                         rand_dirs = torch.randn((self.num_envs, 3), device=self.device)
                         rand_dirs = rand_dirs / rand_dirs.norm(dim=1, keepdim=True)  # normalize
-                        rand_dirs[:, 0] = rand_dirs[:, 0].abs()
                         rand_dirs[:, 2] = rand_dirs[:, 2].abs()
                         # explicit low and high radius range
                         radius_low = self.spawner_cfg["dynamic_goal_blocker"]["init_radius"]["low"]
@@ -165,17 +163,29 @@ class ObstacleSpawner:
                         poses = torch.cat([positions, rand_quats], dim=1)
                         poses = poses.view(self.num_envs, 7)
                         poses[:, 0:3] += self.env.ee_goal_pose[:, 0:3]
+                        # set x to not be too close to x=0 axis
+                        poses[(poses[:, 0] < 0.15), 0] = 0.5 
                         # (num_envs,)
                         is_safe = self.check_collisions(current_joint_pos[:, :], poses, dgb_id, 0.01)
                         set_flag = is_safe & ~successfully_set_flag[:, i]
                         self.obstacle_poses[set_flag, dgb_id, :] = poses[set_flag, :]
-                        rand_dir_tensor[set_flag, dgb_id, :] = rand_dirs[set_flag, :]
                         successfully_set_flag[set_flag, i] = True
                 print("Number of successful set dynamic goal blocking obstacles", successfully_set_flag.sum())
 
                 # generate random movement direction
                 noise_std = 0.01
-                self.dgb_obstacle_moving_dir = -1 * rand_dir_tensor #rand_dirs.reshape(self.num_envs, num_dgb_obstacles, 3)
+                self.dgb_obstacle_moving_dir = torch.zeros((self.num_envs, num_dgb_obstacles, 3), device=self.device)
+                # Get obstacle positions and goal positions
+                obstacle_pos = self.obstacle_poses[:, dgb_obstacle_idx, 0:3]  # (num_envs, num_dgb_obstacles, 3)
+                goal_pos = self.env.ee_goal_pose[:, 0:3].unsqueeze(1)         # (num_envs, 1, 3)
+                # Compute direction vectors from obstacles to goal
+                direction = goal_pos - obstacle_pos  # (num_envs, num_dgb_obstacles, 3)
+                # Normalize
+                norm = torch.norm(direction, dim=-1, keepdim=True) + 1e-8  # prevent division by zero
+                normalized_dir = direction / norm  # (num_envs, num_dgb_obstacles, 3)
+                # Use boolean mask to update only where flag is True
+                self.dgb_obstacle_moving_dir[successfully_set_flag] = normalized_dir[successfully_set_flag]
+                
                 noisy_dirs = self.dgb_obstacle_moving_dir + torch.randn_like(self.dgb_obstacle_moving_dir) * noise_std
                 self.dgb_obstacle_moving_dir = noisy_dirs / noisy_dirs.norm(dim=2, keepdim=True)
 
@@ -212,7 +222,7 @@ class ObstacleSpawner:
                 self.dgb_obstacle_moving_dir = self.dgb_obstacle_moving_dir / self.dgb_obstacle_moving_dir.norm(dim=2, keepdim=True)
 
                 # Flip moving direction if x < 0.1
-                x_below_threshold = self.obstacle_poses[:, dgb_obstacle_idx, 0] < 0.1  # shape: (num_envs, num_selected_obstacles)
+                x_below_threshold = self.obstacle_poses[:, dgb_obstacle_idx, 0] < 0.15  # shape: (num_envs, num_selected_obstacles)
                 x_below_threshold = x_below_threshold.unsqueeze(-1).expand(-1, -1, 3)  # shape: (num_envs, num_selected_obstacles, 3)
                 self.dgb_obstacle_moving_dir[x_below_threshold] *= -1
 
@@ -269,31 +279,46 @@ class ObstacleSpawner:
             sphere_center = torch.tensor([0.15, 0.0, 0.5], device=self.device)
             #((self.env.ee_goal_pose[:, 0:3] + self.env.ee_start_pose[:, 0:3])/2).unsqueeze(1).repeat(1, num_floating_obstacles, 1) 
             if timestep[0].item() == 0:
-                # set initial floating obstacles pose
-                total_num_floating_obstacles = self.num_envs * num_floating_obstacles
-                rand_dirs = torch.randn((total_num_floating_obstacles, 3), device=self.device)
-                rand_dirs = rand_dirs / rand_dirs.norm(dim=1, keepdim=True)  # normalize
-
-                # Ensure x > 0 for half-sphere sampling
-                rand_dirs[:, 0] = rand_dirs[:, 0].abs()
-
-                # explicit low and high radius range
-                radius_low = self.spawner_cfg["floating"]["init_radius"]["low"]
-                radius_high = self.spawner_cfg["floating"]["init_radius"]["high"]
-                radii = torch.rand((total_num_floating_obstacles, 1), device=self.device) * (radius_high - radius_low) + radius_low
-                positions = radii * rand_dirs
-
-                rand_quats = torch.randn((total_num_floating_obstacles, 4), device=self.device)
-                rand_quats = rand_quats / rand_quats.norm(dim=1, keepdim=True)
-
-                poses = torch.cat([positions, rand_quats], dim=1)
-                poses = poses.view(self.num_envs, num_floating_obstacles, 7)
-                poses[:, :, 0:3] += sphere_center
-                self.obstacle_poses[:, floating_obstacle_id, :] = poses
+                # set initial dgb obstacles pose
+                successfully_set_flag = torch.zeros((self.num_envs, num_floating_obstacles), dtype=bool, device=self.device)
+                for i, floating_id in enumerate(floating_obstacle_id):
+                    for j in range(10):
+                        rand_dirs = torch.randn((self.num_envs, 3), device=self.device)
+                        rand_dirs = rand_dirs / rand_dirs.norm(dim=1, keepdim=True)  # normalize
+                        rand_dirs[:, 2] = rand_dirs[:, 2].abs()
+                        # explicit low and high radius range
+                        radius_low = self.spawner_cfg["floating"]["init_radius"]["low"]
+                        radius_high = self.spawner_cfg["floating"]["init_radius"]["high"]
+                        radii = torch.rand((self.num_envs, 1), device=self.device) * (radius_high - radius_low) + radius_low
+                        positions = radii * rand_dirs
+                        rand_quats = torch.randn((self.num_envs, 4), device=self.device)
+                        rand_quats = rand_quats / rand_quats.norm(dim=1, keepdim=True)
+                        poses = torch.cat([positions, rand_quats], dim=1)
+                        poses = poses.view(self.num_envs, 7)
+                        poses[:, 0:3] += sphere_center
+                        # set x to not be too close to x=0 axis
+                        poses[(poses[:, 0] < 0.1), 0] = 0.5 
+                        # (num_envs,)
+                        is_safe = self.check_collisions(current_joint_pos[:, :], poses, floating_id, 0.01)
+                        set_flag = is_safe & ~successfully_set_flag[:, i]
+                        self.obstacle_poses[set_flag, floating_id, :] = poses[set_flag, :]
+                        successfully_set_flag[set_flag, i] = True
+                print("Number of successfully set floating obstacles", successfully_set_flag.sum())
 
                 # generate random movement direction
                 noise_std = 0.2
-                self.floating_obstacle_moving_dir = -1 * rand_dirs.reshape(self.num_envs, num_floating_obstacles, 3)
+                self.floating_obstacle_moving_dir = torch.zeros((self.num_envs, num_floating_obstacles, 3), device=self.device)
+                # Get obstacle positions and goal positions
+                obstacle_pos = self.obstacle_poses[:, floating_obstacle_id, 0:3]  # (num_envs, num_floating_obstacles, 3)
+                goal_pos = sphere_center.unsqueeze(0).unsqueeze(1).expand(self.num_envs, 1, 3)      # (num_envs, 1, 3)
+                # Compute direction vectors from obstacles to goal
+                direction = goal_pos - obstacle_pos  # (num_envs, num_floating_obstacles, 3)
+                # Normalize
+                norm = torch.norm(direction, dim=-1, keepdim=True) + 1e-8  # prevent division by zero
+                normalized_dir = direction / norm  # (num_envs, num_floating_obstacles, 3)
+                # Use boolean mask to update only where flag is True
+                self.floating_obstacle_moving_dir[successfully_set_flag] = normalized_dir[successfully_set_flag]
+                
                 noisy_dirs = self.floating_obstacle_moving_dir + torch.randn_like(self.floating_obstacle_moving_dir) * noise_std
                 self.floating_obstacle_moving_dir = noisy_dirs / noisy_dirs.norm(dim=2, keepdim=True)
 
@@ -333,10 +358,6 @@ class ObstacleSpawner:
             if timestep[0] > (self.max_episode_length - 300):
                 floating_obstacle_id = self.obstacle_index_dict["floating"]
                 self.obstacle_poses[:, floating_obstacle_id, :] = self.disable_pose[:, floating_obstacle_id, :]
-
-
-
-
 
         return self.obstacle_poses, set_quasi_dynamic_obs, self.valid_envs
 
