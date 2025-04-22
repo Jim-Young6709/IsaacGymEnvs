@@ -1,0 +1,5 @@
+Curobo | level_1:   0.9700, 0.9500, 0.0500, 0.1587, 162848.3125
+Curobo | level_2:   0.9600, 0.9900, 0.0100, 0.2257, 635226.5625
+Curobo | level_3:   0.8100, 0.9800, 0.0000, 0.2222, 1000043.8125
+Curobo | level_4:   0.8100, 0.9900, 0.0100, 0.2322, 985890.1875
+# Curobo Closed Loop Dynamic Goal Blocking without RAP

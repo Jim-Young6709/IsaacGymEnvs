@@ -46,12 +46,12 @@ task_names=(
 #   python3 run_drp_evals.py headless=True task.planner="DRP" task.task_type="static" task.task_name="$task"
 # done
 
-# Curobo Closed Loop
-# Loop through each task name and run the Python script
-for task in "${task_names[@]}"; do
-  echo "Running task: $task"
-  python3 run_drp_evals.py headless=True task.planner="Curobo" task.task_type="static" task.task_name="$task"
-done
+# # Curobo Closed Loop
+# # Loop through each task name and run the Python script
+# for task in "${task_names[@]}"; do
+#   echo "Running task: $task"
+#   python3 run_drp_evals.py headless=True task.planner="Curobo" task.task_type="static" task.task_name="$task"
+# done
 
 # # Curobo Open Loop
 # # Loop through each task name and run the Python script
@@ -60,10 +60,41 @@ done
 #   python3 run_drp_evals.py headless=True task.planner="Curobo" task.close_loop=False task.task_type="static" task.task_name="$task"
 # done
 
-
 # # Curobo PCD Open Loop
 # # Loop through each task name and run the Python script
 # for task in "${task_names[@]}"; do
 #   echo "Running task: $task"
 #   python3 run_drp_evals.py headless=True task.planner="Curobo_PCD" task.close_loop=False task.task_type="static" task.task_name="$task"
 # done
+
+
+
+# Curobo Closed Loop Quasi dynamic
+# python3 run_drp_evals.py headless=True task.planner="Curobo" task.close_loop=True task.task_type="quasi_dynamic" task.task_name="level_1" task.use_speed_norm=False
+# python3 run_drp_evals.py headless=True task.planner="Curobo" task.close_loop=True task.task_type="quasi_dynamic" task.task_name="level_2" task.use_speed_norm=False
+# python3 run_drp_evals.py headless=True task.planner="Curobo" task.close_loop=True task.task_type="quasi_dynamic" task.task_name="level_3" task.use_speed_norm=False
+
+# python3 run_drp_evals.py headless=True task.planner="Curobo" task.close_loop=True task.task_type="quasi_dynamic" task.task_name="level_3" task.use_speed_norm=True
+# python3 run_drp_evals.py headless=True task.planner="Curobo" task.close_loop=True task.task_type="quasi_dynamic" task.task_name="level_1" task.use_speed_norm=True
+# python3 run_drp_evals.py headless=True task.planner="Curobo" task.close_loop=True task.task_type="quasi_dynamic" task.task_name="level_2" task.use_speed_norm=True
+
+
+# # Curobo Closed Loop Dynamic Goal Blocking without RAP
+# python3 run_drp_evals.py headless=True task.planner="Curobo" task.close_loop=True task.task_type="dynamic_goal_blocker" task.task_name="level_1" task.use_speed_norm=True task.use_artificial_potential=False
+# python3 run_drp_evals.py headless=True task.planner="Curobo" task.close_loop=True task.task_type="dynamic_goal_blocker" task.task_name="level_2" task.use_speed_norm=True task.use_artificial_potential=False
+# python3 run_drp_evals.py headless=True task.planner="Curobo" task.close_loop=True task.task_type="dynamic_goal_blocker" task.task_name="level_3" task.use_speed_norm=True task.use_artificial_potential=False
+# python3 run_drp_evals.py headless=True task.planner="Curobo" task.close_loop=True task.task_type="dynamic_goal_blocker" task.task_name="level_4" task.use_speed_norm=True task.use_artificial_potential=False
+
+
+# Curobo Closed Loop Quasi Dynamic Voxel
+python3 run_drp_evals.py headless=True task.planner="Curobo_PCD" task.close_loop=True task.task_type="quasi_dynamic" task.task_name="level_1" task.use_speed_norm=True task.use_artificial_potential=False
+python3 run_drp_evals.py headless=True task.planner="Curobo_PCD" task.close_loop=True task.task_type="quasi_dynamic" task.task_name="level_2" task.use_speed_norm=True task.use_artificial_potential=False
+python3 run_drp_evals.py headless=True task.planner="Curobo_PCD" task.close_loop=True task.task_type="quasi_dynamic" task.task_name="level_3" task.use_speed_norm=True task.use_artificial_potential=False
+python3 run_drp_evals.py headless=True task.planner="Curobo_PCD" task.close_loop=True task.task_type="quasi_dynamic" task.task_name="level_4" task.use_speed_norm=True task.use_artificial_potential=False
+
+
+# Curobo Closed Loop Dynamic Goal Blocking with RAP Voxel
+python3 run_drp_evals.py headless=True task.planner="Curobo_PCD" task.close_loop=True task.task_type="dynamic_goal_blocker" task.task_name="level_1" task.use_speed_norm=True task.use_artificial_potential=True
+python3 run_drp_evals.py headless=True task.planner="Curobo_PCD" task.close_loop=True task.task_type="dynamic_goal_blocker" task.task_name="level_2" task.use_speed_norm=True task.use_artificial_potential=True
+python3 run_drp_evals.py headless=True task.planner="Curobo_PCD" task.close_loop=True task.task_type="dynamic_goal_blocker" task.task_name="level_3" task.use_speed_norm=True task.use_artificial_potential=True
+python3 run_drp_evals.py headless=True task.planner="Curobo_PCD" task.close_loop=True task.task_type="dynamic_goal_blocker" task.task_name="level_4" task.use_speed_norm=True task.use_artificial_potential=True

@@ -18,7 +18,7 @@ from isaacgymenvs.motion_planners import Curobo
 class Eval:
     def __init__(self, cfg):
         self.sim_device = 'cuda:0'
-        self.seed = 10 #42
+        self.seed = 50 #800 #6000 # 50 #42
         set_seed(self.seed)
         self.cfg = cfg
         self.set_up_problem_configs()
@@ -37,14 +37,22 @@ class Eval:
             current_file_dir, "static_scenes", f"{self.problem_config['static_scene']}.hdf5"
         )
         self.testing_epoch_num = 1
+        self.curobo_normalize_speed = self.cfg.task.use_speed_norm
+        self.allow_curobo_replanning = True
+
+        if self.cfg.task.task_type == "static":
+            self.allow_curobo_replanning = False
+
         if self.cfg.task.task_type == "quasi_dynamic":
             self.testing_epoch_num = 2
         
-        self.allow_curobo_replanning = True
         if self.cfg.task.task_type == "goal_blocker":
             self.allow_curobo_replanning = False
         
-        
+        if self.cfg.task.task_type == "dynamic_goal_blocker":
+            self.allow_curobo_replanning = True
+            self.cfg.env.use_goal_as_start = True
+
 
     def set_up_env(self):
         headless = self.cfg.headless
@@ -52,7 +60,8 @@ class Eval:
         if headless:
             force_render = False
         else:
-            self.cfg.env.numEnvs = 2
+            self.cfg.env.episodeLength = 1000 #1000
+            self.cfg.env.numEnvs = 32
             self.testing_epoch_num = 100000
 
         graphics_device_id = 0
@@ -67,10 +76,14 @@ class Eval:
         planner = self.cfg.task.planner
         self.action_chunking = False
         if planner == "Curobo":
-            self.motion_planner = Curobo(self.env, True, self.allow_curobo_replanning)
+            self.motion_planner = Curobo(
+                self.env, use_gt=True, allow_replanning=self.allow_curobo_replanning, normalize_speed=self.curobo_normalize_speed,
+            )
             self.action_chunking = True
         elif planner == "Curobo_PCD":
-            self.motion_planner = Curobo(self.env, False, self.allow_curobo_replanning)
+            self.motion_planner = Curobo(
+                self.env, use_gt=False, allow_replanning=self.allow_curobo_replanning, normalize_speed=self.curobo_normalize_speed,
+            )
             self.action_chunking = True
         elif planner == "DRP":
             self.motion_planner = DRPNeuralMP(self.env)
@@ -118,6 +131,7 @@ class Eval:
             # get the eval information
             eval_info_dict = self.env.get_eval_info()
 
+            print("Number of Valid Envs:",  int(eval_info_dict["valid_envs"].sum()))
             print("Reach Rate:",     eval_info_dict["reach_rate"])
             print("Collision Rate:", eval_info_dict["collision_rate"])
             print("Success Rate:",   eval_info_dict["success_rate"])
@@ -159,6 +173,7 @@ class Eval:
             # get the eval information
             eval_info_dict = self.env.get_eval_info()
 
+            print("Number of Valid Envs:",  int(eval_info_dict["valid_envs"].sum()))
             print("Reach Rate:",     eval_info_dict["reach_rate"])
             print("Collision Rate:", eval_info_dict["collision_rate"])
             print("Success Rate:",   eval_info_dict["success_rate"])

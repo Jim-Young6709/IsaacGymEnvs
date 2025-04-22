@@ -5,14 +5,14 @@ static_scene: "tableonly_ff_100_old"
 dynamic_scene:
   goal_blocker:
       enable: True
-      moving: False
+      dynamic: False
       num: 1
-      active_distance: 1.0
-      retract_time: 500
+      active_distance: 0.5
+      retract_time: 200
       size:
         low: [0.2, 0.2, 0.2]
         high: [0.4, 0.4, 0.4]
-  
+
   dynamic_goal_blocker:
     enable: False
 

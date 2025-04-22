@@ -1,6 +1,6 @@
 
 
-static_scene: "tableonly_ff_100"
+static_scene: "tableonly_ff_100_old"
 
 dynamic_scene:
   goal_blocker:
@@ -9,15 +9,19 @@ dynamic_scene:
       size:
         low: [0.1, 0.1, 0.1]
         high: [0.2, 0.2, 0.2]
+        
+  dynamic_goal_blocker:
+    enable: False
 
   quasi_dynamic:
     enable: True
-    num: 2
+    num: 1
     size:
-      low: [0.05, 0.05, 0.05]
-      high: [0.3, 0.3, 0.3]
+      low: [0.1, 0.1, 0.1]
+      high: [0.2, 0.2, 0.2]
     start_time: 30
-    safe_buffer_dist: 0.2
+    time_interval: 200
+    safe_buffer_dist: 0.15
 
   floating:
     enable: False

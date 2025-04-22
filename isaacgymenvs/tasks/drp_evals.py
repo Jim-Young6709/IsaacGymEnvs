@@ -60,21 +60,20 @@ class DRPEvals(VecTask):
 
         self.start_joint_pos = torch.zeros((self.cfg["env"]["numEnvs"], 7), device=self.device)
         self.goal_joint_pos = torch.zeros((self.cfg["env"]["numEnvs"], 7), device=self.device)
-        
+
         self.obstacle_configs = list()
         self.max_num_static_obstacles = 0
 
         for env_idx, demo in enumerate(data_batch):
             self.start_joint_pos[env_idx] = torch.tensor(demo['states'][0][0:7], device=self.device)
             self.goal_joint_pos[env_idx] = torch.tensor(demo['states'][0][7:14], device=self.device)
-
-            # self.goal_joint_pos[env_idx] = torch.tensor(demo['states'][0][0:7], device=self.device)
-            # self.start_joint_pos[env_idx] = torch.tensor(demo['states'][0][7:14], device=self.device)
-
             pcd_params = demo['states'][0][15:]
             obstacle_config = decompose_scene_pcd_params_obs(pcd_params)
             self.obstacle_configs.append(obstacle_config)
             self.max_num_static_obstacles = max(len(obstacle_config[0]), self.max_num_static_obstacles)
+        
+        if self.cfg["env"]["use_goal_as_start"]:
+            self.start_joint_pos = self.goal_joint_pos.clone()
           
 
     def create_sim(self):
@@ -211,7 +210,7 @@ class DRPEvals(VecTask):
                 )
                 # buffers for holding the combined pcd for moving dynamic obstacles
                 self.moving_dynamic_obstacle_pcb_combined = torch.zeros(
-                    (self.num_envs, self.obstacle_spawner.num_moving_obstacles*self.num_points_per_dynamic_obstacle, 3), 
+                    (self.num_envs, self.max_num_dynamic_obstacles*self.num_points_per_dynamic_obstacle, 3), 
                     device=self.device,
                 )
                 dynamic_obstacle_handles = list()
@@ -314,6 +313,10 @@ class DRPEvals(VecTask):
         self.start_joint_pos = tensor_clamp(self.start_joint_pos, self.franka_dof_lower_limits[:7], self.franka_dof_upper_limits[:7])
         self.goal_joint_pos = tensor_clamp(self.goal_joint_pos, self.franka_dof_lower_limits[:7], self.franka_dof_upper_limits[:7])
         self.ee_pose_trajectory = torch.zeros((self.num_envs, self.max_episode_length, 7), device=self.device)
+        self.joint_pos_trajectory = torch.zeros((self.num_envs, self.max_episode_length, 7), device=self.device)
+
+        self.valid_envs = torch.zeros(self.num_envs, dtype=bool, device=self.device)
+
 
 
     def _refresh(self):
@@ -383,7 +386,7 @@ class DRPEvals(VecTask):
         robot_pcd = self.gpu_fk_sampler.sample(joint_pos, self.num_robot_points)
         return robot_pcd
     
-    
+
     def get_link_jacobians(self):
         return self.jacobian[:, self.jacobian_link_idx, :, 0:7]
     
@@ -442,6 +445,7 @@ class DRPEvals(VecTask):
         self.scene_collision_counter[env_ids] = 0
         self.progress_buf[env_ids] = 0
         self.reset_buf[env_ids] = 0
+        self.valid_envs[env_ids] = 1
 
 
     def apply_joint_pos_targets(self, joint_pos_targets):
@@ -517,6 +521,7 @@ class DRPEvals(VecTask):
         # ------------ updating dynamic obstacle pcd for obstacles that are currently moving ------------
         # (num_envs, num_moving_dynamic_obstacles, num_points_per_obstacle, 3)
         moving_dynamic_obstacle_pcd_world = dynamic_obstacle_pcd_world[:, self.obstacle_spawner.moving_obstacle_flag, :, :]
+        # (num)envs, num_moving_dynamic_obstacles*num_points_per_obstacle, 3)
         self.moving_dynamic_obstacle_pcb_combined = moving_dynamic_obstacle_pcd_world.view(moving_dynamic_obstacle_pcd_world.shape[0], -1, 3)
         
 
@@ -527,14 +532,14 @@ class DRPEvals(VecTask):
 
         if self.use_dynamic_obstacles:
             # ----------- filtering dynamic obstacle pcd for points not in workspace -----------
-            # [(num_dynamic_obstacles, 3), (num_dynamic_obstacles, 3), ... ] -> length is num_envs
+            # [(num_dynamic_pcd, 3), (num_dynamic_pcd, 3), ... ] -> length is num_envs
             filtered_dynamic_obstacle_pcd_list = [self.dynamic_obstacle_pcd_combined[i] for i in range(self.num_envs)]
             # remove any points in the pcd where the z value is below 0. This will result in a list of varying sized pcd
             # [(n, 3), (m, 3), ... ] -> length is num_envs
             filtered_dynamic_obstacle_pcd_list = [pcd[pcd[:, 2] > 0] for pcd in filtered_dynamic_obstacle_pcd_list]
 
             # ----------- filtering moving obstacle pcd for points not in workspace -----------
-            # [(num_moving_dynamic_obstacles, 3), (num_moving_dynamic_obstacles, 3), ... ] -> length is num_envs
+            # [(num_moving_dynamic_pcd, 3), (num_moving_dynamic_pcd, 3), ... ] -> length is num_envs
             filtered_moving_dynamic_obstacle_pcd_list = [self.moving_dynamic_obstacle_pcb_combined[i] for i in range(self.num_envs)]
             # remove any points in the pcd where the z value is below 0. This will result in a list of varying sized pcd
             # [(n, 3), (m, 3), ... ] -> length is num_envs
@@ -568,9 +573,11 @@ class DRPEvals(VecTask):
         self.apply_joint_pos_targets(joint_position_targets)
 
         if self.use_dynamic_obstacles:
-            dynamic_obstacle_poses, has_updated_quasi_dynamic_obstacle = self.obstacle_spawner.update_obstacle_poses(timestep=self.progress_buf)
-            # if has_updated_quasi_dynamic_obstacle:
-            #     self.gym.simulate(self.sim)
+            dynamic_obstacle_poses, has_updated_quasi_dynamic_obstacle, valid_env_flag = self.obstacle_spawner.update_obstacle_poses(timestep=self.progress_buf)
+            self.valid_envs = valid_env_flag.clone()
+            # return valid env
+            if has_updated_quasi_dynamic_obstacle:
+                self.gym.simulate(self.sim)
             self.set_dynamic_obstacle_pose(dynamic_obstacle_poses)
         
 
@@ -579,6 +586,7 @@ class DRPEvals(VecTask):
         if self.test_epoch == 0:
             current_ee_pose = torch.cat((self.states["eef_pos"], self.states["eef_quat"]), dim=1)
             self.ee_pose_trajectory[:, self.progress_buf[0], :] = current_ee_pose
+            self.joint_pos_trajectory[:, self.progress_buf[0], :] = self.states["q"][:, 0:7]
 
 
         self.check_robot_collision()
@@ -683,29 +691,34 @@ class DRPEvals(VecTask):
         pos_err = torch.norm(ee_pose[:, 0:3] - self.ee_goal_pose[:, 0:3], dim=1)
         quat_err = orientation_error(self.ee_goal_pose[:, 3:], ee_pose[:, 3:])
 
-        # import ipdb; ipdb.set_trace()
+        
+        valid_env_num = int(self.valid_envs.sum())
 
         has_reached = (pos_err < 0.05) & (quat_err < 15.0) # 5.0
-        reach_rate = torch.sum(has_reached) / self.num_envs
+        reach_rate = torch.sum(has_reached[self.valid_envs]) / valid_env_num
 
         # collision rate calculation
         total_scene_collision_num = self.scene_collision_counter
         has_collided = self.scene_collision_counter > 0
-        collision_rate = torch.sum(has_collided) / self.num_envs
+        collision_rate = torch.sum(has_collided[self.valid_envs]) / valid_env_num
 
         # success rate calculation
         has_succeeded = has_reached & (~has_collided)
-        success_rate = torch.sum(has_succeeded) / self.num_envs
+        success_rate = torch.sum(has_succeeded[self.valid_envs]) / valid_env_num
 
+        
         eval_info_dict = dict()
         eval_info_dict["has_reached"] = has_reached
         eval_info_dict["has_succeeded"] = has_succeeded
         eval_info_dict["total_scene_collision_num"] = total_scene_collision_num
+        eval_info_dict["valid_envs"] = self.valid_envs
+        # the following only counts the valid envs
         eval_info_dict["reach_rate"] = reach_rate
         eval_info_dict["collision_rate"] = collision_rate
-        eval_info_dict["mean_scene_collision_timestep_percentage"] = torch.mean(total_scene_collision_num.float() / self.max_episode_length)
-        eval_info_dict["mean_scene_contact_force_norm_sum"] = torch.mean(self.total_scene_contact_forces)
+        eval_info_dict["mean_scene_collision_timestep_percentage"] = torch.mean(total_scene_collision_num[self.valid_envs].float() / self.max_episode_length)
+        eval_info_dict["mean_scene_contact_force_norm_sum"] = torch.mean(self.total_scene_contact_forces[self.valid_envs])
         eval_info_dict["success_rate"] = success_rate
+
 
         return eval_info_dict
 
