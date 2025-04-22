@@ -50,7 +50,7 @@ task:
   # task_name: "level_3"
 
   task_type: "floating"
-  task_name: "level_1"
+  task_name: "level_2"
 
   # task_type: "goal_blocker"
   # task_name: "level_3"
