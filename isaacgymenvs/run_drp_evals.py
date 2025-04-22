@@ -11,8 +11,7 @@ from isaacgymenvs.tasks import DRPEvals
 from isaacgymenvs.utils.utils import set_seed
 from isaacgymenvs.utils.media_utils import camera_shot
 from isaacgymenvs.reactive_artificial_potential import ReactiveArtificialPotential
-from isaacgymenvs.motion_planners import DRPNeuralMP
-from isaacgymenvs.motion_planners import Curobo
+from isaacgymenvs.motion_planners import DRPNeuralMP, NeuralMP, Curobo
 
 
 class Eval:
@@ -87,6 +86,8 @@ class Eval:
             self.action_chunking = True
         elif planner == "DRP":
             self.motion_planner = DRPNeuralMP(self.env)
+        elif planner == "NeuralMP":
+            self.motion_planner = NeuralMP(self.env)
         
     def set_up_artificial_potential(self):
         self.use_artificial_potential = self.cfg.task.use_artificial_potential
