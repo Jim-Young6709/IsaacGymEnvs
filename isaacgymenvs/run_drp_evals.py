@@ -48,9 +48,11 @@ class Eval:
         
         if self.cfg.task.task_type == "goal_blocker":
             self.allow_curobo_replanning = False
-            self.cfg.env.episodeLength = self.problem_config["dynamic_scene"]["goal_blocker"]["max_epsiode_length"]
         
-        
+        if self.cfg.task.task_type == "dynamic_goal_blocker":
+            self.allow_curobo_replanning = True
+            self.cfg.env.use_goal_as_start = True
+
 
     def set_up_env(self):
         headless = self.cfg.headless
@@ -58,7 +60,7 @@ class Eval:
         if headless:
             force_render = False
         else:
-            self.cfg.env.episodeLength = 500 #1000
+            self.cfg.env.episodeLength = 1000 #1000
             self.cfg.env.numEnvs = 32
             self.testing_epoch_num = 100000
 

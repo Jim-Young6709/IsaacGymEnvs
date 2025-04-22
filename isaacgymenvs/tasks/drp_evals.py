@@ -60,21 +60,20 @@ class DRPEvals(VecTask):
 
         self.start_joint_pos = torch.zeros((self.cfg["env"]["numEnvs"], 7), device=self.device)
         self.goal_joint_pos = torch.zeros((self.cfg["env"]["numEnvs"], 7), device=self.device)
-        
+
         self.obstacle_configs = list()
         self.max_num_static_obstacles = 0
 
         for env_idx, demo in enumerate(data_batch):
             self.start_joint_pos[env_idx] = torch.tensor(demo['states'][0][0:7], device=self.device)
             self.goal_joint_pos[env_idx] = torch.tensor(demo['states'][0][7:14], device=self.device)
-
-            # self.goal_joint_pos[env_idx] = torch.tensor(demo['states'][0][0:7], device=self.device)
-            # self.start_joint_pos[env_idx] = torch.tensor(demo['states'][0][7:14], device=self.device)
-
             pcd_params = demo['states'][0][15:]
             obstacle_config = decompose_scene_pcd_params_obs(pcd_params)
             self.obstacle_configs.append(obstacle_config)
             self.max_num_static_obstacles = max(len(obstacle_config[0]), self.max_num_static_obstacles)
+        
+        if self.cfg["env"]["use_goal_as_start"]:
+            self.start_joint_pos = self.goal_joint_pos.clone()
           
 
     def create_sim(self):

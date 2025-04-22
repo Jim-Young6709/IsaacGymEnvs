@@ -10,6 +10,7 @@ env:
   enableDebugVis: True
   numObservations: 7
   numActions: 7
+  use_goal_as_start: False
 
 sim:
   dt: 0.01667 # 1/60
@@ -37,11 +38,11 @@ task:
   close_loop: True
 
   # "DRP", "Curobo", "Curobo_PCD"
-  planner: "Curobo"
-  use_artificial_potential: False
+  planner: "DRP"
+  use_artificial_potential: True
   use_speed_norm: True
 
-  # "static", "quasi_dynamic", "goal_blocker", "floating"
+  # "static", "quasi_dynamic", "goal_blocker", "dynamic_goal_blocker", "floating"
   # task_type: "static"
   # task_name: "static_cubby_tt" # "static_box_tf"
 
@@ -51,10 +52,11 @@ task:
   # task_type: "floating"
   # task_name: "level_1"
 
-  task_type: "goal_blocker"
+  # task_type: "goal_blocker"
+  # task_name: "level_3"
+
+  task_type: "dynamic_goal_blocker"
   task_name: "level_1"
-
-
 
 hydra:
   output_subdir: null

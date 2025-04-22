@@ -18,6 +18,7 @@ class ObstacleSpawner:
         # --------------- loading obstacle spawner configs ---------------
         self.spawner_cfg = config
         self.use_goal_blocker = self.spawner_cfg["goal_blocker"]["enable"]
+        self.use_dynamic_goal_blocker = self.spawner_cfg["dynamic_goal_blocker"]["enable"]
         self.use_quasi_dynamic = self.spawner_cfg["quasi_dynamic"]["enable"]
         self.use_floating = self.spawner_cfg["floating"]["enable"]
 
@@ -28,6 +29,8 @@ class ObstacleSpawner:
         self.obstacle_counter = 0
         if self.use_goal_blocker:
             self.initialize_obstacles("goal_blocker")
+        if self.use_dynamic_goal_blocker:
+            self.initialize_obstacles("dynamic_goal_blocker")
         if self.use_quasi_dynamic:
             self.initialize_obstacles("quasi_dynamic")
             self.quasi_dynamic_obstacle_enable_num = 0
@@ -49,6 +52,8 @@ class ObstacleSpawner:
         self.moving_obstacle_flag = torch.zeros(self.num_obstacles, dtype=bool, device=self.device)
         if self.use_goal_blocker:
             self.moving_obstacle_flag[self.obstacle_index_dict["goal_blocker"]] = False
+        if self.use_dynamic_goal_blocker:
+            self.moving_obstacle_flag[self.obstacle_index_dict["dynamic_goal_blocker"]] = True
         if self.use_quasi_dynamic:
             self.moving_obstacle_flag[self.obstacle_index_dict["quasi_dynamic"]] = False
         if self.use_floating:
@@ -57,6 +62,9 @@ class ObstacleSpawner:
         
         self.valid_envs = torch.zeros(self.num_envs, dtype=bool, device=self.device)
     
+    @property
+    def obstacle_dims(self):
+        return self.combined_obstacle_dim_tensor
 
     def generate_obstacle_gt(self):
         obstacle_configs = list()
@@ -70,11 +78,6 @@ class ObstacleSpawner:
             obstacle_configs.append(obstacle_config_i)
         return obstacle_configs
 
-
-
-    @property
-    def obstacle_dims(self):
-        return self.combined_obstacle_dim_tensor
 
     def initialize_obstacles(self, obstacle_type):
         # ----------- creating obstacle dims -----------
@@ -99,10 +102,8 @@ class ObstacleSpawner:
         self.valid_envs[:] = True
 
     
-    
     def update_obstacle_poses(self, timestep):
         current_ee_pose = torch.cat((self.env.states["eef_pos"], self.env.states["eef_quat"]), dim=1)
-        current_ee_trans_vel = self.env.states["eef_vel"][:, 0:3]
         current_joint_pos = self.env.states["q"][:, 0:7].clone()
         goal_ee_pose = self.env.ee_goal_pose
         set_quasi_dynamic_obs = False
@@ -138,10 +139,89 @@ class ObstacleSpawner:
             
             if timestep[0] == self.max_episode_length -1:
                 print("Num goal blocking successfully set", self.successfully_set_flag.sum())
-
-
-
+            
         
+        if self.use_dynamic_goal_blocker:
+            dgb_obstacle_idx = self.obstacle_index_dict["dynamic_goal_blocker"]
+            num_dgb_obstacles = len(dgb_obstacle_idx)
+            sphere_center = (self.env.ee_goal_pose[:, 0:3]).unsqueeze(1).repeat(1, num_dgb_obstacles, 1) 
+            if timestep[0].item() == 0:
+                # set initial dgb obstacles pose
+                rand_dir_tensor = torch.zeros((self.num_envs, num_dgb_obstacles, 3), device=self.device)
+                successfully_set_flag = torch.zeros((self.num_envs, num_dgb_obstacles), dtype=bool, device=self.device)
+                for i, dgb_id in enumerate(dgb_obstacle_idx):
+                    for j in range(10):
+                        rand_dirs = torch.randn((self.num_envs, 3), device=self.device)
+                        rand_dirs = rand_dirs / rand_dirs.norm(dim=1, keepdim=True)  # normalize
+                        rand_dirs[:, 0] = rand_dirs[:, 0].abs()
+                        rand_dirs[:, 2] = rand_dirs[:, 2].abs()
+                        # explicit low and high radius range
+                        radius_low = self.spawner_cfg["dynamic_goal_blocker"]["init_radius"]["low"]
+                        radius_high = self.spawner_cfg["dynamic_goal_blocker"]["init_radius"]["high"]
+                        radii = torch.rand((self.num_envs, 1), device=self.device) * (radius_high - radius_low) + radius_low
+                        positions = radii * rand_dirs
+                        rand_quats = torch.randn((self.num_envs, 4), device=self.device)
+                        rand_quats = rand_quats / rand_quats.norm(dim=1, keepdim=True)
+                        poses = torch.cat([positions, rand_quats], dim=1)
+                        poses = poses.view(self.num_envs, 7)
+                        poses[:, 0:3] += self.env.ee_goal_pose[:, 0:3]
+                        # (num_envs,)
+                        is_safe = self.check_collisions(current_joint_pos[:, :], poses, dgb_id, 0.01)
+                        set_flag = is_safe & ~successfully_set_flag[:, i]
+                        self.obstacle_poses[set_flag, dgb_id, :] = poses[set_flag, :]
+                        rand_dir_tensor[set_flag, dgb_id, :] = rand_dirs[set_flag, :]
+                        successfully_set_flag[set_flag, i] = True
+                print("Number of successful set dynamic goal blocking obstacles", successfully_set_flag.sum())
+
+                # generate random movement direction
+                noise_std = 0.01
+                self.dgb_obstacle_moving_dir = -1 * rand_dir_tensor #rand_dirs.reshape(self.num_envs, num_dgb_obstacles, 3)
+                noisy_dirs = self.dgb_obstacle_moving_dir + torch.randn_like(self.dgb_obstacle_moving_dir) * noise_std
+                self.dgb_obstacle_moving_dir = noisy_dirs / noisy_dirs.norm(dim=2, keepdim=True)
+
+                # generate random velocity
+                velocity_low = self.spawner_cfg["dynamic_goal_blocker"]["velocity"]["low"]
+                velocity_high = self.spawner_cfg["dynamic_goal_blocker"]["velocity"]["high"]
+                self.dgb_obstacle_velocity = torch.rand(
+                    (self.num_envs, num_dgb_obstacles), device=self.device
+                ) * (velocity_high - velocity_low) + velocity_low
+            else:
+                self.obstacle_poses[:, dgb_obstacle_idx, 0:3] += self.dgb_obstacle_velocity.unsqueeze(-1) * self.dgb_obstacle_moving_dir
+                # flip moving direction if obstacles are too far
+                self.dgb_obstacle_moving_dir = torch.where(
+                    torch.norm(self.obstacle_poses[:, dgb_obstacle_idx, 0:3] - sphere_center, dim=2, keepdim=True) > 1.0,
+                    self.dgb_obstacle_moving_dir * -1,
+                    self.dgb_obstacle_moving_dir,
+                )
+
+                # Get x, y, z positions
+                positions = self.obstacle_poses[:, dgb_obstacle_idx, :3]  # (num_envs, num_selected_obstacles, 3)
+                xy_positions = positions[:, :, :2]  # (num_envs, num_selected_obstacles, 2)
+                z_positions = positions[:, :, 2]    # (num_envs, num_selected_obstacles)
+                # Compute xy-distance squared
+                dist_squared = torch.sum(xy_positions ** 2, dim=-1)  # (num_envs, num_selected_obstacles)
+                # Safe zone conditions
+                safe_zone_radius = 0.25
+                safe_zone_height = 0.6
+                is_within_radius = dist_squared <= safe_zone_radius ** 2
+                is_within_height = (z_positions >= 0.0) & (z_positions <= safe_zone_height)
+                # Combine both conditions
+                is_in_safe_zone = (is_within_radius & is_within_height).unsqueeze(-1).expand(-1, -1, 3)  # (num_envs, num_selected_obstacles, 3)
+
+                self.dgb_obstacle_moving_dir[is_in_safe_zone] *= -1
+                self.dgb_obstacle_moving_dir = self.dgb_obstacle_moving_dir / self.dgb_obstacle_moving_dir.norm(dim=2, keepdim=True)
+
+                # Flip moving direction if x < 0.1
+                x_below_threshold = self.obstacle_poses[:, dgb_obstacle_idx, 0] < 0.1  # shape: (num_envs, num_selected_obstacles)
+                x_below_threshold = x_below_threshold.unsqueeze(-1).expand(-1, -1, 3)  # shape: (num_envs, num_selected_obstacles, 3)
+                self.dgb_obstacle_moving_dir[x_below_threshold] *= -1
+
+            # disable dgb obstacles
+            if timestep[0] > (self.max_episode_length - 300):
+                self.obstacle_poses[:, dgb_obstacle_idx, :] = self.disable_pose[:, dgb_obstacle_idx, :]
+
+
+
         if self.use_quasi_dynamic:
             # self.moving_obstacle_flag[self.obstacle_index_dict["quasi_dynamic"]] = False
             if self.env.test_epoch > 0:

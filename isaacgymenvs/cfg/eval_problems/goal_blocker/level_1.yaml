@@ -5,8 +5,8 @@ static_scene: "tableonly_ff_100_old"
 dynamic_scene:
   goal_blocker:
       enable: True
+      moving: False
       num: 1
-      max_epsiode_length: 1000
       active_distance: 1.0
       retract_time: 500
       size:
