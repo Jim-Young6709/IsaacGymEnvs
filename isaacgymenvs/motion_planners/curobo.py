@@ -131,7 +131,25 @@ class Curobo(MotionPlannerBase):
         goal_joint_pos = env_obs_dict["goal_joint_pos"]
         current_robot_pcd = env_obs_dict["robot_pcd"]
         goal_robot_pcd = env_obs_dict["goal_robot_pcd"]
-        static_obstacle_pcd = env_obs_dict["static_obstacle_pcd"]
+        # static_obstacle_pcd = env_obs_dict["static_obstacle_pcd"]
+
+
+        # [(n, 3), (m, 3), ... ] -> length is num_envs
+        obstacle_pcd_list = env_obs_dict["combined_obstacle_pcd"]
+        subsampled_pcd_list = []
+        for pcd in obstacle_pcd_list:
+            num_points = pcd.shape[0]
+            if num_points >= self.num_obstacle_points:
+                indices = torch.randperm(num_points)[0:self.num_obstacle_points]
+                sampled = pcd[indices]
+            else:
+                indices = torch.randint(0, num_points, (self.num_obstacle_points,), device=self.device)
+                sampled = pcd[indices]
+            subsampled_pcd_list.append(sampled)
+
+        # Stack into final tensor of shape (num_envs, num_obstacle_points, 3)
+        subsampled_pcd = torch.stack(subsampled_pcd_list, dim=0)
+
 
         num_planning_success = 0
         planning_actions_abs = []
@@ -155,7 +173,7 @@ class Curobo(MotionPlannerBase):
                     (
                         planning_actions,
                         plan_log,
-                    ) = self.mp_curobo_pcd(joint_pos[i], goal_joint_pos[i], static_obstacle_pcd[i]) # TODO: add dynamic obstacle pcd
+                    ) = self.mp_curobo_pcd(joint_pos[i], goal_joint_pos[i], subsampled_pcd[i])
                 if plan_log == "success":
                     planning_actions = torch.from_numpy(planning_actions).to(self.device)
                     num_planning_success += 1

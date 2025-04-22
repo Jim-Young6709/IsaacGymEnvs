@@ -9,6 +9,9 @@ dynamic_scene:
       size:
         low: [0.1, 0.1, 0.1]
         high: [0.2, 0.2, 0.2]
+  
+  dynamic_goal_blocker:
+    enable: False
 
   quasi_dynamic:
     enable: True
