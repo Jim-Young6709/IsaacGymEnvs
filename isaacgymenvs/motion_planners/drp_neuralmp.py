@@ -169,7 +169,7 @@ class DRPNeuralMP(MotionPlannerBase):
                 traj_c_num = waypoint_c_num.sum()
                 traj_c_nums.append(traj_c_num.item())
 
-            print(traj_c_nums)
+            # print(traj_c_nums)
             best_traj_idx = torch.argmin(torch.tensor(traj_c_nums, device=self.device))
             output_traj = output_traj[best_traj_idx].unsqueeze(1)
             planning_actions_abs.append(output_traj)
