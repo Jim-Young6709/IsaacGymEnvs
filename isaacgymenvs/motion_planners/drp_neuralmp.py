@@ -44,15 +44,9 @@ class DRPNeuralMP(MotionPlannerBase):
         torch.backends.cudnn.allow_tf32 = True
         torch._dynamo.config.suppress_errors = True
 
-        checkpoint_folder = "/home/avenger/Projects/drp/nmp_refactor/checkpoints/legacy"
-        # checkpoint_folder = "/home/jimyoung/Neural_MP_Proj/IsaacGymEnvs/ckpts"
+        checkpoint_folder = self.env.ckpt_cfg.dir
         config_file = Path(checkpoint_folder) / "model_config.yaml"
-
-        # checkpoint_name = "checkpoint_2ep_step50000_success_0.6914.pth.pth"
-        # checkpoint_name = 'checkpoint_step60000_success_0.3132.pth.pth' # my second favourite so far (really good obstacle avoiding capability, but less good for goal reaching)
-        # checkpoint_name = 'checkpoint_step60000_success_0.5142.pth.pth' # my favourite so far. slightly better at goal reaching and slightly worse at obstacle avoiding
-        # checkpoint_name = 'checkpoint_gblk0.3_step170000_success_0.5400.pth.pth'
-        checkpoint_name = "aitstar_18500ep.pth" # neural mp checkpoint
+        checkpoint_name = self.env.ckpt_cfg.filename
 
         checkpoint_file = Path(checkpoint_folder) / checkpoint_name
         with open(config_file, "r") as f:

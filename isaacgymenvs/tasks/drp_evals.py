@@ -21,6 +21,7 @@ from geometrout.primitive import Cuboid
 class DRPEvals(VecTask):
     def __init__(self, cfg, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render, problem_config):
         self.cfg = cfg
+        self.ckpt_cfg = cfg.ckpt
         self.headless = headless
         self.device = sim_device
         self.max_episode_length = self.cfg["env"]["episodeLength"]
