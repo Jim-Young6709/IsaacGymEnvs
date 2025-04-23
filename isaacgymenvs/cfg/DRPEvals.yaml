@@ -37,9 +37,9 @@ task:
   randomize: False
   close_loop: True
 
-  # "DRP", "Curobo", "Curobo_PCD"
-  planner: "DRP"
-  use_artificial_potential: True 
+  # "DRPNeuralMP", "Curobo", "Curobo_PCD", "NeuralMP", "NeuralMP_TTO"
+  planner: "DRPNeuralMP"
+  use_artificial_potential: False
   use_speed_norm: True
 
   # "static", "quasi_dynamic", "goal_blocker", "dynamic_goal_blocker", "floating"
