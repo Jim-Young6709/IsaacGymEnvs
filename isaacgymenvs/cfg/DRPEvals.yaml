@@ -1,7 +1,7 @@
 name: DRPEvals
 physics_engine: 'physx'
 
-headless: False
+headless: True
 
 env:
   numEnvs: 100
@@ -37,9 +37,9 @@ task:
   randomize: False
   close_loop: True
 
-  # "DRP", "DRP_ACT", "Curobo", "Curobo_PCD"
-  planner: "DRP_ACT"
-  use_artificial_potential: False 
+  # "DRPNeuralMP", "DRP_ACT", "Curobo", "Curobo_PCD"
+  planner: "DRPNeuralMP"
+  use_artificial_potential: False
   use_speed_norm: True
 
   # "static", "quasi_dynamic", "goal_blocker", "dynamic_goal_blocker", "floating"
@@ -57,6 +57,15 @@ task:
 
   # task_type: "dynamic_goal_blocker"
   # task_name: "level_2"
+
+ckpt:
+  dir: "/home/avenger/Projects/drp/nmp_refactor/checkpoints/legacy"
+  # dir: "/home/jimyoung/Neural_MP_Proj/IsaacGymEnvs/ckpts"
+  # filename: "checkpoint_2ep_step50000_success_0.6914.pth.pth"
+  # filename: 'checkpoint_step60000_success_0.3132.pth.pth' # my second favourite so far (really good obstacle avoiding capability, but less good for goal reaching)
+  # filename: 'checkpoint_step60000_success_0.5142.pth.pth' # my favourite so far. slightly better at goal reaching and slightly worse at obstacle avoiding
+  # filename: 'checkpoint_gblk0.3_step170000_success_0.5400.pth.pth'
+  filename: "aitstar_18500ep.pth" # neural mp checkpoint
 
 hydra:
   output_subdir: null

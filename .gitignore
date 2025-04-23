@@ -34,3 +34,4 @@ outputs/
 /isaacgymenvs/wandb
 # *.hdf5
 *.log
+ckpts/
