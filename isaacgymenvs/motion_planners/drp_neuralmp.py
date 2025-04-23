@@ -107,7 +107,7 @@ class DRPNeuralMP(MotionPlannerBase):
         joint_pos_target = open_loop_joint_pos
         return joint_pos_target
 
-    def get_actions_open_loop(self, env_obs_dict, tto_batch_size=10):
+    def get_actions_open_loop(self, env_obs_dict, tto_batch_size=100):
         """
         in original NeuralMP paper, tto_batch_size = 100
         """
