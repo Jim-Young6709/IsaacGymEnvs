@@ -11,7 +11,7 @@ from isaacgymenvs.tasks import DRPEvals
 from isaacgymenvs.utils.utils import set_seed
 from isaacgymenvs.utils.media_utils import camera_shot
 from isaacgymenvs.reactive_artificial_potential import ReactiveArtificialPotential
-from isaacgymenvs.motion_planners import DRPNeuralMP, DRPACT, Curobo
+from isaacgymenvs.motion_planners import DRPNeuralMP, DRPACT, Curobo, MPiNets
 
 
 class Eval:
@@ -88,6 +88,8 @@ class Eval:
             self.motion_planner = DRPNeuralMP(self.env)
         elif planner == "DRP_ACT":
             self.motion_planner = DRPACT(self.env)
+        elif planner == "MPiNets":
+            self.motion_planner = MPiNets(self.env)
         
     def set_up_artificial_potential(self):
         self.use_artificial_potential = self.cfg.task.use_artificial_potential

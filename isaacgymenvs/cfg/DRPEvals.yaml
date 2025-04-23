@@ -37,7 +37,7 @@ task:
   randomize: False
   close_loop: True
 
-  # "DRPNeuralMP", "DRP_ACT", "Curobo", "Curobo_PCD"
+  # "DRPNeuralMP", "DRP_ACT", "Curobo", "Curobo_PCD", "MPiNets"
   planner: "DRPNeuralMP"
   use_artificial_potential: False
   use_speed_norm: True
