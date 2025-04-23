@@ -1,7 +1,7 @@
 name: DRPEvals
 physics_engine: 'physx'
 
-headless: False
+headless: True
 
 env:
   numEnvs: 100
@@ -43,14 +43,14 @@ task:
   use_speed_norm: True
 
   # "static", "quasi_dynamic", "goal_blocker", "dynamic_goal_blocker", "floating"
-  # task_type: "static"
-  # task_name: "static_cubby_tt" # "static_box_tf"
+  task_type: "static"
+  task_name: "static_cubby_tt" # "static_box_tf"
 
   # task_type: "quasi_dynamic"
   # task_name: "level_3"
 
-  task_type: "floating"
-  task_name: "level_2"
+  # task_type: "floating"
+  # task_name: "level_2"
 
   # task_type: "goal_blocker"
   # task_name: "level_3"

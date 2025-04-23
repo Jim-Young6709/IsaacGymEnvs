@@ -86,6 +86,8 @@ class Eval:
             self.action_chunking = True
         elif planner == "DRPNeuralMP":
             self.motion_planner = DRPNeuralMP(self.env)
+        elif planner == "NeuralMP":
+            self.motion_planner = NeuralMP(self.env)
         
     def set_up_artificial_potential(self):
         self.use_artificial_potential = self.cfg.task.use_artificial_potential
