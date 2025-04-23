@@ -23,8 +23,8 @@ dynamic_scene:
       low: 0.5 
       high: 0.6
     velocity:
-      low: 0.001
-      high: 0.003
+      low: 0.001 #0.001
+      high: 0.003 # 0.003
 
 
   quasi_dynamic:

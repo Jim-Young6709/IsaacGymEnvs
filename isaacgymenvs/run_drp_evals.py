@@ -11,7 +11,7 @@ from isaacgymenvs.tasks import DRPEvals
 from isaacgymenvs.utils.utils import set_seed
 from isaacgymenvs.utils.media_utils import camera_shot
 from isaacgymenvs.reactive_artificial_potential import ReactiveArtificialPotential
-from isaacgymenvs.motion_planners import DRPNeuralMP, Curobo
+from isaacgymenvs.motion_planners import DRPNeuralMP, DRPACT, Curobo
 
 
 class Eval:
@@ -86,6 +86,8 @@ class Eval:
             self.action_chunking = True
         elif planner == "DRPNeuralMP":
             self.motion_planner = DRPNeuralMP(self.env)
+        elif planner == "DRP_ACT":
+            self.motion_planner = DRPACT(self.env)
         
     def set_up_artificial_potential(self):
         self.use_artificial_potential = self.cfg.task.use_artificial_potential
@@ -115,7 +117,8 @@ class Eval:
                 env_obs_dict = self.env.get_observations()
 
                 if self.use_artificial_potential:
-                    env_obs_dict = self.artificial_potential.apply_reactive_artificial_potential_vectorized(env_obs_dict)
+                    # env_obs_dict = self.artificial_potential.apply_reactive_artificial_potential_vectorized(env_obs_dict)
+                    env_obs_dict = self.artificial_potential.apply_rmp_vectorized(env_obs_dict)
 
                 joint_pos_targets = self.motion_planner.get_actions(env_obs_dict)
                 if self.action_chunking:

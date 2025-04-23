@@ -12,7 +12,7 @@ fk_sampler = FrankaSampler(
     "cpu",
     use_cache=True,
     num_fixed_points=4096,
-    default_prismatic_value=0.025,
+    default_prismatic_value=0.04,
 )
 
 
@@ -578,7 +578,7 @@ def compute_robot_pcd(
     num_robot_points=2048,
     num_in_hand_points=500,
 ):
-    gpu_fk_sampler = FrankaSampler("cuda", use_cache=True)
+    gpu_fk_sampler = FrankaSampler("cuda", use_cache=True, default_prismatic_value=0.04)
     gripper_cfg = gripper_width * torch.ones((configs.shape[0], 1), device=configs.device)
     cfg = torch.cat((configs, gripper_cfg), dim=1)
     robot_pcd = gpu_fk_sampler.sample(cfg, num_points=num_robot_points)

@@ -33,7 +33,7 @@ class DRPEvals(VecTask):
         self.max_num_static_obstacles = 0
         self.max_num_dynamic_obstacles = 0
         self.load_data_set()
-        self.gpu_fk_sampler = FrankaSampler(sim_device, use_cache=True)
+        self.gpu_fk_sampler = FrankaSampler(sim_device, use_cache=True, default_prismatic_value=0.04)
 
         if self.cfg["task"]["task_type"] == "static":
             self.use_dynamic_obstacles = False

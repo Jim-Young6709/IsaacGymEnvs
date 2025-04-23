@@ -4,7 +4,7 @@ import torch
 import numpy as np
 import pinocchio as pin
 
-from .utils.franka_collision_checker import FrankaCollisionChecker, SELF_COLLISION_SPHERES
+from .utils.franka_collision_checker import FrankaCollisionChecker, SELF_COLLISION_SPHERES, SELF_COLLISION_SPHERES_RMP
 from .utils.franka_kinematics import FrankaKinematics
 
 
@@ -16,6 +16,9 @@ class ReactiveArtificialPotential:
         self.gripper_width = 0.04
         self.collision_checker = FrankaCollisionChecker()
         self.franka_kinematics = FrankaKinematics()
+
+        self.xr_prev = None
+        self.xr = None
 
 
     def get_closest_surface_point_jacobian(self, point_cloud: np.ndarray, joint_pos: np.ndarray):
@@ -299,5 +302,205 @@ class ReactiveArtificialPotential:
         tau = torch.bmm(closest_link_jacobians.transpose(1, 2), F.unsqueeze(2)).squeeze(2)  # (num_envs, 7)
 
         env_obs_dict["goal_joint_pos"][valid_mask] = (joint_pos_tensor[valid_mask] + tau[valid_mask]).clone()
+        env_obs_dict["goal_robot_pcd"] = self.env.get_robot_pcds(env_obs_dict["goal_joint_pos"])
+        return env_obs_dict
+    
+
+
+    def apply_rmp_vectorized(self, env_obs_dict):
+        joint_pos_tensor = env_obs_dict["joint_pos"]
+        dynamic_obstacles_list = env_obs_dict["moving_dynamic_obstacle_pcd"]
+        num_obstacle_points = 1000
+
+        subsampled_pcd_list = list()
+        has_dynamic_obstacles_flag = torch.ones(self.num_envs, device=self.device, dtype=bool)
+
+        for i, pcd in enumerate(dynamic_obstacles_list):
+            num_points = pcd.shape[0]
+            if num_points == 0:
+                # Avoid sampling from empty tensor
+                sampled = torch.zeros((num_obstacle_points, 3), device=self.device)
+                has_dynamic_obstacles_flag[i] = False
+            elif num_points >= num_obstacle_points:
+                indices = torch.randperm(num_points, device=self.device)[:num_obstacle_points]
+                sampled = pcd[indices]
+            else:
+                indices = torch.randint(0, num_points, (num_obstacle_points,), device=self.device)
+                sampled = pcd[indices]
+            subsampled_pcd_list.append(sampled)
+        # (num_envs, num_obstacle_points, 3)
+        dynamic_pcd_downsample = torch.stack(subsampled_pcd_list, dim=0)
+        # dynamic_pcd_downsample = torch.ones_like(dynamic_pcd_downsample, device=self.device)
+
+        # ([num_envs, 9, 4, 4]) | 9 links = link 0-7 + panda hand
+        link_transforms = self.collision_checker.compute_transformations(joint_pos_tensor)#[:, 0:9, :, :]
+
+        link_name_to_index = {
+            "panda_link0": 0,
+            "panda_link1": 1,
+            "panda_link2": 2,
+            "panda_link3": 3,
+            "panda_link4": 4,
+            "panda_link5": 5,
+            "panda_link6": 6,
+            "panda_link7": 7,
+            "panda_hand": 8,
+        }
+
+        # Prepare all sphere centers in local frame
+        sphere_offsets = torch.tensor([center for _, center, _ in SELF_COLLISION_SPHERES_RMP], device='cuda')  # (num_spheres, 3)
+        sphere_offsets_homo = torch.cat([sphere_offsets, torch.ones((len(SELF_COLLISION_SPHERES_RMP), 1), device='cuda')], dim=1)  # (num_spheres, 4)
+        sphere_radii = torch.tensor([r for _, _, r in SELF_COLLISION_SPHERES_RMP], device='cuda')  # (num_spheres,)
+        sphere_link_indices = torch.tensor([link_name_to_index[name] for name, _, _ in SELF_COLLISION_SPHERES_RMP], device='cuda')  # (num_spheres,)
+
+        # Expand transforms for each sphere
+        selected_transforms = link_transforms[:, sphere_link_indices]  # (num_envs, num_spheres, 4, 4)
+        # sphere_offsets_homo: (num_spheres, 4)
+        # expand it to (1, num_spheres, 4, 1) and broadcast
+        sphere_offsets_expanded = sphere_offsets_homo[None, :, :, None]  # (1, num_spheres, 4, 1)
+        sphere_offsets_expanded = sphere_offsets_expanded.expand(self.num_envs, -1, -1, -1)  # (num_envs, num_spheres, 4, 1)
+        # now matmul works: (num_envs, num_spheres, 4, 4) @ (num_envs, num_spheres, 4, 1)
+        sphere_offsets_world = torch.matmul(selected_transforms, sphere_offsets_expanded)  # (num_envs, num_spheres, 4, 1)
+        sphere_centers_world = sphere_offsets_world[:, :, 0:3, 0]  # (num_envs, num_spheres, 3)
+
+
+        # Compute distances between each sphere center and all points in the pointcloud
+        # (num_envs, num_spheres, num_obstacle_points)
+        dists = torch.norm(
+            dynamic_pcd_downsample[:, None, :, :] - sphere_centers_world[:, :, None, :],
+            dim=3
+        )
+
+        # Get closest point index and corresponding distance for each env and sphere
+        min_dist_vals, min_point_indices = torch.min(dists, dim=2)  # (num_envs, num_spheres)
+
+        # Adjust for surface distance
+        dist_to_surface = min_dist_vals - sphere_radii[None, :]  # (num_envs, num_spheres)
+
+        # Get the closest sphere per env
+        closest_sphere_dists, closest_sphere_idx = torch.min(dist_to_surface, dim=1)  # (num_envs,)
+        closest_point_idx = min_point_indices[torch.arange(self.num_envs, device='cuda'), closest_sphere_idx]  # (num_envs,)
+
+        # Extract results
+        closest_link_indices = sphere_link_indices[closest_sphere_idx]  # (num_envs,)
+        closest_sphere_centers = sphere_centers_world[torch.arange(self.num_envs, device='cuda'), closest_sphere_idx]  # (num_envs, 3)
+        closest_pcd_points = dynamic_pcd_downsample[torch.arange(self.num_envs, device='cuda'), closest_point_idx]  # (num_envs, 3)
+        closest_sphere_radii = sphere_radii[closest_sphere_idx]  # (num_envs,)
+
+        # Surface point calculation
+        direction = closest_pcd_points - closest_sphere_centers
+        direction = direction / torch.norm(direction, dim=1, keepdim=True)
+        surface_points = closest_sphere_centers + closest_sphere_radii.unsqueeze(1) * direction  # (num_envs, 3)
+
+        link_index_to_name = [
+            "panda_link0",
+            "panda_link1",
+            "panda_link2",
+            "panda_link3",
+            "panda_link4",
+            "panda_link5",
+            "panda_link6",
+            "panda_link7",
+            "panda_hand",
+        ]
+
+
+        # (num_envs, 9, 6, 7)
+        jacobians = self.env.get_link_jacobians()
+        batch_indices = torch.arange(self.num_envs, device=jacobians.device)
+        # (num_envs, 6, 7)
+        closest_link_jacobians = jacobians[batch_indices, closest_link_indices]
+
+
+        # ------ compute RMP  ------
+        valid_mask = has_dynamic_obstacles_flag # (num_envs,)
+
+        # initialize self.xr
+        if self.xr_prev is None:
+            self.xr_prev = torch.norm(surface_points - closest_pcd_points, dim=1)
+            self.xr = torch.norm(surface_points - closest_pcd_points, dim=1)
+
+        self.xr_prev = self.xr
+        # (num_envs,)
+        self.xr = torch.norm(surface_points - closest_pcd_points, dim=1)
+        xr_vel = self.xr - self.xr_prev
+
+    
+        kp = 1.0
+        lr = 0.01 #0.5
+        kd = 100.0 #5.0
+        vd = 0.01 #1.0
+        ld = 0.1 #0.04
+        ed = 1e-2
+        mu = 10000.0
+        lm = 0.02
+        em = 0.001
+
+        r = 0.15  # example radius
+
+        # (batch_size, 1, 3)
+        diff = (surface_points - closest_pcd_points).unsqueeze(1)  # (B, 1, 3)
+
+        # (B, 3, 7)
+        J_surface = closest_link_jacobians[:, 0:3, :]
+
+        # (batch_size, 1, 7)
+        diff = diff.float()
+        J_surface = J_surface.float()
+        Jr = 2 * diff @ J_surface  # (B, 1, 3) @ (B, 3, 7) = (B, 1, 7)
+
+        # (batch_size,)
+        xr = self.xr
+
+        # (batch_size,)
+        fr = kp * torch.exp(-xr / lr) - kd * (1 - 1 / (1 + torch.exp(-xr_vel / vd))) * (1 / (xr / ld + ed)) * xr_vel
+
+        # (batch_size,)
+        g = torch.where(
+            xr < r,
+            xr ** 2 / r ** 2 - 2 * xr / r + 1,
+            torch.zeros_like(xr, device=self.device)
+        )
+
+        # (batch_size,)
+        Mr = (1 - 1 / (1 + torch.exp(-xr_vel / vd))) * g * mu / (xr / lm + em)
+
+        # (batch_size, 7)
+        goal_joint_pos = env_obs_dict["goal_joint_pos"].clone()
+        joint_pos = env_obs_dict["joint_pos"].clone()
+
+        # (batch_size, 7, 1)
+        fq = (goal_joint_pos - joint_pos).unsqueeze(-1)
+
+        # Mq is constant: (7, 7)
+        Mq = 50.0 * torch.eye(7, device=self.device).unsqueeze(0).expand(joint_pos.shape[0], -1, -1)  # (B, 7, 7)
+
+        # pulled_back_Mr: (batch_size, 7, 7)
+        Mr_matrix = Mr.view(-1, 1, 1)
+        Jr = Jr.float()
+        Jr_T = Jr.transpose(1, 2).float()
+        Mr_matrix = Mr_matrix.float()
+        pulled_back_Mr = Jr_T @ Mr_matrix @ Jr  # (B, 7, 1) @ (B, 1, 1) @ (B, 1, 7)
+
+
+
+        # pulled_back_fr: (batch_size, 7, 1)
+        # Safeguard pseudoinverse
+        pulled_back_Mr_inv = torch.linalg.pinv(pulled_back_Mr)
+        pulled_back_fr = pulled_back_Mr_inv @ Jr_T * Mr.view(-1, 1, 1) * fr.view(-1, 1, 1)  # (B, 7, 1)
+
+        # q_dd: (batch_size, 7, 1)
+        pulled_back_Mr = pulled_back_Mr.float()
+        Mq = Mq.float()
+        pulled_back_fr = pulled_back_fr.float()
+        fq = fq.float()
+
+        q_dd = torch.linalg.pinv(pulled_back_Mr + Mq) @ (pulled_back_Mr @ pulled_back_fr + Mq @ fq)
+
+        # (batch_size, 7)
+        modified_joint_goal = joint_pos + q_dd.squeeze(-1)
+
+
+        env_obs_dict["goal_joint_pos"][valid_mask] = modified_joint_goal[valid_mask].clone()
         env_obs_dict["goal_robot_pcd"] = self.env.get_robot_pcds(env_obs_dict["goal_joint_pos"])
         return env_obs_dict
