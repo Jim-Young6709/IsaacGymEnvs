@@ -39,11 +39,11 @@ task_names=(
 
 
 
-# # DRP Closed Loop
+# # DRPNeuralMP Closed Loop
 # # Loop through each task name and run the Python script
 # for task in "${task_names[@]}"; do
 #   echo "Running task: $task"
-#   python3 run_drp_evals.py headless=True task.planner="DRP" task.task_type="static" task.task_name="$task"
+#   python3 run_drp_evals.py headless=True task.planner="DRPNeuralMP" task.task_type="static" task.task_name="$task"
 # done
 
 # # Curobo Closed Loop

@@ -43,11 +43,11 @@ task:
   use_speed_norm: True
 
   # "static", "quasi_dynamic", "goal_blocker", "dynamic_goal_blocker", "floating"
-  # task_type: "static"
-  # task_name: "static_dishwasher_tt" # "static_box_tf"
+  task_type: "static"
+  task_name: "static_dishwasher_tt" # "static_box_tf"
 
-  task_type: "quasi_dynamic"
-  task_name: "level_3"
+  # task_type: "quasi_dynamic"
+  # task_name: "level_3"
 
   # task_type: "floating"
   # task_name: "level_2"
@@ -58,6 +58,7 @@ task:
   # task_type: "dynamic_goal_blocker"
   # task_name: "level_2"
 
+
 ckpt:
   dir: "/home/avenger/Projects/drp/nmp_refactor/checkpoints/legacy"
   # dir: "/home/jimyoung/Neural_MP_Proj/IsaacGymEnvs/ckpts"
@@ -66,6 +67,7 @@ ckpt:
   # filename: 'checkpoint_step60000_success_0.5142.pth.pth' # my favourite so far. slightly better at goal reaching and slightly worse at obstacle avoiding
   # filename: 'checkpoint_gblk0.3_step170000_success_0.5400.pth.pth'
   filename: "aitstar_18500ep.pth" # neural mp checkpoint
+
 
 hydra:
   output_subdir: null

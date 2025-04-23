@@ -262,6 +262,72 @@ SELF_COLLISION_SPHERES_HALF = [
     ("panda_hand", [0.0, -0.047, 0.082], 0.015),
 ]
 
+
+
+SELF_COLLISION_SPHERES_FULL = [
+    # ("panda_link0", [0.0, 0.0, 0.05], 0.045),
+    # ("panda_link1", [0.0, -0.08, 0.0], 0.06),
+    # ("panda_link1", [0.0, -0.03, 0.0], 0.06),
+    # ("panda_link1", [0.0, 0.0, -0.12], 0.06),
+    # ("panda_link1", [0.0, 0.0, -0.17], 0.06),
+    # ("panda_link2", [0.0, 0.0, 0.03], 0.06),
+    # ("panda_link2", [0.0, 0.0, 0.08], 0.06),
+    
+    ("panda_link2", [0.0, -0.12, 0.0], 0.06),
+    ("panda_link2", [0.0, -0.17, 0.0], 0.06),
+    ("panda_link3", [0.0, 0.0, -0.06], 0.05),
+    ("panda_link3", [0.0, 0.0, -0.1], 0.06),
+    ("panda_link3", [0.08, 0.06, 0.0], 0.055),
+    ("panda_link3", [0.08, 0.02, 0.0], 0.055),
+    ("panda_link4", [0.0, 0.0, 0.02], 0.055),
+    ("panda_link4", [0.0, 0.0, 0.06], 0.055),
+    ("panda_link4", [-0.08, 0.095, 0.0], 0.06),
+    ("panda_link4", [-0.08, 0.06, 0.0], 0.055),
+    ("panda_link5", [0.0, 0.055, 0.0], 0.06),
+    ("panda_link5", [0.0, 0.075, 0.0], 0.06),
+    ("panda_link5", [0.0, 0.0, -0.22], 0.06),
+    ("panda_link5", [0.0, 0.05, -0.18], 0.05),
+    ("panda_link5", [0.01, 0.08, -0.14], 0.025),
+    ("panda_link5", [0.01, 0.085, -0.11], 0.025),
+    ("panda_link5", [0.01, 0.09, -0.08], 0.025),
+    ("panda_link5", [0.01, 0.095, -0.05], 0.025),
+    ("panda_link5", [-0.01, 0.08, -0.14], 0.025),
+    ("panda_link5", [-0.01, 0.085, -0.11], 0.025),
+    ("panda_link5", [-0.01, 0.09, -0.08], 0.025),
+    ("panda_link5", [-0.01, 0.095, -0.05], 0.025),
+    ("panda_link6", [0.0, 0.0, 0.0], 0.06),
+    ("panda_link6", [0.08, 0.03, 0.0], 0.06),
+    ("panda_link6", [0.08, -0.01, 0.0], 0.06),
+    ("panda_link7", [0.0, 0.0, 0.07], 0.05),
+    ("panda_link7", [0.02, 0.04, 0.08], 0.025),
+    ("panda_link7", [0.04, 0.02, 0.08], 0.025),
+    ("panda_link7", [0.04, 0.06, 0.085], 0.02),
+    ("panda_link7", [0.06, 0.04, 0.085], 0.02),
+    ("panda_hand", [0.0, -0.075, 0.01], 0.028),
+    ("panda_hand", [0.0, -0.045, 0.01], 0.028),
+    ("panda_hand", [0.0, -0.015, 0.01], 0.028),
+    ("panda_hand", [0.0, 0.015, 0.01], 0.028),
+    ("panda_hand", [0.0, 0.045, 0.01], 0.028),
+    ("panda_hand", [0.0, 0.075, 0.01], 0.028),
+    ("panda_hand", [0.0, -0.075, 0.03], 0.026),
+    ("panda_hand", [0.0, -0.045, 0.03], 0.026),
+    ("panda_hand", [0.0, -0.015, 0.03], 0.026),
+    ("panda_hand", [0.0, 0.015, 0.03], 0.026),
+    ("panda_hand", [0.0, 0.045, 0.03], 0.026),
+    ("panda_hand", [0.0, 0.075, 0.03], 0.026),
+    ("panda_hand", [0.0, -0.075, 0.05], 0.024),
+    ("panda_hand", [0.0, -0.045, 0.05], 0.024),
+    ("panda_hand", [0.0, -0.015, 0.05], 0.024),
+    ("panda_hand", [0.0, 0.015, 0.05], 0.024),
+    ("panda_hand", [0.0, 0.045, 0.05], 0.024),
+    ("panda_hand", [0.0, 0.075, 0.05], 0.024),
+    # fingers (note the finger spheres assume the finger pos is at 0.035)
+    ("panda_hand", [0.0, 0.04, 0.105], 0.011),
+    ("panda_hand", [0.0, 0.047, 0.082], 0.015),
+    ("panda_hand", [0.0, -0.04, 0.105], 0.011),
+    ("panda_hand", [0.0, -0.047, 0.082], 0.015),
+]
+
 # additional parameters for collision checking cuboids
 SIZE_C = [[0.26, 0.08, 0.2]]
 CENTERS_C = [[0.0, 0.0, 0.15]]
@@ -273,6 +339,12 @@ for item in SELF_COLLISION_SPHERES_HALF:
     CENTERS_S.append(item[1])
     RAIUS_S.append(item[2])
 
+
+CENTERS_S_FULL = []
+RAIUS_S_FULL = []
+for item in SELF_COLLISION_SPHERES_FULL:
+    CENTERS_S_FULL.append(item[1])
+    RAIUS_S_FULL.append(item[2])
 
 def visualize_ply(ply_file_path):
     """
@@ -547,6 +619,55 @@ class FrankaCollisionChecker:
             centers.reshape(B, M, 3),
             radii.reshape(B, M, 1),
         )
+    
+    def torch_spheres_full(self, configs: torch.Tensor):
+        """
+        Get the spheres representing the robot's configuration in a batched manner.
+
+        Args:
+            configs (torch.Tensor): Joint configurations (B, C), where B is batch size, and C is 7 or 8.
+
+        Returns:
+            TorchSpheres: Spheres representing the robot's configuration.
+        """
+        assert configs.ndim == 2
+        B = configs.shape[0]
+        M = len(SELF_COLLISION_SPHERES_FULL)
+        C = configs.shape[1]
+
+        if C == 7:
+            configs = torch.cat(
+                [configs, torch.ones([B, 1], device=self.device) * self.default_prismatic_value],
+                axis=1,
+            )
+        # right now not considering the finger dof
+        link_transforms = self.compute_transformations(configs)
+        fk_links = torch.cat(
+            [
+                # link_transforms[:, 0:1].repeat(1, 4, 1, 1),
+                link_transforms[:, 1:2].repeat(1, 2, 1, 1),
+                link_transforms[:, 2:3].repeat(1, 4, 1, 1),
+                link_transforms[:, 3:4].repeat(1, 4, 1, 1),
+                link_transforms[:, 4:5].repeat(1, 12, 1, 1),
+                link_transforms[:, 5:6].repeat(1, 3, 1, 1),
+                link_transforms[:, 6:7].repeat(1, 5, 1, 1),
+                link_transforms[:, 8:9].repeat(1, 22, 1, 1),
+            ],
+            dim=1,
+        )
+
+        center_offsets = (
+            torch.cat([torch.Tensor(CENTERS_S_FULL), torch.ones(M, 1)], dim=1)
+            .to(self.device)
+            .unsqueeze(0)
+            .unsqueeze(-1)
+        )
+        centers = torch.matmul(fk_links, center_offsets)[:, :, :3, 0]
+        radii = torch.Tensor(RAIUS_S_FULL).to(self.device).unsqueeze(0).unsqueeze(-1).repeat(B, 1, 1)
+        return TorchSpheres(
+            centers.reshape(B, M, 3),
+            radii.reshape(B, M, 1),
+        )
 
     def torch_spheres_cuboids(self, configs: torch.Tensor):
         """
@@ -666,6 +787,7 @@ class FrankaCollisionChecker:
         thred=0.001,
         debug=False,
         sphere_repr_only=False,
+        use_full_rep=False,
     ) -> torch.Tensor:
         """
         Check if there is a collision in the scene for a batch of configurations.
@@ -681,10 +803,11 @@ class FrankaCollisionChecker:
             torch.Tensor: Number of collisions for each configuration in the batch.
         """
         sdf = self.check_scene_sdf_batch(
-            configs, points, debug=debug, sphere_repr_only=sphere_repr_only
+            configs, points, debug=debug, sphere_repr_only=sphere_repr_only, use_full_rep=use_full_rep
         )
         cc_num = torch.sum(sdf < thred, dim=1)
         return cc_num
+    
 
     def check_scene_sdf_batch(
         self,
@@ -692,6 +815,7 @@ class FrankaCollisionChecker:
         points: torch.Tensor,
         debug=False,
         sphere_repr_only=False,
+        use_full_rep=False,
     ):
         """
         check collisions of a statics scene with different robot configurations in a batch.
@@ -707,7 +831,10 @@ class FrankaCollisionChecker:
         """
         t0 = time.time()
         if sphere_repr_only:
-            torch_spheres = self.torch_spheres(configs)
+            if use_full_rep:
+                torch_spheres = self.torch_spheres_full(configs)
+            else:
+                torch_spheres = self.torch_spheres(configs)
         else:
             torch_spheres, torch_cuboids = self.torch_spheres_cuboids(configs)
 

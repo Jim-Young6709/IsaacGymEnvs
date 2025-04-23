@@ -13,7 +13,7 @@ from isaacgymenvs.tasks.utils.drp_evals_utils import orientation_error, random_q
 from isaacgymenvs.obstacle_spawner import ObstacleSpawner
 
 from robofin.pointcloud.torch import FrankaSampler
-from neural_mp.real_utils.real_world_collision_checker import FrankaCollisionChecker
+
 from geometrout.primitive import Cuboid
 
 
@@ -27,7 +27,6 @@ class DRPEvals(VecTask):
         self.max_episode_length = self.cfg["env"]["episodeLength"]
         self.debug_viz = self.cfg["env"]["enableDebugVis"]
         self.problem_config = problem_config
-        self.collision_checker = FrankaCollisionChecker()
         if self.headless:
             self.debug_viz = False
         

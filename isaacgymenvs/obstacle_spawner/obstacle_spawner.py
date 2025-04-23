@@ -376,7 +376,7 @@ class ObstacleSpawner:
         dynamic_obstacle_pcd_world = dynamic_obstacle_pcd_world.view(len(env_ids), -1, 3)
         # (num_envs, num_points)
         sdf = self.collision_checker.check_scene_sdf_batch(
-            joint_pos, dynamic_obstacle_pcd_world.float(), debug=False, sphere_repr_only=True
+            joint_pos, dynamic_obstacle_pcd_world.float(), debug=False, sphere_repr_only=True, use_full_rep=False
         )
         min_sdf_per_env = torch.min(sdf, dim=1).values
         is_safe = min_sdf_per_env > threshold

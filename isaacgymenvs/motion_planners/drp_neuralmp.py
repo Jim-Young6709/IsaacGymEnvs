@@ -6,6 +6,7 @@ from pathlib import Path
 from hydra.utils import instantiate
 from tqdm import tqdm
 from isaacgymenvs.motion_planners import MotionPlannerBase
+from isaacgymenvs.reactive_artificial_potential.utils.franka_collision_checker import FrankaCollisionChecker
 
 
 class DRPNeuralMP(MotionPlannerBase):
@@ -21,6 +22,7 @@ class DRPNeuralMP(MotionPlannerBase):
         self._num_robot_points = 2048
         self._num_goal_robot_points = 2048
         self._num_obstacle_points = 4096
+        self.collision_checker = FrankaCollisionChecker()
         self.set_up_policy()
 
 
@@ -157,8 +159,8 @@ class DRPNeuralMP(MotionPlannerBase):
             traj_c_nums = []
             for j in range(num_valid_traj):
                 output_traj_idx = output_traj[j]
-                waypoint_c_num = self.env.collision_checker.check_scene_collision_batch(
-                    output_traj_idx, scene_pcd_i, thred=0.01, sphere_repr_only=True
+                waypoint_c_num = self.collision_checker.check_scene_collision_batch(
+                    output_traj_idx, scene_pcd_i, thred=0.01, sphere_repr_only=True, use_full_rep=True
                 )
                 traj_c_num = waypoint_c_num.sum()
                 traj_c_nums.append(traj_c_num.item())
