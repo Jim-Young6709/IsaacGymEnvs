@@ -38,19 +38,19 @@ task:
   close_loop: True
 
   # "DRPNeuralMP", "DRP_ACT", "Curobo", "Curobo_PCD", "RMP_Only"
-  planner: "DRPNeuralMP"
+  planner: "RMP_Only"
   use_artificial_potential: True
   use_speed_norm: True
 
   # "static", "quasi_dynamic", "goal_blocker", "dynamic_goal_blocker", "floating"
-  # task_type: "static"
-  # task_name: "static_box_ff" # "static_box_tf"
+  task_type: "static"
+  task_name: "static_box_ff" # "static_box_tf"
 
   # task_type: "quasi_dynamic"
   # task_name: "level_1"
 
-  task_type: "floating"
-  task_name: "level_1"
+  # task_type: "floating"
+  # task_name: "level_1"
 
   # task_type: "goal_blocker"
   # task_name: "level_1"
