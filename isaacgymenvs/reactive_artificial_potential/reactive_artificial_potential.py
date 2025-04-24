@@ -431,7 +431,7 @@ class ReactiveArtificialPotential:
         self.xr = torch.norm(surface_points - closest_pcd_points, dim=1)
         xr_vel = self.xr - self.xr_prev
 
-        # use this tuning for RMP Only
+        # # use this tuning for RMP Only
         # kp = 1.0
         # lr = 0.01 #0.5
         # kd = 100.0 #5.0
@@ -443,16 +443,16 @@ class ReactiveArtificialPotential:
         # em = 0.001
         # r = 0.15  # example radius
 
-        kp = 100 #1.0
-        lr = 0.02 #0.5
-        kd = 10 #100 #100.0 #5.0
+        kp = 10 #1.0
+        lr = 0.2 #0.5
+        kd = 100 #100 #100.0 #5.0
         vd = 0.01 #1.0
         ld = 0.1 #0.04
         ed = 1e-2
         mu = 10000.0
         lm = 0.02
         em = 0.001
-        r = 0.15  # example radius
+        r = 0.1 #0.15  # example radius
 
         # (batch_size, 1, 3)
         diff = (surface_points - closest_pcd_points).unsqueeze(1)  # (B, 1, 3)
