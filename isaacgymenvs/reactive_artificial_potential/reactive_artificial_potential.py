@@ -307,14 +307,20 @@ class ReactiveArtificialPotential:
     
 
 
-    def apply_rmp_vectorized(self, env_obs_dict):
+    def apply_rmp_vectorized(self, env_obs_dict, use_full_pcd=False, use_integrator=False):
         joint_pos_tensor = env_obs_dict["joint_pos"]
-        dynamic_obstacles_list = env_obs_dict["moving_dynamic_obstacle_pcd"]
-        num_obstacle_points = 1000
+
+        if use_full_pcd:
+            # use both static and dynamic obstacle pcd
+            dynamic_obstacles_list = env_obs_dict["combined_obstacle_pcd"]
+            num_obstacle_points = 4096
+        else:
+            # only use dynamic obstacle pcd
+            dynamic_obstacles_list = env_obs_dict["moving_dynamic_obstacle_pcd"]
+            num_obstacle_points = 1000
 
         subsampled_pcd_list = list()
         has_dynamic_obstacles_flag = torch.ones(self.num_envs, device=self.device, dtype=bool)
-
         for i, pcd in enumerate(dynamic_obstacles_list):
             num_points = pcd.shape[0]
             if num_points == 0:
@@ -426,9 +432,21 @@ class ReactiveArtificialPotential:
         xr_vel = self.xr - self.xr_prev
 
     
-        kp = 1.0
-        lr = 0.01 #0.5
-        kd = 100.0 #5.0
+        # kp = 1.0
+        # lr = 0.01 #0.5
+        # kd = 100.0 #5.0
+        # vd = 0.01 #1.0
+        # ld = 0.1 #0.04
+        # ed = 1e-2
+        # mu = 10000.0
+        # lm = 0.02
+        # em = 0.001
+
+        # r = 0.15  # example radius
+
+        kp = 100 #1.0
+        lr = 0.02 #0.5
+        kd = 10 #100 #100.0 #5.0
         vd = 0.01 #1.0
         ld = 0.1 #0.04
         ed = 1e-2
@@ -497,8 +515,14 @@ class ReactiveArtificialPotential:
 
         q_dd = torch.linalg.pinv(pulled_back_Mr + Mq) @ (pulled_back_Mr @ pulled_back_fr + Mq @ fq)
 
-        # (batch_size, 7)
-        modified_joint_goal = joint_pos + q_dd.squeeze(-1)
+        if use_integrator:
+            dt = 1/18
+            q_d = q_dd.squeeze(-1)*dt + self.env.states["qd"][:, 0:7].clone()
+            modified_joint_goal = joint_pos + q_d*dt
+        
+        else:
+            # (batch_size, 7)
+            modified_joint_goal = joint_pos + q_dd.squeeze(-1)
 
 
         env_obs_dict["goal_joint_pos"][valid_mask] = modified_joint_goal[valid_mask].clone()

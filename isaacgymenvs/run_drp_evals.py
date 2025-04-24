@@ -11,7 +11,7 @@ from isaacgymenvs.tasks import DRPEvals
 from isaacgymenvs.utils.utils import set_seed
 from isaacgymenvs.utils.media_utils import camera_shot
 from isaacgymenvs.reactive_artificial_potential import ReactiveArtificialPotential
-from isaacgymenvs.motion_planners import DRPNeuralMP, DRPACT, Curobo
+from isaacgymenvs.motion_planners import DRPNeuralMP, DRPACT, Curobo, RMPOnly
 
 
 class Eval:
@@ -88,6 +88,10 @@ class Eval:
             self.motion_planner = DRPNeuralMP(self.env)
         elif planner == "DRP_ACT":
             self.motion_planner = DRPACT(self.env)
+        elif planner == "RMP_Only":
+            self.motion_planner = RMPOnly(self.env)
+            self.cfg.task.use_artificial_potential = False
+
         
     def set_up_artificial_potential(self):
         self.use_artificial_potential = self.cfg.task.use_artificial_potential
@@ -118,7 +122,7 @@ class Eval:
 
                 if self.use_artificial_potential:
                     # env_obs_dict = self.artificial_potential.apply_reactive_artificial_potential_vectorized(env_obs_dict)
-                    env_obs_dict = self.artificial_potential.apply_rmp_vectorized(env_obs_dict)
+                    env_obs_dict = self.artificial_potential.apply_rmp_vectorized(env_obs_dict, use_full_pcd=False)
 
                 joint_pos_targets = self.motion_planner.get_actions(env_obs_dict)
                 if self.action_chunking:
@@ -139,7 +143,7 @@ class Eval:
             print("Success Rate:",   eval_info_dict["success_rate"])
             print("Mean Scene Collision Timestep Percentage:", eval_info_dict["mean_scene_collision_timestep_percentage"])
             print("Mean Scene Contact Force Norm Sum:", eval_info_dict["mean_scene_contact_force_norm_sum"])
-            output_line = f"{self.cfg.task.planner} | {self.cfg.task.task_name}:   {eval_info_dict['reach_rate'].item():.4f}, {eval_info_dict['collision_rate'].item():.4f}, {eval_info_dict['success_rate'].item():.4f}, {eval_info_dict['mean_scene_collision_timestep_percentage'].item():.4f}, {eval_info_dict['mean_scene_contact_force_norm_sum'].item():.4f}"
+            output_line = f"{self.cfg.task.planner} | {self.cfg.task.task_type} | {self.cfg.task.task_name}:   {eval_info_dict['reach_rate'].item():.4f}, {eval_info_dict['collision_rate'].item():.4f}, {eval_info_dict['success_rate'].item():.4f}, {eval_info_dict['mean_scene_collision_timestep_percentage'].item():.4f}, {eval_info_dict['mean_scene_contact_force_norm_sum'].item():.4f}"
             print(output_line)
             with open("/home/avenger/Projects/drp/drp_eval/IsaacGymEnvs/isaacgymenvs/eval_scripts/curobo_static_evals.txt", "a") as f:
                 f.write(output_line + "\n")
@@ -181,7 +185,7 @@ class Eval:
             print("Success Rate:",   eval_info_dict["success_rate"])
             print("Mean Scene Collision Timestep Percentage:", eval_info_dict["mean_scene_collision_timestep_percentage"])
             print("Mean Scene Contact Force Norm Sum:", eval_info_dict["mean_scene_contact_force_norm_sum"])
-            output_line = f"{self.cfg.task.planner} Open Loop | {self.cfg.task.task_name}:   {eval_info_dict['reach_rate'].item():.4f}, {eval_info_dict['collision_rate'].item():.4f}, {eval_info_dict['success_rate'].item():.4f}, {eval_info_dict['mean_scene_collision_timestep_percentage'].item():.4f}, {eval_info_dict['mean_scene_contact_force_norm_sum'].item():.4f}"
+            output_line = f"{self.cfg.task.planner} Open Loop | {self.cfg.task.task_type} | {self.cfg.task.task_name}:   {eval_info_dict['reach_rate'].item():.4f}, {eval_info_dict['collision_rate'].item():.4f}, {eval_info_dict['success_rate'].item():.4f}, {eval_info_dict['mean_scene_collision_timestep_percentage'].item():.4f}, {eval_info_dict['mean_scene_contact_force_norm_sum'].item():.4f}"
             print(output_line)
             with open("/home/avenger/Projects/drp/drp_eval/IsaacGymEnvs/isaacgymenvs/eval_scripts/curobo_static_evals.txt", "a") as f:
                 f.write(output_line + "\n")
