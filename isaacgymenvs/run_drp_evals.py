@@ -11,7 +11,7 @@ from isaacgymenvs.tasks import DRPEvals
 from isaacgymenvs.utils.utils import set_seed
 from isaacgymenvs.utils.media_utils import camera_shot
 from isaacgymenvs.reactive_artificial_potential import ReactiveArtificialPotential
-from isaacgymenvs.motion_planners import DRPNeuralMP, DRPACT, Curobo, MPiNets
+from isaacgymenvs.motion_planners import DRPNeuralMP, DRPACT, Curobo, MPiNets, MPiFormer
 
 
 class Eval:
@@ -60,7 +60,7 @@ class Eval:
             force_render = False
         else:
             self.cfg.env.episodeLength = 1000 #1000
-            self.cfg.env.numEnvs = 32
+            self.cfg.env.numEnvs = 4
             self.testing_epoch_num = 100000
 
         graphics_device_id = 0
@@ -90,6 +90,8 @@ class Eval:
             self.motion_planner = DRPACT(self.env)
         elif planner == "MPiNets":
             self.motion_planner = MPiNets(self.env)
+        elif planner == "MPiFormer":
+            self.motion_planner = MPiFormer(self.env)
         
     def set_up_artificial_potential(self):
         self.use_artificial_potential = self.cfg.task.use_artificial_potential
@@ -143,7 +145,7 @@ class Eval:
             print("Mean Scene Contact Force Norm Sum:", eval_info_dict["mean_scene_contact_force_norm_sum"])
             output_line = f"{self.cfg.task.planner} | {self.cfg.task.task_name}:   {eval_info_dict['reach_rate'].item():.4f}, {eval_info_dict['collision_rate'].item():.4f}, {eval_info_dict['success_rate'].item():.4f}, {eval_info_dict['mean_scene_collision_timestep_percentage'].item():.4f}, {eval_info_dict['mean_scene_contact_force_norm_sum'].item():.4f}"
             print(output_line)
-            with open("/home/avenger/Projects/drp/drp_eval/IsaacGymEnvs/isaacgymenvs/eval_scripts/curobo_static_evals.txt", "a") as f:
+            with open("/home/jimyoung/Neural_MP_Proj/IsaacGymEnvs/isaacgymenvs/eval_scripts/curobo_static_evals.txt", "a") as f:
                 f.write(output_line + "\n")
 
 
