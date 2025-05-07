@@ -10,6 +10,8 @@ from omegaconf import DictConfig
 from isaacgymenvs.tasks import DRPEvals
 from isaacgymenvs.utils.utils import set_seed
 from isaacgymenvs.utils.media_utils import camera_shot
+import h5py
+from robofin.robots import FrankaRobot
 from isaacgymenvs.reactive_artificial_potential import ReactiveArtificialPotential
 from isaacgymenvs.motion_planners import DRPNeuralMP, DRPACT, Curobo, RMPOnly
 
@@ -34,6 +36,9 @@ class Eval:
             self.problem_config = yaml.safe_load(file)
         self.problem_config["static_scene_path"] = os.path.join(
             current_file_dir, "static_scenes", f"{self.problem_config['static_scene']}.hdf5"
+        )
+        self.output_hdf5_file_path = os.path.join(
+            current_file_dir, "video_hdf5", f"{self.problem_config['static_scene']}.hdf5"
         )
         self.testing_epoch_num = 1
         self.curobo_normalize_speed = self.cfg.task.use_speed_norm
@@ -145,9 +150,44 @@ class Eval:
             print("Mean Scene Contact Force Norm Sum:", eval_info_dict["mean_scene_contact_force_norm_sum"])
             output_line = f"{self.cfg.task.planner} | {self.cfg.task.task_type} | {self.cfg.task.task_name}:   {eval_info_dict['reach_rate'].item():.4f}, {eval_info_dict['collision_rate'].item():.4f}, {eval_info_dict['success_rate'].item():.4f}, {eval_info_dict['mean_scene_collision_timestep_percentage'].item():.4f}, {eval_info_dict['mean_scene_contact_force_norm_sum'].item():.4f}"
             print(output_line)
-            with open("/home/avenger/Projects/drp/drp_eval/IsaacGymEnvs/isaacgymenvs/eval_scripts/curobo_static_evals.txt", "a") as f:
+            with open("/home/jimyoung/Neural_MP_Proj/IsaacGymEnvs/isaacgymenvs/eval_scripts/curobo_static_evals.txt", "a") as f:
                 f.write(output_line + "\n")
 
+            # for quasi-dynamic
+            # if current_epoch_num == 0:
+            #     continue
+
+            self.output_hdf5_file = h5py.File(self.output_hdf5_file_path, 'r+')
+            rollout_actions_abs = torch.stack(self.env.rollout_actions_abs).transpose(0, 1).cpu().numpy()
+            dynamic_obs_pos = torch.stack(self.env.dynamic_obs_pos).transpose(0, 1).cpu().numpy()
+            dynamic_obs_dim = torch.Tensor(self.env.dynamic_obs_dim).cpu().numpy()
+
+            for i in range(self.env.num_envs):
+                del self.output_hdf5_file['data'][f"demo_{i}"]['obs']['current_angles']
+                if 'success' in self.output_hdf5_file['data'][f"demo_{i}"]:
+                    del self.output_hdf5_file['data'][f"demo_{i}"]['success']
+
+                abs_angles = rollout_actions_abs[i]
+                dyn_obs_pos = dynamic_obs_pos[i]
+                dyn_obs_dim = dynamic_obs_dim[i]
+                
+                goal_pose = FrankaRobot.fk(self.output_hdf5_file['data'][f"demo_{i}"]['obs']['goal_angles'][0], eff_frame="right_gripper")
+
+                for j in range(abs_angles.shape[0]):
+                    eff_pose = FrankaRobot.fk(abs_angles[j], eff_frame="right_gripper")
+                    pos_err = np.linalg.norm(eff_pose._xyz - goal_pose._xyz)
+                    ori_err = np.abs(np.degrees((eff_pose.so3._quat * goal_pose.so3._quat.conjugate).radians))
+
+                    if (pos_err < 0.01 and ori_err < 15):
+                        abs_angles = abs_angles[: (j + 1)]
+                        dyn_obs_pos = dyn_obs_pos[: (j + 1)]
+                        break
+                interp = 5
+
+                self.output_hdf5_file['data'][f"demo_{i}"]['obs'].create_dataset("current_angles", data=abs_angles[(interp-1)::interp])
+                self.output_hdf5_file['data'][f"demo_{i}"]['obs'].create_dataset("dynamic_obs_pos", data=dyn_obs_pos[(interp-1)::interp])
+                self.output_hdf5_file['data'][f"demo_{i}"]['obs'].create_dataset("dynamic_obs_dim", data=dyn_obs_dim)
+                self.output_hdf5_file['data'][f"demo_{i}"].create_dataset("success", data=eval_info_dict["has_succeeded"][i].unsqueeze(0).int().cpu().numpy())
 
     def test_open_loop(self):
         self.env.generate_scene_pcd(

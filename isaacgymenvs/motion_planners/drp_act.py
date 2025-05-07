@@ -37,8 +37,8 @@ class DRPACT(MotionPlannerBase):
         torch.backends.cudnn.allow_tf32 = True
         torch._dynamo.config.suppress_errors = True
 
-        # checkpoint_folder = "/home/avenger/Projects/drp/nmp_refactor/checkpoints/dagger_multi"
-        checkpoint_folder = "/home/avenger/Projects/drp/nmp_refactor/checkpoints/dagger_multi_blk"
+        # checkpoint_folder = "/home/avenger/Projects/drp/nmp_refactor/checkpoints/dagger_multi_ac2_iter3_fabricsphere0_blk0.2"
+        checkpoint_folder = "/home/jimyoung/Neural_MP_Proj/nmp_refactor/checkpoints/dagger_iter1/dagger_multi_ac2_iter3_fabricsphere0_blk0.2"
         checkpoint_path = "best.pt"
 
         model_config_file = Path(checkpoint_folder) / "model_config.yaml"

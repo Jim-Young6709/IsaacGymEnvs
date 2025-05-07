@@ -43,6 +43,10 @@ class DRPEvals(VecTask):
                 self, num_envs=self.cfg["env"]["numEnvs"], config=self.problem_config["dynamic_scene"],
             )
 
+        self.rollout_actions_abs = []
+        self.dynamic_obs_pos = []
+        self.dynamic_obs_dim = []
+
         super().__init__(
             config=self.cfg, rl_device=sim_device, sim_device=sim_device, graphics_device_id=graphics_device_id, 
             headless=headless, virtual_screen_capture=virtual_screen_capture, force_render=force_render,
@@ -217,10 +221,15 @@ class DRPEvals(VecTask):
                 )
                 dynamic_obstacle_handles = list()
                 dynamic_obstacles = list()
+
+                dyn_obj_dims = []
                 for j in range(self.max_num_dynamic_obstacles):
                     dyn_objs_dim = self.obstacle_spawner.combined_obstacle_dim_tensor[i, j].cpu().numpy()
-                    dyn_objs_pos = np.array([0.5, 0., 0.5])
+                    dyn_objs_pos = np.array([0.5, 0., -2])
                     dyn_objs_xyzw = random_quaternion_xyzw()
+                    # TODO: change here
+                    dyn_obj_dims.append(dyn_objs_dim)
+
                     dyn_asset, dyn_pose = self._create_cube(
                         pos=dyn_objs_pos,
                         size=dyn_objs_dim.tolist(),
@@ -231,6 +240,7 @@ class DRPEvals(VecTask):
                     dynamic_obstacle_handles.append(dynamic_obstacle_actor)
                     dynamic_obstacles.append(Cuboid(np.array([0.0, 0.0, 0.0]), dyn_objs_dim, np.array([1.0, 0.0, 0.0, 0.0])))
 
+                self.dynamic_obs_dim.append(dyn_obj_dims)
                 self.dynamic_obstacle_handles.append(dynamic_obstacle_handles)
 
                 # (num_dynamic_obstacles, num_moving_points_per_obj, 3)
@@ -318,7 +328,6 @@ class DRPEvals(VecTask):
         self.joint_pos_trajectory = torch.zeros((self.num_envs, self.max_episode_length, 7), device=self.device)
 
         self.valid_envs = torch.zeros(self.num_envs, dtype=bool, device=self.device)
-
 
 
     def _refresh(self):
@@ -576,6 +585,7 @@ class DRPEvals(VecTask):
 
         if self.use_dynamic_obstacles:
             dynamic_obstacle_poses, has_updated_quasi_dynamic_obstacle, valid_env_flag = self.obstacle_spawner.update_obstacle_poses(timestep=self.progress_buf)
+            self.dynamic_obs_pos.append(dynamic_obstacle_poses.clone())
             self.valid_envs = valid_env_flag.clone()
             # return valid env
             if has_updated_quasi_dynamic_obstacle:
@@ -590,6 +600,7 @@ class DRPEvals(VecTask):
             self.ee_pose_trajectory[:, self.progress_buf[0], :] = current_ee_pose
             self.joint_pos_trajectory[:, self.progress_buf[0], :] = self.states["q"][:, 0:7]
 
+        self.rollout_actions_abs.append(self.states['q'][:, 0:7].clone())
 
         self.check_robot_collision()
         self.scene_collision_counter += self.scene_collision.int()
@@ -696,7 +707,7 @@ class DRPEvals(VecTask):
         
         valid_env_num = int(self.valid_envs.sum())
 
-        has_reached = (pos_err < 0.05) & (quat_err < 15.0) # 5.0
+        has_reached = (pos_err < 0.01) & (quat_err < 5.0) # 5.0
         reach_rate = torch.sum(has_reached[self.valid_envs]) / valid_env_num
 
         # collision rate calculation
