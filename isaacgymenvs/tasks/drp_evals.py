@@ -56,6 +56,7 @@ class DRPEvals(VecTask):
     def load_data_set(self):
         # Loading environment dataset
         hdf5_path = self.problem_config["static_scene_path"]
+        # hdf5_path = "/home/avenger/Projects/drp/drp_eval/old_assets/old/hybrid1000.hdf5"
         self.demo_loader = DemoLoader(hdf5_path, self.cfg["env"]["numEnvs"])
         # len(data_batch) = self.num_envs
         data_batch = self.demo_loader.get_next_batch()
@@ -85,11 +86,12 @@ class DRPEvals(VecTask):
         self._create_envs(self.num_envs, self.cfg["env"]['envSpacing'], int(np.sqrt(self.num_envs)))
 
     def _create_ground_plane(self):
-        plane_params = gymapi.PlaneParams()
-        # set the normal force to be z dimension
-        plane_params.normal = gymapi.Vec3(0.0, 0.0, 1.0) if self.up_axis == 'z' else gymapi.Vec3(0.0, 1.0, 0.0)
-        plane_params.distance = 0.3 # according to current randomization params, -0.275 would be the lowest surface from the env
-        self.gym.add_ground(self.sim, plane_params)
+        # plane_params = gymapi.PlaneParams()
+        # # set the normal force to be z dimension
+        # plane_params.normal = gymapi.Vec3(0.0, 0.0, 1.0) if self.up_axis == 'z' else gymapi.Vec3(0.0, 1.0, 0.0)
+        # plane_params.distance = 0.3 # according to current randomization params, -0.275 would be the lowest surface from the env
+        # self.gym.add_ground(self.sim, plane_params)
+        pass
     
     def _create_franka(self, ):
         asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../assets")
@@ -198,6 +200,8 @@ class DRPEvals(VecTask):
                         quat=[0, 0, 0, 1]
                     )
                 obstacle_actor = self.gym.create_actor(env_ptr, obstacle_asset, obstacle_pose, f"obstacle_{j}", i, 1, 0)
+                self.gym.set_rigid_body_color(env_ptr, obstacle_actor, 0, gymapi.MESH_VISUAL, gymapi.Vec3(169/255, 158/255, 248/255))
+                # self.gym.set_rigid_body_color(env_ptr, obstacle_actor, 0, gymapi.MESH_VISUAL, gymapi.Vec3(224/255, 222/255, 228/255))# rgb(224,222,228)
                 static_obstacles_handles.append(obstacle_actor)
             self.static_obstacle_handles.append(static_obstacles_handles)
 
@@ -227,7 +231,7 @@ class DRPEvals(VecTask):
                         quat=dyn_objs_xyzw.tolist(),
                     )
                     dynamic_obstacle_actor = self.gym.create_actor(env_ptr, dyn_asset, dyn_pose, f"dyn_{j}", i, 1, 0)
-                    self.gym.set_rigid_body_color(env_ptr, dynamic_obstacle_actor, 0, gymapi.MESH_VISUAL, gymapi.Vec3(0.0, 0.0, 1.0))
+                    self.gym.set_rigid_body_color(env_ptr, dynamic_obstacle_actor, 0, gymapi.MESH_VISUAL, gymapi.Vec3(255/255, 129/255, 132/255))
                     dynamic_obstacle_handles.append(dynamic_obstacle_actor)
                     dynamic_obstacles.append(Cuboid(np.array([0.0, 0.0, 0.0]), dyn_objs_dim, np.array([1.0, 0.0, 0.0, 0.0])))
 
@@ -595,7 +599,7 @@ class DRPEvals(VecTask):
         self.scene_collision_counter += self.scene_collision.int()
         self.progress_buf += 1
 
-        if self.debug_viz:
+        if False: #self.debug_viz:
             self.gym.clear_lines(self.viewer)
             for i in range(self.num_envs):
                 # visualize goal

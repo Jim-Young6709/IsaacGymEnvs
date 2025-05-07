@@ -38,7 +38,14 @@ class DRPACT(MotionPlannerBase):
         torch._dynamo.config.suppress_errors = True
 
         # checkpoint_folder = "/home/avenger/Projects/drp/nmp_refactor/checkpoints/dagger_multi"
-        checkpoint_folder = "/home/avenger/Projects/drp/nmp_refactor/checkpoints/dagger_multi_blk"
+        # checkpoint_folder = "/home/avenger/Projects/drp/nmp_refactor/checkpoints/dagger_multi_blk"
+        # checkpoint_folder = "/home/avenger/Projects/drp/nmp_refactor/checkpoints/dagger_multi_ac2_iter3_fabricsphere0_blk0.2"
+        # checkpoint_folder = "/home/avenger/Projects/drp/nmp_refactor/checkpoints/dagger_multi_blk_ac2"
+
+        # checkpoint_folder = "/home/avenger/Projects/drp/nmp_refactor/checkpoints/dagger_ttf"
+        # base without dagger
+        checkpoint_folder = "/home/avenger/Projects/drp/nmp_refactor/checkpoints/nmp_transformer_10M_mesh_blk"
+
         checkpoint_path = "best.pt"
 
         model_config_file = Path(checkpoint_folder) / "model_config.yaml"

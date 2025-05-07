@@ -41,6 +41,7 @@ class Eval:
 
         if self.cfg.task.task_type == "static":
             self.allow_curobo_replanning = False
+            self.cfg.task.use_artificial_potential = False
 
         if self.cfg.task.task_type == "quasi_dynamic":
             self.testing_epoch_num = 2
@@ -60,7 +61,7 @@ class Eval:
             force_render = False
         else:
             self.cfg.env.episodeLength = 1000 #1000
-            self.cfg.env.numEnvs = 32
+            self.cfg.env.numEnvs = 16 #32
             self.testing_epoch_num = 100000
 
         graphics_device_id = 0
