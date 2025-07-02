@@ -39,12 +39,12 @@ task_names=(
 
 
 
-# # DRPNeuralMP Closed Loop
-# # Loop through each task name and run the Python script
-# for task in "${task_names[@]}"; do
-#   echo "Running task: $task"
-#   python3 run_drp_evals.py headless=True task.planner="DRPNeuralMP" task.task_type="static" task.task_name="$task"
-# done
+# DRPNeuralMP Closed Loop
+# Loop through each task name and run the Python script
+for task in "${task_names[@]}"; do
+  echo "Running task: $task"
+  python3 run_drp_evals.py headless=True task.planner="DRP_ACT" task.task_type="static" task.task_name="$task"
+done
 
 # # Curobo Closed Loop
 # # Loop through each task name and run the Python script
@@ -152,7 +152,30 @@ task_names=(
 
 
 # RMP Only Closed Loop Dynamic Goal Blocking
-python3 run_drp_evals.py headless=True task.planner="DRPNeuralMP" task.close_loop=True task.task_type="dynamic_goal_blocker" task.task_name="level_1" 
-python3 run_drp_evals.py headless=True task.planner="DRPNeuralMP" task.close_loop=True task.task_type="dynamic_goal_blocker" task.task_name="level_2" 
-python3 run_drp_evals.py headless=True task.planner="DRPNeuralMP" task.close_loop=True task.task_type="dynamic_goal_blocker" task.task_name="level_3"
-python3 run_drp_evals.py headless=True task.planner="DRPNeuralMP" task.close_loop=True task.task_type="dynamic_goal_blocker" task.task_name="level_4"
+# python3 run_drp_evals.py headless=True task.planner="DRPNeuralMP" task.close_loop=True task.task_type="dynamic_goal_blocker" task.task_name="level_1" 
+# python3 run_drp_evals.py headless=True task.planner="DRPNeuralMP" task.close_loop=True task.task_type="dynamic_goal_blocker" task.task_name="level_2" 
+# python3 run_drp_evals.py headless=True task.planner="DRPNeuralMP" task.close_loop=True task.task_type="dynamic_goal_blocker" task.task_name="level_3"
+# python3 run_drp_evals.py headless=True task.planner="DRPNeuralMP" task.close_loop=True task.task_type="dynamic_goal_blocker" task.task_name="level_4"
+
+# Closed Loop Quasi Dynamic
+# python3 run_drp_evals.py headless=True task.planner="DRP_ACT" task.close_loop=True task.task_type="quasi_dynamic" task.task_name="level_1" task.use_artificial_potential=False
+# python3 run_drp_evals.py headless=True task.planner="DRP_ACT" task.close_loop=True task.task_type="quasi_dynamic" task.task_name="level_2" task.use_artificial_potential=False
+# python3 run_drp_evals.py headless=True task.planner="DRP_ACT" task.close_loop=True task.task_type="quasi_dynamic" task.task_name="level_3" task.use_artificial_potential=False
+
+# # Closed Loop Goal Blocking Voxel
+# python3 run_drp_evals.py headless=True task.planner="DRP_ACT" task.close_loop=True task.task_type="goal_blocker" task.task_name="level_1" task.use_artificial_potential=False
+# python3 run_drp_evals.py headless=True task.planner="DRP_ACT" task.close_loop=True task.task_type="goal_blocker" task.task_name="level_2" task.use_artificial_potential=False
+
+# # Closed Loop Dynamic Goal Blocking
+# python3 run_drp_evals.py headless=True task.planner="DRP_ACT" task.close_loop=True task.task_type="dynamic_goal_blocker" task.task_name="level_1" task.use_artificial_potential=False
+# python3 run_drp_evals.py headless=True task.planner="DRP_ACT" task.close_loop=True task.task_type="dynamic_goal_blocker" task.task_name="level_2" task.use_artificial_potential=False
+# python3 run_drp_evals.py headless=True task.planner="DRP_ACT" task.close_loop=True task.task_type="dynamic_goal_blocker" task.task_name="level_3" task.use_artificial_potential=False
+# python3 run_drp_evals.py headless=True task.planner="DRP_ACT" task.close_loop=True task.task_type="dynamic_goal_blocker" task.task_name="level_4" task.use_artificial_potential=False
+
+# # floating
+# python3 run_drp_evals.py headless=True task.planner="DRP_ACT" task.close_loop=True task.task_type="floating" task.task_name="level_1" task.use_artificial_potential=False
+# python3 run_drp_evals.py headless=True task.planner="DRP_ACT" task.close_loop=True task.task_type="floating" task.task_name="level_2" task.use_artificial_potential=False
+
+# # floating
+# python3 run_drp_evals.py headless=True task.planner="DRPNeuralMP" task.close_loop=True task.task_type="floating" task.task_name="level_1" task.use_artificial_potential=False
+# python3 run_drp_evals.py headless=True task.planner="DRPNeuralMP" task.close_loop=True task.task_type="floating" task.task_name="level_2" task.use_artificial_potential=False

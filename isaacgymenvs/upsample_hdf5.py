@@ -6,18 +6,6 @@ import h5py
 import numpy as np
 from tqdm import tqdm
 
-# tlist = [3,5,9,10,11,13,15,16,17,18] # gb1
-# tlist = [0,1,3,4,5,6,8,9,10,11] # gb2
-# tlist = [0,1,2,3,4,7,8,9,10,11,12,13,14,15,18,19,20,21,22,23] # sao hybrid
-# tlist = [0,1,2,4,5,7,8,9,10,12,14,15,16,19,20,21,22,23,24] # sao box
-# tlist = [1,2,4,5,6,7,8,9,10,11,12,14,15,16,17,18,19,20,21,23,25,26] # sao tabletop
-
-# tlist = [0, 4, 6, 9, 10, 11, 13, 18, 20, 25] # dgb_level1
-# tlist = [3, 5, 6, 8, 9, 10, 15, 16, 17, 19, 22] # dgb2
-# tlist = [2, 3, 4, 8, 9, 10, 11, 13, 14, 17, 18,] # dgb3
-# tlist = [1, 2, 4, 5, 6, 7, 8, 10, 12, 14, 15, 18] # dgb4
-# tlist = [0, 1, 2, 4, 9, 11, 14, 17, 20] # fdo1
-tlist = [0, 1, 6, 9, 11, 12, 14, 15, 17, 28] # fdo2
 
 def write_trajectory_to_dataset(env, traj, data_grp, demo_name):
     """
@@ -120,8 +108,6 @@ def load_dataset_in_memory(
     for ep in tqdm(range(len(hdf5_file['data']))):
         demo_name = f"demo_{demo_count}"
 
-        if ep not in tlist:
-            continue
         traj = {}
         traj["attrs"] = {}
         traj["attrs"]["num_samples"] = hdf5_file["data/demo_{}".format(ep)].attrs["num_samples"]
@@ -147,6 +133,23 @@ def load_dataset_in_memory(
                 k: hdf5_file["data/demo_{}/obs/{}".format(ep, k)][()]
                 for k in hdf5_file["data/demo_{}/obs".format(ep)]
             }
+
+        traj_len = traj['obs']['current_angles'].shape[0]
+        upsampled_jts = np.zeros((2*traj_len, 7), dtype=traj['obs']['current_angles'].dtype)
+        upsampled_objs = np.zeros((2*traj_len, traj['obs']['dynamic_obs_pos'].shape[1], traj['obs']['dynamic_obs_pos'].shape[2]), dtype=traj['obs']['dynamic_obs_pos'].dtype)
+
+        upsampled_jts[::2] = traj['obs']['current_angles'].copy()
+        upsampled_objs[::2] = traj['obs']['dynamic_obs_pos'].copy()
+
+        for i in range(traj_len-1):
+            upsampled_jts[2*i+1] = (traj['obs']['current_angles'][i] + traj['obs']['current_angles'][i+1]) / 2
+            upsampled_objs[2*i+1] = (traj['obs']['dynamic_obs_pos'][i] + traj['obs']['dynamic_obs_pos'][i+1]) / 2
+
+        upsampled_jts[-1] = (traj['obs']['current_angles'][-1] + traj['obs']['goal_angles'][0]) / 2
+        upsampled_objs[-1] = (traj['obs']['dynamic_obs_pos'][-1] + traj['obs']['dynamic_obs_pos'][0]) / 2
+
+        traj['obs']['current_angles'] = upsampled_jts
+        traj['obs']['dynamic_obs_pos'] = upsampled_objs
 
         write_trajectory_to_dataset(None, traj, data_grp, demo_name=demo_name)
         try:
