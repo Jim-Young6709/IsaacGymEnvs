@@ -38,7 +38,7 @@ class DRPACT(MotionPlannerBase):
         torch._dynamo.config.suppress_errors = True
 
         # checkpoint_folder = "/home/avenger/Projects/drp/nmp_refactor/checkpoints/dagger_multi"
-        checkpoint_folder = "/home/avenger/Projects/drp/nmp_refactor/checkpoints/dagger_multi_blk"
+        checkpoint_folder = "/home/jimyoung/Neural_MP_Proj/nmp_refactor/checkpoints/dagger_multi_blk"
         checkpoint_path = "best.pt"
 
         model_config_file = Path(checkpoint_folder) / "model_config.yaml"

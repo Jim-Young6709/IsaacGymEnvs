@@ -11,7 +11,7 @@ from isaacgymenvs.tasks import DRPEvals
 from isaacgymenvs.utils.utils import set_seed
 from isaacgymenvs.utils.media_utils import camera_shot
 from isaacgymenvs.reactive_artificial_potential import ReactiveArtificialPotential
-from isaacgymenvs.motion_planners import DRPNeuralMP, DRPACT, Curobo, MPiNets, MPiFormer
+from isaacgymenvs.motion_planners import DRPNeuralMP, DRPACT, Curobo#, MPiNets, MPiFormer
 
 
 class Eval:
