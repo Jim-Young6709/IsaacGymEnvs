@@ -30,8 +30,8 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import hydra
+import isaacgym
 
-from omegaconf import DictConfig, OmegaConf
 from omegaconf import DictConfig, OmegaConf
 
 
