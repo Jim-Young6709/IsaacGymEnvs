@@ -112,7 +112,6 @@ class FrankaLEAP(VecTask):
 
         # setup params
         table_thickness = 0.05
-        table_stand_height = 0.1
         self.cuboid_dims = []  # xyz
         self.capsule_dims = []  # r, l
         self.sphere_radii = []  # r
@@ -122,26 +121,20 @@ class FrankaLEAP(VecTask):
         robot_dof_props = self._create_franka_leap()
         robot_asset = self.robot_asset
         robot_start_pose = gymapi.Transform()
-        robot_start_pose.p = gymapi.Vec3(-0.45, 0.0, 1.0 + table_thickness + table_stand_height)
+        robot_start_pose.p = gymapi.Vec3(0.0, 0.0, 0.0 + table_thickness / 2)
         robot_start_pose.r = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
 
         # setup table
         table_asset, table_start_pose = self._create_cube(
-            pos=[0.0, 0.0, 1.0],
-            size=[1.2, 1.2, table_thickness],
-        )
-
-        # setup table stand
-        table_stand_asset, table_stand_start_pose = self._create_cube(
-            pos=[-0.5, 0.0, 1.0 + table_thickness],
-            size=[0.2, 0.2, table_stand_height],
+            pos=[0.5, 0.0, 0.0],
+            size=[0.7, 1.2, table_thickness],
         )
 
         # compute aggregate size
         num_robot_bodies = self.gym.get_asset_rigid_body_count(robot_asset)
         num_robot_shapes = self.gym.get_asset_rigid_shape_count(robot_asset)
-        max_agg_bodies = num_robot_bodies + 2  # 1 for table, table stand
-        max_agg_shapes = num_robot_shapes + 2  # 1 for table, table stand
+        max_agg_bodies = num_robot_bodies + 1  # 1 for table
+        max_agg_shapes = num_robot_shapes + 1  # 1 for table
 
         self.robots = []
         self.env_ptrs = []
@@ -169,9 +162,6 @@ class FrankaLEAP(VecTask):
             self.table_actor = self.gym.create_actor(
                 env_ptr, table_asset, table_start_pose, "table", i, 1, 0
             )
-            self.table_stand_actor = self.gym.create_actor(
-                env_ptr, table_stand_asset, table_stand_start_pose, "table_stand", i, 1, 0
-            )
 
             if self.aggregate_mode == 1:
                 self.gym.begin_aggregate(env_ptr, max_agg_bodies, max_agg_shapes, True)
@@ -184,7 +174,7 @@ class FrankaLEAP(VecTask):
             self.robots.append(robot_actor)
 
         # Setup data
-        actor_num = 1 + 1 + 1 # robot, table, table_stand
+        actor_num = 1 + 1 # robot, table
         self.init_data(actor_num=actor_num)
 
     def _create_franka_leap(self, ):
