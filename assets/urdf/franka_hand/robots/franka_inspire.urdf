@@ -1,0 +1,525 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<robot name="franka_inspire">
+  <joint name="connector_joint" type="fixed">
+    <origin xyz="0. 0. 0." rpy="0. 1.5707963 0. "/>
+    <parent link="panda_link7"/>
+    <child link="connector"/>
+  </joint>
+  <joint name="joint11" type="revolute">
+    <origin xyz="-0.020295 -0.0093701 -0.0169261" rpy="-1.5708424 -0.0000107 -1.5707961"/>
+    <parent link="base_link"/>
+    <child link="link11"/>
+    <axis xyz="1. 0. 0."/>
+    <limit lower="0." upper="1.3089969" effort="50." velocity="17.4532925"/>
+  </joint>
+  <joint name="joint12" type="revolute">
+    <origin xyz="0.0007801 0.0078047 -0.0098723" rpy="0.0000002 -0.2829004 1.5707961"/>
+    <parent link="link11"/>
+    <child link="link12"/>
+    <axis xyz="1. 0. 0."/>
+    <limit lower="0." upper="0.6806784" effort="50." velocity="17.4532925"/>
+  </joint>
+  <joint name="joint13" type="revolute">
+    <origin xyz="-0.0048281 0.0345311 -0.0441658" rpy="0.0000107 -0.0000042 0.0000022"/>
+    <parent link="link12"/>
+    <child link="link13"/>
+    <axis xyz="1. 0. 0."/>
+    <limit lower="0." upper="0.8028515" effort="50." velocity="17.4532925"/>
+  </joint>
+  <joint name="joint14" type="revolute">
+    <origin xyz="0.003628 0.0101778 -0.0201527" rpy="0.0000002 0. 0.0000002"/>
+    <parent link="link13"/>
+    <child link="link14"/>
+    <axis xyz="1. 0. 0."/>
+    <limit lower="0." upper="0.5934119" effort="50." velocity="17.4532925"/>
+  </joint>
+  <joint name="joint21" type="revolute">
+    <origin xyz="-0.0260863 0.0667855 0.0003612" rpy="0.0349067 -1.5707963 0. "/>
+    <parent link="base_link"/>
+    <child link="link21"/>
+    <axis xyz="0. 0. 1."/>
+    <limit lower="0." upper="1.5358897" effort="50." velocity="17.4532925"/>
+  </joint>
+  <joint name="joint22" type="revolute">
+    <origin xyz="-0.0026924 0.0319864 0.0032367" rpy="-0.000638 -1.5707536 0.0006361"/>
+    <parent link="link21"/>
+    <child link="link22"/>
+    <axis xyz="1. 0. 0."/>
+    <limit lower="0." upper="1.9896753" effort="50." velocity="17.4532925"/>
+  </joint>
+  <joint name="joint31" type="revolute">
+    <origin xyz="-0.0067478 0.0670376 0.0002022" rpy="0.0000001 -1.5707963 0. "/>
+    <parent link="base_link"/>
+    <child link="link31"/>
+    <axis xyz="0. 0. 1."/>
+    <limit lower="0." upper="1.5358897" effort="50." velocity="17.4532925"/>
+  </joint>
+  <joint name="joint32" type="revolute">
+    <origin xyz="-0.0023337 0.0321041 0.0032518" rpy="3.1320593 -1.5707928 -3.1320632"/>
+    <parent link="link31"/>
+    <child link="link32"/>
+    <axis xyz="1. 0. 0."/>
+    <limit lower="0." upper="1.9896753" effort="50." velocity="17.4532925"/>
+  </joint>
+  <joint name="joint41" type="revolute">
+    <origin xyz="0.0123004 0.0666214 0.0002965" rpy="1.568932 -1.5707614 -1.6212919"/>
+    <parent link="base_link"/>
+    <child link="link41"/>
+    <axis xyz="0. 0. 1."/>
+    <limit lower="0." upper="1.5358897" effort="50." velocity="17.4532925"/>
+  </joint>
+  <joint name="joint42" type="revolute">
+    <origin xyz="-0.0024386 0.0320147 0.0030701" rpy="1.6141942 -1.5707926 -1.6141211"/>
+    <parent link="link41"/>
+    <child link="link42"/>
+    <axis xyz="1. 0. 0."/>
+    <limit lower="0." upper="1.9896753" effort="50." velocity="17.4532925"/>
+  </joint>
+  <joint name="joint51" type="revolute">
+    <origin xyz="0.0315924 0.0651198 0.00031 " rpy="-0.1047196 -1.5707964 0. "/>
+    <parent link="base_link"/>
+    <child link="link51"/>
+    <axis xyz="0. 0. 1."/>
+    <limit lower="0." upper="1.5358897" effort="50." velocity="17.4532925"/>
+  </joint>
+  <joint name="joint52" type="revolute">
+    <origin xyz="-0.0024521 0.0319946 0.0031837" rpy="1.5687608 -1.5707932 -1.5687225"/>
+    <parent link="link51"/>
+    <child link="link52"/>
+    <axis xyz="1. 0. 0."/>
+    <limit lower="0." upper="1.9896753" effort="50." velocity="17.4532925"/>
+  </joint>
+  <joint name="palm_center_joint" type="fixed">
+    <origin xyz="0. 0. 115.72177" rpy="-1.5707964 1.5707964 0. "/>
+    <parent link="connector"/>
+    <child link="palm_center"/>
+  </joint>
+  <joint name="palm_joint" type="fixed">
+    <origin xyz="0.0194858 0. -0.1317191" rpy="-1.5707964 0. -1.5707964"/>
+    <parent link="palm_center"/>
+    <child link="base_link"/>
+  </joint>
+  <joint name="panda_joint1" type="revolute">
+    <origin xyz="0. 0. 0.333" rpy="0. -1.5707963 0. "/>
+    <parent link="panda"/>
+    <child link="panda_link1"/>
+    <axis xyz="1. 0. 0."/>
+    <limit lower="-2.8972998" upper="2.8972998" effort="87." velocity="2.1749999"/>
+  </joint>
+  <joint name="panda_joint2" type="revolute">
+    <origin xyz="0. 0. 0." rpy="0. 0. 1.5707964"/>
+    <parent link="panda_link1"/>
+    <child link="panda_link2"/>
+    <axis xyz="1. 0. 0."/>
+    <limit lower="-1.7627999" upper="1.7627999" effort="87." velocity="2.1749999"/>
+  </joint>
+  <joint name="panda_joint3" type="revolute">
+    <origin xyz="0. -0.316 0. " rpy="0. 0. -1.5707964"/>
+    <parent link="panda_link2"/>
+    <child link="panda_link3"/>
+    <axis xyz="1. 0. 0."/>
+    <limit lower="-2.8972998" upper="2.8972998" effort="87." velocity="2.1749999"/>
+  </joint>
+  <joint name="panda_joint4" type="revolute">
+    <origin xyz="0. 0. -0.0825" rpy="0. 0. -1.5707964"/>
+    <parent link="panda_link3"/>
+    <child link="panda_link4"/>
+    <axis xyz="1. 0. 0."/>
+    <limit lower="-3.0717997" upper="-0.0698" effort="87." velocity="2.1749999"/>
+  </joint>
+  <joint name="panda_joint5" type="revolute">
+    <origin xyz="0. 0.384 0.0825" rpy="0. 0. 1.5707964"/>
+    <parent link="panda_link4"/>
+    <child link="panda_link5"/>
+    <axis xyz="1. 0. 0."/>
+    <limit lower="-2.8972998" upper="2.8972998" effort="12." velocity="2.6099999"/>
+  </joint>
+  <joint name="panda_joint6" type="revolute">
+    <origin xyz="0. 0. 0." rpy="0. 0. -1.5707964"/>
+    <parent link="panda_link5"/>
+    <child link="panda_link6"/>
+    <axis xyz="1. 0. 0."/>
+    <limit lower="-0.0175" upper="3.7525" effort="12." velocity="2.6099999"/>
+  </joint>
+  <joint name="panda_joint7" type="revolute">
+    <origin xyz="0. 0. -0.088" rpy="0. 0. -1.5707964"/>
+    <parent link="panda_link6"/>
+    <child link="panda_link7"/>
+    <axis xyz="1. 0. 0."/>
+    <limit lower="-2.8972998" upper="2.8972998" effort="12." velocity="2.6099999"/>
+  </joint>
+  <link name="base_link">
+    <inertial>
+      <origin xyz="0. 0. 0." rpy="0. 0. 0."/>
+      <mass value="0.14143"/>
+      <inertia ixx="0." ixy="0." ixz="0." iyy="0." iyz="0." izz="0."/>
+    </inertial>
+    <visual>
+      <origin xyz="0. -0.07 -0. " rpy="-3.1415925 -1.5707964 0. "/>
+      <geometry>
+        <mesh filename="meshes/inspire/base_link_visuals.obj" scale="1. 1. 1."/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0. -0.07 -0. " rpy="-3.1415925 -1.5707964 0. "/>
+      <geometry>
+        <mesh filename="meshes/inspire/base_link_collisions.obj" scale="1. 1. 1."/>
+      </geometry>
+    </collision>
+  </link>
+  <link name="connector">
+    <visual>
+      <origin xyz="0. 0. 115.72177" rpy="-1.5707964 1.5707964 0. "/>
+      <geometry>
+        <mesh filename="meshes/inspire/connector_visuals.obj" scale="1. 1. 1."/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0. 0. 115.72177" rpy="-1.5707964 1.5707964 0. "/>
+      <geometry>
+        <mesh filename="meshes/inspire/connector_collisions.obj" scale="1. 1. 1."/>
+      </geometry>
+    </collision>
+  </link>
+  <link name="link11">
+    <inertial>
+      <origin xyz="0. 0. 0." rpy="0. 0. 0."/>
+      <mass value="0.0018869"/>
+      <inertia ixx="0." ixy="0." ixz="0." iyy="0." iyz="0." izz="0."/>
+    </inertial>
+    <visual>
+      <origin xyz="0.0029801 -0.0055433 0.0029097" rpy="-0.2495321 -1.5707961 0.249532 "/>
+      <geometry>
+        <mesh filename="meshes/inspire/link11_collisions.obj" scale="1. 1. 1."/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0.0029801 -0.0055433 0.0029097" rpy="-0.2495321 -1.5707961 0.249532 "/>
+      <geometry>
+        <mesh filename="meshes/inspire/link11_collisions.obj" scale="1. 1. 1."/>
+      </geometry>
+    </collision>
+  </link>
+  <link name="link12">
+    <inertial>
+      <origin xyz="0. 0. 0." rpy="0. 0. 0."/>
+      <mass value="0.0066075"/>
+      <inertia ixx="0." ixy="0." ixz="0." iyy="0." iyz="0." izz="0."/>
+    </inertial>
+    <visual>
+      <origin xyz="0. -0. 0." rpy="0. 1.5707963 0. "/>
+      <geometry>
+        <mesh filename="meshes/inspire/link12_visuals.obj" scale="1. 1. 1."/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0. -0. 0." rpy="0. 1.5707963 0. "/>
+      <geometry>
+        <mesh filename="meshes/inspire/link12_collisions.obj" scale="1. 1. 1."/>
+      </geometry>
+    </collision>
+  </link>
+  <link name="link13">
+    <inertial>
+      <origin xyz="0. 0. 0." rpy="0. 0. 0."/>
+      <mass value="0.0037847"/>
+      <inertia ixx="0." ixy="0." ixz="0." iyy="0." iyz="0." izz="0."/>
+    </inertial>
+    <visual>
+      <origin xyz="0.001078 -0.0129012 -0.0033897" rpy="1.5707964 -1.5707961 -1.5707963"/>
+      <geometry>
+        <mesh filename="meshes/inspire/link13_collisions.obj" scale="1. 1. 1."/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0.001078 -0.0129012 -0.0033897" rpy="1.5707964 -1.5707961 -1.5707963"/>
+      <geometry>
+        <mesh filename="meshes/inspire/link13_collisions.obj" scale="1. 1. 1."/>
+      </geometry>
+    </collision>
+  </link>
+  <link name="link14">
+    <inertial>
+      <origin xyz="0. 0. 0." rpy="0. 0. 0."/>
+      <mass value="0.0033441"/>
+      <inertia ixx="0." ixy="0." ixz="0." iyy="0." iyz="0." izz="0."/>
+    </inertial>
+    <visual>
+      <origin xyz="-0. -0. -0." rpy="-0.1087663 -1.5707961 0.1087663"/>
+      <geometry>
+        <mesh filename="meshes/inspire/link14_collisions.obj" scale="1. 1. 1."/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="-0. -0. -0." rpy="-0.1087663 -1.5707961 0.1087663"/>
+      <geometry>
+        <mesh filename="meshes/inspire/link14_collisions.obj" scale="1. 1. 1."/>
+      </geometry>
+    </collision>
+  </link>
+  <link name="link21">
+    <inertial>
+      <origin xyz="0. 0. 0." rpy="0. 0. 0."/>
+      <mass value="0.0042403"/>
+      <inertia ixx="0." ixy="0." ixz="0." iyy="0." iyz="0." izz="0."/>
+    </inertial>
+    <visual>
+      <origin xyz="0.0043274 -0.0054836 0.0010864" rpy="-3.1415927 -0.0000427 3.1415908"/>
+      <geometry>
+        <mesh filename="meshes/inspire/link21_collisions.obj" scale="1. 1. 1."/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0.0043274 -0.0054836 0.0010864" rpy="-3.1415927 -0.0000427 3.1415908"/>
+      <geometry>
+        <mesh filename="meshes/inspire/link21_collisions.obj" scale="1. 1. 1."/>
+      </geometry>
+    </collision>
+  </link>
+  <link name="link22">
+    <inertial>
+      <origin xyz="0. 0. 0." rpy="0. 0. 0."/>
+      <mass value="0.0045683"/>
+      <inertia ixx="0." ixy="0." ixz="0." iyy="0." iyz="0." izz="0."/>
+    </inertial>
+    <visual>
+      <origin xyz="0. 0. 0." rpy="0. -1.5707963 0. "/>
+      <geometry>
+        <mesh filename="meshes/inspire/link22_collisions.obj" scale="1. 1. 1."/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0. 0. 0." rpy="0. -1.5707963 0. "/>
+      <geometry>
+        <mesh filename="meshes/inspire/link22_collisions.obj" scale="1. 1. 1."/>
+      </geometry>
+    </collision>
+  </link>
+  <link name="link31">
+    <inertial>
+      <origin xyz="0. 0. 0." rpy="0. 0. 0."/>
+      <mass value="0.0042403"/>
+      <inertia ixx="0." ixy="0." ixz="0." iyy="0." iyz="0." izz="0."/>
+    </inertial>
+    <visual>
+      <origin xyz="0.0044599 -0.0054049 0.0011019" rpy="3.1415925 0.0000036 3.141589 "/>
+      <geometry>
+        <mesh filename="meshes/inspire/link31_visuals.obj" scale="1. 1. 1."/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0.0044599 -0.0054049 0.0011019" rpy="3.1415925 0.0000036 3.141589 "/>
+      <geometry>
+        <mesh filename="meshes/inspire/link31_collisions.obj" scale="1. 1. 1."/>
+      </geometry>
+    </collision>
+  </link>
+  <link name="link32">
+    <inertial>
+      <origin xyz="0. 0. 0." rpy="0. 0. 0."/>
+      <mass value="0.0050396"/>
+      <inertia ixx="0." ixy="0." ixz="0." iyy="0." iyz="0." izz="0."/>
+    </inertial>
+    <visual>
+      <origin xyz="-0. 0. -0." rpy="-0.1435916 -1.5707961 0.1435916"/>
+      <geometry>
+        <mesh filename="meshes/inspire/link32_visuals.obj" scale="1. 1. 1."/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="-0. 0. -0." rpy="-0.1435916 -1.5707961 0.1435916"/>
+      <geometry>
+        <mesh filename="meshes/inspire/link32_collisions.obj" scale="1. 1. 1."/>
+      </geometry>
+    </collision>
+  </link>
+  <link name="link41">
+    <inertial>
+      <origin xyz="0. 0. 0." rpy="0. 0. 0."/>
+      <mass value="0.0042403"/>
+      <inertia ixx="0." ixy="0." ixz="0." iyy="0." iyz="0." izz="0."/>
+    </inertial>
+    <visual>
+      <origin xyz="0.0043579 -0.0054936 0.00092 " rpy="3.1415892 0.0000002 -3.1415195"/>
+      <geometry>
+        <mesh filename="meshes/inspire/link41_visuals.obj" scale="1. 1. 1."/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0.0043579 -0.0054936 0.00092 " rpy="3.1415892 0.0000002 -3.1415195"/>
+      <geometry>
+        <mesh filename="meshes/inspire/link41_collisions.obj" scale="1. 1. 1."/>
+      </geometry>
+    </collision>
+  </link>
+  <link name="link42">
+    <inertial>
+      <origin xyz="0. 0. 0." rpy="0. 0. 0."/>
+      <mass value="0.0045683"/>
+      <inertia ixx="0." ixy="0." ixz="0." iyy="0." iyz="0." izz="0."/>
+    </inertial>
+    <visual>
+      <origin xyz="0. 0.0000003 -0. " rpy="0.6845859 -1.5707961 -0.6845856"/>
+      <geometry>
+        <mesh filename="meshes/inspire/link42_collisions.obj" scale="1. 1. 1."/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0. 0.0000003 -0. " rpy="0.6845859 -1.5707961 -0.6845856"/>
+      <geometry>
+        <mesh filename="meshes/inspire/link42_collisions.obj" scale="1. 1. 1."/>
+      </geometry>
+    </collision>
+  </link>
+  <link name="link51">
+    <inertial>
+      <origin xyz="0. 0. 0." rpy="0. 0. 0."/>
+      <mass value="0.0042403"/>
+      <inertia ixx="0." ixy="0." ixz="0." iyy="0." iyz="0." izz="0."/>
+    </inertial>
+    <visual>
+      <origin xyz="0.004343 -0.0055141 0.0010335" rpy="3.1415894 -0. -3.1415544"/>
+      <geometry>
+        <mesh filename="meshes/inspire/link51_collisions.obj" scale="1. 1. 1."/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0.004343 -0.0055141 0.0010335" rpy="3.1415894 -0. -3.1415544"/>
+      <geometry>
+        <mesh filename="meshes/inspire/link51_collisions.obj" scale="1. 1. 1."/>
+      </geometry>
+    </collision>
+  </link>
+  <link name="link52">
+    <inertial>
+      <origin xyz="0. 0. 0." rpy="0. 0. 0."/>
+      <mass value="0.0035996"/>
+      <inertia ixx="0." ixy="0." ixz="0." iyy="0." iyz="0." izz="0."/>
+    </inertial>
+    <visual>
+      <origin xyz="0. 0. 0." rpy="-0. -1.5707963 0. "/>
+      <geometry>
+        <mesh filename="meshes/inspire/link52_collisions.obj" scale="1. 1. 1."/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0. 0. 0." rpy="-0. -1.5707963 0. "/>
+      <geometry>
+        <mesh filename="meshes/inspire/link52_collisions.obj" scale="1. 1. 1."/>
+      </geometry>
+    </collision>
+  </link>
+  <link name="palm_center"/>
+  <link name="panda">
+    <visual>
+      <origin xyz="0. 0. 0." rpy="0. 0. 0."/>
+      <geometry>
+        <mesh filename="meshes/visual/link0.obj" scale="1. 1. 1."/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0. 0. 0." rpy="0. 0. 0."/>
+      <geometry>
+        <mesh filename="meshes/collision/link0.obj" scale="1. 1. 1."/>
+      </geometry>
+    </collision>
+  </link>
+  <link name="panda_link1">
+    <visual>
+      <origin xyz="0. 0. 0." rpy="0. 1.5707963 0. "/>
+      <geometry>
+        <mesh filename="meshes/visual/link1.obj" scale="1. 1. 1."/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0. 0. 0." rpy="0. 1.5707963 0. "/>
+      <geometry>
+        <mesh filename="meshes/collision/link1.obj" scale="1. 1. 1."/>
+      </geometry>
+    </collision>
+  </link>
+  <link name="panda_link2">
+    <visual>
+      <origin xyz="0. 0. 0." rpy="0. 1.5707963 0. "/>
+      <geometry>
+        <mesh filename="meshes/visual/link2.obj" scale="1. 1. 1."/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0. 0. 0." rpy="0. 1.5707963 0. "/>
+      <geometry>
+        <mesh filename="meshes/collision/link2.obj" scale="1. 1. 1."/>
+      </geometry>
+    </collision>
+  </link>
+  <link name="panda_link3">
+    <visual>
+      <origin xyz="0. 0. 0." rpy="0. 1.5707963 0. "/>
+      <geometry>
+        <mesh filename="meshes/visual/link3.obj" scale="1. 1. 1."/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0. 0. 0." rpy="0. 1.5707963 0. "/>
+      <geometry>
+        <mesh filename="meshes/collision/link3.obj" scale="1. 1. 1."/>
+      </geometry>
+    </collision>
+  </link>
+  <link name="panda_link4">
+    <visual>
+      <origin xyz="0. 0. 0." rpy="0. 1.5707963 0. "/>
+      <geometry>
+        <mesh filename="meshes/visual/link4.obj" scale="1. 1. 1."/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0. 0. 0." rpy="0. 1.5707963 0. "/>
+      <geometry>
+        <mesh filename="meshes/collision/link4.obj" scale="1. 1. 1."/>
+      </geometry>
+    </collision>
+  </link>
+  <link name="panda_link5">
+    <visual>
+      <origin xyz="0. 0. 0." rpy="0. 1.5707963 0. "/>
+      <geometry>
+        <mesh filename="meshes/collision/link5.obj" scale="1. 1. 1."/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0. 0. 0." rpy="0. 1.5707963 0. "/>
+      <geometry>
+        <mesh filename="meshes/collision/link5.obj" scale="1. 1. 1."/>
+      </geometry>
+    </collision>
+  </link>
+  <link name="panda_link6">
+    <visual>
+      <origin xyz="0. 0. 0." rpy="0. 1.5707963 0. "/>
+      <geometry>
+        <mesh filename="meshes/visual/link6.obj" scale="1. 1. 1."/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0. 0. 0." rpy="0. 1.5707963 0. "/>
+      <geometry>
+        <mesh filename="meshes/collision/link6.obj" scale="1. 1. 1."/>
+      </geometry>
+    </collision>
+  </link>
+  <link name="panda_link7">
+    <visual>
+      <origin xyz="0. 0. 0." rpy="0. 1.5707963 0. "/>
+      <geometry>
+        <mesh filename="meshes/collision/link7.obj" scale="1. 1. 1."/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0. 0. 0." rpy="0. 1.5707963 0. "/>
+      <geometry>
+        <mesh filename="meshes/collision/link7.obj" scale="1. 1. 1."/>
+      </geometry>
+    </collision>
+  </link>
+</robot>
