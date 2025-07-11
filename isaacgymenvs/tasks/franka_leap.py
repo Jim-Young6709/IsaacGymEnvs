@@ -1,6 +1,5 @@
 """
 Franka + LEAP Hand Env
-TODO: add object state handling
 """
 
 import os
@@ -72,7 +71,6 @@ class FrankaLEAP(VecTask):
         self.handles = {}                       # will be dict mapping names to relevant sim handles
         self.num_dofs = None                    # Total number of DOFs per env
         self.actions = None                     # Current actions to be deployed
-        self._init_object_state = None          # Initial state of object for the current env
         self._object_state = None               # Current state of object for the current env
         self._object_id = None                  # Actor ID corresponding to object for a given env
 
@@ -176,7 +174,7 @@ class FrankaLEAP(VecTask):
             )
 
             # Create object
-            obj_actor = self.gym.create_actor(
+            self._object_id = self.gym.create_actor(
                 env_ptr, obj_asset, obj_start_pose, "object", i, 2, 0
             )
 
@@ -189,7 +187,7 @@ class FrankaLEAP(VecTask):
             # Store the created env pointers
             self.env_ptrs.append(env_ptr)
             self.robots.append(robot_actor)
-            self.objs.append(obj_actor)
+            self.objs.append(self._object_id)
 
         # Setup data
         actor_num = 1 + 1 + 1  # robot, table, obj
@@ -283,6 +281,8 @@ class FrankaLEAP(VecTask):
         self._eef_finger2_state = self._rigid_body_state[:, self.handles["finger2_tip"], :]
         self._eef_finger3_state = self._rigid_body_state[:, self.handles["finger3_tip"], :]
         self._eef_finger4_state = self._rigid_body_state[:, self.handles["finger4_tip"], :]
+        self._object_state = self._root_state[:, self._object_id, :]
+
         _jacobian = self.gym.acquire_jacobian_tensor(self.sim, "franka")
         jacobian = gymtorch.wrap_tensor(_jacobian)
         hand_joint_index = self.gym.get_actor_joint_dict(env_ptr, robot_handle)['panda_hand_joint']
@@ -468,6 +468,7 @@ class FrankaLEAP(VecTask):
 
     def _update_states(self):
         eef_rot_6d = matrix_to_rotation_6d(quaternion_to_matrix_ig(self._eef_state[:, 3:7]))
+        object_rot_6d = matrix_to_rotation_6d(quaternion_to_matrix_ig(self._object_state[:, 3:7]))
         hand_base_pos = self._eef_state[:, :3]
 
         self.states.update({
@@ -488,6 +489,11 @@ class FrankaLEAP(VecTask):
             "eef_finger2_pos_relative": self._eef_finger2_state[:, :3] - hand_base_pos,
             "eef_finger3_pos_relative": self._eef_finger3_state[:, :3] - hand_base_pos,
             "eef_finger4_pos_relative": self._eef_finger4_state[:, :3] - hand_base_pos,
+
+            # Object
+            "object_quat": self._object_state[:, 3:7],
+            "object_rot_6d": object_rot_6d,
+            "object_pos": self._object_state[:, :3],
         })
 
     def compute_observations(self):
