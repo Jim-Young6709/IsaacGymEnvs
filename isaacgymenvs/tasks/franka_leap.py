@@ -1,5 +1,6 @@
 """
 Franka + LEAP Hand Env
+TODO: add object state handling
 """
 
 import os
@@ -7,6 +8,7 @@ import time
 
 import hydra
 import isaacgym
+import isaacgymenvs
 import numpy as np
 import torch
 from isaacgym import gymapi, gymtorch
@@ -16,6 +18,8 @@ from isaacgymenvs.utils.reformat import omegaconf_to_dict
 from isaacgymenvs.utils.rotation_conversions import quaternion_to_matrix_ig, matrix_to_rotation_6d
 from omegaconf import DictConfig
 from tqdm import tqdm
+import random
+from scipy.spatial.transform import Rotation as R
 
 
 
@@ -26,6 +30,7 @@ class FrankaLEAP(VecTask):
         self.max_episode_length = self.cfg["env"]["episodeLength"]
         self.action_scale = self.cfg["env"]["actionScale"]
         self.aggregate_mode = self.cfg["env"]["aggregateMode"]
+        self.mesh_args = self.cfg["env"]["mesh"]
 
         # Controller type
         self.control_type = self.cfg["env"]["controlType"]
@@ -67,6 +72,9 @@ class FrankaLEAP(VecTask):
         self.handles = {}                       # will be dict mapping names to relevant sim handles
         self.num_dofs = None                    # Total number of DOFs per env
         self.actions = None                     # Current actions to be deployed
+        self._init_object_state = None          # Initial state of object for the current env
+        self._object_state = None               # Current state of object for the current env
+        self._object_id = None                  # Actor ID corresponding to object for a given env
 
         # Tensor placeholders
         self._root_state = None                 # State of root body        (n_envs, 13)
@@ -130,13 +138,17 @@ class FrankaLEAP(VecTask):
             size=[0.7, 1.2, table_thickness],
         )
 
+        # grasp object
+        obj_asset, obj_start_pose = self.create_rand_mesh()
+
         # compute aggregate size
         num_robot_bodies = self.gym.get_asset_rigid_body_count(robot_asset)
         num_robot_shapes = self.gym.get_asset_rigid_shape_count(robot_asset)
-        max_agg_bodies = num_robot_bodies + 1  # 1 for table
-        max_agg_shapes = num_robot_shapes + 1  # 1 for table
+        max_agg_bodies = num_robot_bodies + 1 + 1  # 1 for table, 1 for obj
+        max_agg_shapes = num_robot_shapes + 1 + 1  # 1 for table, 1 for obj
 
         self.robots = []
+        self.objs = []
         self.env_ptrs = []
 
         # Create environments
@@ -159,8 +171,13 @@ class FrankaLEAP(VecTask):
                 self.gym.begin_aggregate(env_ptr, max_agg_bodies, max_agg_shapes, True)
 
             # Create table
-            self.table_actor = self.gym.create_actor(
+            self.gym.create_actor(
                 env_ptr, table_asset, table_start_pose, "table", i, 1, 0
+            )
+
+            # Create object
+            obj_actor = self.gym.create_actor(
+                env_ptr, obj_asset, obj_start_pose, "object", i, 2, 0
             )
 
             if self.aggregate_mode == 1:
@@ -172,9 +189,10 @@ class FrankaLEAP(VecTask):
             # Store the created env pointers
             self.env_ptrs.append(env_ptr)
             self.robots.append(robot_actor)
+            self.objs.append(obj_actor)
 
         # Setup data
-        actor_num = 1 + 1 # robot, table
+        actor_num = 1 + 1 + 1  # robot, table, obj
         self.init_data(actor_num=actor_num)
 
     def _create_franka_leap(self, ):
@@ -341,6 +359,96 @@ class FrankaLEAP(VecTask):
         start_pose.p = gymapi.Vec3(*pos)
         start_pose.r = gymapi.Quat(*[0.0, -0.707, 0.0, 0.707])  # quat in xyzw order
         self.capsule_dims.append(size)
+        return asset, start_pose
+
+    def _create_mesh_urdf(self, mesh_path, scale=[1.0, 1.0, 1.0]):
+        mesh_dir = os.path.dirname(mesh_path)
+        mesh_filename = os.path.basename(mesh_path)
+        mesh_name, _ = os.path.splitext(mesh_filename)
+
+        urdf_rel = mesh_name + ".urdf"
+        urdf_path = os.path.join(mesh_dir, urdf_rel)
+
+        # URDF content
+        urdf_str = f"""<?xml version="1.0" ?>
+            <robot name="mesh_object">
+            <link name="base">
+                <visual>
+                <geometry>
+                    <mesh filename="{mesh_filename}" scale="{scale[0]} {scale[1]} {scale[2]}"/>
+                </geometry>
+                </visual>
+                <collision>
+                <geometry>
+                    <mesh filename="{mesh_filename}" scale="{scale[0]} {scale[1]} {scale[2]}"/>
+                </geometry>
+                </collision>
+                <inertial>
+                <mass value="1.0"/>
+                <origin xyz="0 0 0" rpy="0 0 0"/>
+                <inertia ixx="0.01" iyy="0.01" izz="0.01" ixy="0" ixz="0" iyz="0"/>
+                </inertial>
+            </link>
+            </robot>
+        """
+
+        # Save URDF
+        with open(urdf_path, 'w') as f:
+            f.write(urdf_str)
+        return urdf_rel, mesh_dir
+
+    def _create_mesh(self, mesh_path, pos, scale, quat=[0, 0, 0, 1], fix_base_link=True):
+        """
+        Args:
+            position (np.ndarray): (3,) xyz position of the mesh center
+            scale (float): (1,) scale of the mesh
+            quat (np.ndarray): (4,), [x, y, z, w]
+        Returns:
+            asset (gymapi.Asset): asset handle of the mesh
+            start_pose (gymapi.Transform): start pose of the mesh
+        """
+        # convert .obj into .urdf file
+        mesh_scale = [scale, scale, scale]
+        urdf_path, asset_root = self._create_mesh_urdf(mesh_path, scale=mesh_scale)
+
+        # Create mesh asset
+        opts = gymapi.AssetOptions()
+        opts.fix_base_link = fix_base_link
+        asset = self.gym.load_asset(self.sim, asset_root, urdf_path, opts)
+        # Define start pose
+        start_pose = gymapi.Transform()
+        start_pose.p = gymapi.Vec3(*pos)
+        start_pose.r = gymapi.Quat(*quat)  # quat in xyzw order
+        return asset, start_pose
+
+    def create_rand_mesh(self, fix_base_link=False):
+        # get randomly sampled mesh path
+        mesh_dir = self.mesh_args["mesh_dir"]
+        object_list = self.mesh_args["obj_list"]
+        if object_list == ["all"]:
+            object_list = [
+                obj
+                for obj in os.listdir(os.path.join(abs_path_dir, mesh_dir))
+                if obj != "type_mapping.json"
+            ]
+        abs_path_dir = isaacgymenvs.__file__[: -len("isaacgymenvs/__init__.py")]
+        mesh_files = [
+            os.path.join(abs_path_dir, mesh_dir, obj, file)
+            for obj in object_list
+            for file in os.listdir(os.path.join(abs_path_dir, mesh_dir, obj))
+            if file.endswith(".obj")
+        ]
+        mesh_sampler = lambda: random.choice(mesh_files)
+        sampled_mesh_path = mesh_sampler()
+
+        # sample random size, pos and ori
+        scale_range = [0.1, 0.2]
+        pos_range = [[0.45, -0.2, 0.2], [0.55, 0.2, 0.25]]
+
+        mesh_scale = np.random.uniform(scale_range[0], scale_range[1])
+        mesh_pos = np.random.uniform(pos_range[0], pos_range[1])
+        mesh_quat = R.random().as_quat()  # [x, y, z, w]
+        asset, start_pose = self._create_mesh(sampled_mesh_path, mesh_pos, mesh_scale, mesh_quat, fix_base_link)
         return asset, start_pose
 
     def _reset_obstacle(self):

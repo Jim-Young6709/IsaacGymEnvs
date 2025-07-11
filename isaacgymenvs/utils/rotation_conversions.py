@@ -55,3 +55,14 @@ def matrix_to_rotation_6d(matrix: torch.Tensor) -> torch.Tensor:
     """
     batch_dim = matrix.size()[:-2]
     return matrix[..., :2, :].clone().reshape(batch_dim + (6,))
+
+
+def sample_random_quaternion_torch(batch_size=1):
+    u = torch.rand(batch_size, 3).cuda()
+
+    qx = torch.sqrt(1 - u[:, 0]) * torch.sin(2 * torch.pi * u[:, 1])
+    qy = torch.sqrt(1 - u[:, 0]) * torch.cos(2 * torch.pi * u[:, 1])
+    qz = torch.sqrt(u[:, 0]) * torch.sin(2 * torch.pi * u[:, 2])
+    qw = torch.sqrt(u[:, 0]) * torch.cos(2 * torch.pi * u[:, 2])
+
+    return torch.stack([qx, qy, qz, qw], dim=-1)
