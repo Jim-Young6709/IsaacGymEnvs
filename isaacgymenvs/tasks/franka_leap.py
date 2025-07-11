@@ -17,6 +17,7 @@ from isaacgym.torch_utils import *
 from isaacgymenvs.tasks.base.vec_task import VecTask
 from isaacgymenvs.utils.reformat import omegaconf_to_dict
 from isaacgymenvs.utils.rotation_conversions import quaternion_to_matrix_ig, matrix_to_rotation_6d
+from isaacgymenvs.utils.pcd_utils import compute_scene_oracle_pcd
 from omegaconf import DictConfig
 from tqdm import tqdm
 import random
@@ -382,7 +383,7 @@ class FrankaLEAP(VecTask):
         mesh_pos = np.random.uniform(pos_range[0], pos_range[1])
         mesh_quat = R.random().as_quat()  # [x, y, z, w]
         asset, start_pose, asset_obj_id, asset_mesh_id = self._create_mesh(sampled_mesh_path, mesh_pos, mesh_scale, mesh_quat, fix_base_link)
-        return asset, start_pose, asset_obj_id, asset_mesh_id
+        return asset, start_pose, mesh_scale, asset_obj_id, asset_mesh_id
 
     def _refresh(self):
         self.gym.refresh_actor_root_state_tensor(self.sim)
@@ -608,6 +609,35 @@ class FrankaLEAP(VecTask):
         for _ in range(num_steps):
             self.render()
 
+    def vis_pcd(self):
+        for i in range(self.num_envs):
+            # draw point clouds
+            points = self.combined_pcds[i].cpu().numpy()
+
+            # Parameters
+            offset = np.array([0.005, 0.0, 0.0], dtype=np.float32)  # small x-direction offset for line
+            num_points = points.shape[0]
+
+            # Prepare flattened vertices list: [x1,y1,z1,x2,y2,z2,...]
+            verts_flat = []
+            for p in points:
+                p0 = p - offset
+                p1 = p + offset
+                verts_flat.extend([p0[0], p0[1], p0[2], p1[0], p1[1], p1[2]])
+
+            # Colors: same RGB for each line
+            color = [1.0, 0.0, 0.0]  # red
+            colors_flat = color * num_points  # repeat for each line
+
+            # Add lines to viewer
+            self.gym.add_lines(
+                self.viewer,
+                self.env_ptrs[i],
+                num_points,     # num_lines = num points
+                verts_flat,     # flat list of start/end points
+                colors_flat     # flat list of RGB triples
+            )
+
     # for debugging purposes only, so this scripts on its own can run
     def _create_envs(self, spacing, num_per_row):
         """
@@ -622,6 +652,10 @@ class FrankaLEAP(VecTask):
         self.capsule_dims = []  # r, l
         self.sphere_radii = []  # r
 
+        self.static_pcds = []
+        self.object_pcds = []
+        self.combined_pcds = []
+
         # setup robot (franka + leap)
         robot_dof_props = self._create_franka_leap()
         robot_asset = self.robot_asset
@@ -635,21 +669,21 @@ class FrankaLEAP(VecTask):
             size=[0.7, 1.2, table_thickness],
         )
 
-        # grasp object
-        obj_asset, obj_start_pose, _, _ = self.create_rand_mesh()
-
         # compute aggregate size
         num_robot_bodies = self.gym.get_asset_rigid_body_count(robot_asset)
         num_robot_shapes = self.gym.get_asset_rigid_shape_count(robot_asset)
-        max_agg_bodies = num_robot_bodies + 1 + 1  # 1 for table, 1 for obj
-        max_agg_shapes = num_robot_shapes + 1 + 1  # 1 for table, 1 for obj
+        max_agg_bodies = num_robot_bodies + 1 + 1  # 1 for table, 1 for object
+        max_agg_shapes = num_robot_shapes + 1 + 1  # 1 for table, 1 for object
 
         self.robots = []
-        self.objs = []
+        self.objects = []
         self.env_ptrs = []
 
         # Create environments
         for i in range(self.num_envs):
+            # grasp object
+            object_asset, object_start_pose, object_scale, object_id, mesh_id = self.create_rand_mesh()
+
             # create env instance
             env_ptr = self.gym.create_env(self.sim, lower, upper, num_per_row)
 
@@ -674,7 +708,7 @@ class FrankaLEAP(VecTask):
 
             # Create object
             self._object_id = self.gym.create_actor(
-                env_ptr, obj_asset, obj_start_pose, "object", i, 2, 0
+                env_ptr, object_asset, object_start_pose, "object", i, 2, 0
             )
 
             if self.aggregate_mode == 1:
@@ -686,10 +720,33 @@ class FrankaLEAP(VecTask):
             # Store the created env pointers
             self.env_ptrs.append(env_ptr)
             self.robots.append(robot_actor)
-            self.objs.append(self._object_id)
+            self.objects.append(self._object_id)
+
+            # Precompute static and object point cloud
+            # TODO: now this is hardcoded to current simple settings, need to adapt later
+            static_pcd_i = torch.from_numpy(compute_scene_oracle_pcd(
+                num_obstacle_points=self.pcd_spec_dict["num_static_points"],
+                cuboid_dims=self.cuboid_dims,
+                cuboid_centers=[[table_start_pose.p.x, table_start_pose.p.y, table_start_pose.p.z]],
+                cuboid_quats=[[table_start_pose.r.x, table_start_pose.r.y, table_start_pose.r.z, table_start_pose.r.w]],
+            )).to(self.device)
+            self.static_pcds.append(static_pcd_i)
+
+            object_pcd_i = torch.from_numpy(compute_scene_oracle_pcd(
+                num_obstacle_points=self.pcd_spec_dict["num_object_points"],
+                mesh_position=[[0.0, 0.0, 0.0]],
+                mesh_scale=[object_scale],
+                mesh_quaternion=[[0.0, 0.0, 0.0, 1.0]],
+                obj_id=[object_id],
+                mesh_id=[mesh_id],
+            )).to(self.device)
+            self.object_pcds.append(object_pcd_i)
+
+        self.static_pcds = torch.Tensor(self.static_pcds, device=self.device)
+        self.object_pcds = torch.Tensor(self.object_pcds, device=self.device)
 
         # Setup data
-        actor_num = 1 + 1 + 1  # robot, table, obj
+        actor_num = 1 + 1 + 1  # robot, table, object
         self.init_data(actor_num=actor_num)
 
     def reset_idx(self, env_ids=None):
