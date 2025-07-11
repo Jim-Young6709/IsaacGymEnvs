@@ -727,23 +727,24 @@ class FrankaLEAP(VecTask):
             static_pcd_i = torch.from_numpy(compute_scene_oracle_pcd(
                 num_obstacle_points=self.pcd_spec_dict["num_static_points"],
                 cuboid_dims=self.cuboid_dims,
-                cuboid_centers=[[table_start_pose.p.x, table_start_pose.p.y, table_start_pose.p.z]],
-                cuboid_quats=[[table_start_pose.r.x, table_start_pose.r.y, table_start_pose.r.z, table_start_pose.r.w]],
+                cuboid_centers=np.array([[table_start_pose.p.x, table_start_pose.p.y, table_start_pose.p.z]]),
+                cuboid_quats=np.array([[table_start_pose.r.x, table_start_pose.r.y, table_start_pose.r.z, table_start_pose.r.w]]),
             )).to(self.device)
             self.static_pcds.append(static_pcd_i)
 
             object_pcd_i = torch.from_numpy(compute_scene_oracle_pcd(
                 num_obstacle_points=self.pcd_spec_dict["num_object_points"],
-                mesh_position=[[0.0, 0.0, 0.0]],
-                mesh_scale=[object_scale],
-                mesh_quaternion=[[0.0, 0.0, 0.0, 1.0]],
-                obj_id=[object_id],
-                mesh_id=[mesh_id],
+                mesh_position=np.array([[0.0, 0.0, 0.0]]),
+                mesh_scale=np.array([object_scale]),
+                mesh_quaternion=np.array([[0.0, 0.0, 0.0, 1.0]]),
+                obj_id=np.array([object_id]),
+                mesh_id=np.array([mesh_id]),
             )).to(self.device)
             self.object_pcds.append(object_pcd_i)
 
-        self.static_pcds = torch.Tensor(self.static_pcds, device=self.device)
-        self.object_pcds = torch.Tensor(self.object_pcds, device=self.device)
+        self.static_pcds = torch.stack(self.static_pcds, dim=0).to(self.device) # (num_envs, num_points, 3)
+        self.object_pcds = torch.stack(self.object_pcds, dim=0).to(self.device)
+        self.combined_pcds = torch.cat([self.static_pcds, self.object_pcds], dim=1).to(self.device) # (num_envs, num_static_points + num_object_points, 3)
 
         # Setup data
         actor_num = 1 + 1 + 1  # robot, table, object
