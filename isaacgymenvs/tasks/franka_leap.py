@@ -4,6 +4,8 @@ Franka + LEAP Hand Env
 
 import os
 import time
+from pathlib import Path
+import json
 
 import hydra
 import isaacgym
@@ -38,6 +40,7 @@ class FrankaLEAP(VecTask):
         assert "numActions" in self.cfg["env"], "numActions must be specified in the config"
 
         self.debug_viz = self.cfg["env"]["enableDebugVis"]
+        self.pcd_spec_dict = cfg['pcd_spec']
 
         self.up_axis = "z"
         self.up_axis_idx = 2
@@ -108,90 +111,6 @@ class FrankaLEAP(VecTask):
         plane_params.normal = gymapi.Vec3(0.0, 0.0, 1.0)
         plane_params.distance = 0.3 # according to current randomization params, -0.275 would be the lowest surface from the env
         self.gym.add_ground(self.sim, plane_params)
-
-    def _create_envs(self, spacing, num_per_row):
-        """
-        loading Franka + LEAP + a table in the environment, this is for debugging purposes only
-        """
-        lower = gymapi.Vec3(-spacing, -spacing, 0.0)
-        upper = gymapi.Vec3(spacing, spacing, spacing)
-
-        # setup params
-        table_thickness = 0.05
-        self.cuboid_dims = []  # xyz
-        self.capsule_dims = []  # r, l
-        self.sphere_radii = []  # r
-        self.combined_pcds = None
-
-        # setup robot (franka + leap)
-        robot_dof_props = self._create_franka_leap()
-        robot_asset = self.robot_asset
-        robot_start_pose = gymapi.Transform()
-        robot_start_pose.p = gymapi.Vec3(0.0, 0.0, 0.0 + table_thickness / 2)
-        robot_start_pose.r = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
-
-        # setup table
-        table_asset, table_start_pose = self._create_cube(
-            pos=[0.5, 0.0, 0.0],
-            size=[0.7, 1.2, table_thickness],
-        )
-
-        # grasp object
-        obj_asset, obj_start_pose = self.create_rand_mesh()
-
-        # compute aggregate size
-        num_robot_bodies = self.gym.get_asset_rigid_body_count(robot_asset)
-        num_robot_shapes = self.gym.get_asset_rigid_shape_count(robot_asset)
-        max_agg_bodies = num_robot_bodies + 1 + 1  # 1 for table, 1 for obj
-        max_agg_shapes = num_robot_shapes + 1 + 1  # 1 for table, 1 for obj
-
-        self.robots = []
-        self.objs = []
-        self.env_ptrs = []
-
-        # Create environments
-        for i in range(self.num_envs):
-            # create env instance
-            env_ptr = self.gym.create_env(self.sim, lower, upper, num_per_row)
-
-            # Create actors and define aggregate group appropriately depending on setting
-            # NOTE: franka should ALWAYS be loaded first in sim!
-            if self.aggregate_mode >= 3:
-                self.gym.begin_aggregate(env_ptr, max_agg_bodies, max_agg_shapes, True)
-
-            # Create robot (franka + leap)
-            robot_actor = self.gym.create_actor(
-                env_ptr, robot_asset, robot_start_pose, "franka", i, 0, 0
-            )
-            self.gym.set_actor_dof_properties(env_ptr, robot_actor, robot_dof_props)
-
-            if self.aggregate_mode == 2:
-                self.gym.begin_aggregate(env_ptr, max_agg_bodies, max_agg_shapes, True)
-
-            # Create table
-            self.gym.create_actor(
-                env_ptr, table_asset, table_start_pose, "table", i, 1, 0
-            )
-
-            # Create object
-            self._object_id = self.gym.create_actor(
-                env_ptr, obj_asset, obj_start_pose, "object", i, 2, 0
-            )
-
-            if self.aggregate_mode == 1:
-                self.gym.begin_aggregate(env_ptr, max_agg_bodies, max_agg_shapes, True)
-
-            if self.aggregate_mode > 0:
-                self.gym.end_aggregate(env_ptr)
-
-            # Store the created env pointers
-            self.env_ptrs.append(env_ptr)
-            self.robots.append(robot_actor)
-            self.objs.append(self._object_id)
-
-        # Setup data
-        actor_num = 1 + 1 + 1  # robot, table, obj
-        self.init_data(actor_num=actor_num)
 
     def _create_franka_leap(self, ):
         asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../assets")
@@ -361,7 +280,7 @@ class FrankaLEAP(VecTask):
         self.capsule_dims.append(size)
         return asset, start_pose
 
-    def _create_mesh_urdf(self, mesh_path, scale=[1.0, 1.0, 1.0]):
+    def _create_mesh_urdf(self, mesh_path, scale=[1.0, 1.0, 1.0], mass=1.0):
         mesh_dir = os.path.dirname(mesh_path)
         mesh_filename = os.path.basename(mesh_path)
         mesh_name, _ = os.path.splitext(mesh_filename)
@@ -384,7 +303,7 @@ class FrankaLEAP(VecTask):
                 </geometry>
                 </collision>
                 <inertial>
-                <mass value="1.0"/>
+                <mass value="{mass}"/>
                 <origin xyz="0 0 0" rpy="0 0 0"/>
                 <inertia ixx="0.01" iyy="0.01" izz="0.01" ixy="0" ixz="0" iyz="0"/>
                 </inertial>
@@ -411,6 +330,20 @@ class FrankaLEAP(VecTask):
         mesh_scale = [scale, scale, scale]
         urdf_path, asset_root = self._create_mesh_urdf(mesh_path, scale=mesh_scale)
 
+        # get object mapping id
+        obj_mapping_path = Path(__file__).parent.parent.parent / "meshes/type_mapping.json"
+        obj_str2int = {}
+        try:
+            with open(obj_mapping_path, "r") as f:
+                obj_str2int = json.load(f)
+            if not obj_str2int:
+                raise ValueError("Object type mapping is empty")
+        except FileNotFoundError:
+            print("Object mapping file not found.")
+
+        asset_obj_id = int(obj_str2int[Path(mesh_path).parts[-2]])
+        asset_mesh_id = int(Path(mesh_path).parts[-1].split(".")[-2])
+
         # Create mesh asset
         opts = gymapi.AssetOptions()
         opts.fix_base_link = fix_base_link
@@ -419,7 +352,7 @@ class FrankaLEAP(VecTask):
         start_pose = gymapi.Transform()
         start_pose.p = gymapi.Vec3(*pos)
         start_pose.r = gymapi.Quat(*quat)  # quat in xyzw order
-        return asset, start_pose
+        return asset, start_pose, asset_obj_id, asset_mesh_id
 
     def create_rand_mesh(self, fix_base_link=False):
         # get randomly sampled mesh path
@@ -448,11 +381,8 @@ class FrankaLEAP(VecTask):
         mesh_scale = np.random.uniform(scale_range[0], scale_range[1])
         mesh_pos = np.random.uniform(pos_range[0], pos_range[1])
         mesh_quat = R.random().as_quat()  # [x, y, z, w]
-        asset, start_pose = self._create_mesh(sampled_mesh_path, mesh_pos, mesh_scale, mesh_quat, fix_base_link)
-        return asset, start_pose
-
-    def _reset_obstacle(self):
-        pass
+        asset, start_pose, asset_obj_id, asset_mesh_id = self._create_mesh(sampled_mesh_path, mesh_pos, mesh_scale, mesh_quat, fix_base_link)
+        return asset, start_pose, asset_obj_id, asset_mesh_id
 
     def _refresh(self):
         self.gym.refresh_actor_root_state_tensor(self.sim)
@@ -495,10 +425,6 @@ class FrankaLEAP(VecTask):
             "object_rot_6d": object_rot_6d,
             "object_pos": self._object_state[:, :3],
         })
-
-    def compute_observations(self):
-        self._refresh()
-        return self.obs_buf
 
     def check_robot_collision(self):
         # TODO: figure out arm & hand collision
@@ -665,6 +591,107 @@ class FrankaLEAP(VecTask):
 
             self.gym.viewer_camera_look_at(self.viewer, None, cam_pos, cam_target)
 
+    # debugging utils
+    def step_sim_multi(self, num_steps=1):
+        """
+        Step the simulation. (for debugging purposes)
+        """
+        for _ in range(num_steps):
+            self.gym.simulate(self.sim)
+            self.render()
+            self._refresh()
+
+    def render_multi(self, num_steps=1):
+        """
+        Render the simulation. (for debugging purposes)
+        """
+        for _ in range(num_steps):
+            self.render()
+
+    # for debugging purposes only, so this scripts on its own can run
+    def _create_envs(self, spacing, num_per_row):
+        """
+        loading Franka + LEAP + a table in the environment, this is for debugging purposes only
+        """
+        lower = gymapi.Vec3(-spacing, -spacing, 0.0)
+        upper = gymapi.Vec3(spacing, spacing, spacing)
+
+        # setup params
+        table_thickness = 0.05
+        self.cuboid_dims = []  # xyz
+        self.capsule_dims = []  # r, l
+        self.sphere_radii = []  # r
+
+        # setup robot (franka + leap)
+        robot_dof_props = self._create_franka_leap()
+        robot_asset = self.robot_asset
+        robot_start_pose = gymapi.Transform()
+        robot_start_pose.p = gymapi.Vec3(0.0, 0.0, 0.0 + table_thickness / 2)
+        robot_start_pose.r = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
+
+        # setup table
+        table_asset, table_start_pose = self._create_cube(
+            pos=[0.5, 0.0, 0.0],
+            size=[0.7, 1.2, table_thickness],
+        )
+
+        # grasp object
+        obj_asset, obj_start_pose, _, _ = self.create_rand_mesh()
+
+        # compute aggregate size
+        num_robot_bodies = self.gym.get_asset_rigid_body_count(robot_asset)
+        num_robot_shapes = self.gym.get_asset_rigid_shape_count(robot_asset)
+        max_agg_bodies = num_robot_bodies + 1 + 1  # 1 for table, 1 for obj
+        max_agg_shapes = num_robot_shapes + 1 + 1  # 1 for table, 1 for obj
+
+        self.robots = []
+        self.objs = []
+        self.env_ptrs = []
+
+        # Create environments
+        for i in range(self.num_envs):
+            # create env instance
+            env_ptr = self.gym.create_env(self.sim, lower, upper, num_per_row)
+
+            # Create actors and define aggregate group appropriately depending on setting
+            # NOTE: franka should ALWAYS be loaded first in sim!
+            if self.aggregate_mode >= 3:
+                self.gym.begin_aggregate(env_ptr, max_agg_bodies, max_agg_shapes, True)
+
+            # Create robot (franka + leap)
+            robot_actor = self.gym.create_actor(
+                env_ptr, robot_asset, robot_start_pose, "franka", i, 0, 0
+            )
+            self.gym.set_actor_dof_properties(env_ptr, robot_actor, robot_dof_props)
+
+            if self.aggregate_mode == 2:
+                self.gym.begin_aggregate(env_ptr, max_agg_bodies, max_agg_shapes, True)
+
+            # Create table
+            self.gym.create_actor(
+                env_ptr, table_asset, table_start_pose, "table", i, 1, 0
+            )
+
+            # Create object
+            self._object_id = self.gym.create_actor(
+                env_ptr, obj_asset, obj_start_pose, "object", i, 2, 0
+            )
+
+            if self.aggregate_mode == 1:
+                self.gym.begin_aggregate(env_ptr, max_agg_bodies, max_agg_shapes, True)
+
+            if self.aggregate_mode > 0:
+                self.gym.end_aggregate(env_ptr)
+
+            # Store the created env pointers
+            self.env_ptrs.append(env_ptr)
+            self.robots.append(robot_actor)
+            self.objs.append(self._object_id)
+
+        # Setup data
+        actor_num = 1 + 1 + 1  # robot, table, obj
+        self.init_data(actor_num=actor_num)
+
     def reset_idx(self, env_ids=None):
         if env_ids is None:
             env_ids = torch.arange(self.num_envs, device=self.device)
@@ -705,22 +732,12 @@ class FrankaLEAP(VecTask):
     def compute_reward(self, actions):
         pass
 
-    # debugging utils
-    def step_sim_multi(self, num_steps=1):
-        """
-        Step the simulation. (for debugging purposes)
-        """
-        for _ in range(num_steps):
-            self.gym.simulate(self.sim)
-            self.render()
-            self._refresh()
+    def _reset_obstacle(self):
+        pass
 
-    def render_multi(self, num_steps=1):
-        """
-        Render the simulation. (for debugging purposes)
-        """
-        for _ in range(num_steps):
-            self.render()
+    def compute_observations(self):
+        self._refresh()
+        return self.obs_buf
 
 
 @hydra.main(config_name="config", config_path="../cfg/")
