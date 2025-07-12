@@ -408,8 +408,8 @@ class FrankaLEAP(VecTask):
         hand_base_pos = self._eef_state[:, :3]
 
         # update point clouds
-        self.object_pcds = transform_pcds_to_world(self.object_pcds, self._object_state[:, :7])
-        self.combined_pcds[:, self.pcd_spec_dict["num_object_points"]:] = self.object_pcds.clone()
+        object_pcds_world = transform_pcds_to_world(self.object_pcds, self._object_state[:, :7])
+        self.combined_pcds[:, self.pcd_spec_dict["num_object_points"]:] = object_pcds_world
 
         # update states
         self.states.update({
@@ -609,8 +609,9 @@ class FrankaLEAP(VecTask):
         """
         for _ in range(num_steps):
             self.gym.simulate(self.sim)
-            self.render()
             self._refresh()
+            self.vis_pcd()
+            self.render()
 
     def render_multi(self, num_steps=1):
         """
@@ -620,6 +621,7 @@ class FrankaLEAP(VecTask):
             self.render()
 
     def vis_pcd(self):
+        self.gym.clear_lines(self.viewer)
         for i in range(self.num_envs):
             # draw point clouds
             points = self.combined_pcds[i].cpu().numpy()

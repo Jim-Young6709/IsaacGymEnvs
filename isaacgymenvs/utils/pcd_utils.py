@@ -180,14 +180,14 @@ def quaternion_to_rotation_matrix(q):
 def transform_pcds_to_world(pcds_local, poses):
     # pcds_local: (N, D, P, 3)
     # poses: (N, D, 7) -> (x, y, z, qx, qy, qz, qw)
-    trans = poses[:, :, :3]  # (N, D, 3)
-    quat = poses[:, :, 3:]   # (N, D, 4)
+    trans = poses[..., :3]  # (..., 3)
+    quat = poses[..., 3:]   # (..., 4)
 
-    rot = quaternion_to_rotation_matrix(quat).to(pcds_local.dtype)  # (N, D, 3, 3)
-    
+    rot = quaternion_to_rotation_matrix(quat).to(pcds_local.dtype)  # (..., 3, 3)
+
     # Transform pointclouds
-    pcds_local = pcds_local.unsqueeze(-1)  # (N, D, P, 3, 1)
-    pcds_rotated = torch.matmul(rot.unsqueeze(2), pcds_local).squeeze(-1)  # (N, D, P, 3)
-    pcds_world = pcds_rotated + trans.unsqueeze(2)  # (N, D, P, 3)
+    pcds_local = pcds_local.unsqueeze(-1)  # (..., P, 3, 1)
+    pcds_rotated = torch.matmul(rot.unsqueeze(-3), pcds_local).squeeze(-1)  # (..., P, 3)
+    pcds_world = pcds_rotated + trans.unsqueeze(-2)  # (N, D, P, 3)
     return pcds_world
 
