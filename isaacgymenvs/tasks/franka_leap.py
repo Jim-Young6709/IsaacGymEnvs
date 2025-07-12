@@ -17,7 +17,7 @@ from isaacgym.torch_utils import *
 from isaacgymenvs.tasks.base.vec_task import VecTask
 from isaacgymenvs.utils.reformat import omegaconf_to_dict
 from isaacgymenvs.utils.rotation_conversions import quaternion_to_matrix_ig, matrix_to_rotation_6d
-from isaacgymenvs.utils.pcd_utils import compute_scene_oracle_pcd
+from isaacgymenvs.utils.pcd_utils import compute_scene_oracle_pcd, transform_pcds_to_world
 from omegaconf import DictConfig
 from tqdm import tqdm
 import random
@@ -96,6 +96,11 @@ class FrankaLEAP(VecTask):
         self._effort_control = None             # Torque actions
         self._robot_effort_limits = None       # Actuator effort limits for the robot (franka 7 + leap 4*4)
         self._global_indices = None             # Unique indices corresponding to all envs in flattened array
+
+        # pcd
+        self.static_pcds = []
+        self.object_pcds = []
+        self.combined_pcds = []
 
     def create_sim(self):
         self.sim_params.up_axis = gymapi.UP_AXIS_Z
@@ -402,6 +407,11 @@ class FrankaLEAP(VecTask):
         object_rot_6d = matrix_to_rotation_6d(quaternion_to_matrix_ig(self._object_state[:, 3:7]))
         hand_base_pos = self._eef_state[:, :3]
 
+        # update point clouds
+        self.object_pcds = transform_pcds_to_world(self.object_pcds, self._object_state[:, :7])
+        self.combined_pcds[:, self.pcd_spec_dict["num_object_points"]:] = self.object_pcds.clone()
+
+        # update states
         self.states.update({
             # Robot
             "q": self._q[:, :],
@@ -652,10 +662,6 @@ class FrankaLEAP(VecTask):
         self.capsule_dims = []  # r, l
         self.sphere_radii = []  # r
 
-        self.static_pcds = []
-        self.object_pcds = []
-        self.combined_pcds = []
-
         # setup robot (franka + leap)
         robot_dof_props = self._create_franka_leap()
         robot_asset = self.robot_asset
@@ -772,7 +778,7 @@ class FrankaLEAP(VecTask):
         Args:
             actions (torch.Tensor): delta unnormalized joint angles (num_selected_envs, 7+4*4)
         """
-        delta_actions = delta_actions * self.action_scale
+        delta_actions = actions * self.action_scale
         self.actions = delta_actions
         abs_actions = self.states['q'] + delta_actions # TODO: not sure if should directly use self.states, need to really make sure its always up to date
         self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(abs_actions))

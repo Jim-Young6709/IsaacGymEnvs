@@ -1,9 +1,75 @@
 import cv2
 import numpy as np
 import torch
+import random
+from typing import Sequence, Union
 from geometrout.primitive import Cuboid, Cylinder, Sphere
+from isaacgymenvs.utils.geometry import ObjaMesh
 
-from isaacgymenvs.utils.geometry import ObjaMesh, construct_mixed_point_cloud
+
+def construct_mixed_point_cloud(
+    obstacles: Sequence[Union[Sphere, Cuboid, Cylinder, ObjaMesh]],
+    num_points: int,
+    return_point_list: bool = False,
+    even: bool = False,
+) -> np.ndarray:
+    """
+    Creates a random point cloud from a collection of obstacles. The points in
+    the point cloud should be fairly(-ish) distributed amongst the obstacles based
+    on their surface area.
+
+    :param obstacles Sequence[Union[Sphere, Cuboid, Cylinder]]: The obstacles in the scene
+    :param num_points int: The total number of points in the samples scene (not
+                           the number of points per obstacle)
+    :rtype np.ndarray: Has dim [N, 3] where N is num_points
+    """
+    point_set = []
+    total_obstacles = len(obstacles)
+    if total_obstacles == 0:
+        return np.array([[]])
+
+    # Allocate points based on obstacle surface area for even sampling
+    surface_areas = np.array([o.surface_area for o in obstacles])
+    total_area = np.sum(surface_areas)
+    if even:
+        proportions = np.ones(total_obstacles) / total_obstacles
+    else:
+        proportions = (surface_areas / total_area).tolist()
+
+    indices = list(range(1, total_obstacles + 1))
+    random.shuffle(indices)
+    idx = 0
+
+    for o, prop in zip(obstacles, proportions):
+        sample_number = int(prop * num_points) + 500
+        samples = o.sample_surface(sample_number)
+        _points = indices[idx] * np.ones((sample_number, 4))
+        _points[:, :3] = samples
+        point_set.append(_points)
+        idx += 1
+
+    if return_point_list:
+        lengths = torch.tensor([ps.shape[0] for ps in point_set], dtype=torch.float32)
+        total = lengths.sum()
+        ratios = lengths / total
+        num_samples = (ratios * num_points).floor().to(torch.int32)
+        num_samples[-1] += num_points - num_samples.sum()
+
+        downsampled_point_set = []
+        for point_subset, n in zip(point_set, num_samples):
+            indices = torch.randperm(point_subset.shape[0])[:n]
+            downsampled_point_set.append(point_subset[indices])
+
+        assert (
+            torch.tensor([ps.shape[0] for ps in downsampled_point_set], dtype=torch.float32).sum()
+            == num_points
+        )
+        return downsampled_point_set
+
+    points = np.concatenate(point_set, axis=0)
+
+    # Downsample to the desired number of points
+    return points[np.random.choice(points.shape[0], num_points, replace=False), :]
 
 
 def compute_scene_oracle_pcd(
@@ -83,4 +149,45 @@ def compute_scene_oracle_pcd(
     )
     obstacle_points = np.array(obstacle_points)[..., :3]
     return obstacle_points
+
+
+def quaternion_to_rotation_matrix(q):
+    # q: (..., 4) -> (..., 3, 3)
+    # (qx, qy, qz, qw)
+    x, y, z, w = q.unbind(-1)
+
+    B = q.shape[:-1]
+
+    xx = x * x
+    yy = y * y
+    zz = z * z
+    ww = w * w
+    xy = x * y
+    xz = x * z
+    yz = y * z
+    wx = w * x
+    wy = w * y
+    wz = w * z
+
+    rot = torch.stack([
+        ww + xx - yy - zz, 2 * (xy - wz),       2 * (xz + wy),
+        2 * (xy + wz),     ww - xx + yy - zz,   2 * (yz - wx),
+        2 * (xz - wy),     2 * (yz + wx),       ww - xx - yy + zz
+    ], dim=-1).reshape(*B, 3, 3)
+    return rot
+
+
+def transform_pcds_to_world(pcds_local, poses):
+    # pcds_local: (N, D, P, 3)
+    # poses: (N, D, 7) -> (x, y, z, qx, qy, qz, qw)
+    trans = poses[:, :, :3]  # (N, D, 3)
+    quat = poses[:, :, 3:]   # (N, D, 4)
+
+    rot = quaternion_to_rotation_matrix(quat).to(pcds_local.dtype)  # (N, D, 3, 3)
+    
+    # Transform pointclouds
+    pcds_local = pcds_local.unsqueeze(-1)  # (N, D, P, 3, 1)
+    pcds_rotated = torch.matmul(rot.unsqueeze(2), pcds_local).squeeze(-1)  # (N, D, P, 3)
+    pcds_world = pcds_rotated + trans.unsqueeze(2)  # (N, D, P, 3)
+    return pcds_world
 

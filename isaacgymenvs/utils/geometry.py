@@ -21,8 +21,6 @@
 # DEALINGS IN THE SOFTWARE.
 import json
 import os
-import random
-from typing import Sequence, Union
 
 import numpy as np
 import torch
@@ -959,69 +957,4 @@ class ObjaMesh:
                 [2 * x * z - 2 * y * w, 2 * y * z + 2 * x * w, 1 - 2 * x**2 - 2 * y**2],
             ]
         )
-
-
-def construct_mixed_point_cloud(
-    obstacles: Sequence[Union[Sphere, Cuboid, Cylinder, ObjaMesh]],
-    num_points: int,
-    return_point_list: bool = False,
-    even: bool = False,
-) -> np.ndarray:
-    """
-    Creates a random point cloud from a collection of obstacles. The points in
-    the point cloud should be fairly(-ish) distributed amongst the obstacles based
-    on their surface area.
-
-    :param obstacles Sequence[Union[Sphere, Cuboid, Cylinder]]: The obstacles in the scene
-    :param num_points int: The total number of points in the samples scene (not
-                           the number of points per obstacle)
-    :rtype np.ndarray: Has dim [N, 3] where N is num_points
-    """
-    point_set = []
-    total_obstacles = len(obstacles)
-    if total_obstacles == 0:
-        return np.array([[]])
-
-    # Allocate points based on obstacle surface area for even sampling
-    surface_areas = np.array([o.surface_area for o in obstacles])
-    total_area = np.sum(surface_areas)
-    if even:
-        proportions = np.ones(total_obstacles) / total_obstacles
-    else:
-        proportions = (surface_areas / total_area).tolist()
-
-    indices = list(range(1, total_obstacles + 1))
-    random.shuffle(indices)
-    idx = 0
-
-    for o, prop in zip(obstacles, proportions):
-        sample_number = int(prop * num_points) + 500
-        samples = o.sample_surface(sample_number)
-        _points = indices[idx] * np.ones((sample_number, 4))
-        _points[:, :3] = samples
-        point_set.append(_points)
-        idx += 1
-
-    if return_point_list:
-        lengths = torch.tensor([ps.shape[0] for ps in point_set], dtype=torch.float32)
-        total = lengths.sum()
-        ratios = lengths / total
-        num_samples = (ratios * num_points).floor().to(torch.int32)
-        num_samples[-1] += num_points - num_samples.sum()
-
-        downsampled_point_set = []
-        for point_subset, n in zip(point_set, num_samples):
-            indices = torch.randperm(point_subset.shape[0])[:n]
-            downsampled_point_set.append(point_subset[indices])
-
-        assert (
-            torch.tensor([ps.shape[0] for ps in downsampled_point_set], dtype=torch.float32).sum()
-            == num_points
-        )
-        return downsampled_point_set
-
-    points = np.concatenate(point_set, axis=0)
-
-    # Downsample to the desired number of points
-    return points[np.random.choice(points.shape[0], num_points, replace=False), :]
 
