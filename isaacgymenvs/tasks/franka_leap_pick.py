@@ -146,25 +146,6 @@ class FrankaLEAPPick(FrankaLEAP):
         actor_num = 1 + 1 + 1  # robot, table, object
         self.init_data(actor_num=actor_num)
 
-    def _reset_obstacle(self): # TODO
-        pass
-
-    def _reset_object_state(self, env_ids): # TODO: add reset logic here, randomize pos, ori
-        if env_ids is None:
-            env_ids = torch.arange(self.num_envs, device=self.device)
-
-        # Initialize buffer to hold sampled values
-        num_resets = len(env_ids)
-        sampled_object_state = torch.zeros(num_resets, 13, device=self.device)
-
-        # Sampling is "centered" around middle of table
-        pos_range = torch.Tensor([[0.45, -0.2, 1.2], [0.55, 0.2, 1.25]]).to(self.device)
-        reset_pos = torch.rand(num_resets, 3, device=self.device) * (pos_range[1] - pos_range[0]) + pos_range[0]
-
-        sampled_object_state[:, 6] = 1.0
-        sampled_object_state[:, :3] = reset_pos
-        self._object_state[env_ids] = sampled_object_state
-
     def compute_observations(self):
         self._refresh()
 
@@ -210,7 +191,6 @@ class FrankaLEAPPick(FrankaLEAP):
         self.set_robot_joint_state(reset_config, env_ids=env_ids) # TODO: have a flag for env, refresh
 
         self._reset_object_state(env_ids) # reset object state
-        self._reset_obstacle() # need to have logic to prevent object falls off the table
         self.progress_buf[env_ids] = 0
         self.reset_buf[env_ids] = 0
         self.compute_observations()

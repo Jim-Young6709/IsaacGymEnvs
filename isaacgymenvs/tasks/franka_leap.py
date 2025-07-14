@@ -6,6 +6,7 @@ import os
 import time
 from pathlib import Path
 import json
+from abc import abstractmethod
 
 import hydra
 import isaacgym
@@ -577,6 +578,28 @@ class FrankaLEAP(VecTask):
         if not self.headless:
             self.render()
 
+    def _reset_object_state(self, env_ids):
+        if env_ids is None:
+            env_ids = torch.arange(self.num_envs, device=self.device)
+
+        # Initialize buffer to hold sampled values
+        num_resets = len(env_ids)
+        sampled_object_state = torch.zeros(num_resets, 13, device=self.device)
+
+        # Sampling is "centered" around middle of table
+        pos_range = torch.Tensor([[0.45, -0.2, 0.2], [0.55, 0.2, 0.25]]).to(self.device)
+        reset_pos = torch.rand(num_resets, 3, device=self.device) * (pos_range[1] - pos_range[0]) + pos_range[0]
+
+        sampled_object_state[:, 6] = 1.0
+        sampled_object_state[:, :3] = reset_pos
+        self._object_state[env_ids] = sampled_object_state
+
+        multi_env_ids_obj_int32 = self._global_indices[env_ids, self._object_id].flatten()
+        self.gym.set_actor_root_state_tensor_indexed(
+            self.sim, gymtorch.unwrap_tensor(self._root_state),
+            gymtorch.unwrap_tensor(multi_env_ids_obj_int32), len(multi_env_ids_obj_int32),
+        )
+
     def get_joint_limits(self):
         """
         Get the joint limits of the robot. Franka (7) + LEAP (4*4), 23 DOF in total
@@ -783,7 +806,7 @@ class FrankaLEAP(VecTask):
 
         self.set_robot_joint_state(reset_config, env_ids=env_ids)
 
-        self._reset_obstacle()
+        self._reset_object_state(env_ids) # reset object state
         self.progress_buf[env_ids] = 0
         self.reset_buf[env_ids] = 0
         self.compute_observations()
@@ -808,12 +831,11 @@ class FrankaLEAP(VecTask):
         self.compute_observations()
         self.compute_reward(self.actions)
 
+    @abstractmethod
     def compute_reward(self, actions):
         pass
 
-    def _reset_obstacle(self):
-        pass
-
+    @abstractmethod
     def compute_observations(self):
         self._refresh()
         return self.obs_buf
