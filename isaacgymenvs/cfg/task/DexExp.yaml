@@ -1,5 +1,5 @@
 # TODO (Jim): cleanup
-name: Fra
+name: FrankaLEAPPick
 
 physics_engine: ${..physics_engine}
 
@@ -15,7 +15,7 @@ env:
 
   aggregateMode: 3
 
-  actionScale: 0.01
+  actionScale: 0.03
 
   controlType: joint_position  # options are {joint_position, osc}
   controlFrequencyInv: 1
@@ -39,12 +39,8 @@ env:
     width: 640
     height: 480
 
-  # 14: for Dagger (7 joint angles + 7 goal angles)
-  # 1031: for RL with switch, 1024 pcd_feats + 7 joint angles
-  # 1038: for residual RL match the output dim of pointnet encoder, note this only works with robomimic ckpts (1024 pcd_feats + 7 joint angles + 7 base_policy_delta)
-  # 1045: for residual RL (1024 pcd_feats + 7 joint angles + 7 goal angles + 7 base policy delta)
-  numObservations: 2062 # 1024 * 2 + 7 joint angles + 7 base_policy_delta
-  numStates: 2070 # 2062 + pos(3) + vel(3) + dyn_sdf + static_sdf
+  numObservations: 1089 # 1024 + state info
+  numStates: 1089
   numActions: 23
 
   pcd_his_len: 0 # 0 - no history buffer
@@ -86,10 +82,8 @@ task:
   randomize: False
 
 reward:
-  sdf_rw_max: [20]
-  flag_rw_max: [10]
-  sdf_threshold: 0.1
-  curri_freq: 20000
+  target_pos: [0.5, 0.0, 0.3]
+  target_quat: [0.0, 0.0, 0.0, 1.0]
 
 pcd_spec:
   num_static_points: 2048

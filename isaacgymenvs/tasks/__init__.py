@@ -57,6 +57,7 @@ from .industreal.industreal_task_pegs_insert import IndustRealTaskPegsInsert
 from .industreal.industreal_task_gears_insert import IndustRealTaskGearsInsert
 
 from .franka_leap import FrankaLEAP
+from .franka_leap_pick import FrankaLEAPPick
 
 
 def resolve_allegro_kuka(cfg, *args, **kwargs):
@@ -114,4 +115,5 @@ isaacgym_task_map = {
     "ShadowHand": ShadowHand,
     "Trifinger": Trifinger,
     "FrankaLEAP": FrankaLEAP,
+    "FrankaLEAPPick": FrankaLEAPPick,
 }

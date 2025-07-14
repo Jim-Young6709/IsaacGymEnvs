@@ -9,7 +9,7 @@ import torch
 
 def quaternion_to_matrix_ig(quaternions: torch.Tensor) -> torch.Tensor:
     """
-    Convert rotations given as quaternions (real part last) to rotation matrices.
+    Convert rotations given as quaternions (xyzw) to rotation matrices.
 
     Args:
         quaternions: quaternions with real part last,

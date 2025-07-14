@@ -224,6 +224,14 @@ class FrankaLEAP(VecTask):
         self._global_indices = torch.arange(self.num_envs * actor_num, dtype=torch.int32,
                                            device=self.device).view(self.num_envs, -1) # 3 actors, franka, table, table_stand
 
+        target_pos = to_torch(self.cfg["reward"]["target_pos"], device=self.device)
+        target_quat = to_torch(self.cfg["reward"]["target_quat"], device=self.device)
+        self.reward_settings = {
+            "target_pos": target_pos,
+            "target_quat": target_quat,
+            "target_rot_6d": matrix_to_rotation_6d(quaternion_to_matrix_ig(target_quat)),
+        }
+
     def _create_cube(self, pos, size, quat=[0, 0, 0, 1]):
         """
         Args:
@@ -435,6 +443,11 @@ class FrankaLEAP(VecTask):
             "object_quat": self._object_state[:, 3:7],
             "object_rot_6d": object_rot_6d,
             "object_pos": self._object_state[:, :3],
+
+            # task related
+            "hand_to_object": self._object_state[:, :3] - self._eef_state[:, :3],
+            "object_to_target": self.reward_settings["target_pos"] - self._object_state[:, :3],
+            "object_target_6d_diff": self.reward_settings["target_rot_6d"] - object_rot_6d,
         })
 
     def check_robot_collision(self):

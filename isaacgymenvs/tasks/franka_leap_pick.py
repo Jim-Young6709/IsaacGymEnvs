@@ -15,13 +15,20 @@ from isaacgymenvs.utils.reformat import omegaconf_to_dict
 from isaacgymenvs.utils.pcd_utils import compute_scene_oracle_pcd
 from omegaconf import DictConfig
 from tqdm import tqdm
+from collections import OrderedDict
+from neural_mp.real_utils.model import NeuralMPModel
 
 
 
 class FrankaLEAPPick(FrankaLEAP):
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
+        # load pretrained encoder TODO: note this is the drp_neural_mp encoder, should use IMPACT one
+        self.base_model = NeuralMPModel.from_pretrained("jimyoung6709/DRP_Dagger")
+        self.pcd_encoder = self.base_model.policy.nets['policy'].model.nets['encoder'].nets['obs']
+        self.pcd_encoder.eval()
+
         super().__init__(
-            config=cfg,
+            cfg=cfg,
             rl_device=rl_device,
             sim_device=sim_device,
             graphics_device_id=graphics_device_id,
@@ -29,6 +36,7 @@ class FrankaLEAPPick(FrankaLEAP):
             virtual_screen_capture=virtual_screen_capture,
             force_render=force_render
         )
+
         # TODO: add full env loading here
 
     def _create_envs(self, spacing, num_per_row):
@@ -68,7 +76,7 @@ class FrankaLEAPPick(FrankaLEAP):
         self.env_ptrs = []
 
         # Create environments
-        for i in range(self.num_envs):
+        for i in tqdm(range(self.num_envs)):
             # grasp object
             object_asset, object_start_pose, object_scale, object_id, mesh_id = self.create_rand_mesh()
 
@@ -143,6 +151,33 @@ class FrankaLEAPPick(FrankaLEAP):
 
     def compute_observations(self):
         self._refresh()
+
+        obs_base = OrderedDict()
+        dummy_config = torch.ones((self.num_envs, 7), device=self.device, dtype=torch.float32)
+        zero_padding = torch.zeros(self.num_envs, self.combined_pcds.shape[1], 1, device=self.device, dtype=torch.float32)
+        input_pcd = torch.cat([self.combined_pcds, zero_padding], dim=-1).to(torch.float32)
+        obs_base["current_angles"] = dummy_config.clone()
+        obs_base["goal_angles"] = dummy_config.clone()
+        obs_base["compute_pcd_params"] = input_pcd
+        pcd_latent = self.pcd_encoder(obs_base)
+        pcd_latent = pcd_latent[:, :1024]
+
+        obs_components = ["q", "eef_pos", "eef_rot_6d",
+                          "eef_finger1_pos", "eef_finger2_pos", "eef_finger3_pos", "eef_finger4_pos",
+                          "object_pos", "object_rot_6d", "hand_to_object",
+                          "object_to_target", "object_target_6d_diff"]
+
+        states_components = ["q", "eef_pos", "eef_rot_6d",
+                          "eef_finger1_pos", "eef_finger2_pos", "eef_finger3_pos", "eef_finger4_pos",
+                          "object_pos", "object_rot_6d", "hand_to_object",
+                          "object_to_target", "object_target_6d_diff"]
+
+        obs_buf = torch.cat([self.states[ob] for ob in obs_components] + [pcd_latent], dim=-1)
+        states_buf = torch.cat([self.states[st] for st in states_components] + [pcd_latent], dim=-1)
+
+        self.obs_buf = obs_buf
+        self.states_buf = states_buf
+
         return self.obs_buf
 
     def reset_idx(self, env_ids=None):
@@ -167,7 +202,7 @@ class FrankaLEAPPick(FrankaLEAP):
         Args:
             actions (torch.Tensor): delta unnormalized joint angles (num_selected_envs, 7+4*4)
         """
-        delta_actions = delta_actions * self.action_scale
+        delta_actions = actions * self.action_scale
         self.actions = delta_actions
         abs_actions = self.states['q'] + delta_actions # TODO: not sure if should directly use self.states, need to really make sure its always up to date
         self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(abs_actions))
@@ -183,7 +218,35 @@ class FrankaLEAPPick(FrankaLEAP):
         self.compute_reward(self.actions)
 
     def compute_reward(self, actions):
-        pass
+        self.reset_buf[:] = torch.where((self.progress_buf >= self.max_episode_length - 1), torch.ones_like(self.reset_buf), self.reset_buf)
+        self.rew_buf[:] = compute_franka_leap_reward(self.states, self.reward_settings)
+
+@torch.jit.script
+def compute_franka_leap_reward(states, reward_settings):
+    # type: (Dict[str, Tensor], Dict[str, Tensor]) -> Tensor
+
+    # Hand (palm, fingers) to object distance
+    d_palm = torch.norm(states["object_pos"] - states["eef_pos"], dim=-1)
+    d_finger1 = torch.norm(states["object_pos"] - states["eef_finger1_pos"], dim=-1)
+    d_finger2 = torch.norm(states["object_pos"] - states["eef_finger2_pos"], dim=-1)
+    d_finger3 = torch.norm(states["object_pos"] - states["eef_finger3_pos"], dim=-1)
+    d_finger4 = torch.norm(states["object_pos"] - states["eef_finger4_pos"], dim=-1)
+    
+    # Max dist component to object: max_i∈{palm_pos,fingertips} ||x^i - x^obj||
+    d_hand_obj = torch.stack([d_palm, d_finger1, d_finger2, d_finger3, d_finger4], dim=1)
+    d_hand_obj = torch.max(d_hand_obj, dim=1)[0]
+    
+    # Hand object distance reward
+    r_hand_obj = torch.exp(-d_hand_obj)
+
+    # Goal Reward
+    target_pos = reward_settings["target_pos"].squeeze(-1)
+    d_obj_goal = torch.norm(states["object_pos"] - target_pos, dim=-1)
+    r_obj_goal = torch.exp(-d_obj_goal)
+
+    rewards = r_hand_obj + r_obj_goal
+
+    return rewards
 
 
 @hydra.main(config_name="config", config_path="../cfg/")
