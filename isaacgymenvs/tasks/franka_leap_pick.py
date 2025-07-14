@@ -146,8 +146,24 @@ class FrankaLEAPPick(FrankaLEAP):
         actor_num = 1 + 1 + 1  # robot, table, object
         self.init_data(actor_num=actor_num)
 
-    def _reset_obstacle(self): # TODO: add reset logic here, randomize pos, ori
+    def _reset_obstacle(self): # TODO
         pass
+
+    def _reset_object_state(self, env_ids): # TODO: add reset logic here, randomize pos, ori
+        if env_ids is None:
+            env_ids = torch.arange(self.num_envs, device=self.device)
+
+        # Initialize buffer to hold sampled values
+        num_resets = len(env_ids)
+        sampled_object_state = torch.zeros(num_resets, 13, device=self.device)
+
+        # Sampling is "centered" around middle of table
+        pos_range = torch.Tensor([[0.45, -0.2, 1.2], [0.55, 0.2, 1.25]]).to(self.device)
+        reset_pos = torch.rand(num_resets, 3, device=self.device) * (pos_range[1] - pos_range[0]) + pos_range[0]
+
+        sampled_object_state[:, 6] = 1.0
+        sampled_object_state[:, :3] = reset_pos
+        self._object_state[env_ids] = sampled_object_state
 
     def compute_observations(self):
         self._refresh()
@@ -155,11 +171,12 @@ class FrankaLEAPPick(FrankaLEAP):
         obs_base = OrderedDict()
         dummy_config = torch.ones((self.num_envs, 7), device=self.device, dtype=torch.float32)
         zero_padding = torch.zeros(self.num_envs, self.combined_pcds.shape[1], 1, device=self.device, dtype=torch.float32)
+        # TODO: use different mask for object and obstacles
         input_pcd = torch.cat([self.combined_pcds, zero_padding], dim=-1).to(torch.float32)
         obs_base["current_angles"] = dummy_config.clone()
         obs_base["goal_angles"] = dummy_config.clone()
         obs_base["compute_pcd_params"] = input_pcd
-        pcd_latent = self.pcd_encoder(obs_base)
+        pcd_latent = self.pcd_encoder(obs_base) # 1038 (1024 + 7 + 7)
         pcd_latent = pcd_latent[:, :1024]
 
         obs_components = ["q", "eef_pos", "eef_rot_6d",
@@ -190,9 +207,10 @@ class FrankaLEAPPick(FrankaLEAP):
             0.1 * 2.0 * (reset_noise - 0.5),
             self.robot_dof_lower_limits, self.robot_dof_upper_limits)
 
-        self.set_robot_joint_state(reset_config, env_ids=env_ids)
+        self.set_robot_joint_state(reset_config, env_ids=env_ids) # TODO: have a flag for env, refresh
 
-        self._reset_obstacle()
+        self._reset_object_state(env_ids) # reset object state
+        self._reset_obstacle() # need to have logic to prevent object falls off the table
         self.progress_buf[env_ids] = 0
         self.reset_buf[env_ids] = 0
         self.compute_observations()
@@ -202,7 +220,7 @@ class FrankaLEAPPick(FrankaLEAP):
         Args:
             actions (torch.Tensor): delta unnormalized joint angles (num_selected_envs, 7+4*4)
         """
-        delta_actions = actions * self.action_scale
+        delta_actions = actions * self.action_scale # TODO: have separate scale for arm & hand
         self.actions = delta_actions
         abs_actions = self.states['q'] + delta_actions # TODO: not sure if should directly use self.states, need to really make sure its always up to date
         self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(abs_actions))
@@ -211,6 +229,7 @@ class FrankaLEAPPick(FrankaLEAP):
         self.progress_buf += 1
 
         env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
+        # TODO: add reset logic when object falls to the ground
         if len(env_ids) > 0:
             self.reset_idx(env_ids)
 

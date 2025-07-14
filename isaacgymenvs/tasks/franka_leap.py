@@ -460,7 +460,7 @@ class FrankaLEAP(VecTask):
             torch.sum(torch.norm(self.contact_forces[:, :30, :], dim=2), dim=1) > 1.0, 1.0, 0.0
         )  # the first 16 elements belong to franka + leap, this includes self collision
 
-    def normalize_franka_joints(self, joint_angles: torch.Tensor) -> torch.Tensor:
+    def normalize_robot_joints(self, joint_angles: torch.Tensor) -> torch.Tensor:
         """
         Normalize joint angles to be within the joint limits.
         Args:
@@ -477,7 +477,7 @@ class FrankaLEAP(VecTask):
         ) + desired_lower_limits
         return normalized
 
-    def unnormalize_franka_joints(self, joint_angles: torch.Tensor) -> torch.Tensor:
+    def unnormalize_robot_joints(self, joint_angles: torch.Tensor) -> torch.Tensor:
         """
         Unnormalize joint angles.
         Args:
