@@ -60,12 +60,12 @@ class FrankaLEAPPick(FrankaLEAP):
 
         obs_components = ["q", "eef_pos", "eef_rot_6d",
                           "eef_finger1_pos", "eef_finger2_pos", "eef_finger3_pos", "eef_finger4_pos",
-                          "object_pos", "object_rot_6d", "hand_to_object",
+                          "object_center_pos", "object_rot_6d", "hand_to_object",
                           "object_to_target", "object_target_6d_diff"]
 
         states_components = ["q", "eef_pos", "eef_rot_6d",
                           "eef_finger1_pos", "eef_finger2_pos", "eef_finger3_pos", "eef_finger4_pos",
-                          "object_pos", "object_rot_6d", "hand_to_object",
+                          "object_center_pos", "object_rot_6d", "hand_to_object",
                           "object_to_target", "object_target_6d_diff"]
 
         obs_buf = torch.cat([self.states[ob] for ob in obs_components] + [pcd_latent], dim=-1)
@@ -78,7 +78,7 @@ class FrankaLEAPPick(FrankaLEAP):
 
     def compute_reward(self, actions):
         self.reset_buf[:] = torch.where((self.progress_buf >= self.max_episode_length - 1), torch.ones_like(self.reset_buf), self.reset_buf)
-        self.reset_buf[self.states['object_pos'][:, 2] < -0.1] = 1
+        self.reset_buf[self.states['object_center_pos'][:, 2] < -0.1] = 1
         self.rew_buf[:] = compute_franka_leap_reward(self.states, self.reward_settings)
 
 @torch.jit.script
@@ -87,22 +87,22 @@ def compute_franka_leap_reward(states, reward_settings):
     exp_alpha = reward_settings["exp_alpha"]
 
     # Hand (palm, fingers) to object distance
-    d_palm = torch.norm(states["object_pos"] - states["eef_pos"], dim=-1)
-    d_finger1 = torch.norm(states["object_pos"] - states["eef_finger1_pos"], dim=-1)
-    d_finger2 = torch.norm(states["object_pos"] - states["eef_finger2_pos"], dim=-1)
-    d_finger3 = torch.norm(states["object_pos"] - states["eef_finger3_pos"], dim=-1)
-    d_finger4 = torch.norm(states["object_pos"] - states["eef_finger4_pos"], dim=-1)
-    
+    d_palm = torch.norm(states["object_center_pos"] - states["eef_pos"], dim=-1)
+    d_finger1 = torch.norm(states["object_center_pos"] - states["eef_finger1_pos"], dim=-1)
+    d_finger2 = torch.norm(states["object_center_pos"] - states["eef_finger2_pos"], dim=-1)
+    d_finger3 = torch.norm(states["object_center_pos"] - states["eef_finger3_pos"], dim=-1)
+    d_finger4 = torch.norm(states["object_center_pos"] - states["eef_finger4_pos"], dim=-1)
+
     # Max dist component to object: max_i∈{palm_pos,fingertips} ||x^i - x^obj||
     d_hand_obj = torch.stack([d_palm, d_finger1, d_finger2, d_finger3, d_finger4], dim=1)
     d_hand_obj = torch.max(d_hand_obj, dim=1)[0]
-    
+
     # Hand object distance reward
     r_hand_obj = torch.exp(-d_hand_obj * exp_alpha)
 
     # Goal Reward
     target_pos = reward_settings["target_pos"].squeeze(-1)
-    d_obj_goal = torch.norm(states["object_pos"] - target_pos, dim=-1)
+    d_obj_goal = torch.norm(states["object_center_pos"] - target_pos, dim=-1)
     r_obj_goal = torch.exp(-d_obj_goal * exp_alpha)
 
     rewards = r_hand_obj + r_obj_goal

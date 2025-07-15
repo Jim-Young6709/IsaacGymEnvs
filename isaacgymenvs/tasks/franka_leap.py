@@ -414,9 +414,14 @@ class FrankaLEAP(VecTask):
         self.check_robot_collision()
 
     def _update_states(self):
+        # update arm eef state
         eef_rot_6d = matrix_to_rotation_6d(quaternion_to_matrix_ig(self._eef_state[:, 3:7]))
-        object_rot_6d = matrix_to_rotation_6d(quaternion_to_matrix_ig(self._object_state[:, 3:7]))
         hand_base_pos = self._eef_state[:, :3]
+
+        # update object state
+        object_center_pos = self._object_state[:, :3]
+        object_center_pos[:, 2] += self.mesh_aabb_extents[:, 2] / 2
+        object_rot_6d = matrix_to_rotation_6d(quaternion_to_matrix_ig(self._object_state[:, 3:7]))
 
         # update point clouds
         object_pcds_world = transform_pcds_to_world(self.object_pcds, self._object_state[:, :7])
@@ -445,6 +450,7 @@ class FrankaLEAP(VecTask):
             # Object
             "object_quat": self._object_state[:, 3:7],
             "object_rot_6d": object_rot_6d,
+            "object_center_pos": object_center_pos,
             "object_pos": self._object_state[:, :3],
 
             # task related
