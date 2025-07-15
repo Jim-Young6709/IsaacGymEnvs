@@ -348,7 +348,7 @@ class FrankaLEAP(VecTask):
         urdf_path, asset_root = self._create_mesh_urdf(mesh_path, scale=mesh_scale)
 
         # get object mapping id
-        obj_mapping_path = Path(__file__).parent.parent.parent / "meshes/type_mapping.json"
+        obj_mapping_path = self.mesh_args["mesh_dir"] + "/type_mapping.json"
         obj_str2int = {}
         try:
             with open(obj_mapping_path, "r") as f:
@@ -375,17 +375,18 @@ class FrankaLEAP(VecTask):
         # get randomly sampled mesh path
         mesh_dir = self.mesh_args["mesh_dir"]
         object_list = self.mesh_args["obj_list"]
-        abs_path_dir = isaacgymenvs.__file__[: -len("isaacgymenvs/__init__.py")]
+
         if object_list == ["all"]:
             object_list = [
                 obj
-                for obj in os.listdir(os.path.join(abs_path_dir, mesh_dir))
+                for obj in os.listdir(mesh_dir)
                 if obj != "type_mapping.json"
             ]
+        # import ipdb ; ipdb.set_trace()
         mesh_files = [
-            os.path.join(abs_path_dir, mesh_dir, obj, file)
+            os.path.join(mesh_dir, obj, file)
             for obj in object_list
-            for file in os.listdir(os.path.join(abs_path_dir, mesh_dir, obj))
+            for file in os.listdir(os.path.join(mesh_dir, obj))
             if file.endswith(".obj")
         ]
         mesh_sampler = lambda: random.choice(mesh_files)
