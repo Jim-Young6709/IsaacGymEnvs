@@ -367,19 +367,19 @@ class FrankaLEAP(VecTask):
         start_pose = gymapi.Transform()
         start_pose.p = gymapi.Vec3(*pos)
         start_pose.r = gymapi.Quat(*quat)  # quat in xyzw order
-        return asset, start_pose, asset_obj_id, asset_mesh_id
+        return asset, start_pose, scale, asset_obj_id, asset_mesh_id
 
     def create_rand_mesh(self, fix_base_link=False):
         # get randomly sampled mesh path
         mesh_dir = self.mesh_args["mesh_dir"]
         object_list = self.mesh_args["obj_list"]
+        abs_path_dir = isaacgymenvs.__file__[: -len("isaacgymenvs/__init__.py")]
         if object_list == ["all"]:
             object_list = [
                 obj
                 for obj in os.listdir(os.path.join(abs_path_dir, mesh_dir))
                 if obj != "type_mapping.json"
             ]
-        abs_path_dir = isaacgymenvs.__file__[: -len("isaacgymenvs/__init__.py")]
         mesh_files = [
             os.path.join(abs_path_dir, mesh_dir, obj, file)
             for obj in object_list
@@ -390,14 +390,14 @@ class FrankaLEAP(VecTask):
         sampled_mesh_path = mesh_sampler()
 
         # sample random size, pos and ori
-        scale_range = [0.1, 0.2]
-        pos_range = [[0.45, -0.2, 0.2], [0.55, 0.2, 0.25]]
+        scale_range = self.cfg["env"]["object_settings"]["scale_range"]
+        pos_range = self.cfg["env"]["object_settings"]["xyz_range"]
 
         mesh_scale = np.random.uniform(scale_range[0], scale_range[1])
         mesh_pos = np.random.uniform(pos_range[0], pos_range[1])
         mesh_quat = R.random().as_quat()  # [x, y, z, w]
-        asset, start_pose, asset_obj_id, asset_mesh_id = self._create_mesh(sampled_mesh_path, mesh_pos, mesh_scale, mesh_quat, fix_base_link)
-        return asset, start_pose, mesh_scale, asset_obj_id, asset_mesh_id
+
+        return self._create_mesh(sampled_mesh_path, mesh_pos, mesh_scale, mesh_quat, fix_base_link)
 
     def _refresh(self):
         self.gym.refresh_actor_root_state_tensor(self.sim)
@@ -578,7 +578,7 @@ class FrankaLEAP(VecTask):
         if not self.headless:
             self.render()
 
-    def _reset_object_state(self, env_ids):
+    def _reset_object_state(self, env_ids, on_table=True):
         if env_ids is None:
             env_ids = torch.arange(self.num_envs, device=self.device)
 
@@ -587,8 +587,11 @@ class FrankaLEAP(VecTask):
         sampled_object_state = torch.zeros(num_resets, 13, device=self.device)
 
         # Sampling is "centered" around middle of table
-        pos_range = torch.Tensor([[0.45, -0.2, 0.2], [0.55, 0.2, 0.25]]).to(self.device)
+        pos_range = torch.tensor(self.cfg["env"]["object_settings"]["xyz_range"], device=self.device)
         reset_pos = torch.rand(num_resets, 3, device=self.device) * (pos_range[1] - pos_range[0]) + pos_range[0]
+
+        if on_table:
+            reset_pos[:, 2] = self.table_surface_height
 
         sampled_object_state[:, 6] = 1.0
         sampled_object_state[:, :3] = reset_pos
@@ -699,6 +702,7 @@ class FrankaLEAP(VecTask):
         self.cuboid_dims = []  # xyz
         self.capsule_dims = []  # r, l
         self.sphere_radii = []  # r
+        self.mesh_aabb_extents = None  # xyz, axis-aligned bounding box full extents
 
         # setup robot (franka + leap)
         robot_dof_props = self._create_franka_leap()
@@ -712,6 +716,7 @@ class FrankaLEAP(VecTask):
             pos=[0.5, 0.0, 0.0],
             size=[0.7, 1.2, table_thickness],
         )
+        self.table_surface_height = table_start_pose.p.z + table_thickness / 2
 
         # compute aggregate size
         num_robot_bodies = self.gym.get_asset_rigid_body_count(robot_asset)
@@ -724,7 +729,7 @@ class FrankaLEAP(VecTask):
         self.env_ptrs = []
 
         # Create environments
-        for i in range(self.num_envs):
+        for i in tqdm(range(self.num_envs)):
             # grasp object
             object_asset, object_start_pose, object_scale, object_id, mesh_id = self.create_rand_mesh()
 
@@ -786,9 +791,18 @@ class FrankaLEAP(VecTask):
             )).to(self.device)
             self.object_pcds.append(object_pcd_i)
 
+        self.cuboid_dims = torch.tensor(self.cuboid_dims, device=self.device)  # (num_envs, 3)
+        self.capsule_dims = torch.tensor(self.capsule_dims, device=self.device)  # (num_envs, 2)
+        self.sphere_radii = torch.tensor(self.sphere_radii, device=self.device)
+
         self.static_pcds = torch.stack(self.static_pcds, dim=0).to(self.device) # (num_envs, num_points, 3)
         self.object_pcds = torch.stack(self.object_pcds, dim=0).to(self.device)
         self.combined_pcds = torch.cat([self.static_pcds, self.object_pcds], dim=1).to(self.device) # (num_envs, num_static_points + num_object_points, 3)
+
+        # get mesh AABB (axis-aligned bounding box) extents
+        min_xyz = self.object_pcds.min(axis=1).values
+        max_xyz = self.object_pcds.max(axis=1).values
+        self.mesh_aabb_extents = max_xyz - min_xyz
 
         # Setup data
         actor_num = 1 + 1 + 1  # robot, table, object

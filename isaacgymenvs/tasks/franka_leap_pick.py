@@ -12,7 +12,6 @@ from isaacgym import gymapi, gymtorch
 from isaacgym.torch_utils import *
 from isaacgymenvs.tasks import FrankaLEAP
 from isaacgymenvs.utils.reformat import omegaconf_to_dict
-from isaacgymenvs.utils.pcd_utils import compute_scene_oracle_pcd
 from omegaconf import DictConfig
 from tqdm import tqdm
 from collections import OrderedDict
@@ -43,108 +42,7 @@ class FrankaLEAPPick(FrankaLEAP):
         """
         loading Franka + LEAP + a table in the environment, this is for debugging purposes only
         """
-        lower = gymapi.Vec3(-spacing, -spacing, 0.0)
-        upper = gymapi.Vec3(spacing, spacing, spacing)
-
-        # setup params
-        table_thickness = 0.05
-        self.cuboid_dims = []  # xyz
-        self.capsule_dims = []  # r, l
-        self.sphere_radii = []  # r
-
-        # setup robot (franka + leap)
-        robot_dof_props = self._create_franka_leap()
-        robot_asset = self.robot_asset
-        robot_start_pose = gymapi.Transform()
-        robot_start_pose.p = gymapi.Vec3(0.0, 0.0, 0.0 + table_thickness / 2)
-        robot_start_pose.r = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
-
-        # setup table
-        table_asset, table_start_pose = self._create_cube(
-            pos=[0.5, 0.0, 0.0],
-            size=[0.7, 1.2, table_thickness],
-        )
-
-        # compute aggregate size
-        num_robot_bodies = self.gym.get_asset_rigid_body_count(robot_asset)
-        num_robot_shapes = self.gym.get_asset_rigid_shape_count(robot_asset)
-        max_agg_bodies = num_robot_bodies + 1 + 1  # 1 for table, 1 for object
-        max_agg_shapes = num_robot_shapes + 1 + 1  # 1 for table, 1 for object
-
-        self.robots = []
-        self.objects = []
-        self.env_ptrs = []
-
-        # Create environments
-        for i in tqdm(range(self.num_envs)):
-            # grasp object
-            object_asset, object_start_pose, object_scale, object_id, mesh_id = self.create_rand_mesh()
-
-            # create env instance
-            env_ptr = self.gym.create_env(self.sim, lower, upper, num_per_row)
-
-            # Create actors and define aggregate group appropriately depending on setting
-            # NOTE: franka should ALWAYS be loaded first in sim!
-            if self.aggregate_mode >= 3:
-                self.gym.begin_aggregate(env_ptr, max_agg_bodies, max_agg_shapes, True)
-
-            # Create robot (franka + leap)
-            robot_actor = self.gym.create_actor(
-                env_ptr, robot_asset, robot_start_pose, "franka", i, 0, 0
-            )
-            self.gym.set_actor_dof_properties(env_ptr, robot_actor, robot_dof_props)
-
-            if self.aggregate_mode == 2:
-                self.gym.begin_aggregate(env_ptr, max_agg_bodies, max_agg_shapes, True)
-
-            # Create table
-            self.gym.create_actor(
-                env_ptr, table_asset, table_start_pose, "table", i, 1, 0
-            )
-
-            # Create object
-            self._object_id = self.gym.create_actor(
-                env_ptr, object_asset, object_start_pose, "object", i, 2, 0
-            )
-
-            if self.aggregate_mode == 1:
-                self.gym.begin_aggregate(env_ptr, max_agg_bodies, max_agg_shapes, True)
-
-            if self.aggregate_mode > 0:
-                self.gym.end_aggregate(env_ptr)
-
-            # Store the created env pointers
-            self.env_ptrs.append(env_ptr)
-            self.robots.append(robot_actor)
-            self.objects.append(self._object_id)
-
-            # Precompute static and object point cloud
-            # TODO: now this is hardcoded to current simple settings, need to adapt later
-            static_pcd_i = torch.from_numpy(compute_scene_oracle_pcd(
-                num_obstacle_points=self.pcd_spec_dict["num_static_points"],
-                cuboid_dims=self.cuboid_dims,
-                cuboid_centers=np.array([[table_start_pose.p.x, table_start_pose.p.y, table_start_pose.p.z]]),
-                cuboid_quats=np.array([[table_start_pose.r.x, table_start_pose.r.y, table_start_pose.r.z, table_start_pose.r.w]]),
-            )).to(self.device)
-            self.static_pcds.append(static_pcd_i)
-
-            object_pcd_i = torch.from_numpy(compute_scene_oracle_pcd(
-                num_obstacle_points=self.pcd_spec_dict["num_object_points"],
-                mesh_position=np.array([[0.0, 0.0, 0.0]]),
-                mesh_scale=np.array([object_scale]),
-                mesh_quaternion=np.array([[0.0, 0.0, 0.0, 1.0]]),
-                obj_id=np.array([object_id]),
-                mesh_id=np.array([mesh_id]),
-            )).to(self.device)
-            self.object_pcds.append(object_pcd_i)
-
-        self.static_pcds = torch.stack(self.static_pcds, dim=0).to(self.device) # (num_envs, num_points, 3)
-        self.object_pcds = torch.stack(self.object_pcds, dim=0).to(self.device)
-        self.combined_pcds = torch.cat([self.static_pcds, self.object_pcds], dim=1).to(self.device) # (num_envs, num_static_points + num_object_points, 3)
-
-        # Setup data
-        actor_num = 1 + 1 + 1  # robot, table, object
-        self.init_data(actor_num=actor_num)
+        super()._create_envs(spacing, num_per_row)
 
     def compute_observations(self):
         self._refresh()
@@ -188,7 +86,7 @@ class FrankaLEAPPick(FrankaLEAP):
             0.1 * 2.0 * (reset_noise - 0.5),
             self.robot_dof_lower_limits, self.robot_dof_upper_limits)
 
-        self.set_robot_joint_state(reset_config, env_ids=env_ids) # TODO: have a flag for env, refresh
+        self.set_robot_joint_state(reset_config, env_ids=env_ids)
 
         self._reset_object_state(env_ids) # reset object state
         self.progress_buf[env_ids] = 0
@@ -202,7 +100,7 @@ class FrankaLEAPPick(FrankaLEAP):
         """
         delta_actions = actions * self.action_scale # TODO: have separate scale for arm & hand
         self.actions = delta_actions
-        abs_actions = self.states['q'] + delta_actions # TODO: not sure if should directly use self.states, need to really make sure its always up to date
+        abs_actions = self.states['q'] + delta_actions # need to really make sure states['q'] is always up to date
         self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(abs_actions))
 
     def post_physics_step(self):
