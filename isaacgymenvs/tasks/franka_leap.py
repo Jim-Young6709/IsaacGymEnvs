@@ -455,8 +455,8 @@ class FrankaLEAP(VecTask):
             "object_pos": self._object_state[:, :3],
 
             # task related
-            "hand_to_object": self._object_state[:, :3] - self._eef_state[:, :3],
-            "object_to_target": self.reward_settings["target_pos"] - self._object_state[:, :3],
+            "hand_to_object": object_center_pos - self._eef_state[:, :3],
+            "object_to_target": self.reward_settings["target_pos"] - object_center_pos,
             "object_target_6d_diff": self.reward_settings["target_rot_6d"] - object_rot_6d,
         })
 
