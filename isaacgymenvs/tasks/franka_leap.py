@@ -830,15 +830,16 @@ class FrankaLEAP(VecTask):
         Args:
             actions (torch.Tensor): delta unnormalized joint angles (num_selected_envs, 7+4*4)
         """
-        delta_actions = actions * self.action_scale
+        delta_actions = actions * self.action_scale # TODO: have separate scale for arm & hand
         self.actions = delta_actions
-        abs_actions = self.states['q'] + delta_actions # TODO: not sure if should directly use self.states, need to really make sure its always up to date
+        abs_actions = self.states['q'] + delta_actions # need to really make sure states['q'] is always up to date
         self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(abs_actions))
 
     def post_physics_step(self):
         self.progress_buf += 1
 
         env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
+        # TODO: add reset logic when object falls to the ground
         if len(env_ids) > 0:
             self.reset_idx(env_ids)
 

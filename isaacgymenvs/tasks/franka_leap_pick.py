@@ -76,44 +76,6 @@ class FrankaLEAPPick(FrankaLEAP):
 
         return self.obs_buf
 
-    def reset_idx(self, env_ids=None):
-        if env_ids is None:
-            env_ids = torch.arange(self.num_envs, device=self.device)
-
-        reset_noise = torch.rand((len(env_ids), 23), device=self.device)
-        reset_config = tensor_clamp(
-            self.canonical_joint_config[env_ids] +
-            0.1 * 2.0 * (reset_noise - 0.5),
-            self.robot_dof_lower_limits, self.robot_dof_upper_limits)
-
-        self.set_robot_joint_state(reset_config, env_ids=env_ids)
-
-        self._reset_object_state(env_ids) # reset object state
-        self.progress_buf[env_ids] = 0
-        self.reset_buf[env_ids] = 0
-        self.compute_observations()
-
-    def pre_physics_step(self, actions):
-        """
-        Args:
-            actions (torch.Tensor): delta unnormalized joint angles (num_selected_envs, 7+4*4)
-        """
-        delta_actions = actions * self.action_scale # TODO: have separate scale for arm & hand
-        self.actions = delta_actions
-        abs_actions = self.states['q'] + delta_actions # need to really make sure states['q'] is always up to date
-        self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(abs_actions))
-
-    def post_physics_step(self):
-        self.progress_buf += 1
-
-        env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
-        # TODO: add reset logic when object falls to the ground
-        if len(env_ids) > 0:
-            self.reset_idx(env_ids)
-
-        self.compute_observations()
-        self.compute_reward(self.actions)
-
     def compute_reward(self, actions):
         self.reset_buf[:] = torch.where((self.progress_buf >= self.max_episode_length - 1), torch.ones_like(self.reset_buf), self.reset_buf)
         self.rew_buf[:] = compute_franka_leap_reward(self.states, self.reward_settings)
