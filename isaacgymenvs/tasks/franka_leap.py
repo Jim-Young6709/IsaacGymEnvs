@@ -797,7 +797,7 @@ class FrankaLEAP(VecTask):
                 mesh_quaternion=np.array([[0.0, 0.0, 0.0, 1.0]]),
                 obj_id=np.array([object_id]),
                 mesh_id=np.array([mesh_id]),
-                mesh_dir=self.mesh_args["mesh_dir"],
+                meshes_dir=self.mesh_args["mesh_dir"],
             )).to(self.device)
             self.object_pcds.append(object_pcd_i)
 
