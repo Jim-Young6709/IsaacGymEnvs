@@ -227,10 +227,12 @@ class FrankaLEAP(VecTask):
 
         target_pos = to_torch(self.cfg["reward"]["target_pos"], device=self.device)
         target_quat = to_torch(self.cfg["reward"]["target_quat"], device=self.device)
+        exp_alpha = self.cfg["reward"]["exp_alpha"]
         self.reward_settings = {
             "target_pos": target_pos,
             "target_quat": target_quat,
             "target_rot_6d": matrix_to_rotation_6d(quaternion_to_matrix_ig(target_quat)),
+            "exp_alpha": exp_alpha
         }
 
     def _create_cube(self, pos, size, quat=[0, 0, 0, 1]):
