@@ -78,6 +78,7 @@ class FrankaLEAPPick(FrankaLEAP):
 
     def compute_reward(self, actions):
         self.reset_buf[:] = torch.where((self.progress_buf >= self.max_episode_length - 1), torch.ones_like(self.reset_buf), self.reset_buf)
+        self.reset_buf[self.states['object_pos'][:, 2] < 0] = 1
         self.rew_buf[:] = compute_franka_leap_reward(self.states, self.reward_settings)
 
 @torch.jit.script
