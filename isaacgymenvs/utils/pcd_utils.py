@@ -88,6 +88,7 @@ def compute_scene_oracle_pcd(
     mesh_quaternion: np.ndarray = [],
     obj_id: np.ndarray = [],
     mesh_id: np.ndarray = [],
+    mesh_dir: str = None,
     return_point_list: bool = False,
     even: bool = False,
 ):
@@ -129,7 +130,7 @@ def compute_scene_oracle_pcd(
 
     if len(mesh_position) > 0:
         meshes = [
-            ObjaMesh(pos, scale, quat, obj_id, str(int(mesh_id)))
+            ObjaMesh(pos, scale, quat, obj_id, str(int(mesh_id)), mesh_dir=mesh_dir)
             for pos, scale, quat, obj_id, mesh_id in zip(
                 mesh_position,
                 mesh_scale,

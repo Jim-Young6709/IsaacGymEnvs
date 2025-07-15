@@ -348,7 +348,7 @@ class FrankaLEAP(VecTask):
         urdf_path, asset_root = self._create_mesh_urdf(mesh_path, scale=mesh_scale)
 
         # get object mapping id
-        obj_mapping_path = self.mesh_args["mesh_dir"] + "/type_mapping.json"
+        obj_mapping_path = os.path.join(self.mesh_args["mesh_dir"], "type_mapping.json")
         obj_str2int = {}
         try:
             with open(obj_mapping_path, "r") as f:
@@ -797,6 +797,7 @@ class FrankaLEAP(VecTask):
                 mesh_quaternion=np.array([[0.0, 0.0, 0.0, 1.0]]),
                 obj_id=np.array([object_id]),
                 mesh_id=np.array([mesh_id]),
+                mesh_dir=self.mesh_args["mesh_dir"],
             )).to(self.device)
             self.object_pcds.append(object_pcd_i)
 

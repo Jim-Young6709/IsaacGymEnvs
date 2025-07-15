@@ -876,8 +876,9 @@ class TorchCapsules:
 
 
 class ObjaMesh:
-    def __init__(self, position, scale, quaternion, obj_id, mesh_id, max_points=1000):
-        meshes_dir = os.path.join(os.path.dirname(__file__), "..", "..", "meshes")
+    def __init__(self, position, scale, quaternion, obj_id, mesh_id, max_points=1000, mesh_dir=None):
+        if mesh_dir is None:
+            meshes_dir = os.path.join(os.path.dirname(__file__), "..", "..", "meshes")
         type_mapping_file_path = os.path.join(meshes_dir, "type_mapping.json")
         obj_int2str = {}
         try:
