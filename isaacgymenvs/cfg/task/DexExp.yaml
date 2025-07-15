@@ -86,9 +86,9 @@ task:
   randomize: False
 
 reward:
-  target_pos: [0.5, 0.0, 0.3]
+  target_pos: [0.5, 0.0, 0.5]
   target_quat: [0.0, 0.0, 0.0, 1.0]
-  exp_alpha: 1
+  exp_alpha: 1.0
 
 pcd_spec:
   num_static_points: 2048

@@ -98,12 +98,12 @@ def compute_franka_leap_reward(states, reward_settings):
     d_hand_obj = torch.max(d_hand_obj, dim=1)[0]
 
     # Hand object distance reward
-    r_hand_obj = torch.exp(-d_hand_obj * exp_alpha)
+    r_hand_obj = torch.exp(-exp_alpha * d_hand_obj)
 
     # Goal Reward
     target_pos = reward_settings["target_pos"].squeeze(-1)
     d_obj_goal = torch.norm(states["object_center_pos"] - target_pos, dim=-1)
-    r_obj_goal = torch.exp(-d_obj_goal * exp_alpha)
+    r_obj_goal = torch.exp(-exp_alpha * d_obj_goal)
 
     rewards = r_hand_obj + r_obj_goal
 

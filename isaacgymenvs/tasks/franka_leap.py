@@ -227,7 +227,7 @@ class FrankaLEAP(VecTask):
 
         target_pos = to_torch(self.cfg["reward"]["target_pos"], device=self.device)
         target_quat = to_torch(self.cfg["reward"]["target_quat"], device=self.device)
-        exp_alpha = self.cfg["reward"]["exp_alpha"]
+        exp_alpha = to_torch(self.cfg["reward"]["exp_alpha"])
         self.reward_settings = {
             "target_pos": target_pos,
             "target_quat": target_quat,
