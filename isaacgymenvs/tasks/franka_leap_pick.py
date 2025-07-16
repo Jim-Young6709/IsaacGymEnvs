@@ -107,7 +107,7 @@ def compute_franka_leap_reward(states, reward_settings):
     # R3: Object goal distance reward
     target_pos = reward_settings["target_pos"].squeeze(-1)
     d_obj_goal = torch.norm(states["object_center_pos"] - target_pos, dim=-1)
-    beta_obj_goal = reward_settings["beta_obj_goal"]
+    beta_obj_goal = reward_settings["beta_object_goal"]
     r_obj_goal = torch.exp(-beta_obj_goal * d_obj_goal)
     r_obj_goal = torch.where(object_height > reward_settings["lift_threshold"], r_obj_goal, 0.0)
 
