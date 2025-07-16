@@ -84,28 +84,36 @@ class FrankaLEAPPick(FrankaLEAP):
 @torch.jit.script
 def compute_franka_leap_reward(states, reward_settings):
     # type: (Dict[str, Tensor], Dict[str, Tensor]) -> Tensor
-    exp_alpha = reward_settings["exp_alpha"]
 
-    # Hand (palm, fingers) to object distance
+    # R1: Hand (palm, fingers) to object distance
     d_palm = torch.norm(states["object_center_pos"] - states["eef_pos"], dim=-1)
     d_finger1 = torch.norm(states["object_center_pos"] - states["eef_finger1_pos"], dim=-1)
     d_finger2 = torch.norm(states["object_center_pos"] - states["eef_finger2_pos"], dim=-1)
     d_finger3 = torch.norm(states["object_center_pos"] - states["eef_finger3_pos"], dim=-1)
     d_finger4 = torch.norm(states["object_center_pos"] - states["eef_finger4_pos"], dim=-1)
 
-    # Max dist component to object: max_i∈{palm_pos,fingertips} ||x^i - x^obj||
+    # R1: Max dist component to object: max_i∈{palm_pos,fingertips} ||x^i - x^obj||
     d_hand_obj = torch.stack([d_palm, d_finger1, d_finger2, d_finger3, d_finger4], dim=1)
     d_hand_obj = torch.max(d_hand_obj, dim=1)[0]
 
-    # Hand object distance reward
-    r_hand_obj = torch.exp(-exp_alpha * d_hand_obj)
+    # R1: Hand object distance reward
+    beta_hand_object = reward_settings["beta_hand_object"]
+    r_hand_obj = torch.exp(-beta_hand_object * d_hand_obj)
 
-    # Goal Reward
+    # R2: Lifting bonus: r_lift = 1.0 if object is lifted
+    object_height = states["object_pos"][:, 2] - reward_settings["object_init_height"].squeeze(-1)
+    r_lift = torch.where(object_height > reward_settings["lift_threshold"], 1.0, torch.zeros_like(object_height))
+
+    # R3: Object goal distance reward
     target_pos = reward_settings["target_pos"].squeeze(-1)
     d_obj_goal = torch.norm(states["object_center_pos"] - target_pos, dim=-1)
-    r_obj_goal = torch.exp(-exp_alpha * d_obj_goal)
+    beta_obj_goal = reward_settings["beta_obj_goal"]
+    r_obj_goal = torch.exp(-beta_obj_goal * d_obj_goal)
+    r_obj_goal = torch.where(object_height > reward_settings["lift_threshold"], r_obj_goal, 0.0)
 
-    rewards = r_hand_obj + r_obj_goal
+    # R4: Finger curl (TODO)
+
+    rewards = r_hand_obj + 2.0 * r_lift + 4.0 * r_obj_goal
 
     return rewards
 
