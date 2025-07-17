@@ -951,11 +951,13 @@ class FrankaLEAP(VecTask):
     def pre_physics_step(self, actions):
         """
         Args:
-            actions (torch.Tensor): delta unnormalized joint angles (num_selected_envs, 7+4*4)
+            actions (torch.Tensor): normalized delta joint angles (num_selected_envs, 7+4*4)
         """
-        delta_actions = actions * self.action_scale # TODO: have separate scale for arm & hand
-        self.actions = delta_actions
-        abs_actions = self.states['q'] + delta_actions # need to really make sure states['q'] is always up to date
+        actions[:, :7] *= self.action_scale["arm"]
+        actions[:, 7:] *= self.action_scale["hand"]
+        delta_actions_unnormalized = self.unnormalize_robot_joints(actions)
+        self.actions = delta_actions_unnormalized
+        abs_actions = self.states['q'] + delta_actions_unnormalized # need to really make sure states['q'] is always up to date
         self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(abs_actions))
 
     def post_physics_step(self):

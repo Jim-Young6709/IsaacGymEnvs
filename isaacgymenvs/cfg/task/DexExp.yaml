@@ -15,7 +15,9 @@ env:
 
   aggregateMode: 3
 
-  actionScale: 0.03
+  actionScale:
+    hand: 0.05
+    arm: 0.1
 
   controlType: joint_position  # options are {joint_position, osc}
   controlFrequencyInv: 1
@@ -91,7 +93,7 @@ reward:
   target_quat: [0.0, 0.0, 0.0, 1.0]
   beta_object_goal: 6.0
 
-  beta_hand_object: 4.0
+  beta_hand_object: 3.0
 
   lift_threshold: 0.05
 
