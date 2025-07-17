@@ -7,7 +7,7 @@ physics_engine: ${..physics_engine}
 env:
   numEnvs: ${resolve_default:1024,${...num_envs}}
   envSpacing: 1.5
-  episodeLength: 1000
+  episodeLength: 500
   enableDebugVis: False
 
   clipObservations: 5.0
@@ -32,8 +32,6 @@ env:
     xyz_range: [[0.45, -0.2, 0.2], [0.55, 0.2, 0.25]] # xy is center position, z is BOTTOM height
     scale_range: [0.1, 0.2]
 
-  # set to True if you use camera sensors in the environment
-  enableCameraSensors: False
   image_height: 224
   image_width: 224
   disable_eef: True
@@ -56,10 +54,13 @@ env:
   use_mean_actions: True
 
   # video logging
-  capture_video: False
-  capture_envs: 1
-  capture_iter_max: 1
-  capture_freq: 5
+  video_logging:
+    capture: False
+    envs: 1
+    freq: 5
+
+  # set to True if use camera sensors in the environment
+  enableCameraSensors: ${video_logging.capture}
 
 sim:
   dt: 0.01667 # 1/60
