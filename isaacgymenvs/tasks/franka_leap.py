@@ -435,7 +435,7 @@ class FrankaLEAP(VecTask):
         hand_base_pos = self._eef_state[:, :3]
 
         # update object state
-        object_center_pos = self._object_state[:, :3]
+        object_center_pos = self._object_state[:, :3].clone()
         object_center_pos[:, 2] += self.mesh_aabb_extents[:, 2] / 2
         object_rot_6d = matrix_to_rotation_6d(quaternion_to_matrix_ig(self._object_state[:, 3:7]))
 
@@ -961,7 +961,6 @@ class FrankaLEAP(VecTask):
         self.progress_buf += 1
 
         env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
-        # TODO: add reset logic when object falls to the ground
         if len(env_ids) > 0:
             self.reset_idx(env_ids)
 
