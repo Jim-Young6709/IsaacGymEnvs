@@ -56,11 +56,11 @@ env:
   # video logging
   video_logging:
     capture: False
-    envs: 1
-    freq: 5
+    envs: 4
+    freq: 1000 # record video every 1000 sim steps
 
   # set to True if use camera sensors in the environment
-  enableCameraSensors: ${video_logging.capture}
+  enableCameraSensors: ${task.env.video_logging.capture}
 
 sim:
   dt: 0.01667 # 1/60
@@ -100,6 +100,7 @@ pcd_spec:
   num_object_points: 2048
   debug: False
 
+  # TODO: cleanup
   num_robot_points: 2048
   num_obstacle_points: 4096
   num_moving_obstacle_points_per_obj: 500

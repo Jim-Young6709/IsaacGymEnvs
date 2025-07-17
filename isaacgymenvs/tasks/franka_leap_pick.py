@@ -8,7 +8,6 @@ import hydra
 import isaacgym
 import numpy as np
 import torch
-from isaacgym import gymapi, gymtorch
 from isaacgym.torch_utils import *
 from isaacgymenvs.tasks import FrankaLEAP
 from isaacgymenvs.utils.reformat import omegaconf_to_dict

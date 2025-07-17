@@ -4,13 +4,16 @@ Franka + LEAP Hand Env
 
 import os
 import time
+from datetime import datetime
 from pathlib import Path
 import json
 from abc import abstractmethod
 
+import cv2
+import imageio
+import wandb
 import hydra
 import isaacgym
-import isaacgymenvs
 import numpy as np
 import torch
 from isaacgym import gymapi, gymtorch
@@ -34,6 +37,9 @@ class FrankaLEAP(VecTask):
         self.action_scale = self.cfg["env"]["actionScale"]
         self.aggregate_mode = self.cfg["env"]["aggregateMode"]
         self.mesh_args = self.cfg["env"]["mesh"]
+        self.video_logging = self.cfg["env"]["video_logging"]
+        self.video_dir = os.path.join('videos', self.cfg["name"] + '_{date:%d-%H-%M-%S}'.format(date=datetime.now()))
+        os.makedirs(self.video_dir, exist_ok=True)
 
         # Controller type
         self.control_type = self.cfg["env"]["controlType"]
@@ -66,9 +72,11 @@ class FrankaLEAP(VecTask):
 
         # Reset all environments
         self.reset_idx(torch.arange(self.num_envs, device=self.device))
-
-        # Refresh tensors
         self._refresh()
+
+        # randomize progress buffer
+        self.progress_buf = torch.randint(0, self.max_episode_length, (self.num_envs,)).to(self.device)
+        self.sim_steps = 0 # keep track on the number of simulation steps
 
     def _init_buffers(self):
         # Values to be filled in at runtime
@@ -657,6 +665,103 @@ class FrankaLEAP(VecTask):
 
             self.gym.viewer_camera_look_at(self.viewer, None, cam_pos, cam_target)
 
+        if self.video_logging["capture"]:
+            assert self.video_logging["envs"] <= self.num_envs, "Number of environments for video logging exceeds total number of environments."
+            self.camera_handles = []
+            self.obs_camera_handles = []
+            # camera_properties = gymapi.CameraProperties()
+            # camera_properties.width = self.cfg["env"]["camera"]["width"]
+            # camera_properties.height = self.cfg["env"]["camera"]["height"]
+            camera_props = gymapi.CameraProperties()
+            camera_props.width = 640
+            camera_props.height = 480
+            camera_props.horizontal_fov = 90.0
+            camera_props.enable_tensors = False # disable gpu tensors, so cameras won't have automatic updates
+            for i in range(self.video_logging["envs"]):
+                self.camera_handles.append([])
+                self.obs_camera_handles.append([])
+                # global
+                camera_handle = self.gym.create_camera_sensor(
+                    self.env_ptrs[i], camera_props
+                )
+                if camera_handle == -1:
+                    print(f"Failed to create camera sensor for env {i}")
+                    continue  # Skip this camera if creation failed
+
+                camera_position = gymapi.Vec3(-1.0, 0.0, 1.0)
+                camera_target = gymapi.Vec3(0.5, 0.0, 0.0)
+                self.gym.set_camera_location(
+                    camera_handle, self.env_ptrs[i], camera_position, camera_target
+                )
+                self.camera_handles[i].append(camera_handle)
+
+    def get_camera_render(self):
+        """
+        Returns:
+            images: List[List[np.ndarray]], RGB images from all specified environments and cameras
+        """
+
+        assert self.video_logging["capture"], "Camera is not enabled."
+        env_ids = range(self.video_logging["envs"])
+
+        if self.device != "cpu":
+            self.gym.fetch_results(self.sim, True)
+        self.gym.step_graphics(self.sim)
+        self.gym.render_all_camera_sensors(self.sim)
+
+        images = []
+        for env_id in env_ids:
+            images.append([])
+
+            camera_handle = self.camera_handles[env_id][0]
+            camera_image = self.gym.get_camera_image(
+                self.sim, self.env_ptrs[env_id], camera_handle, gymapi.IMAGE_COLOR
+            )
+            shape = camera_image.shape
+            camera_image = camera_image.reshape(shape[0], -1, 4)
+            images[-1].append(camera_image)
+
+        return images
+
+    def video_logger(self):
+        render_step = self.sim_steps % self.video_logging["freq"]
+        if render_step == 0:
+            self.video_ims = []
+
+        if render_step < self.max_episode_length:
+            camera_renders = self.get_camera_render()
+            ims = np.array(camera_renders)[:, 0, :, :, :3]
+
+            for env_idx in range(ims.shape[0]):
+                # Convert to uint8 and correct color format for OpenCV
+                img = ims[env_idx].astype(np.uint8).copy()
+                
+                # Create a separate overlay image for the semi-transparent rectangle
+                overlay = img.copy()
+                # Draw grey rectangle on overlay (RGB: 128,128,128)
+                cv2.rectangle(overlay, (10, 10), (300, 80), (128, 128, 128), -1)
+                # Apply the overlay with transparency (alpha = 0.7)
+                alpha = 0.7
+                cv2.addWeighted(overlay, alpha, img, 1 - alpha, 0, img)
+                # Add black text
+                cv2.putText(img, f'Env: {env_idx}  Step: {render_step}', (20, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 0, 0), 2)
+                ims[env_idx] = img
+            self.video_ims.append(ims)
+
+        if render_step == self.max_episode_length - 1:
+            render_step_start = render_step + 1 - self.max_episode_length
+            filename = os.path.join(self.video_dir, f"viz_step{render_step_start}.mp4")
+            frames = np.asarray(self.video_ims) # (num_frames, num_envs, height, width, channels)
+            frames = frames.transpose(1, 0, 2, 3, 4) # (num_envs, num_frames, height, width, channels)
+            frames = frames.reshape(-1, frames.shape[2], frames.shape[3], frames.shape[4])  # (num_envs * num_frames, height, width, channels)
+            with imageio.get_writer(filename, fps=20) as writer:
+                for frame in frames:
+                    writer.append_data(frame)
+
+            if wandb.run is not None:
+                wandb.run.log({"visualization/video": wandb.Video(os.path.join(self.video_dir, f"viz_step{render_step_start}.mp4"))}, commit=False)
+
     # debugging utils
     def step_sim_multi(self, num_steps=1):
         """
@@ -862,6 +967,11 @@ class FrankaLEAP(VecTask):
 
         self.compute_observations()
         self.compute_reward(self.actions)
+
+        # video logging
+        if self.video_logging["capture"]:
+            self.video_logger()
+        self.sim_steps += 1
 
     @abstractmethod
     def compute_reward(self, actions):
