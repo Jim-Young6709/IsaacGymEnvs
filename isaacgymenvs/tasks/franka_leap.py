@@ -11,6 +11,7 @@ from abc import abstractmethod
 
 import cv2
 import imageio
+import trimesh
 import wandb
 import hydra
 import isaacgym
@@ -320,6 +321,9 @@ class FrankaLEAP(VecTask):
         urdf_rel = mesh_name + ".urdf"
         urdf_path = os.path.join(mesh_dir, urdf_rel)
 
+        mesh = trimesh.load(mesh_path)
+        z_com = mesh.extents[2] * scale[2] / 2
+
         # URDF content
         urdf_str = f"""<?xml version="1.0" ?>
             <robot name="mesh_object">
@@ -336,7 +340,7 @@ class FrankaLEAP(VecTask):
                 </collision>
                 <inertial>
                 <mass value="{mass}"/>
-                <origin xyz="0 0 0" rpy="0 0 0"/>
+                <origin xyz="0 0 {z_com}" rpy="0 0 0"/>
                 <inertia ixx="0.01" iyy="0.01" izz="0.01" ixy="0" ixz="0" iyz="0"/>
                 </inertial>
             </link>
