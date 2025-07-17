@@ -552,7 +552,7 @@ class FrankaLEAP(VecTask):
         """
         raise NotImplementedError("not implemented yet")
 
-    def set_robot_joint_state(self, joint_state: torch.Tensor, joint_vel=None, env_ids=None): # TODO: adapt to hand
+    def set_robot_joint_state(self, joint_state: torch.Tensor, joint_vel=None, env_ids=None):
         """
         Set the joint state of the robot. (set the dof state (pos/vel) of each joint,
         joint_vel (torch.Tensor): (num_selected_envs, 7+4*4) joint velocity
@@ -600,7 +600,7 @@ class FrankaLEAP(VecTask):
             len(multi_env_ids_int32),
         )
 
-        self.gym.simulate(self.sim) # TODO: should it be here?
+        self.gym.simulate(self.sim)
         self._refresh()
 
         if not self.headless:
@@ -643,10 +643,10 @@ class FrankaLEAP(VecTask):
         upper_limits = self.robot_dof_upper_limits[:23]
         return lower_limits, upper_limits
 
+    # visualization
     def set_viewer(self):
         """
         Create the viewer.
-        NOTE: hardcoded for single env setup.
         """
 
         self.enable_viewer_sync = True
@@ -673,9 +673,6 @@ class FrankaLEAP(VecTask):
             assert self.video_logging["envs"] <= self.num_envs, "Number of environments for video logging exceeds total number of environments."
             self.camera_handles = []
             self.obs_camera_handles = []
-            # camera_properties = gymapi.CameraProperties()
-            # camera_properties.width = self.cfg["env"]["camera"]["width"]
-            # camera_properties.height = self.cfg["env"]["camera"]["height"]
             camera_props = gymapi.CameraProperties()
             camera_props.width = 640
             camera_props.height = 480
@@ -692,8 +689,8 @@ class FrankaLEAP(VecTask):
                     print(f"Failed to create camera sensor for env {i}")
                     continue  # Skip this camera if creation failed
 
-                camera_position = gymapi.Vec3(-1.0, 0.0, 1.0)
-                camera_target = gymapi.Vec3(0.5, 0.0, 0.0)
+                camera_position = gymapi.Vec3(1.5, 0.0, 0.7)
+                camera_target = gymapi.Vec3(0.5, 0.0, 0.1)
                 self.gym.set_camera_location(
                     camera_handle, self.env_ptrs[i], camera_position, camera_target
                 )
@@ -743,18 +740,18 @@ class FrankaLEAP(VecTask):
                 # Create a separate overlay image for the semi-transparent rectangle
                 overlay = img.copy()
                 # Draw grey rectangle on overlay (RGB: 128,128,128)
-                cv2.rectangle(overlay, (10, 10), (300, 80), (128, 128, 128), -1)
+                cv2.rectangle(overlay, (10, 10), (220, 50), (128, 128, 128), -1)
                 # Apply the overlay with transparency (alpha = 0.7)
                 alpha = 0.7
                 cv2.addWeighted(overlay, alpha, img, 1 - alpha, 0, img)
                 # Add black text
-                cv2.putText(img, f'Env: {env_idx}  Step: {render_step}', (20, 30),
+                cv2.putText(img, f'Env: {env_idx}  Step: {render_step}', (20, 35),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 0, 0), 2)
                 ims[env_idx] = img
             self.video_ims.append(ims)
 
         if render_step == self.max_episode_length - 1:
-            render_step_start = render_step + 1 - self.max_episode_length
+            render_step_start = self.sim_steps + 1 - self.max_episode_length
             filename = os.path.join(self.video_dir, f"viz_step{render_step_start}.mp4")
             frames = np.asarray(self.video_ims) # (num_frames, num_envs, height, width, channels)
             frames = frames.transpose(1, 0, 2, 3, 4) # (num_envs, num_frames, height, width, channels)
