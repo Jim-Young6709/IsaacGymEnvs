@@ -772,7 +772,7 @@ class FrankaLEAP(VecTask):
                     writer.append_data(frame)
 
             if wandb.run is not None:
-                wandb.run.log({"visualization/video": wandb.Video(os.path.join(self.video_dir, f"viz_step{render_step_start}.mp4"))}, commit=False)
+                wandb.log({"visualization/video": wandb.Video(os.path.join(self.video_dir, f"viz_step{render_step_start}.mp4"))}, commit=True)
 
     # debugging utils
     def step_sim_multi(self, num_steps=1):
