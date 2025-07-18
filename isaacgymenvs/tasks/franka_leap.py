@@ -500,7 +500,7 @@ class FrankaLEAP(VecTask):
             torch.sum(torch.norm(self.contact_forces[:, :30, :], dim=2), dim=1) > 1.0, 1.0, 0.0
         )  # the first 16 elements belong to franka + leap, this includes self collision
 
-    def normalize_robot_joints(self, joint_angles: torch.Tensor) -> torch.Tensor:
+    def normalize_robot_joints(self, joint_angles: torch.Tensor, delta: bool = False) -> torch.Tensor:
         """
         Normalize joint angles to be within the joint limits.
         Args:
@@ -510,14 +510,19 @@ class FrankaLEAP(VecTask):
         """
         assert joint_angles.shape[-1] == self.num_robot_dofs
         lower_limits, upper_limits = self.get_joint_limits()
-        desired_lower_limits = -1 * torch.ones_like(joint_angles)
-        desired_upper_limits = 1 * torch.ones_like(joint_angles)
-        normalized = (joint_angles - lower_limits) / (upper_limits - lower_limits) * (
-            desired_upper_limits - desired_lower_limits
-        ) + desired_lower_limits
+        franka_limit_range = upper_limits - lower_limits
+
+        if delta:
+            normalized = joint_angles / franka_limit_range
+        else:
+            desired_lower_limits = -1 * torch.ones_like(joint_angles)
+            desired_upper_limits = 1 * torch.ones_like(joint_angles)
+            normalized = (joint_angles - lower_limits) / franka_limit_range * (
+                desired_upper_limits - desired_lower_limits
+            ) + desired_lower_limits
         return normalized
 
-    def unnormalize_robot_joints(self, joint_angles: torch.Tensor) -> torch.Tensor:
+    def unnormalize_robot_joints(self, joint_angles: torch.Tensor, delta: bool = False) -> torch.Tensor:
         """
         Unnormalize joint angles.
         Args:
@@ -528,11 +533,15 @@ class FrankaLEAP(VecTask):
         assert joint_angles.shape[-1] == self.num_robot_dofs
         lower_limits, upper_limits = self.get_joint_limits()
         franka_limit_range = upper_limits - lower_limits
-        desired_lower_limits = -1 * torch.ones_like(joint_angles)
-        desired_upper_limits = 1 * torch.ones_like(joint_angles)
-        unnormalized = (joint_angles - desired_lower_limits) * franka_limit_range / (
-            desired_upper_limits - desired_lower_limits
-        ) + lower_limits
+
+        if delta:
+            unnormalized = joint_angles * franka_limit_range
+        else:
+            desired_lower_limits = -1 * torch.ones_like(joint_angles)
+            desired_upper_limits = 1 * torch.ones_like(joint_angles)
+            unnormalized = (joint_angles - desired_lower_limits) * franka_limit_range / (
+                desired_upper_limits - desired_lower_limits
+            ) + lower_limits
         return unnormalized
 
     def get_joint_from_ee(self, target_ee_pose): # TODO: implement
@@ -966,7 +975,7 @@ class FrankaLEAP(VecTask):
         """
         actions[:, :7] *= self.action_scale["arm"]
         actions[:, 7:] *= self.action_scale["hand"]
-        delta_actions_unnormalized = self.unnormalize_robot_joints(actions)
+        delta_actions_unnormalized = self.unnormalize_robot_joints(actions, delta=True)
         self.actions = delta_actions_unnormalized
         abs_actions = self.states['q'] + delta_actions_unnormalized # need to really make sure states['q'] is always up to date
         self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(abs_actions))
