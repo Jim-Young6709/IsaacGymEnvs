@@ -54,7 +54,12 @@ class FrankaLEAPPick(FrankaLEAP):
         obs_base["current_angles"] = dummy_config.clone()
         obs_base["goal_angles"] = dummy_config.clone()
         obs_base["compute_pcd_params"] = input_pcd
-        pcd_latent = self.pcd_encoder(obs_base) # 1038 (1024 + 7 + 7)
+
+        # with torch.no_grad():
+        #     with torch.autocast('cuda', dtype=torch.float16):
+        #         pcd_latent = self.pcd_encoder(obs_base) # 1038 (1024 + 7 + 7)
+        pcd_latent = torch.zeros(self.num_envs, 1038, device=self.device, dtype=torch.float32)
+
         pcd_latent = pcd_latent[:, :1024]
 
         obs_components = ["q", "eef_pos", "eef_rot_6d",

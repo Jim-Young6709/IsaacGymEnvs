@@ -54,6 +54,8 @@ class FrankaLEAP(VecTask):
         self.up_axis = "z"
         self.up_axis_idx = 2
 
+        self.t_0 = -1
+        self.t_1 = -1
         self._init_buffers()
 
         super().__init__(
@@ -237,12 +239,17 @@ class FrankaLEAP(VecTask):
         target_pos = to_torch(self.cfg["reward"]["params"]["target_pos"], device=self.device)
         target_quat = to_torch(self.cfg["reward"]["params"]["target_quat"], device=self.device)
 
-        grasp_finger_dof_pos = self.robot_dof_upper_limits[7:] - self.robot_dof_lower_limits[7:]
-        grasp_finger_dof_pos *= 0.5
-        grasp_finger_dof_pos[0] = 0.0
-        grasp_finger_dof_pos[4] = 0.0
-        grasp_finger_dof_pos[8] = 0.0
-        grasp_finger_dof_pos[13] = 1.6
+        self.grasp_finger_dof_pos = self.robot_dof_upper_limits[7:] - self.robot_dof_lower_limits[7:]
+        self.grasp_finger_dof_pos *= 0.5
+        self.grasp_finger_dof_pos[0] = 0.0
+        self.grasp_finger_dof_pos[4] = 0.0
+        self.grasp_finger_dof_pos[8] = 0.0
+        self.grasp_finger_dof_pos[13] = 1.6
+
+        # for visualization purposes
+        self.canonical_grasp_config = torch.tensor(
+            [[0, 0.1963, 0, -2.6180, 0, 2.9416, 0.7854] + self.grasp_finger_dof_pos.tolist()] * self.num_envs
+        ).to(self.device)
 
         self.reward_settings = {
             "target_pos": target_pos,
@@ -250,7 +257,7 @@ class FrankaLEAP(VecTask):
             "target_rot_6d": matrix_to_rotation_6d(quaternion_to_matrix_ig(target_quat)),
             "lift_threshold": to_torch(self.cfg["reward"]["params"]["lift_threshold"], device=self.device),
             "object_init_height": self.mesh_aabb_extents[:, 2] / 2,
-            "grasp_finger_dof_pos": grasp_finger_dof_pos,
+            "grasp_finger_dof_pos": self.grasp_finger_dof_pos,
 
             "beta_hand_object": to_torch(self.cfg["reward"]["exp"]["beta_hand_object"], device=self.device),
             "beta_object_goal": to_torch(self.cfg["reward"]["exp"]["beta_object_goal"], device=self.device),
@@ -984,16 +991,38 @@ class FrankaLEAP(VecTask):
         self.progress_buf += 1
 
         env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
+        if self.t_0 == -1:
+            self.t_0 = time.time()
+
+        print("--------------------------------------")
+        self.t_1 = time.time()
+        print(f"Step time: {self.t_1 - self.t_0:.4f}")
+        self.t_0 = self.t_1
+
         if len(env_ids) > 0:
             self.reset_idx(env_ids)
 
+        t2 = time.time()
+        print(f"Reset time: {t2 - self.t_1:.4f}")
+
         self.compute_observations()
+
+        t3 = time.time()
+        print(f"Observation time: {t3 - t2:.4f}")
+
         self.compute_reward(self.actions)
+
+        t4 = time.time()
+        print(f"Reward time: {t4 - t3:.4f}")
 
         # video logging
         if self.video_logging["capture"]:
             self.video_logger()
         self.sim_steps += 1
+
+        t5 = time.time()
+        print(f"Video log time: {t5 - t4:.4f}")
+        print("--------------------------------------")
 
     @abstractmethod
     def compute_reward(self, actions):
