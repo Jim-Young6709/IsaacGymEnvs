@@ -394,7 +394,7 @@ class FrankaLEAP(VecTask):
         # Create mesh asset
         opts = gymapi.AssetOptions()
         opts.fix_base_link = fix_base_link
-        asset = self.gym.load_asset(self.sim, asset_root, urdf_path, opts)
+        asset = self.gym.load_asset(self.sim, asset_root, urdf_path, opts) # TODO: this step seems to take a lot of time, try to optimize it
         # Define start pose
         start_pose = gymapi.Transform()
         start_pose.p = gymapi.Vec3(*pos)
