@@ -234,21 +234,32 @@ class FrankaLEAP(VecTask):
         self._global_indices = torch.arange(self.num_envs * actor_num, dtype=torch.int32,
                                            device=self.device).view(self.num_envs, -1) # 3 actors, franka, table, table_stand
 
-        target_pos = to_torch(self.cfg["reward"]["target_pos"], device=self.device)
-        target_quat = to_torch(self.cfg["reward"]["target_quat"], device=self.device)
+        target_pos = to_torch(self.cfg["reward"]["params"]["target_pos"], device=self.device)
+        target_quat = to_torch(self.cfg["reward"]["params"]["target_quat"], device=self.device)
+
+        grasp_finger_dof_pos = self.robot_dof_upper_limits[self.num_arm_dofs:] - self.robot_dof_lower_limits[self.num_arm_dofs:]
+        grasp_finger_dof_pos *= 0.5
+        grasp_finger_dof_pos[0] = 0.0
+        grasp_finger_dof_pos[4] = 0.0
+        grasp_finger_dof_pos[8] = 0.0
+        grasp_finger_dof_pos[13] = 1.6
+
         self.reward_settings = {
-            # object goal distance reward
             "target_pos": target_pos,
             "target_quat": target_quat,
             "target_rot_6d": matrix_to_rotation_6d(quaternion_to_matrix_ig(target_quat)),
-            "beta_object_goal": to_torch(self.cfg["reward"]["beta_object_goal"], device=self.device),
-
-            # reaching reward
-            "beta_hand_object": to_torch(self.cfg["reward"]["beta_hand_object"], device=self.device),
-
-            # lifting reward
+            "lift_threshold": to_torch(self.cfg["reward"]["params"]["lift_threshold"], device=self.device),
             "object_init_height": self.mesh_aabb_extents[:, 2] / 2,
-            "lift_threshold": to_torch(self.cfg["reward"]["lift_threshold"], device=self.device),
+            "grasp_finger_dof_pos": grasp_finger_dof_pos,
+
+            "beta_hand_object": to_torch(self.cfg["reward"]["exp"]["beta_hand_object"], device=self.device),
+            "beta_object_goal": to_torch(self.cfg["reward"]["exp"]["beta_object_goal"], device=self.device),
+            "beta_curl": to_torch(self.cfg["reward"]["exp"]["beta_curl"], device=self.device),
+
+            "w_hand_obj": to_torch(self.cfg["reward"]["weights"]["w_hand_obj"], device=self.device),
+            "w_obj_goal": to_torch(self.cfg["reward"]["weights"]["w_obj_goal"], device=self.device),
+            "w_lift": to_torch(self.cfg["reward"]["weights"]["w_lift"], device=self.device),
+            "w_curl": to_torch(self.cfg["reward"]["weights"]["w_curl"], device=self.device),
         }
 
     def _create_cube(self, pos, size, quat=[0, 0, 0, 1]):

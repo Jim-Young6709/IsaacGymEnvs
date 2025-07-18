@@ -82,8 +82,9 @@ class FrankaLEAPPick(FrankaLEAP):
 
         self.rew_buf[:] = reward_dict["r_total"]
         self.extras["sep_reward/r_hand_obj"] = torch.mean(reward_dict["r_hand_obj"]).item()
-        self.extras["sep_reward/r_lift"] = torch.mean(reward_dict["r_lift"]).item()
         self.extras["sep_reward/r_obj_goal"] = torch.mean(reward_dict["r_obj_goal"]).item()
+        self.extras["sep_reward/r_lift"] = torch.mean(reward_dict["r_lift"]).item()
+        self.extras["sep_reward/r_curl"] = torch.mean(reward_dict["r_curl"]).item()
 
 @torch.jit.script
 def compute_franka_leap_reward(states, reward_settings):
@@ -111,22 +112,32 @@ def compute_franka_leap_reward(states, reward_settings):
     # R3: Object goal distance reward
     target_pos = reward_settings["target_pos"].squeeze(-1)
     d_obj_goal = torch.norm(states["object_center_pos"] - target_pos, dim=-1)
-    beta_obj_goal = reward_settings["beta_object_goal"]
-    r_obj_goal = torch.exp(-beta_obj_goal * d_obj_goal)
+    beta_object_goal = reward_settings["beta_object_goal"]
+    r_obj_goal = torch.exp(-beta_object_goal * d_obj_goal)
     r_obj_goal = torch.where(object_height > reward_settings["lift_threshold"], r_obj_goal, 0.0)
 
-    # R4: Finger curl (TODO)
+    # R4: Finger curl
+    hand_dof_pos = states["q"][:, 7:] # hand joint angles
+    near_object = (d_hand_obj <= 0.15)
+    finger_pos_diff = torch.sum((hand_dof_pos - reward_settings["grasp_finger_dof_pos"]) ** 2, dim=1)
 
-    w_hand_obj = 1.0
-    w_lift = 2.0
-    w_obj_goal = 4.0
+    beta_curl = reward_settings["beta_curl"]
+    r_curl= torch.exp(-beta_curl * finger_pos_diff)
+    r_curl = torch.where(near_object, r_curl, 0.0)
 
-    r_total = w_hand_obj * r_hand_obj + w_lift * r_lift + w_obj_goal * r_obj_goal
+
+    w_hand_obj = reward_settings["w_hand_obj"]
+    w_obj_goal = reward_settings["w_obj_goal"]
+    w_lift = reward_settings["w_lift"]
+    w_curl = reward_settings["w_curl"]
+
+    r_total = w_hand_obj*r_hand_obj + w_obj_goal*r_obj_goal + w_lift*r_lift + w_curl*r_curl
 
     rewards = {
-        "r_hand_obj": w_hand_obj * r_hand_obj,
-        "r_lift": w_lift * r_lift,
-        "r_obj_goal": w_obj_goal * r_obj_goal,
+        "r_hand_obj": w_hand_obj*r_hand_obj,
+        "r_lift": w_lift*r_lift,
+        "r_obj_goal": w_obj_goal*r_obj_goal,
+        "r_curl": w_curl*r_curl,
         "r_total": r_total,
     }
 
