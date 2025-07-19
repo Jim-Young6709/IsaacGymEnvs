@@ -166,6 +166,7 @@ def launch_test(cfg: DictConfig):
     for i in tqdm(range(1000)):
         t1 = time.time()
         env.reset_idx()
+        env.set_robot_joint_state(env.canonical_grasp_config)
         import ipdb ; ipdb.set_trace()
         t2 = time.time()
         print(f"Reset time: {t2 - t1}")

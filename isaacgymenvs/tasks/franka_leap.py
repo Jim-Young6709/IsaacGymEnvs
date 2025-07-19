@@ -104,7 +104,7 @@ class FrankaLEAP(VecTask):
         self._mm = None                         # Mass matrix
         self._pos_control = None                # Position actions
         self._effort_control = None             # Torque actions
-        self._robot_effort_limits = None       # Actuator effort limits for the robot (franka 7 + leap 4*4)
+        self._robot_effort_limits = None        # Actuator effort limits for the robot (franka 7 + leap 4*4)
         self._global_indices = None             # Unique indices corresponding to all envs in flattened array
 
         # pcd
@@ -238,11 +238,14 @@ class FrankaLEAP(VecTask):
         target_quat = to_torch(self.cfg["reward"]["params"]["target_quat"], device=self.device)
 
         self.grasp_finger_dof_pos = self.robot_dof_upper_limits[7:] - self.robot_dof_lower_limits[7:]
-        self.grasp_finger_dof_pos *= 0.5
-        self.grasp_finger_dof_pos[0] = 0.0
+        self.grasp_finger_dof_pos *= 0.2
+
+        # finger indexing: 0-3:index ; 4-7:thumb ; 8-11:middle ; 12-15:ring
+        self.grasp_finger_dof_pos[1] = 0.0
         self.grasp_finger_dof_pos[4] = 0.0
-        self.grasp_finger_dof_pos[8] = 0.0
-        self.grasp_finger_dof_pos[13] = 1.6
+        self.grasp_finger_dof_pos[5] = 1.57
+        self.grasp_finger_dof_pos[9] = 0.0
+        self.grasp_finger_dof_pos[13] = 0.0
 
         # for visualization purposes
         self.canonical_grasp_config = torch.tensor(
