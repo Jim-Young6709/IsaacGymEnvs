@@ -54,8 +54,6 @@ class FrankaLEAP(VecTask):
         self.up_axis = "z"
         self.up_axis_idx = 2
 
-        self.t_0 = -1
-        self.t_1 = -1
         self._init_buffers()
 
         super().__init__(
@@ -991,38 +989,16 @@ class FrankaLEAP(VecTask):
         self.progress_buf += 1
 
         env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
-        if self.t_0 == -1:
-            self.t_0 = time.time()
-
-        print("--------------------------------------")
-        self.t_1 = time.time()
-        print(f"Step time: {self.t_1 - self.t_0:.4f}")
-        self.t_0 = self.t_1
-
         if len(env_ids) > 0:
             self.reset_idx(env_ids)
 
-        t2 = time.time()
-        print(f"Reset time: {t2 - self.t_1:.4f}")
-
         self.compute_observations()
-
-        t3 = time.time()
-        print(f"Observation time: {t3 - t2:.4f}")
-
         self.compute_reward(self.actions)
-
-        t4 = time.time()
-        print(f"Reward time: {t4 - t3:.4f}")
 
         # video logging
         if self.video_logging["capture"]:
             self.video_logger()
         self.sim_steps += 1
-
-        t5 = time.time()
-        print(f"Video log time: {t5 - t4:.4f}")
-        print("--------------------------------------")
 
     @abstractmethod
     def compute_reward(self, actions):
