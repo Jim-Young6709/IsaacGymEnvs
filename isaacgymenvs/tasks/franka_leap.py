@@ -258,7 +258,7 @@ class FrankaLEAP(VecTask):
             "target_rot_6d": matrix_to_rotation_6d(quaternion_to_matrix_ig(target_quat)),
             "lift_threshold": to_torch(self.cfg["reward"]["params"]["lift_threshold"], device=self.device),
             "curl_reaching_threshold": to_torch(self.cfg["reward"]["params"]["curl_reaching_threshold"], device=self.device),
-            "object_init_height": self.mesh_aabb_extents[:, 2] / 2,
+            "object_init_height": self.mesh_aabb_extents[:, 2] / 2 + 0.025, # 0.025 is the half thickness of the table
             "grasp_finger_dof_pos": self.grasp_finger_dof_pos,
 
             "beta_hand_object": to_torch(self.cfg["reward"]["exp"]["beta_hand_object"], device=self.device),
@@ -349,19 +349,19 @@ class FrankaLEAP(VecTask):
             <robot name="mesh_object">
             <link name="base">
                 <visual>
-                <geometry>
-                    <mesh filename="{mesh_filename}" scale="{scale[0]} {scale[1]} {scale[2]}"/>
-                </geometry>
+                    <geometry>
+                        <mesh filename="{mesh_filename}" scale="{scale[0]} {scale[1]} {scale[2]}"/>
+                    </geometry>
                 </visual>
                 <collision>
-                <geometry>
-                    <mesh filename="{mesh_filename}" scale="{scale[0]} {scale[1]} {scale[2]}"/>
-                </geometry>
+                    <geometry>
+                        <mesh filename="{mesh_filename}" scale="{scale[0]} {scale[1]} {scale[2]}"/>
+                    </geometry>
                 </collision>
                 <inertial>
-                <mass value="{mass}"/>
-                <origin xyz="0 0 {z_com}" rpy="0 0 0"/>
-                <inertia ixx="0.01" iyy="0.01" izz="0.01" ixy="0" ixz="0" iyz="0"/>
+                    <origin xyz="0 0 {z_com}" rpy="0 0 0"/>
+                    <mass value="{mass}"/>
+                    <inertia ixx="0.01" iyy="0.01" izz="0.01" ixy="0" ixz="0" iyz="0"/>
                 </inertial>
             </link>
             </robot>
@@ -421,7 +421,7 @@ class FrankaLEAP(VecTask):
                 for obj in os.listdir(mesh_dir)
                 if obj != "type_mapping.json"
             ]
-        # import ipdb ; ipdb.set_trace()
+
         mesh_files = [
             os.path.join(mesh_dir, obj, file)
             for obj in object_list
