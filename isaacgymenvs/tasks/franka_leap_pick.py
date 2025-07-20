@@ -122,7 +122,7 @@ def compute_franka_leap_reward(states, reward_settings):
 
     # R4: Finger curl
     hand_dof_pos = states["q"][:, 7:] # hand joint angles
-    near_object = (d_hand_obj <= 0.15)
+    near_object = (d_hand_obj <= reward_settings["curl_reaching_threshold"])
     finger_pos_diff = torch.sum((hand_dof_pos - reward_settings["grasp_finger_dof_pos"]) ** 2, dim=1)
 
     beta_curl = reward_settings["beta_curl"]
