@@ -73,6 +73,7 @@ class FrankaLEAP(VecTask):
 
         # Reset all environments
         self.reset_idx(torch.arange(self.num_envs, device=self.device))
+        self.compute_observations()
         self._refresh()
 
         # randomize progress buffer
@@ -634,12 +635,6 @@ class FrankaLEAP(VecTask):
             len(multi_env_ids_int32),
         )
 
-        self.gym.simulate(self.sim)
-        self._refresh()
-
-        if not self.headless:
-            self.render()
-
     def _reset_object_state(self, env_ids, on_table=True):
         if env_ids is None:
             env_ids = torch.arange(self.num_envs, device=self.device)
@@ -983,7 +978,6 @@ class FrankaLEAP(VecTask):
         self._reset_object_state(env_ids) # reset object state
         self.progress_buf[env_ids] = 0
         self.reset_buf[env_ids] = 0
-        self.compute_observations()
 
     def pre_physics_step(self, actions):
         """
