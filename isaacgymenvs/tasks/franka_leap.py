@@ -955,8 +955,8 @@ class FrankaLEAP(VecTask):
         self.capsule_dims = torch.tensor(self.capsule_dims, device=self.device)  # (num_envs, 2)
         self.sphere_radii = torch.tensor(self.sphere_radii, device=self.device)
 
-        self.static_pcds = torch.stack(self.static_pcds, dim=0).to(self.device) # (num_envs, num_points, 3)
-        self.object_pcds = torch.stack(self.object_pcds, dim=0).to(self.device)
+        self.static_pcds = torch.stack(self.static_pcds, dim=0).to(self.device).to(torch.float32) # (num_envs, num_points, 3)
+        self.object_pcds = torch.stack(self.object_pcds, dim=0).to(self.device).to(torch.float32)
         self.combined_pcds = torch.cat([self.static_pcds, self.object_pcds], dim=1).to(self.device) # (num_envs, num_static_points + num_object_points, 3)
 
         # get mesh AABB (axis-aligned bounding box) extents

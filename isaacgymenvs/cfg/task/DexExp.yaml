@@ -47,9 +47,6 @@ env:
   numStates: 1089
   numActions: 23
 
-  pcd_his_len: 0 # 0 - no history buffer
-  pcd_his_delta: False
-
   base_policy_url: "jimyoung6709/DRP_Dagger"
   hdf5_path: null # hdf5 file that contains env and trajectory info
   batch_idx: 0 # index of the batch of envs to load from the hdf5 file
