@@ -93,7 +93,7 @@ class FrankaLEAPPick(FrankaLEAP):
 
 @torch.jit.script
 def compute_franka_leap_reward(states, reward_settings):
-    # type: (Dict[str, Tensor], Dict[str, Tensor]) -> Dict[str, Tensor]
+    # type: (Dict[str, Tensor], Dict[str, Tensor]) -> (Dict[str, Tensor], Dict[str, Tensor])
 
     # R1: Hand (palm, fingers) to object distance
     d_palm = torch.norm(states["object_center_pos"] - states["eef_pos"], dim=-1)
