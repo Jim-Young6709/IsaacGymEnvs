@@ -190,7 +190,7 @@ class FrankaLEAP(VecTask):
         robot_handle = 0
         self.handles = {
             # FrankaLEAP
-            "hand": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "panda_hand"),
+            "hand": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "palm_center"),
             "finger1_tip": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "realtip_1"),
             "finger2_tip": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "realtip_2"),
             "finger3_tip": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "realtip_3"),
