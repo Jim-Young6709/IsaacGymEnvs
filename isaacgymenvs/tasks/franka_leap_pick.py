@@ -82,18 +82,18 @@ class FrankaLEAPPick(FrankaLEAP):
     def compute_reward(self, actions):
         self.reset_buf[:] = torch.where((self.progress_buf >= self.max_episode_length - 1), torch.ones_like(self.reset_buf), self.reset_buf)
         self.reset_buf[self.states['object_center_pos'][:, 2] < -0.1] = 1
-        reward_dict, info = compute_franka_leap_reward(self.states, self.reward_settings)
+        reward_dict = compute_franka_leap_reward(self.states, self.reward_settings)
 
         self.rew_buf[:] = reward_dict["r_total"]
         self.extras["sep_reward/r_hand_obj"] = torch.mean(reward_dict["r_hand_obj"]).item()
         self.extras["sep_reward/r_obj_goal"] = torch.mean(reward_dict["r_obj_goal"]).item()
         self.extras["sep_reward/r_lift"] = torch.mean(reward_dict["r_lift"]).item()
         self.extras["sep_reward/r_curl"] = torch.mean(reward_dict["r_curl"]).item()
-        self.extras["info/d_hand_obj"] = torch.mean(info["d_hand_obj"]).item()
+        self.extras["info/d_hand_obj"] = torch.mean(reward_dict["d_hand_obj"]).item()
 
 @torch.jit.script
 def compute_franka_leap_reward(states, reward_settings):
-    # type: (Dict[str, Tensor], Dict[str, Tensor]) -> (Dict[str, Tensor], Dict[str, Tensor])
+    # type: (Dict[str, Tensor], Dict[str, Tensor]) -> Dict[str, Tensor]
 
     # R1: Hand (palm, fingers) to object distance
     d_palm = torch.norm(states["object_center_pos"] - states["eef_pos"], dim=-1)
@@ -144,13 +144,10 @@ def compute_franka_leap_reward(states, reward_settings):
         "r_obj_goal": w_obj_goal*r_obj_goal,
         "r_curl": w_curl*r_curl,
         "r_total": r_total,
-    }
-
-    info = {
         "d_hand_obj": d_hand_obj,
     }
 
-    return rewards, info
+    return rewards
 
 
 @hydra.main(config_name="config", config_path="../cfg/")
