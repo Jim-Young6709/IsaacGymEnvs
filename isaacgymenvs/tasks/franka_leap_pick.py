@@ -89,7 +89,8 @@ class FrankaLEAPPick(FrankaLEAP):
         self.extras["sep_reward/r_obj_goal"] = torch.mean(reward_dict["r_obj_goal"]).item()
         self.extras["sep_reward/r_lift"] = torch.mean(reward_dict["r_lift"]).item()
         self.extras["sep_reward/r_curl"] = torch.mean(reward_dict["r_curl"]).item()
-        self.extras["info/d_hand_obj"] = torch.mean(reward_dict["d_hand_obj"]).item()
+        self.extras["dis/d_hand_obj"] = torch.mean(reward_dict["d_hand_obj"]).item()
+        self.extras["dis/d_lift"] = torch.mean(reward_dict["d_lift"]).item()
 
 @torch.jit.script
 def compute_franka_leap_reward(states, reward_settings):
@@ -145,6 +146,7 @@ def compute_franka_leap_reward(states, reward_settings):
         "r_curl": w_curl*r_curl,
         "r_total": r_total,
         "d_hand_obj": d_hand_obj,
+        "d_lift": object_height,
     }
 
     return rewards
