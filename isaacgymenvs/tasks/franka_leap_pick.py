@@ -149,6 +149,8 @@ def launch_test(cfg: DictConfig):
         t1 = time.time()
         env.reset_idx()
         env.set_robot_joint_state(env.canonical_grasp_config)
+        env.step_sim_multi(1)
+        env.render_multi(1000)
         import ipdb ; ipdb.set_trace()
         t2 = time.time()
         print(f"Reset time: {t2 - t1}")
