@@ -32,7 +32,7 @@ env:
 
   object_settings:
     xyz_range: [[0.35, -0.3, 0.2], [0.65, 0.3, 0.25]] # xy is center position, z is BOTTOM height
-    scale_range: [0.1, 0.2]
+    scale_range: [0.15, 0.15]
 
   image_height: 224
   image_width: 224
