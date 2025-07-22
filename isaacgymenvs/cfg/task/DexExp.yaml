@@ -16,8 +16,8 @@ env:
   aggregateMode: 3
 
   actionScale:
-    hand: 1.0
-    arm: 0.5
+    hand: 0.05
+    arm: 0.1
 
   controlType: joint_position  # options are {joint_position, osc}
   controlFrequencyInv: 1
