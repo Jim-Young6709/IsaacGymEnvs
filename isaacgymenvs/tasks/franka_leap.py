@@ -334,7 +334,7 @@ class FrankaLEAP(VecTask):
         self.capsule_dims.append(size)
         return asset, start_pose
 
-    def _create_mesh_urdf(self, mesh_path, scale=[1.0, 1.0, 1.0], mass=1.0):
+    def _create_mesh_urdf(self, mesh_path, scale=[1.0, 1.0, 1.0], mass=0.5):
         mesh_dir = os.path.dirname(mesh_path)
         mesh_filename = os.path.basename(mesh_path)
         mesh_name, _ = os.path.splitext(mesh_filename)
