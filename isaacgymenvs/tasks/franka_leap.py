@@ -239,12 +239,11 @@ class FrankaLEAP(VecTask):
         target_quat = to_torch(self.cfg["reward"]["params"]["target_quat"], device=self.device)
 
         self.grasp_finger_dof_pos = self.robot_dof_upper_limits[7:] - self.robot_dof_lower_limits[7:]
-        self.grasp_finger_dof_pos *= 0.3
+        self.grasp_finger_dof_pos *= 0.4
 
         # finger indexing: 0-3:index ; 4-7:thumb ; 8-11:middle ; 12-15:ring
         self.grasp_finger_dof_pos[1] *= -1
         self.grasp_finger_dof_pos[4] = 1.57
-        self.grasp_finger_dof_pos[5] = 0.0
         self.grasp_finger_dof_pos[6] = 0.0
         self.grasp_finger_dof_pos[9] = 0.0
         self.grasp_finger_dof_pos[13] *= 1
