@@ -13,18 +13,11 @@ from isaacgymenvs.tasks import FrankaLEAP
 from isaacgymenvs.utils.reformat import omegaconf_to_dict
 from omegaconf import DictConfig
 from tqdm import tqdm
-from collections import OrderedDict
-from neural_mp.real_utils.model import NeuralMPModel
 
 
 
 class FrankaLEAPPick(FrankaLEAP):
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
-        # load pretrained encoder TODO: note this is the drp_neural_mp encoder, should use IMPACT one
-        self.base_model = NeuralMPModel.from_pretrained("jimyoung6709/DRP_Dagger")
-        self.pcd_encoder = self.base_model.policy.nets['policy'].model.nets['encoder'].nets['obs']
-        self.pcd_encoder.eval()
-
         super().__init__(
             cfg=cfg,
             rl_device=rl_device,
@@ -46,21 +39,6 @@ class FrankaLEAPPick(FrankaLEAP):
     def compute_observations(self):
         self._refresh()
 
-        obs_base = OrderedDict()
-        dummy_config = torch.ones((self.num_envs, 7), device=self.device, dtype=torch.float32)
-        zero_padding = torch.zeros(self.num_envs, self.combined_pcds.shape[1], 1, device=self.device, dtype=torch.float32)
-        # TODO: use different mask for object and obstacles
-        input_pcd = torch.cat([self.combined_pcds, zero_padding], dim=-1).to(torch.float32)
-        obs_base["current_angles"] = dummy_config.clone()
-        obs_base["goal_angles"] = dummy_config.clone()
-        obs_base["compute_pcd_params"] = input_pcd
-
-        with torch.no_grad():
-            with torch.autocast('cuda', dtype=torch.float16):
-                pcd_latent = self.pcd_encoder(obs_base) # 1038 (1024 + 7 + 7)
-
-        pcd_latent = pcd_latent[:, :1024]
-
         obs_components = ["q", "eef_pos", "eef_rot_6d",
                           "eef_finger1_pos", "eef_finger2_pos", "eef_finger3_pos", "eef_finger4_pos",
                           "object_center_pos", "object_rot_6d", "hand_to_object",
@@ -71,8 +49,8 @@ class FrankaLEAPPick(FrankaLEAP):
                           "object_center_pos", "object_rot_6d", "hand_to_object",
                           "object_to_target", "object_target_6d_diff"]
 
-        obs_buf = torch.cat([self.states[ob] for ob in obs_components] + [pcd_latent], dim=-1)
-        states_buf = torch.cat([self.states[st] for st in states_components] + [pcd_latent], dim=-1)
+        obs_buf = torch.cat([self.states[ob] for ob in obs_components], dim=-1)
+        states_buf = torch.cat([self.states[st] for st in states_components], dim=-1)
 
         self.obs_buf = obs_buf
         self.states_buf = states_buf

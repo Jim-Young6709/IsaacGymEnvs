@@ -43,8 +43,8 @@ env:
     width: 640
     height: 480
 
-  numObservations: 1089 # 1024 + state info
-  numStates: 1089
+  numObservations: 65 # 1024 + state info
+  numStates: 65
   numActions: 23
 
   base_policy_url: "jimyoung6709/DRP_Dagger"
