@@ -56,7 +56,7 @@ env:
   video_logging:
     capture: False
     envs: 4
-    freq: 30000 # record video every 30k sim steps
+    freq: 10000 # record video every 30k sim steps
 
   # set to True if use camera sensors in the environment
   enableCameraSensors: ${task.env.video_logging.capture}
@@ -89,7 +89,7 @@ reward:
   params:
     target_pos: [0.5, 0.0, 0.7]
     target_quat: [0.0, 0.0, 0.0, 1.0]
-    lift_threshold: 0.1
+    lift_threshold: 0.05
     curl_reaching_threshold: 0.15
 
   exp:
