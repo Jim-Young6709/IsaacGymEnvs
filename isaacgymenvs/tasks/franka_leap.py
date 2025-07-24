@@ -27,6 +27,7 @@ from omegaconf import DictConfig
 from tqdm import tqdm
 import random
 from scipy.spatial.transform import Rotation as R
+from curobo.types.math import Pose
 
 
 
@@ -36,6 +37,7 @@ class FrankaLEAP(VecTask):
         self.device = sim_device
         self.max_episode_length = self.cfg["env"]["episodeLength"]
         self.action_scale = self.cfg["env"]["actionScale"]
+        self.eef_actions = False
         self.aggregate_mode = self.cfg["env"]["aggregateMode"]
         self.mesh_args = self.cfg["env"]["mesh"]
         self.video_logging = self.cfg["env"]["video_logging"]
@@ -55,6 +57,7 @@ class FrankaLEAP(VecTask):
         self.up_axis_idx = 2
 
         self._init_buffers()
+        self._init_cuRobo_ik_solver()
 
         super().__init__(
             config=self.cfg,
@@ -112,6 +115,37 @@ class FrankaLEAP(VecTask):
         self.static_pcds = []
         self.object_pcds = []
         self.combined_pcds = []
+
+    def _init_cuRobo_ik_solver(self):
+        """
+        IK is solved with respect to Franka link "panda_link7"
+        """
+        from curobo.types.base import TensorDeviceType
+        from curobo.types.robot import RobotConfig
+        from curobo.util_file import get_robot_configs_path, join_path, load_yaml
+        from curobo.wrap.reacher.ik_solver import IKSolver, IKSolverConfig
+
+        tensor_args = TensorDeviceType()
+        config_file = load_yaml(join_path(get_robot_configs_path(), "franka.yml"))
+        urdf_file = config_file["robot_cfg"]["kinematics"][
+            "urdf_path"
+        ]  # Send global path starting with "/"
+        base_link = config_file["robot_cfg"]["kinematics"]["base_link"]
+        ee_link = "panda_link7"
+        robot_cfg = RobotConfig.from_basic(urdf_file, base_link, ee_link, tensor_args)
+
+        ik_config = IKSolverConfig.load_from_robot_config(
+            robot_cfg,
+            None,
+            rotation_threshold=0.05,
+            position_threshold=0.005,
+            num_seeds=20,
+            self_collision_check=False,
+            self_collision_opt=False,
+            tensor_args=tensor_args,
+            use_cuda_graph=True,
+        )
+        self.ik_solver = IKSolver(ik_config)
 
     def create_sim(self):
         self.sim_params.up_axis = gymapi.UP_AXIS_Z
@@ -559,25 +593,46 @@ class FrankaLEAP(VecTask):
             ) + lower_limits
         return unnormalized
 
-    def get_joint_from_ee(self, target_ee_pose): # TODO: implement
+    def get_joint_from_ee(self, eef_pose):
         """
-        Get the joint angles from the end effector pose.
+        Get the joint angles from the end effector pose. This func is well tested
         Args:
-            target_ee_pose (np.ndarray): 7D end effector pose.
+            eef_pose (np.ndarray): 7D end effector pose. (B, xyz xyzw)
         Returns:
-            joint_angles (np.ndarray): 7-dof joint angles.
+            joint_angles (np.ndarray): 7-dof joint angles.  (B, 7)
         """
-        raise NotImplementedError("IK not implemented yet")
+        eef_pose = eef_pose.clone().contiguous()
+        seed_config = self.states["q"][:, :7].clone().contiguous().unsqueeze(1)
 
-    def get_ee_from_joint(self, joint_angles): # TODO: implement
+        eef_pos = eef_pose[:, :3]
+        eef_quat_xyzw = eef_pose[:, 3:]
+        eef_quat_wxyz = eef_quat_xyzw[:, [3, 0, 1, 2]]
+
+        goal = Pose(eef_pos, eef_quat_wxyz) # Pose need quat in wxyz format
+        result = self.ik_solver.solve_batch(goal, seed_config=seed_config)
+        if torch.any(result.success == False):
+            print("IK solver failed for some environments.")
+            import ipdb ; ipdb.set_trace()
+            # TODO: need to think a bit how to handle such cases
+
+        q_solution = result.solution[result.success]
+        return q_solution
+
+    def get_ee_from_joint(self, joint_angles):
         """
-        Get the end effector pose from the joint angles.
+        Get the end effector pose from the joint angles. This func is well tested
         Args:
             joint_angles (torch.Tensor): 7-dof joint angles. (B, 7)
         Returns:
             ee_pose (torch.Tensor)): 7D end effector pose. xyz, xyzw
         """
-        raise NotImplementedError("FK not implemented yet")
+        joint_angles = joint_angles.clone().contiguous()
+        kin_state = self.ik_solver.fk(joint_angles)
+        eef_pose = kin_state.ee_position
+        eef_wxyz = kin_state.ee_quaternion
+        eef_xyzw = eef_wxyz[:, [1, 2, 3, 0]]
+
+        return torch.cat((eef_pose, eef_xyzw), dim=-1)  # (B, 7) with xyz and xyzw
 
     def set_joint_pos_from_ee_pos(self, target_ee_pose): # TODO: implement
         """
@@ -859,12 +914,12 @@ class FrankaLEAP(VecTask):
         robot_dof_props = self._create_franka_leap()
         robot_asset = self.robot_asset
         robot_start_pose = gymapi.Transform()
-        robot_start_pose.p = gymapi.Vec3(0.0, 0.0, 0.0 + table_thickness / 2)
+        robot_start_pose.p = gymapi.Vec3(0.0, 0.0, 0.0) # make sure robot spawns at the origin, this matches the IK setting with cuRobo
         robot_start_pose.r = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
 
         # setup table
         table_asset, table_start_pose = self._create_cube(
-            pos=[0.5, 0.0, 0.0],
+            pos=[0.5, 0.0, -table_thickness/2],
             size=[0.7, 1.2, table_thickness],
         )
         self.table_surface_height = table_start_pose.p.z + table_thickness / 2
@@ -986,9 +1041,14 @@ class FrankaLEAP(VecTask):
         """
         actions[:, :7] *= self.action_scale["arm"]
         actions[:, 7:] *= self.action_scale["hand"]
-        delta_actions_unnormalized = self.unnormalize_robot_joints(actions, delta=True)
-        self.actions = delta_actions_unnormalized
-        abs_actions = self.states['q'] + delta_actions_unnormalized # need to really make sure states['q'] is always up to date
+
+        if self.eef_actions:
+            pass
+        else:
+            delta_joint_actions_unnormalized = self.unnormalize_robot_joints(actions, delta=True)
+
+        self.actions = delta_joint_actions_unnormalized
+        abs_actions = self.states['q'] + delta_joint_actions_unnormalized # need to really make sure states['q'] is always up to date
         self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(abs_actions))
 
     def post_physics_step(self):

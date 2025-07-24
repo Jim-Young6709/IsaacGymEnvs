@@ -45,7 +45,7 @@ env:
 
   numObservations: 65 # 1024 + state info
   numStates: 65
-  numActions: 23
+  numActions: 23 # 23: normalized delta joint actions ; 22: delta eef actions (xyz, rpy) + normalized hand joint actions
 
   base_policy_url: "jimyoung6709/DRP_Dagger"
   hdf5_path: null # hdf5 file that contains env and trajectory info
@@ -87,7 +87,7 @@ task:
 
 reward:
   params:
-    target_pos: [0.5, 0.0, 0.7]
+    target_pos: [0.5, 0.0, 0.3]
     target_quat: [0.0, 0.0, 0.0, 1.0]
     lift_threshold: 0.04
     curl_reaching_threshold: 0.15
