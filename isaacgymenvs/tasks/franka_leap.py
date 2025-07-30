@@ -498,7 +498,7 @@ class FrankaLEAP(VecTask):
         # update object state
         object_center_pos = self._object_state[:, :3].clone()
         local_offset = torch.zeros([self.num_envs, 3], dtype=torch.float, device=self.device)
-        local_offset[:, 2] = self.mesh_aabb_extents[:, 2] / 2 + 0.025  # half thickness of the table
+        local_offset[:, 2] = self.mesh_aabb_extents[:, 2] / 2
         object_rot = quaternion_to_matrix_ig(self._object_state[:, 3:7])
         rotated_offset = torch.matmul(object_rot, local_offset.unsqueeze(-1)).squeeze(-1)
         object_center_pos += rotated_offset
