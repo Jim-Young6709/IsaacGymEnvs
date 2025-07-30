@@ -18,8 +18,9 @@ import isaacgym
 import numpy as np
 import torch
 from isaacgym import gymapi, gymtorch
-from isaacgym.torch_utils import *
+from isaacgym.torch_utils import to_torch, tensor_clamp, quat_from_angle_axis, quat_mul
 from isaacgymenvs.tasks.base.vec_task import VecTask
+import isaacgymenvs.utils.eef_ctrl as eef_ctrl
 from isaacgymenvs.utils.reformat import omegaconf_to_dict
 from isaacgymenvs.utils.rotation_conversions import quaternion_to_matrix_ig, matrix_to_rotation_6d
 from isaacgymenvs.utils.pcd_utils import compute_scene_oracle_pcd, transform_pcds_to_world
@@ -37,7 +38,7 @@ class FrankaLEAP(VecTask):
         self.device = sim_device
         self.max_episode_length = self.cfg["env"]["episodeLength"]
         self.action_scale = self.cfg["env"]["actionScale"]
-        self.eef_actions = False
+        self.eef_actions = True if self.cfg["env"]["numActions"] == 22 else False
         self.aggregate_mode = self.cfg["env"]["aggregateMode"]
         self.mesh_args = self.cfg["env"]["mesh"]
         self.video_logging = self.cfg["env"]["video_logging"]
@@ -74,6 +75,8 @@ class FrankaLEAP(VecTask):
                 [[0, 0.1963, 0, -2.6180, 0, 2.9416, 0.7854] + [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]] * self.num_envs
             ).to(self.device)
 
+        self.actions = torch.zeros((self.num_envs, self.num_robot_dofs), device=self.device, dtype=torch.float) # Current delta actions to be deployed
+
         # Reset all environments
         self.reset_idx(torch.arange(self.num_envs, device=self.device))
         self.compute_observations()
@@ -88,7 +91,6 @@ class FrankaLEAP(VecTask):
         self.states = {}                        # will be dict filled with relevant states to use for reward calculation
         self.handles = {}                       # will be dict mapping names to relevant sim handles
         self.num_dofs = None                    # Total number of DOFs per env
-        self.actions = None                     # Current actions to be deployed
         self._object_state = None               # Current state of object for the current env
         self._object_id = None                  # Actor ID corresponding to object for a given env
 
@@ -549,7 +551,7 @@ class FrankaLEAP(VecTask):
             torch.sum(torch.norm(self.contact_forces[:, :30, :], dim=2), dim=1) > 1.0, 1.0, 0.0
         )  # the first 16 elements belong to franka + leap, this includes self collision
 
-    def normalize_robot_joints(self, joint_angles: torch.Tensor, delta: bool = False) -> torch.Tensor:
+    def normalize_robot_joints(self, joint_angles: torch.Tensor, robot: bool, delta: bool = False) -> torch.Tensor:
         """
         Normalize joint angles to be within the joint limits.
         Args:
@@ -557,8 +559,15 @@ class FrankaLEAP(VecTask):
         Returns:
             joint_angles (torch.Tensor): (num_envs, num_robot_dofs)
         """
-        assert joint_angles.shape[-1] == self.num_robot_dofs
-        lower_limits, upper_limits = self.get_joint_limits()
+        if robot=="arm":
+            assert joint_angles.shape[-1] == 7
+            lower_limits, upper_limits = self.get_joint_limits_franka()
+        elif robot=="hand":
+            assert joint_angles.shape[-1] == 16
+            lower_limits, upper_limits = self.get_joint_limits_leap()
+        else:
+            raise ValueError("robot must be either 'arm' or 'hand'")
+
         franka_limit_range = upper_limits - lower_limits
 
         if delta:
@@ -571,7 +580,7 @@ class FrankaLEAP(VecTask):
             ) + desired_lower_limits
         return normalized
 
-    def unnormalize_robot_joints(self, joint_angles: torch.Tensor, delta: bool = False) -> torch.Tensor:
+    def unnormalize_robot_joints(self, joint_angles: torch.Tensor, robot: bool, delta: bool = False) -> torch.Tensor:
         """
         Unnormalize joint angles.
         Args:
@@ -579,8 +588,15 @@ class FrankaLEAP(VecTask):
         Returns:
             joint_angles (torch.Tensor): (num_envs, num_robot_dofs)
         """
-        assert joint_angles.shape[-1] == self.num_robot_dofs
-        lower_limits, upper_limits = self.get_joint_limits()
+        if robot=="arm":
+            assert joint_angles.shape[-1] == 7
+            lower_limits, upper_limits = self.get_joint_limits_franka()
+        elif robot=="hand":
+            assert joint_angles.shape[-1] == 16
+            lower_limits, upper_limits = self.get_joint_limits_leap()
+        else:
+            raise ValueError("robot must be either 'arm' or 'hand'")
+
         franka_limit_range = upper_limits - lower_limits
 
         if delta:
@@ -715,16 +731,28 @@ class FrankaLEAP(VecTask):
             gymtorch.unwrap_tensor(multi_env_ids_obj_int32), len(multi_env_ids_obj_int32),
         )
 
-    def get_joint_limits(self):
+    def get_joint_limits_franka(self):
         """
-        Get the joint limits of the robot. Franka (7) + LEAP (4*4), 23 DOF in total
+        Get the joint limits of the Franka arm. Franka (7) + LEAP (4*4), 23 DOF in total
 
         Returns:
-            lower_limits (torch.Tensor): (23,)
-            upper_limits (torch.Tensor): (23,)
+            lower_limits (torch.Tensor): (7,)
+            upper_limits (torch.Tensor): (7,)
         """
-        lower_limits = self.robot_dof_lower_limits[:23]
-        upper_limits = self.robot_dof_upper_limits[:23]
+        lower_limits = self.robot_dof_lower_limits[:7]
+        upper_limits = self.robot_dof_upper_limits[:7]
+        return lower_limits, upper_limits
+
+    def get_joint_limits_leap(self):
+        """
+        Get the joint limits of the LEAP hand. Franka (7) + LEAP (4*4), 23 DOF in total
+
+        Returns:
+            lower_limits (torch.Tensor): (16,)
+            upper_limits (torch.Tensor): (16,)
+        """
+        lower_limits = self.robot_dof_lower_limits[7:]
+        upper_limits = self.robot_dof_upper_limits[7:]
         return lower_limits, upper_limits
 
     # visualization
@@ -1039,16 +1067,49 @@ class FrankaLEAP(VecTask):
         Args:
             actions (torch.Tensor): normalized delta joint angles (num_selected_envs, 7+4*4)
         """
-        actions[:, :7] *= self.action_scale["arm"]
-        actions[:, 7:] *= self.action_scale["hand"]
-
         if self.eef_actions:
-            pass
-        else:
-            delta_joint_actions_unnormalized = self.unnormalize_robot_joints(actions, delta=True)
+            pos_actions = actions[:, 0:3] * self.action_scale["eef_pos"]
+            ctrl_target_eef_pos = self.states['eef_pos'] + pos_actions
 
-        self.actions = delta_joint_actions_unnormalized
-        abs_actions = self.states['q'] + delta_joint_actions_unnormalized # need to really make sure states['q'] is always up to date
+            # Interpret actions as target rot (axis-angle) displacements
+            rot_actions = actions[:, 3:6] * self.action_scale["eef_rot"]
+            angle = torch.norm(rot_actions, p=2, dim=-1)
+            axis = rot_actions / angle.unsqueeze(-1)
+            rot_actions_quat = quat_from_angle_axis(angle, axis)
+
+            # clamp tiny rotations to avoid numerical issues
+            rot_actions_quat = torch.where(
+                angle.unsqueeze(-1).repeat(1, 4) > 1.0e-6,
+                rot_actions_quat,
+                torch.tensor([0.0, 0.0, 0.0, 1.0], device=self.device).repeat(
+                    self.num_envs, 1
+                ),
+            )
+            ctrl_target_eef_quat = quat_mul(
+                rot_actions_quat, self.states['eef_quat'] # xyzw format
+            )
+
+            delta_arm_joint_actions_unnormalized = eef_ctrl.compute_dof_pos_delta(
+                arm_dof_pos= self.states['q'][:, :7],
+                current_eef_pos=self.states['eef_pos'],
+                current_eef_quat= self.states['eef_quat'],
+                jacobian=self._j_eef,
+                ctrl_target_eef_pos=ctrl_target_eef_pos,
+                ctrl_target_eef_quat=ctrl_target_eef_quat,
+            )
+
+            hand_actions = actions[:, 6:] * self.action_scale["hand"]
+            delta_hand_joint_actions_unnormalized = self.unnormalize_robot_joints(hand_actions, robot="hand", delta=True)
+        else:
+            arm_actions = actions[:, :7] * self.action_scale["arm"]
+            hand_actions = actions[:, 7:] * self.action_scale["hand"]
+            delta_arm_joint_actions_unnormalized = self.unnormalize_robot_joints(arm_actions, robot="arm", delta=True)
+            delta_hand_joint_actions_unnormalized = self.unnormalize_robot_joints(hand_actions, robot="hand", delta=True)
+
+        self.actions[:, :7] = delta_arm_joint_actions_unnormalized
+        self.actions[:, 7:] = delta_hand_joint_actions_unnormalized
+
+        abs_actions = self.states['q'] + self.actions # need to really make sure states['q'] is always up to date
         self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(abs_actions))
 
     def post_physics_step(self):

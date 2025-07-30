@@ -38,18 +38,15 @@ from isaacgymenvs.utils import torch_jit_utils as torch_utils
 
 
 
-def compute_dof_pos_target(cfg_ctrl,
-                           arm_dof_pos,
-                           current_eef_pos,
-                           current_eef_quat,
-                           jacobian,
-                           ctrl_target_eef_pos,
-                           ctrl_target_eef_quat,
-                           device):
-    """Compute Franka DOF position target to move fingertips towards target pose."""
+def compute_dof_pos_delta(arm_dof_pos: torch.Tensor,
+                           current_eef_pos: torch.Tensor,
+                           current_eef_quat: torch.Tensor,
+                           jacobian: torch.Tensor,
+                           ctrl_target_eef_pos: torch.Tensor,
+                           ctrl_target_eef_quat: torch.Tensor):
+    """Compute Franka DOF position delta to move fingertips towards target pose."""
 
-    ctrl_target_dof_pos = torch.zeros((cfg_ctrl['num_envs'], 7), device=device)
-
+    device = arm_dof_pos.device
     pos_error, axis_angle_error = get_pose_error(
         current_eef_pos=current_eef_pos,
         current_eef_quat=current_eef_quat,
@@ -62,9 +59,7 @@ def compute_dof_pos_target(cfg_ctrl,
                                            jacobian=jacobian,
                                            device=device)
 
-    ctrl_target_dof_pos[:, 0:7] = arm_dof_pos + delta_arm_dof_pos
-
-    return ctrl_target_dof_pos
+    return delta_arm_dof_pos
 
 
 def compute_dof_torque(cfg_ctrl,
