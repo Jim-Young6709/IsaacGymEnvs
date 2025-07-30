@@ -209,11 +209,9 @@
       </material>
     </visual>
     <collision>
-      <origin xyz="-0.040095249652862544332 -0.045757756134899473244 -0.015" rpy="0 -0 0" />
-      <!-- <origin xyz="-0.020095249652862544332 0.025757756134899473244 -0.034722403578460216134" rpy="0 -0 0" /> -->
+      <origin xyz="-0.020095249652862544332 0.025757756134899473244 -0.034722403578460216134" rpy="0 -0 0" />
       <geometry>
-        <box size="0.04 0.135 0.042"/>
-        <!-- <mesh filename="meshes/leap/palm_lower.stl" /> -->
+        <mesh filename="meshes/leap/palm_lower.stl"/>
       </geometry>
     </collision>
     <inertial>
