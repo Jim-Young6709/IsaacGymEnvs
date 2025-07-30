@@ -295,7 +295,7 @@ class FrankaLEAP(VecTask):
             "target_rot_6d": matrix_to_rotation_6d(quaternion_to_matrix_ig(target_quat)),
             "lift_threshold": to_torch(self.cfg["reward"]["params"]["lift_threshold"], device=self.device),
             "curl_reaching_threshold": to_torch(self.cfg["reward"]["params"]["curl_reaching_threshold"], device=self.device),
-            "object_init_height": self.mesh_aabb_extents[:, 2] / 2 + 0.025, # 0.025 is the half thickness of the table
+            "object_init_height": self.mesh_aabb_extents[:, 2] / 2 + self.table_surface_height,
             "grasp_finger_dof_pos": self.grasp_finger_dof_pos,
 
             "beta_hand_object": to_torch(self.cfg["reward"]["exp"]["beta_hand_object"], device=self.device),
