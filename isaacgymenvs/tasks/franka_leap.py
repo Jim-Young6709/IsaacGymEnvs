@@ -72,7 +72,7 @@ class FrankaLEAP(VecTask):
 
         if not hasattr(self, 'canonical_joint_config'):
             self.canonical_joint_config = torch.tensor(
-                [[0, 0.1963, 0, -2.6180, 0, 2.9416, 0.7854] + [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]] * self.num_envs
+                [[0, torch.pi/12, 0, -3*torch.pi/4, 0, 5*torch.pi/6, torch.pi/2] + [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]] * self.num_envs
             ).to(self.device)
 
         self.actions = torch.zeros((self.num_envs, self.num_robot_dofs), device=self.device, dtype=torch.float) # Current delta actions to be deployed
@@ -286,7 +286,7 @@ class FrankaLEAP(VecTask):
 
         # for visualization purposes
         self.canonical_grasp_config = torch.tensor(
-            [[0, 0.1963, 0, -2.6180, 0, 2.9416, 0.7854] + self.grasp_finger_dof_pos.tolist()] * self.num_envs
+            [[0, torch.pi/12, 0, -3*torch.pi/4, 0, 5*torch.pi/6, torch.pi/2] + self.grasp_finger_dof_pos.tolist()] * self.num_envs
         ).to(self.device)
 
         self.reward_settings = {
