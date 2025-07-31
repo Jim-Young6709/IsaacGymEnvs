@@ -39,12 +39,12 @@ class FrankaLEAPPick(FrankaLEAP):
     def compute_observations(self):
         self._refresh()
 
-        obs_components = ["q", "eef_pos", "eef_rot_6d",
+        obs_components = ["q_hand", "eef_pos", "eef_rot_6d",
                           "eef_finger1_pos", "eef_finger2_pos", "eef_finger3_pos", "eef_finger4_pos",
                           "object_center_pos", "object_rot_6d", "hand_to_object",
                           "object_to_target", "object_target_6d_diff"]
 
-        states_components = ["q", "eef_pos", "eef_rot_6d",
+        states_components = ["q_hand", "eef_pos", "eef_rot_6d",
                           "eef_finger1_pos", "eef_finger2_pos", "eef_finger3_pos", "eef_finger4_pos",
                           "object_center_pos", "object_rot_6d", "hand_to_object",
                           "object_to_target", "object_target_6d_diff"]

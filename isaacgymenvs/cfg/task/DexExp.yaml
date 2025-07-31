@@ -45,9 +45,9 @@ env:
     width: 640
     height: 480
 
-  numObservations: 65 # 1024 + state info
-  numStates: 65
-  numActions: 22 # 23: normalized delta joint actions ; 22: delta eef actions (xyz, rpy) + normalized hand joint actions
+  numObservations: 42 # 1024 + state info
+  numStates: 42
+  numActions: 22 # delta eef actions 6 (xyz, rpy) + normalized hand joint actions 16
 
   base_policy_url: "jimyoung6709/DRP_Dagger"
   hdf5_path: null # hdf5 file that contains env and trajectory info

@@ -513,6 +513,7 @@ class FrankaLEAP(VecTask):
         self.states.update({
             # Robot
             "q": self._q[:, :],
+            "q_hand": self._q[:, 7:],
             "qd": self._qd[:, :],
             "eef_pos": self._eef_state[:, :3],
             "eef_quat": self._eef_state[:, 3:7],
