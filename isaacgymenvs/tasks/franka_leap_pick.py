@@ -39,14 +39,16 @@ class FrankaLEAPPick(FrankaLEAP):
     def compute_observations(self):
         self._refresh()
 
-        obs_components = ["q_hand", "eef_pos", "eef_rot_6d",
-                          "eef_finger1_pos", "eef_finger2_pos", "eef_finger3_pos", "eef_finger4_pos",
-                          "object_center_pos", "object_rot_6d", "hand_to_object",
+        obs_components = ["q_hand", "eef_rot_6d",
+                          "eef_finger1_pos_relative", "eef_finger2_pos_relative",
+                          "eef_finger3_pos_relative", "eef_finger4_pos_relative",
+                          "object_rot_6d", "hand_to_object",
                           "object_to_target", "object_target_6d_diff"]
 
-        states_components = ["q_hand", "eef_pos", "eef_rot_6d",
-                          "eef_finger1_pos", "eef_finger2_pos", "eef_finger3_pos", "eef_finger4_pos",
-                          "object_center_pos", "object_rot_6d", "hand_to_object",
+        states_components = ["q_hand", "eef_rot_6d",
+                          "eef_finger1_pos_relative", "eef_finger2_pos_relative",
+                          "eef_finger3_pos_relative", "eef_finger4_pos_relative",
+                          "object_rot_6d", "hand_to_object",
                           "object_to_target", "object_target_6d_diff"]
 
         obs_buf = torch.cat([self.states[ob] for ob in obs_components], dim=-1)
