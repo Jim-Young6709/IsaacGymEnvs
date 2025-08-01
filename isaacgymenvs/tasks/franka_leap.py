@@ -636,20 +636,28 @@ class FrankaLEAP(VecTask):
             joint_angles (np.ndarray): 7-dof joint angles.  (B, 7)
         """
         eef_pose = eef_pose.clone().contiguous()
-        seed_config = self.states["q"][:, :7].clone().contiguous().unsqueeze(1)
-
         eef_pos = eef_pose[:, :3]
         eef_quat_xyzw = eef_pose[:, 3:]
         eef_quat_wxyz = eef_quat_xyzw[:, [3, 0, 1, 2]]
 
+        B = eef_pose.shape[0]
+        B_pad = self.num_envs - B
+
+        if B_pad > 0:
+            eef_pos_dummy = torch.tensor([[0.3, 0.0, 0.3]]*B_pad, dtype=torch.float, device=self.device)
+            eef_quat_wxyz_dummy = torch.tensor([[1.0, 0.0, 0.0, 0.0]]*B_pad, dtype=torch.float, device=self.device)
+
+            eef_pos = torch.cat((eef_pos, eef_pos_dummy), dim=0)
+            eef_quat_wxyz = torch.cat((eef_quat_wxyz, eef_quat_wxyz_dummy), dim=0)
+
         goal = Pose(eef_pos, eef_quat_wxyz) # Pose need quat in wxyz format
-        result = self.ik_solver.solve_batch(goal, seed_config=seed_config)
+        result = self.ik_solver.solve_batch(goal)
         if torch.any(result.success == False):
             print("IK solver failed for some environments.")
             import ipdb ; ipdb.set_trace()
             # TODO: need to think a bit how to handle such cases
 
-        q_solution = result.solution[result.success]
+        q_solution = result.solution[:B, 0]
         return q_solution
 
     def get_ee_from_joint(self, joint_angles):
@@ -1076,8 +1084,8 @@ class FrankaLEAP(VecTask):
         self._reset_object_state(env_ids) # reset object state
 
         # sample initial eef state based on object location
-        shell_sample = sample_spherical_shell(self.eef_init['r_range'], n_samples=self.num_envs, device=self.device)
-        eef_init_pos = self._object_center_init_state + shell_sample
+        shell_sample = sample_spherical_shell(self.eef_init['r_range'], n_samples=len(env_ids), device=self.device)
+        eef_init_pos = self._object_center_init_state[env_ids] + shell_sample
         eef_init_pos[:, 2] += self.eef_init['z_shift']
 
         # sample eef quaternion so it face towards the objects (with minor randomization)
