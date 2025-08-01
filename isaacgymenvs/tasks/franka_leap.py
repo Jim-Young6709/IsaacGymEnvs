@@ -156,11 +156,13 @@ class FrankaLEAP(VecTask):
             None,
             rotation_threshold=0.05,
             position_threshold=0.005,
-            num_seeds=20,
+            num_seeds=10,
             self_collision_check=False,
             self_collision_opt=False,
             tensor_args=tensor_args,
             use_cuda_graph=True,
+            regularization=False,
+            grad_iters=None
         )
         self.ik_solver = IKSolver(ik_config)
 
@@ -652,9 +654,8 @@ class FrankaLEAP(VecTask):
 
         goal = Pose(eef_pos, eef_quat_wxyz) # Pose need quat in wxyz format
         result = self.ik_solver.solve_batch(goal)
-        if torch.any(result.success == False):
+        if torch.any(result.success[:B] == False):
             print("IK solver failed for some environments.")
-            import ipdb ; ipdb.set_trace()
             # TODO: need to think a bit how to handle such cases
 
         q_solution = result.solution[:B, 0]
