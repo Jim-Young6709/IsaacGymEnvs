@@ -257,7 +257,7 @@ class FrankaLEAP(VecTask):
 
         _jacobian = self.gym.acquire_jacobian_tensor(self.sim, "franka")
         jacobian = gymtorch.wrap_tensor(_jacobian)
-        hand_joint_index = self.gym.get_actor_joint_dict(env_ptr, robot_handle)['panda_hand_joint']
+        hand_joint_index = self.gym.get_actor_joint_dict(env_ptr, robot_handle)['palm_center_joint']
         self._j_eef = jacobian[:, hand_joint_index, :, :7]
         _massmatrix = self.gym.acquire_mass_matrix_tensor(self.sim, "franka")
         mm = gymtorch.wrap_tensor(_massmatrix)
@@ -1091,9 +1091,9 @@ class FrankaLEAP(VecTask):
             )
 
             delta_arm_joint_actions_unnormalized = eef_ctrl.compute_dof_pos_delta(
-                arm_dof_pos= self.states['q'][:, :7],
+                arm_dof_pos=self.states['q'][:, :7],
                 current_eef_pos=self.states['eef_pos'],
-                current_eef_quat= self.states['eef_quat'],
+                current_eef_quat=self.states['eef_quat'],
                 jacobian=self._j_eef,
                 ctrl_target_eef_pos=ctrl_target_eef_pos,
                 ctrl_target_eef_quat=ctrl_target_eef_quat,
