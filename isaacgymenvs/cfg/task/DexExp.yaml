@@ -33,8 +33,12 @@ env:
     obj_list: ['apple'] # ["all"]
 
   object_settings:
-    xyz_range: [[0.35, -0.3, 0.2], [0.65, 0.3, 0.25]] # xy is center position, z is BOTTOM height
+    xyz_range: [[0.35, -0.2, 0.2], [0.55, 0.2, 0.25]] # xy is center position, z is BOTTOM height
     scale_range: [0.1, 0.1]
+
+  eef_init:
+    r_range: [0.15, 0.2]
+    z_shift: 0.2 # to avoid collision with the object
 
   image_height: 224
   image_width: 224
@@ -45,8 +49,8 @@ env:
     width: 640
     height: 480
 
-  numObservations: 58 # 1024 + state info
-  numStates: 58
+  numObservations: 52 # 1024 + state info
+  numStates: 52
   numActions: 22 # delta eef actions 6 (xyz, rpy) + normalized hand joint actions 16
 
   base_policy_url: "jimyoung6709/DRP_Dagger"

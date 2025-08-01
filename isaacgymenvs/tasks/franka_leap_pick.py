@@ -154,7 +154,7 @@ def launch_test(cfg: DictConfig):
         env.step_sim_multi(1)
         env.compute_observations()
 
-        # test fk, ik
+        # test fk, ik # need to set eef to panda_link7, otherwise will have offset
         ee_pos = env.get_ee_from_joint(env.states['q'][:, :7])
         fk_pos_err = torch.any((ee_pos[:, :3] - env.states['eef_pos']) > 1e-4)
         fk_ori_err1 = (ee_pos[:, 3:] - env.states['eef_quat']) > 1e-4

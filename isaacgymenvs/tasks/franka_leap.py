@@ -32,6 +32,19 @@ from curobo.types.math import Pose
 
 
 
+def sample_spherical_shell(r_range: list, n_samples: int = 1, device='cpu'):
+    # Step 1: Random direction using Gaussian normalization
+    vec = torch.randn(n_samples, 3, device=device)         # random 3D vector
+    vec = vec / vec.norm(dim=1, keepdim=True)              # normalize to unit length
+    
+    # Step 2: Random radius in [r_min, r_max]
+    radius = torch.empty(n_samples, 1, device=device).uniform_(r_range[0], r_range[1])
+
+    vec[:, 2] = torch.abs(vec[:, 2])  # ensure z-component is non-negative
+
+    return radius * vec  # shape: (n_samples, 3)
+
+
 class FrankaLEAP(VecTask):
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
         self.cfg = cfg
@@ -41,6 +54,7 @@ class FrankaLEAP(VecTask):
         self.eef_actions = True if self.cfg["env"]["numActions"] == 22 else False
         self.aggregate_mode = self.cfg["env"]["aggregateMode"]
         self.mesh_args = self.cfg["env"]["mesh"]
+        self.eef_init = self.cfg["env"]["eef_init"]
         self.video_logging = self.cfg["env"]["video_logging"]
         self.video_dir = os.path.join('videos', self.cfg["name"] + '_{date:%d-%H-%M-%S}'.format(date=datetime.now()))
         os.makedirs(self.video_dir, exist_ok=True)
@@ -78,9 +92,9 @@ class FrankaLEAP(VecTask):
         self.actions = torch.zeros((self.num_envs, self.num_robot_dofs), device=self.device, dtype=torch.float) # Current delta actions to be deployed
 
         # Reset all environments
+        self._refresh()
         self.reset_idx(torch.arange(self.num_envs, device=self.device))
         self.compute_observations()
-        self._refresh()
 
         # randomize progress buffer
         self.progress_buf = torch.randint(0, self.max_episode_length, (self.num_envs,)).to(self.device)
@@ -92,6 +106,7 @@ class FrankaLEAP(VecTask):
         self.handles = {}                       # will be dict mapping names to relevant sim handles
         self.num_dofs = None                    # Total number of DOFs per env
         self._object_state = None               # Current state of object for the current env
+        self._object_center_init_state = None          # Initial state of object for the current env
         self._object_id = None                  # Actor ID corresponding to object for a given env
 
         # Tensor placeholders
@@ -447,7 +462,7 @@ class FrankaLEAP(VecTask):
         start_pose.r = gymapi.Quat(*quat)  # quat in xyzw order
         return asset, start_pose, scale, asset_obj_id, asset_mesh_id
 
-    def create_rand_mesh(self, fix_base_link=False):
+    def create_rand_mesh(self, fix_base_link=False, on_table=True):
         # get randomly sampled mesh path
         mesh_dir = self.mesh_args["mesh_dir"]
         object_list = self.mesh_args["obj_list"]
@@ -474,6 +489,8 @@ class FrankaLEAP(VecTask):
 
         mesh_scale = np.random.uniform(scale_range[0], scale_range[1])
         mesh_pos = np.random.uniform(pos_range[0], pos_range[1])
+        if on_table:
+            mesh_pos[2] = self.table_surface_height
         mesh_quat = R.random().as_quat()  # [x, y, z, w]
 
         return self._create_mesh(sampled_mesh_path, mesh_pos, mesh_scale, mesh_quat, fix_base_link)
@@ -725,6 +742,8 @@ class FrankaLEAP(VecTask):
         sampled_object_state[:, 6] = 1.0
         sampled_object_state[:, :3] = reset_pos
         self._object_state[env_ids] = sampled_object_state
+        self._object_center_init_state[env_ids] = reset_pos
+        self._object_center_init_state[env_ids, 2] += self.mesh_aabb_extents[env_ids, 2] / 2
 
         multi_env_ids_obj_int32 = self._global_indices[env_ids, self._object_id].flatten()
         self.gym.set_actor_root_state_tensor_indexed(
@@ -962,6 +981,7 @@ class FrankaLEAP(VecTask):
         self.robots = []
         self.objects = []
         self.env_ptrs = []
+        self._object_center_init_state = torch.zeros((self.num_envs, 3), device=self.device)
 
         # temporarily moving this out so all env load the same mesh, easier to train
         object_asset, object_start_pose, object_scale, object_id, mesh_id = self.create_rand_mesh()
@@ -997,6 +1017,7 @@ class FrankaLEAP(VecTask):
             self._object_id = self.gym.create_actor(
                 env_ptr, object_asset, object_start_pose, "object", i, 2, 0
             )
+            self._object_center_init_state[i, :3] = torch.tensor([object_start_pose.p.x, object_start_pose.p.y, object_start_pose.p.z], device=self.device)
 
             if self.aggregate_mode == 1:
                 self.gym.begin_aggregate(env_ptr, max_agg_bodies, max_agg_shapes, True)
@@ -1042,6 +1063,7 @@ class FrankaLEAP(VecTask):
         min_xyz = self.object_pcds.min(axis=1).values
         max_xyz = self.object_pcds.max(axis=1).values
         self.mesh_aabb_extents = max_xyz - min_xyz
+        self._object_center_init_state[:, 2] += self.mesh_aabb_extents[:, 2] / 2
 
         # Setup data
         actor_num = 1 + 1 + 1  # robot, table, object
@@ -1051,15 +1073,32 @@ class FrankaLEAP(VecTask):
         if env_ids is None:
             env_ids = torch.arange(self.num_envs, device=self.device)
 
-        reset_noise = torch.rand((len(env_ids), 23), device=self.device)
-        reset_config = tensor_clamp(
-            self.canonical_joint_config[env_ids] +
-            0.1 * 2.0 * (reset_noise - 0.5),
-            self.robot_dof_lower_limits, self.robot_dof_upper_limits)
-
-        self.set_robot_joint_state(reset_config, env_ids=env_ids)
-
         self._reset_object_state(env_ids) # reset object state
+
+        # sample initial eef state based on object location
+        shell_sample = sample_spherical_shell(self.eef_init['r_range'], n_samples=self.num_envs, device=self.device)
+        eef_init_pos = self._object_center_init_state + shell_sample
+        eef_init_pos[:, 2] += self.eef_init['z_shift']
+
+        # sample eef quaternion so it face towards the objects (with minor randomization)
+        eef_init_quat = torch.zeros((len(env_ids), 4), device=self.device)
+        eef_init_quat[:, 1] = 1
+
+        # get eef7 targets and solve IK
+        eef_init_pos7 = torch.cat((eef_init_pos, eef_init_quat), dim=-1)  # (num_envs, 7)
+        reset_arm_joint = self.get_joint_from_ee(eef_init_pos7)
+
+        # sample hand joint reset angles
+        reset_noise_scale = 0.3
+        reset_noise = torch.rand((len(env_ids), 16), device=self.device)
+        reset_hand_joint = tensor_clamp(
+            self.canonical_joint_config[env_ids, 7:] +
+            reset_noise_scale * 2.0 * (reset_noise - 0.5),
+            self.robot_dof_lower_limits[7:], self.robot_dof_upper_limits[7:])
+
+        reset_joint_config = torch.cat((reset_arm_joint, reset_hand_joint), dim=-1)  # (num_envs, 23)
+
+        self.set_robot_joint_state(reset_joint_config, env_ids=env_ids)
         self.progress_buf[env_ids] = 0
         self.reset_buf[env_ids] = 0
 
