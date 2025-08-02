@@ -22,7 +22,7 @@ from isaacgym.torch_utils import to_torch, tensor_clamp, quat_from_angle_axis, q
 from isaacgymenvs.tasks.base.vec_task import VecTask
 import isaacgymenvs.utils.eef_ctrl as eef_ctrl
 from isaacgymenvs.utils.reformat import omegaconf_to_dict
-from isaacgymenvs.utils.rotation_conversions import quaternion_to_matrix_ig, matrix_to_rotation_6d
+from isaacgymenvs.utils.rotation_conversions import quaternion_to_matrix_ig, matrix_to_rotation_6d, sample_spherical_shell, A2B_quaternion
 from isaacgymenvs.utils.pcd_utils import compute_scene_oracle_pcd, transform_pcds_to_world
 from omegaconf import DictConfig
 from tqdm import tqdm
@@ -30,19 +30,6 @@ import random
 from scipy.spatial.transform import Rotation as R
 from curobo.types.math import Pose
 
-
-
-def sample_spherical_shell(r_range: list, n_samples: int = 1, device='cpu'):
-    # Step 1: Random direction using Gaussian normalization
-    vec = torch.randn(n_samples, 3, device=device)         # random 3D vector
-    vec = vec / vec.norm(dim=1, keepdim=True)              # normalize to unit length
-    
-    # Step 2: Random radius in [r_min, r_max]
-    radius = torch.empty(n_samples, 1, device=device).uniform_(r_range[0], r_range[1])
-
-    vec[:, 2] = torch.abs(vec[:, 2])  # ensure z-component is non-negative
-
-    return radius * vec  # shape: (n_samples, 3)
 
 
 class FrankaLEAP(VecTask):
@@ -1090,8 +1077,7 @@ class FrankaLEAP(VecTask):
         eef_init_pos[:, 2] += self.eef_init['z_shift']
 
         # sample eef quaternion so it face towards the objects (with minor randomization)
-        eef_init_quat = torch.zeros((len(env_ids), 4), device=self.device)
-        eef_init_quat[:, 1] = 1
+        eef_init_quat = A2B_quaternion(eef_init_pos[env_ids], self._object_center_init_state[env_ids])
 
         # get eef7 targets and solve IK
         eef_init_pos7 = torch.cat((eef_init_pos, eef_init_quat), dim=-1)  # (num_envs, 7)
