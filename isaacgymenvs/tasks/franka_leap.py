@@ -1077,7 +1077,7 @@ class FrankaLEAP(VecTask):
         eef_init_pos[:, 2] += self.eef_init['z_shift']
 
         # sample eef quaternion so it face towards the objects (with minor randomization)
-        eef_init_quat = A2B_quaternion(eef_init_pos[env_ids], self._object_center_init_state[env_ids])
+        eef_init_quat = A2B_quaternion(eef_init_pos, self._object_center_init_state[env_ids])
 
         # get eef7 targets and solve IK
         eef_init_pos7 = torch.cat((eef_init_pos, eef_init_quat), dim=-1)  # (num_envs, 7)
