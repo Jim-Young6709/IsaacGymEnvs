@@ -484,6 +484,50 @@ class FrankaLEAP(VecTask):
 
         return self._create_mesh(sampled_mesh_path, mesh_pos, mesh_scale, mesh_quat, fix_base_link)
 
+    def create_all_meshes(self, fix_base_link=False, on_table=True):
+        """
+        Create all meshes in the mesh directory.
+        Args:
+            fix_base_link (bool): whether to fix the base link of the mesh
+            on_table (bool): whether to place the mesh on the table surface
+        Returns:
+            meshes (list): list of tuples containing asset, start_pose, scale, asset_obj_id, asset_mesh_id
+        """
+        mesh_dir = self.mesh_args["mesh_dir"]
+        object_list = self.mesh_args["obj_list"]
+
+        if object_list == ["all"]:
+            object_list = [
+                obj
+                for obj in os.listdir(mesh_dir)
+                if obj != "type_mapping.json"
+            ]
+
+        mesh_files = [
+            os.path.join(mesh_dir, obj, file)
+            for obj in object_list
+            for file in os.listdir(os.path.join(mesh_dir, obj))
+            if file.endswith(".obj")
+        ]
+
+        meshes = []
+        for mesh_file_path in tqdm(mesh_files, desc="Preparing Meshes"):
+            # sample random size, pos and ori
+            scale_range = self.cfg["env"]["object_settings"]["scale_range"]
+            pos_range = self.cfg["env"]["object_settings"]["xyz_range"]
+
+            mesh_scale = np.random.uniform(scale_range[0], scale_range[1])
+            mesh_pos = np.random.uniform(pos_range[0], pos_range[1])
+            if on_table:
+                mesh_pos[2] = self.table_surface_height
+            mesh_quat = R.random().as_quat()
+            asset, start_pose, scale, asset_obj_id, asset_mesh_id = self._create_mesh(
+                mesh_file_path, mesh_pos, mesh_scale, mesh_quat, fix_base_link
+            )
+            meshes.append((asset, start_pose, scale, asset_obj_id, asset_mesh_id))
+
+        return meshes
+
     def _refresh(self):
         self.gym.refresh_actor_root_state_tensor(self.sim)
         self.gym.refresh_dof_state_tensor(self.sim)
@@ -979,13 +1023,13 @@ class FrankaLEAP(VecTask):
         self.env_ptrs = []
         self._object_center_init_state = torch.zeros((self.num_envs, 3), device=self.device)
 
-        # temporarily moving this out so all env load the same mesh, easier to train
-        # object_asset, object_start_pose, object_scale, object_id, mesh_id = self.create_rand_mesh()
+        # load all meshes first
+        all_meshes_list = self.create_all_meshes()
 
         # Create environments
-        for i in tqdm(range(self.num_envs)):
+        for i in tqdm(range(self.num_envs), desc="Creating Envs"):
             # grasp object
-            object_asset, object_start_pose, object_scale, object_id, mesh_id = self.create_rand_mesh()
+            object_asset, object_start_pose, object_scale, object_id, mesh_id = all_meshes_list[i % len(all_meshes_list)]
 
             # create env instance
             env_ptr = self.gym.create_env(self.sim, lower, upper, num_per_row)
