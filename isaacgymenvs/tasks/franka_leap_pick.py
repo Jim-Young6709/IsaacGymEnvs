@@ -151,7 +151,7 @@ def launch_test(cfg: DictConfig):
         t1 = time.time()
         env.reset_idx()
         # env.set_robot_joint_state(env.canonical_grasp_config)
-        env.step_sim_multi(1)
+        env.step_sim_multi(1, False)
         env.compute_observations()
 
         # test fk, ik # need to set eef to panda_link7, otherwise will have offset

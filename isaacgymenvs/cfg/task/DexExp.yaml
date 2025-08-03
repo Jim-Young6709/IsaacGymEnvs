@@ -37,6 +37,7 @@ env:
     scale_range: [0.1, 0.15]
 
   eef_init:
+    enable: False
     r_range: [0.15, 0.2]
     z_shift: 0.2 # to avoid collision with the object
 
@@ -62,7 +63,7 @@ env:
   video_logging:
     capture: False
     envs: 4
-    freq: 10000 # record video every 30k sim steps
+    freq: 10000 # record video every 10k sim steps
 
   # set to True if use camera sensors in the environment
   enableCameraSensors: ${task.env.video_logging.capture}

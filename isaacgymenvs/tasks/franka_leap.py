@@ -73,7 +73,7 @@ class FrankaLEAP(VecTask):
 
         if not hasattr(self, 'canonical_joint_config'):
             self.canonical_joint_config = torch.tensor(
-                [[0, torch.pi/12, 0, -3*torch.pi/4, 0, 5*torch.pi/6, torch.pi/2] + [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]] * self.num_envs
+                [[0, 0, 0, -3*torch.pi/4, 0, 3*torch.pi/4, torch.pi/2] + [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]] * self.num_envs
             ).to(self.device)
 
         self.actions = torch.zeros((self.num_envs, self.num_robot_dofs), device=self.device, dtype=torch.float) # Current delta actions to be deployed
@@ -290,7 +290,7 @@ class FrankaLEAP(VecTask):
 
         # for visualization purposes
         self.canonical_grasp_config = torch.tensor(
-            [[0, torch.pi/12, 0, -3*torch.pi/4, 0, 5*torch.pi/6, torch.pi/2] + self.grasp_finger_dof_pos.tolist()] * self.num_envs
+            [[0, 0, 0, -3*torch.pi/4, 0, 3*torch.pi/4, torch.pi/2] + self.grasp_finger_dof_pos.tolist()] * self.num_envs
         ).to(self.device)
 
         self.reward_settings = {
@@ -936,14 +936,15 @@ class FrankaLEAP(VecTask):
                 wandb.log({"visualization/video": wandb.Video(os.path.join(self.video_dir, f"viz_step{render_step_start}.mp4"))}, commit=True)
 
     # debugging utils
-    def step_sim_multi(self, num_steps=1):
+    def step_sim_multi(self, num_steps=1, render_pcd=True):
         """
         Step the simulation. (for debugging purposes)
         """
         for _ in range(num_steps):
             self.gym.simulate(self.sim)
             self._refresh()
-            self.vis_pcd()
+            if render_pcd:
+                self.vis_pcd()
             self.render()
 
     def render_multi(self, num_steps=1):
@@ -1115,27 +1116,35 @@ class FrankaLEAP(VecTask):
 
         self._reset_object_state(env_ids) # reset object state
 
-        # sample initial eef state based on object location
-        shell_sample = sample_spherical_shell(self.eef_init['r_range'], n_samples=len(env_ids), device=self.device)
-        eef_init_pos = self._object_center_init_state[env_ids] + shell_sample
-        eef_init_pos[:, 2] += self.eef_init['z_shift']
+        reset_noise_scale = 0.2
 
-        # sample eef quaternion so it face towards the objects (with minor randomization)
-        eef_init_quat = A2B_quaternion(eef_init_pos, self._object_center_init_state[env_ids])
+        if self.eef_init['enable']:
+            # sample initial eef state based on object location
+            shell_sample = sample_spherical_shell(self.eef_init['r_range'], n_samples=len(env_ids), device=self.device)
+            eef_init_pos = self._object_center_init_state[env_ids] + shell_sample
+            eef_init_pos[:, 2] += self.eef_init['z_shift']
 
-        # get eef7 targets and solve IK
-        eef_init_pos7 = torch.cat((eef_init_pos, eef_init_quat), dim=-1)  # (num_envs, 7)
-        reset_arm_joint = self.get_joint_from_ee(eef_init_pos7)
+            # sample eef quaternion so it face towards the objects (with minor randomization)
+            eef_init_quat = A2B_quaternion(eef_init_pos, self._object_center_init_state[env_ids])
 
-        # sample hand joint reset angles
-        reset_noise_scale = 0.3
-        reset_noise = torch.rand((len(env_ids), 16), device=self.device)
-        reset_hand_joint = tensor_clamp(
-            self.canonical_joint_config[env_ids, 7:] +
-            reset_noise_scale * 2.0 * (reset_noise - 0.5),
-            self.robot_dof_lower_limits[7:], self.robot_dof_upper_limits[7:])
+            # get eef7 targets and solve IK
+            eef_init_pos7 = torch.cat((eef_init_pos, eef_init_quat), dim=-1)  # (num_envs, 7)
+            reset_arm_joint = self.get_joint_from_ee(eef_init_pos7)
 
-        reset_joint_config = torch.cat((reset_arm_joint, reset_hand_joint), dim=-1)  # (num_envs, 23)
+            # sample hand joint reset angles
+            reset_noise = torch.rand((len(env_ids), 16), device=self.device)
+            reset_hand_joint = tensor_clamp(
+                self.canonical_joint_config[env_ids, 7:] +
+                reset_noise_scale * 2.0 * (reset_noise - 0.5),
+                self.robot_dof_lower_limits[7:], self.robot_dof_upper_limits[7:])
+
+            reset_joint_config = torch.cat((reset_arm_joint, reset_hand_joint), dim=-1)  # (num_envs, 23)
+        else:
+            reset_noise = torch.rand((len(env_ids), 23), device=self.device)
+            reset_joint_config = tensor_clamp(
+                self.canonical_joint_config[env_ids] +
+                reset_noise_scale * 2.0 * (reset_noise - 0.5),
+                self.robot_dof_lower_limits, self.robot_dof_upper_limits)
 
         self.set_robot_joint_state(reset_joint_config, env_ids=env_ids)
         self.progress_buf[env_ids] = 0
