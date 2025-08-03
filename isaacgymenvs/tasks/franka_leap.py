@@ -980,12 +980,12 @@ class FrankaLEAP(VecTask):
         self._object_center_init_state = torch.zeros((self.num_envs, 3), device=self.device)
 
         # temporarily moving this out so all env load the same mesh, easier to train
-        object_asset, object_start_pose, object_scale, object_id, mesh_id = self.create_rand_mesh()
+        # object_asset, object_start_pose, object_scale, object_id, mesh_id = self.create_rand_mesh()
 
         # Create environments
         for i in tqdm(range(self.num_envs)):
             # grasp object
-            # object_asset, object_start_pose, object_scale, object_id, mesh_id = self.create_rand_mesh()
+            object_asset, object_start_pose, object_scale, object_id, mesh_id = self.create_rand_mesh()
 
             # create env instance
             env_ptr = self.gym.create_env(self.sim, lower, upper, num_per_row)
