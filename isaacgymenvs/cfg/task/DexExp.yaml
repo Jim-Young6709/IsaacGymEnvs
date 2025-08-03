@@ -30,7 +30,18 @@ env:
 
   mesh:
     mesh_dir: "./meshes"
-    obj_list: ['apple'] # ["all"]
+
+    obj_list: ["aerosol_can", "airplane", "alarm_clock", "alcohol", "almond",
+     "ambulance", "amplifier", "apple", "aquarium", "armchair", "armoire",
+     "armor", "army_tank", "artichoke", "ashtray", "atomizer", "automatic_washer",
+     "avocado", "award", "awning", "backpack", "bagel", "ball", "balloon",
+     "banana", "Band_Aid", "bandage", "banner", "barbell", "barge",
+     "barrel", "barrow", "baseball", "baseball_cap", "baseball_glove", "basket",
+     "basketball", "basketball_backboard", "bass_horn", "bat_(animal)",
+     "bathrobe", "bathtub", "battery", "beachball", "bead", "beanbag",
+     "beanie", "bear", "bed", "bedpan", "bedspread", "beeper", "beer_bottle",
+     "beer_can", "bell", "bell_pepper", "belt_buckle", "beret", "Bible",
+     "binder", "binoculars", "bird", "birdcage", "birdfeeder", "birdhouse"] #100
 
   object_settings:
     xyz_range: [[0.35, -0.2, 0.2], [0.55, 0.2, 0.25]] # xy is center position, z is BOTTOM height

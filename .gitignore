@@ -31,5 +31,6 @@ runs/
 outputs/
 *.hydra*
 /isaacgymenvs/wandb
-meshes/
+meshes*
 ckpts/
+/isaacgymenvs/tests
