@@ -53,6 +53,9 @@ class FrankaLEAPPick(FrankaLEAP):
 
         obs_buf = torch.cat([self.states[ob] for ob in obs_components], dim=-1)
         states_buf = torch.cat([self.states[st] for st in states_components], dim=-1)
+        if self.cfg["env"]["numObservations"] == 55:
+            obs_buf = torch.cat([obs_buf, self.mesh_aabb_extents], dim=-1)
+            states_buf = torch.cat([states_buf, self.mesh_aabb_extents], dim=-1)
 
         self.obs_buf = obs_buf
         self.states_buf = states_buf
