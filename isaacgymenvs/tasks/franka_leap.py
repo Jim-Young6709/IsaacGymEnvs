@@ -574,7 +574,7 @@ class FrankaLEAP(VecTask):
             "eef_finger2_pos": self._eef_finger2_state[:, :3],
             "eef_finger3_pos": self._eef_finger3_state[:, :3],
             "eef_finger4_pos": self._eef_finger4_state[:, :3],
-            
+
             # Fingertip positions relative to hand base (palm_center)
             "eef_finger1_pos_relative": self._eef_finger1_state[:, :3] - hand_base_pos,
             "eef_finger2_pos_relative": self._eef_finger2_state[:, :3] - hand_base_pos,

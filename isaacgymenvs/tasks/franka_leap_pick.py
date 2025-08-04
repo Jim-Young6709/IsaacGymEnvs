@@ -39,23 +39,25 @@ class FrankaLEAPPick(FrankaLEAP):
     def compute_observations(self):
         self._refresh()
 
-        obs_components = ["q_hand", "eef_rot_6d",
+        obs_components = ["q_hand",
+                          "eef_rot_6d",
                           "eef_finger1_pos_relative", "eef_finger2_pos_relative",
                           "eef_finger3_pos_relative", "eef_finger4_pos_relative",
-                          "object_rot_6d", "hand_to_object",
-                          "object_to_target", "object_target_6d_diff"]
+                          "object_rot_6d",
+                          "hand_to_object", "object_to_target"]#, "object_target_6d_diff"]
 
-        states_components = ["q_hand", "eef_rot_6d",
-                          "eef_finger1_pos_relative", "eef_finger2_pos_relative",
-                          "eef_finger3_pos_relative", "eef_finger4_pos_relative",
-                          "object_rot_6d", "hand_to_object",
-                          "object_to_target", "object_target_6d_diff"]
+        states_components = ["q", "qd",
+                             "eef_pos", "eef_rot_6d", "eef_vel",
+                             "eef_finger1_pos_relative", "eef_finger2_pos_relative",
+                             "eef_finger3_pos_relative", "eef_finger4_pos_relative",
+                             "object_center_pos", "object_rot_6d",
+                             "hand_to_object", "object_to_target"]#, "object_target_6d_diff"]
 
         obs_buf = torch.cat([self.states[ob] for ob in obs_components], dim=-1)
         states_buf = torch.cat([self.states[st] for st in states_components], dim=-1)
-        if self.cfg["env"]["numObservations"] == 55:
-            obs_buf = torch.cat([obs_buf, self.mesh_aabb_extents], dim=-1)
-            states_buf = torch.cat([states_buf, self.mesh_aabb_extents], dim=-1)
+
+        obs_buf = torch.cat([obs_buf, self.mesh_aabb_extents], dim=-1)
+        states_buf = torch.cat([states_buf, self.mesh_aabb_extents], dim=-1)
 
         self.obs_buf = obs_buf
         self.states_buf = states_buf
