@@ -34,7 +34,7 @@ env:
 
   object_settings:
     xyz_range: [[0.35, -0.2, 0.2], [0.55, 0.2, 0.25]] # xy is center position, z is BOTTOM height
-    scale_range: [0.1, 0.15]
+    scale_range: [0.1, 0.1]
 
   eef_init:
     enable: False
