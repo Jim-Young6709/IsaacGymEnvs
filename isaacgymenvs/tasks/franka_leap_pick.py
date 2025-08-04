@@ -92,11 +92,17 @@ def compute_franka_leap_reward(states, reward_settings):
     r_hand_obj = torch.exp(-beta_hand_object * d_hand_obj)
 
     # R2: Lifting bonus: r_lift = 1.0 if object is lifted
+    target_pos = reward_settings["target_pos"].squeeze(-1)
     object_height = states["object_center_pos"][:, 2] - reward_settings["object_init_height"].squeeze(-1)
-    r_lift = torch.where(object_height > reward_settings["lift_threshold"], 1.0, torch.zeros_like(object_height))
+    beta_lift = reward_settings["beta_lift"]
+    if beta_lift > 0:
+        object_vertical_err = torch.abs(states["object_center_pos"][:, 2] - target_pos[2])
+        r_lift = torch.exp(-beta_lift * object_vertical_err)
+        r_lift = torch.where(object_height > reward_settings["lift_threshold"], r_lift, 0.0)
+    else:
+        r_lift = torch.where(object_height > reward_settings["lift_threshold"], 1.0, torch.zeros_like(object_height))
 
     # R3: Object goal distance reward
-    target_pos = reward_settings["target_pos"].squeeze(-1)
     d_obj_goal = torch.norm(states["object_center_pos"] - target_pos, dim=-1)
     beta_object_goal = reward_settings["beta_object_goal"]
     r_obj_goal = torch.exp(-beta_object_goal * d_obj_goal)

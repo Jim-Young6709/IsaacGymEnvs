@@ -304,6 +304,7 @@ class FrankaLEAP(VecTask):
 
             "beta_hand_object": to_torch(self.cfg["reward"]["exp"]["beta_hand_object"], device=self.device),
             "beta_object_goal": to_torch(self.cfg["reward"]["exp"]["beta_object_goal"], device=self.device),
+            "beta_lift": to_torch(self.cfg["reward"]["exp"]["beta_lift"], device=self.device),
             "beta_curl": to_torch(self.cfg["reward"]["exp"]["beta_curl"], device=self.device),
 
             "w_hand_obj": to_torch(self.cfg["reward"]["weights"]["w_hand_obj"], device=self.device),
