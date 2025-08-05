@@ -34,3 +34,5 @@ outputs/
 meshes*
 ckpts/
 /isaacgymenvs/tests
+/isaacgymenvs/ref
+*.zip

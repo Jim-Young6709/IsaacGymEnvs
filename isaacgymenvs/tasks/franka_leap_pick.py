@@ -28,6 +28,9 @@ class FrankaLEAPPick(FrankaLEAP):
             force_render=force_render
         )
 
+        self.success_flags = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device) # 1 if success condition has been achieved at any step, 0 otherwise
+        self.lifting_flags = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device)
+
         # TODO: add full env loading here
 
     def _create_envs(self, spacing, num_per_row):
@@ -64,7 +67,7 @@ class FrankaLEAPPick(FrankaLEAP):
 
         return self.obs_buf
 
-    def compute_reward(self, actions):
+    def compute_reward(self):
         self.reset_buf[:] = torch.where((self.progress_buf >= self.max_episode_length - 1), torch.ones_like(self.reset_buf), self.reset_buf)
         self.reset_buf[self.states['object_center_pos'][:, 2] < -0.1] = 1
         reward_dict = compute_franka_leap_reward(self.states, self.reward_settings)
@@ -76,6 +79,16 @@ class FrankaLEAPPick(FrankaLEAP):
         self.extras["sep_reward/r_curl"] = torch.mean(reward_dict["r_curl"]).item()
         self.extras["dis/d_hand_obj"] = torch.mean(reward_dict["d_hand_obj"]).item()
         self.extras["dis/d_lift"] = torch.mean(reward_dict["d_lift"]).item()
+
+        # log metrics
+        success_5cm_per_step = (reward_dict["d_obj_goal"] < 0.05)
+        self.success_flags[success_5cm_per_step] = 1
+        lifting_5cm_per_step = (reward_dict["d_lift"] > 0.05)
+        self.lifting_flags[lifting_5cm_per_step] = 1
+        self.extras["metrics/success_rate_5cm_per_step"] = torch.mean(success_5cm_per_step.float()).item()
+        self.extras["metrics/lifting_rate_5cm_per_step"] = torch.mean(lifting_5cm_per_step.float()).item()
+        self.extras["metrics/success_rate_5cm_per_ep"] = torch.mean(self.success_flags).item()
+        self.extras["metrics/lifting_rate_5cm_per_ep"] = torch.mean(self.lifting_flags).item()
 
 @torch.jit.script
 def compute_franka_leap_reward(states, reward_settings):
@@ -138,6 +151,7 @@ def compute_franka_leap_reward(states, reward_settings):
         "r_total": r_total,
         "d_hand_obj": d_hand_obj,
         "d_lift": object_height,
+        "d_obj_goal": d_obj_goal,
     }
 
     return rewards

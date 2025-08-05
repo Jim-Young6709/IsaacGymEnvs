@@ -1211,7 +1211,7 @@ class FrankaLEAP(VecTask):
             self.reset_idx(env_ids)
 
         self.compute_observations()
-        self.compute_reward(self.actions)
+        self.compute_reward()
 
         # video logging
         if self.video_logging["capture"]:
@@ -1219,7 +1219,7 @@ class FrankaLEAP(VecTask):
         self.sim_steps += 1
 
     @abstractmethod
-    def compute_reward(self, actions):
+    def compute_reward(self):
         pass
 
     @abstractmethod
