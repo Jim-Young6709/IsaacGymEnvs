@@ -77,6 +77,8 @@ class FrankaLEAP(VecTask):
             ).to(self.device)
 
         self.actions = torch.zeros((self.num_envs, self.num_robot_dofs), device=self.device, dtype=torch.float) # Current delta actions to be deployed
+        self.success_flags = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device) # 1 if success condition has been achieved at any step, 0 otherwise
+        self.lifting_flags = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device)
 
         # Reset all environments
         self._refresh()
@@ -275,7 +277,8 @@ class FrankaLEAP(VecTask):
         self._global_indices = torch.arange(self.num_envs * actor_num, dtype=torch.int32,
                                            device=self.device).view(self.num_envs, -1) # 3 actors, franka, table, table_stand
 
-        target_pos = to_torch(self.cfg["reward"]["params"]["target_pos"], device=self.device)
+        target_pos = to_torch(self.cfg["reward"]["params"]["target_pos"], device=self.device).unsqueeze(0).repeat(self.num_envs, 1)
+        target_lift_dis = to_torch(self.cfg["reward"]["params"]["target_lift_dis"], device=self.device)
         target_quat = to_torch(self.cfg["reward"]["params"]["target_quat"], device=self.device)
 
         self.grasp_finger_dof_pos = self.robot_dof_upper_limits[7:] - self.robot_dof_lower_limits[7:]
@@ -297,6 +300,7 @@ class FrankaLEAP(VecTask):
 
         self.reward_settings = {
             "target_pos": target_pos,
+            "target_lift_dis": target_lift_dis,
             "target_quat": target_quat,
             "target_rot_6d": matrix_to_rotation_6d(quaternion_to_matrix_ig(target_quat)),
             "lift_threshold": to_torch(self.cfg["reward"]["params"]["lift_threshold"], device=self.device),
@@ -589,7 +593,7 @@ class FrankaLEAP(VecTask):
             "object_center_pos": object_center_pos,
             "object_pos": self._object_state[:, :3],
 
-            # task related
+            # Task related
             "hand_to_object": object_center_pos - self._eef_state[:, :3],
             "object_to_target": self.reward_settings["target_pos"] - object_center_pos,
             "object_target_6d_diff": self.reward_settings["target_rot_6d"] - object_rot_6d,
@@ -839,8 +843,11 @@ class FrankaLEAP(VecTask):
             # set the camera position based on up axis
             centre = self.cfg["env"]['envSpacing'] + int(np.sqrt(self.num_envs))
             
-            cam_pos = gymapi.Vec3(0, 0, 5)
-            cam_target = gymapi.Vec3(centre, centre, 0)
+            # cam_pos = gymapi.Vec3(0, 0, 5)
+            # cam_target = gymapi.Vec3(centre, centre, 0)
+            # let camera look at env 0
+            cam_pos = gymapi.Vec3(1.5, 0, 0.7)
+            cam_target = gymapi.Vec3(0.5, 0, 0.1)
 
             self.gym.viewer_camera_look_at(self.viewer, None, cam_pos, cam_target)
 
@@ -1119,6 +1126,10 @@ class FrankaLEAP(VecTask):
 
         self._reset_object_state(env_ids) # reset object state
 
+        target_pos = self._object_center_init_state[env_ids].clone()
+        target_pos[:, 2] += self.reward_settings["target_lift_dis"]
+        self.reward_settings["target_pos"][env_ids] = target_pos
+
         reset_noise_scale = 0.2
 
         if self.eef_init['enable']:
@@ -1150,6 +1161,8 @@ class FrankaLEAP(VecTask):
                 self.robot_dof_lower_limits, self.robot_dof_upper_limits)
 
         self.set_robot_joint_state(reset_joint_config, env_ids=env_ids)
+        self.success_flags[env_ids] = 0
+        self.lifting_flags[env_ids] = 0
         self.progress_buf[env_ids] = 0
         self.reset_buf[env_ids] = 0
 

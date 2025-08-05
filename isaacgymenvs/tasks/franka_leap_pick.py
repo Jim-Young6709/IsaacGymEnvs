@@ -27,10 +27,6 @@ class FrankaLEAPPick(FrankaLEAP):
             virtual_screen_capture=virtual_screen_capture,
             force_render=force_render
         )
-
-        self.success_flags = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device) # 1 if success condition has been achieved at any step, 0 otherwise
-        self.lifting_flags = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device)
-
         # TODO: add full env loading here
 
     def _create_envs(self, spacing, num_per_row):
