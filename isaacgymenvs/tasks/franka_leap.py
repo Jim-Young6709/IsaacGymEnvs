@@ -458,7 +458,7 @@ class FrankaLEAP(VecTask):
         start_pose.r = gymapi.Quat(*quat)  # quat in xyzw order
         return asset, start_pose, scale, asset_obj_id, asset_mesh_id
 
-    def create_rand_mesh(self, fix_base_link=False, on_table=True):
+    def create_rand_mesh(self, fix_base_link=False):
         # get randomly sampled mesh path
         mesh_dir = self.mesh_args["mesh_dir"]
         object_list = self.mesh_args["obj_list"]
@@ -485,13 +485,11 @@ class FrankaLEAP(VecTask):
 
         mesh_scale = np.random.uniform(scale_range[0], scale_range[1])
         mesh_pos = np.random.uniform(pos_range[0], pos_range[1])
-        if on_table:
-            mesh_pos[2] = self.table_surface_height
         mesh_quat = R.random().as_quat()  # [x, y, z, w]
 
         return self._create_mesh(sampled_mesh_path, mesh_pos, mesh_scale, mesh_quat, fix_base_link)
 
-    def create_all_meshes(self, fix_base_link=False, on_table=True):
+    def create_all_meshes(self, fix_base_link=False):
         """
         Create all meshes in the mesh directory.
         Args:
@@ -525,8 +523,6 @@ class FrankaLEAP(VecTask):
 
             mesh_scale = np.random.uniform(scale_range[0], scale_range[1])
             mesh_pos = np.random.uniform(pos_range[0], pos_range[1])
-            if on_table:
-                mesh_pos[2] = self.table_surface_height
             mesh_quat = R.random().as_quat()
             asset, start_pose, scale, asset_obj_id, asset_mesh_id = self._create_mesh(
                 mesh_file_path, mesh_pos, mesh_scale, mesh_quat, fix_base_link
@@ -784,7 +780,7 @@ class FrankaLEAP(VecTask):
         reset_pos = torch.rand(num_resets, 3, device=self.device) * (pos_range[1] - pos_range[0]) + pos_range[0]
 
         if on_table:
-            reset_pos[:, 2] = self.table_surface_height
+            reset_pos[:, 2] = self.table_surface_height[env_ids]
 
         sampled_object_state[:, 6] = 1.0
         sampled_object_state[:, :3] = reset_pos

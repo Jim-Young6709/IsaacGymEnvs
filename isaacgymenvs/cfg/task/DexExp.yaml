@@ -28,6 +28,10 @@ env:
     assetRoot: "../../assets"
     assetFileNameFranka: "urdf/franka_hand/robots/franka_leap_right.urdf"
 
+  scene:
+    hdf5_path: "./static_scenes/box_tt_192.hdf5"
+    batch_idx: 0
+
   mesh:
     mesh_dir: "./meshes_100"
     obj_list: ["all"]
