@@ -1,5 +1,6 @@
 """
 Franka + LEAP Hand Pick Env
+TODO: now the hierarchy of franka_leap & franka_leap_pick is kinda chaotic, should figure out which function goes to which
 """
 
 import time
@@ -8,16 +9,34 @@ import hydra
 import isaacgym
 import numpy as np
 import torch
+from isaacgym import gymapi
 from isaacgym.torch_utils import *
 from isaacgymenvs.tasks import FrankaLEAP
+from isaacgymenvs.utils.demo_loader import DemoLoader
+from isaacgymenvs.utils.pcd_utils import decompose_scene_pcd_params_obs, compute_scene_oracle_pcd
 from isaacgymenvs.utils.reformat import omegaconf_to_dict
 from omegaconf import DictConfig
 from tqdm import tqdm
 
 
 
-class FrankaLEAPPick(FrankaLEAP):
+class FrankaLEAPPickFull(FrankaLEAP):
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
+        # hdf5 scene loading
+        hdf5_path = cfg["env"]["scene"]["hdf5_path"]
+        self.demo_loader = DemoLoader(hdf5_path, cfg["env"]["numEnvs"])
+        self.batch_idx = cfg["env"]["scene"]["batch_idx"]
+        self.batch = self.demo_loader.get_next_batch(batch_idx=self.batch_idx)
+        self.obstacle_handles = []
+        self.obstacle_configs = []
+        self.max_obstacles = 0
+
+        for env_idx, demo in enumerate(self.batch):
+            pcd_params = demo['states'][0][15:]
+            obstacle_config = decompose_scene_pcd_params_obs(pcd_params)
+            self.obstacle_configs.append(obstacle_config)
+            self.max_obstacles = max(len(obstacle_config[0]), self.max_obstacles)
+
         super().__init__(
             cfg=cfg,
             rl_device=rl_device,
@@ -27,13 +46,163 @@ class FrankaLEAPPick(FrankaLEAP):
             virtual_screen_capture=virtual_screen_capture,
             force_render=force_render
         )
-        # TODO: add full env loading here
 
     def _create_envs(self, spacing, num_per_row):
         """
         loading Franka + LEAP + a table in the environment, this is for debugging purposes only
         """
-        super()._create_envs(spacing, num_per_row)
+        lower = gymapi.Vec3(-spacing, -spacing, 0.0)
+        upper = gymapi.Vec3(spacing, spacing, spacing)
+
+        # setup params
+        self.cuboid_dims = []  # xyz
+        self.capsule_dims = []  # r, l
+        self.sphere_radii = []  # r
+        self.mesh_aabb_extents = None  # xyz, axis-aligned bounding box full extents
+        self.table_surface_height = torch.zeros((self.num_envs,), device=self.device)
+
+        # setup robot (franka + leap)
+        robot_dof_props = self._create_franka_leap()
+        robot_asset = self.robot_asset
+        robot_start_pose = gymapi.Transform()
+        robot_start_pose.p = gymapi.Vec3(0.0, 0.0, 0.0) # make sure robot spawns at the origin, this matches the IK setting with cuRobo
+        robot_start_pose.r = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
+
+        # compute aggregate size
+        num_robot_bodies = self.gym.get_asset_rigid_body_count(robot_asset)
+        num_robot_shapes = self.gym.get_asset_rigid_shape_count(robot_asset)
+        max_agg_bodies = num_robot_bodies + self.max_obstacles + 1  # 1 for object
+        max_agg_shapes = num_robot_shapes + self.max_obstacles + 1  # 1 for object
+
+        self.robots = []
+        self.objects = []
+        self.env_ptrs = []
+        self._object_center_init_state = torch.zeros((self.num_envs, 3), device=self.device)
+
+        # load all meshes first
+        all_meshes_list = self.create_all_meshes()
+
+        # Create environments
+        for i in tqdm(range(self.num_envs), desc="Creating Envs"):
+            # grasp object
+            object_asset, object_start_pose, object_scale, object_id, mesh_id = all_meshes_list[i % len(all_meshes_list)]
+
+            # create env instance
+            env_ptr = self.gym.create_env(self.sim, lower, upper, num_per_row)
+
+            # Create actors and define aggregate group appropriately depending on setting
+            # NOTE: franka should ALWAYS be loaded first in sim!
+            if self.aggregate_mode >= 3:
+                self.gym.begin_aggregate(env_ptr, max_agg_bodies, max_agg_shapes, True)
+
+            # Create robot (franka + leap)
+            robot_actor = self.gym.create_actor(
+                env_ptr, robot_asset, robot_start_pose, "franka", i, 0, 0
+            )
+            self.gym.set_actor_dof_properties(env_ptr, robot_actor, robot_dof_props)
+
+            if self.aggregate_mode == 2:
+                self.gym.begin_aggregate(env_ptr, max_agg_bodies, max_agg_shapes, True)
+
+            # create static scene from hdf5 loading
+            env_obstacles = []
+            (
+                cuboid_dims, 
+                cuboid_centers, 
+                cuboid_quats,
+                cylinder_radii, 
+                cylinder_heights,
+                cylinder_centers,
+                cylinder_quats,
+                *_
+            ) = self.obstacle_configs[i]
+
+            self.table_surface_height[i] = cuboid_centers[0, 2] + cuboid_dims[0, 2] / 2
+
+            num_cubes = len(cuboid_dims)
+            # Create obstacles
+            for j in range(self.max_obstacles):
+                if j < num_cubes:
+                    # Create obstacle with actual size and position
+                    obstacle_asset, obstacle_pose = self._create_cube(
+                        pos=cuboid_centers[j].tolist(),
+                        size=cuboid_dims[j].tolist(),
+                        quat=cuboid_quats[j].tolist()
+                    )
+                else:
+                    # Create minimal placeholder obstacles far away
+                    obstacle_asset, obstacle_pose = self._create_cube(
+                        pos=[0., 0., -100.0],
+                        size=[0.001, 0.001, 0.001],
+                        quat=[0, 0, 0, 1]
+                    )
+
+                obstacle_actor = self.gym.create_actor(
+                    env_ptr,
+                    obstacle_asset,
+                    obstacle_pose,
+                    f"obstacle_{j}",
+                    i,
+                    1,
+                    0
+                )
+                env_obstacles.append(obstacle_actor)
+
+            # Create object
+            self._object_id = self.gym.create_actor(
+                env_ptr, object_asset, object_start_pose, "object", i, 2, 0
+            )
+            self._object_center_init_state[i, :3] = torch.tensor([object_start_pose.p.x, object_start_pose.p.y, object_start_pose.p.z], device=self.device)
+
+            if self.aggregate_mode == 1:
+                self.gym.begin_aggregate(env_ptr, max_agg_bodies, max_agg_shapes, True)
+
+            if self.aggregate_mode > 0:
+                self.gym.end_aggregate(env_ptr)
+
+            # Store the created env pointers
+            self.env_ptrs.append(env_ptr)
+            self.robots.append(robot_actor)
+            self.objects.append(self._object_id)
+
+            # Precompute static and object point cloud
+            # TODO: now this is hardcoded to current simple settings, need to adapt later
+            static_pcd_i = torch.from_numpy(compute_scene_oracle_pcd(
+                num_obstacle_points=self.pcd_spec_dict["num_static_points"],
+                cuboid_dims=cuboid_dims,
+                cuboid_centers=cuboid_centers,
+                cuboid_quats=cuboid_quats,
+            )).to(self.device)
+            self.static_pcds.append(static_pcd_i)
+
+            object_pcd_i = torch.from_numpy(compute_scene_oracle_pcd(
+                num_obstacle_points=self.pcd_spec_dict["num_object_points"],
+                mesh_position=np.array([[0.0, 0.0, 0.0]]),
+                mesh_scale=np.array([object_scale]),
+                mesh_quaternion=np.array([[0.0, 0.0, 0.0, 1.0]]),
+                obj_id=np.array([object_id]),
+                mesh_id=np.array([mesh_id]),
+                meshes_dir=self.mesh_args["mesh_dir"],
+            )).to(self.device)
+            self.object_pcds.append(object_pcd_i)
+
+        self.cuboid_dims = torch.tensor(self.cuboid_dims, device=self.device)  # (num_envs, 3)
+        self.capsule_dims = torch.tensor(self.capsule_dims, device=self.device)  # (num_envs, 2)
+        self.sphere_radii = torch.tensor(self.sphere_radii, device=self.device)
+
+        self.static_pcds = torch.stack(self.static_pcds, dim=0).to(self.device).to(torch.float32) # (num_envs, num_points, 3)
+        self.object_pcds = torch.stack(self.object_pcds, dim=0).to(self.device).to(torch.float32)
+        self.combined_pcds = torch.cat([self.static_pcds, self.object_pcds], dim=1).to(self.device) # (num_envs, num_static_points + num_object_points, 3)
+
+        # get mesh AABB (axis-aligned bounding box) extents
+        min_xyz = self.object_pcds.min(axis=1).values
+        max_xyz = self.object_pcds.max(axis=1).values
+        self.mesh_aabb_extents = max_xyz - min_xyz
+        self._object_center_init_state[:, 2] += self.mesh_aabb_extents[:, 2] / 2
+
+        # Setup data
+        actor_num = 1 + self.max_obstacles + 1  # robot, obstacles, object
+        self.init_data(actor_num=actor_num)
 
     def compute_observations(self):
         self._refresh()

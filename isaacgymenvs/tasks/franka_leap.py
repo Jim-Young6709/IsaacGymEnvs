@@ -1017,7 +1017,7 @@ class FrankaLEAP(VecTask):
             pos=[0.5, 0.0, -table_thickness/2],
             size=[0.7, 1.2, table_thickness],
         )
-        self.table_surface_height = table_start_pose.p.z + table_thickness / 2
+        self.table_surface_height = torch.tensor([table_start_pose.p.z + table_thickness / 2] * self.num_envs, device=self.device)
 
         # compute aggregate size
         num_robot_bodies = self.gym.get_asset_rigid_body_count(robot_asset)

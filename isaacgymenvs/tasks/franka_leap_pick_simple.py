@@ -16,7 +16,7 @@ from tqdm import tqdm
 
 
 
-class FrankaLEAPPick(FrankaLEAP):
+class FrankaLEAPPickSimple(FrankaLEAP):
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
         super().__init__(
             cfg=cfg,
