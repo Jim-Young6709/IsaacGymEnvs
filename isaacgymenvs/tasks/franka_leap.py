@@ -547,18 +547,22 @@ class FrankaLEAP(VecTask):
 
     def _update_states(self):
         # update arm eef state
-        eef_rot_6d = matrix_to_rotation_6d(quaternion_to_matrix_ig(self._eef_state[:, 3:7]))
+        eef_rot_mat = quaternion_to_matrix_ig(self._eef_state[:, 3:7])
+        eef_rot_6d = matrix_to_rotation_6d(eef_rot_mat)
         hand_base_pos = self._eef_state[:, :3]
 
         # update object state
         object_center_pos = self._object_state[:, :3].clone()
         local_offset = torch.zeros([self.num_envs, 3], dtype=torch.float, device=self.device)
         local_offset[:, 2] = self.mesh_aabb_extents[:, 2] / 2
-        object_rot = quaternion_to_matrix_ig(self._object_state[:, 3:7])
-        rotated_offset = torch.matmul(object_rot, local_offset.unsqueeze(-1)).squeeze(-1)
+        object_rot_mat = quaternion_to_matrix_ig(self._object_state[:, 3:7])
+        rotated_offset = torch.matmul(object_rot_mat, local_offset.unsqueeze(-1)).squeeze(-1)
         object_center_pos += rotated_offset
 
-        object_rot_6d = matrix_to_rotation_6d(object_rot)
+        object_rot_6d = matrix_to_rotation_6d(object_rot_mat)
+
+        object_rot_mat_in_eef_frame = torch.matmul(torch.inverse(eef_rot_mat), object_rot_mat)
+        object_to_eef_rot_6d = matrix_to_rotation_6d(object_rot_mat_in_eef_frame)
 
         # update point clouds
         object_pcds_world = transform_pcds_to_world(self.object_pcds, self._object_state[:, :7])
@@ -593,6 +597,7 @@ class FrankaLEAP(VecTask):
 
             # Task related
             "hand_to_object": object_center_pos - self._eef_state[:, :3],
+            "object_to_eef_rot_6d": object_to_eef_rot_6d,
             "object_to_target": self.reward_settings["target_pos"] - object_center_pos,
             "object_target_6d_diff": self.reward_settings["target_rot_6d"] - object_rot_6d,
         })
@@ -998,10 +1003,6 @@ class FrankaLEAP(VecTask):
             env_ids = torch.arange(self.num_envs, device=self.device)
 
         self._reset_object_state(env_ids) # reset object state
-
-        target_pos = self._object_center_init_state[env_ids].clone()
-        target_pos[:, 2] += self.reward_settings["target_lift_dis"]
-        self.reward_settings["target_pos"][env_ids] = target_pos
 
         reset_noise_scale = 0.2
 

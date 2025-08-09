@@ -51,6 +51,7 @@ class FrankaLEAPPick(FrankaLEAP):
         self.mesh_aabb_extents = None  # xyz, axis-aligned bounding box full extents
         self.table_surface_height = torch.zeros((self.num_envs,), device=self.device)
         self.obj_pos_range = torch.zeros((self.num_envs, 4), device=self.device) # x-min, x-max, y-min, y-max
+        self.obj_pos_target = torch.zeros((self.num_envs, 3), device=self.device) # x, y, z
 
         # setup robot (franka + leap)
         robot_dof_props = self._create_franka_leap()
@@ -157,6 +158,9 @@ class FrankaLEAPPick(FrankaLEAP):
         self.box_pos = torch.tensor(self.box_pos, device=self.device) # (num_envs, 3)
         self.box_quats = torch.tensor(self.box_quats, device=self.device)
 
+        self.obj_pos_target[:, :2] = self.box_pos[:, :2]
+        self.obj_pos_target[:, 2] = self.box_pos[:, 2] + self.box_dims[:, 2]
+
         self.cuboid_dims = torch.from_numpy(self.cuboid_dims).to(self.device)
         self.cuboid_pos = torch.from_numpy(self.cuboid_pos).to(self.device)
         self.cuboid_quats = torch.from_numpy(self.cuboid_quats).to(self.device)
@@ -180,6 +184,10 @@ class FrankaLEAPPick(FrankaLEAP):
         # Setup data
         actor_num = 1 + 5 + 1  # robot, box, object
         self.init_data(actor_num=actor_num)
+
+    def init_data(self, actor_num):
+        super().init_data(actor_num)
+        self.reward_settings["target_pos"] = self.obj_pos_target
 
     def _create_box(self):
         wall_thickness = self.scene_box_cfg["wall_thickness"]
@@ -258,18 +266,16 @@ class FrankaLEAPPick(FrankaLEAP):
         self._refresh()
 
         obs_components = ["q_hand",
-                          "eef_rot_6d",
                           "eef_finger1_pos_relative", "eef_finger2_pos_relative",
                           "eef_finger3_pos_relative", "eef_finger4_pos_relative",
-                          "object_rot_6d",
-                          "hand_to_object", "object_to_target"]#, "object_target_6d_diff"]
+                          "hand_to_object", "object_to_eef_rot_6d", "object_to_target"]#, "object_target_6d_diff"]
 
         states_components = ["q", "qd",
                              "eef_pos", "eef_rot_6d", "eef_vel",
                              "eef_finger1_pos_relative", "eef_finger2_pos_relative",
                              "eef_finger3_pos_relative", "eef_finger4_pos_relative",
                              "object_center_pos", "object_rot_6d",
-                             "hand_to_object", "object_to_target"]#, "object_target_6d_diff"]
+                             "hand_to_object", "object_to_eef_rot_6d", "object_to_target"]#, "object_target_6d_diff"]
 
         obs_buf = torch.cat([self.states[ob] for ob in obs_components], dim=-1)
         states_buf = torch.cat([self.states[st] for st in states_components], dim=-1)
