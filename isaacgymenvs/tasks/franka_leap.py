@@ -307,6 +307,7 @@ class FrankaLEAP(VecTask):
             "curl_reaching_threshold": to_torch(self.cfg["reward"]["params"]["curl_reaching_threshold"], device=self.device),
             "object_init_height": self.mesh_aabb_extents[:, 2] / 2 + self.table_surface_height,
             "grasp_finger_dof_pos": self.grasp_finger_dof_pos,
+            "lift_thres_for_obj_goal": to_torch(self.cfg["reward"]["params"]["lift_thres_for_obj_goal"]),
 
             "beta_hand_object": to_torch(self.cfg["reward"]["exp"]["beta_hand_object"], device=self.device),
             "beta_object_goal": to_torch(self.cfg["reward"]["exp"]["beta_object_goal"], device=self.device),
