@@ -37,6 +37,7 @@ env:
       rot_in: [-0.4, 0.4] # radians
       rot_ex: [-1.5, 1.5] # radians
       obj_wall_tol: 0.03
+      colli_reset: False
     # if use hdf5 loading
     hdf5_path: "./static_scenes/box_tt_192.hdf5"
     batch_idx: 0

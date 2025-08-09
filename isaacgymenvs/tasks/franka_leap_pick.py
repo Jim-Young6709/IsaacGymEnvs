@@ -22,6 +22,7 @@ from tqdm import tqdm
 class FrankaLEAPPick(FrankaLEAP):
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
         self.scene_box_cfg = cfg["env"]["scene"]["safety_box"]
+        self.colli_reset = cfg["env"]["scene"]["safety_box"]["colli_reset"]
         super().__init__(
             cfg=cfg,
             rl_device=rl_device,
@@ -262,6 +263,10 @@ class FrankaLEAPPick(FrankaLEAP):
             gymtorch.unwrap_tensor(multi_env_ids_obj_int32), len(multi_env_ids_obj_int32),
         )
 
+    def check_robot_collision(self):
+        super().check_robot_collision()
+        self.box_collision = torch.any(self.contact_forces[:, 31:35].view(self.num_envs, -1) != 0, dim=1)
+
     def compute_observations(self):
         self._refresh()
 
@@ -296,6 +301,10 @@ class FrankaLEAPPick(FrankaLEAP):
     def compute_reward(self):
         self.reset_buf[:] = torch.where((self.progress_buf >= self.max_episode_length - 1), torch.ones_like(self.reset_buf), self.reset_buf)
         self.reset_buf[self.states['object_center_pos'][:, 2] < self.table_surface_height-0.1] = 1
+
+        if self.colli_reset:
+            self.reset_buf[self.box_collision] = 1
+
         reward_dict = compute_franka_leap_reward(self.states, self.reward_settings)
 
         self.rew_buf[:] = reward_dict["r_total"]
