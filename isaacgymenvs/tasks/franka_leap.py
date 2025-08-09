@@ -77,6 +77,8 @@ class FrankaLEAP(VecTask):
             ).to(self.device)
 
         self.actions = torch.zeros((self.num_envs, self.num_robot_dofs), device=self.device, dtype=torch.float) # Current delta actions to be deployed
+        self.success_flags = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device) # 1 if success condition has been achieved at any step, 0 otherwise
+        self.lifting_flags = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device)
 
         # Reset all environments
         self._refresh()
@@ -275,7 +277,8 @@ class FrankaLEAP(VecTask):
         self._global_indices = torch.arange(self.num_envs * actor_num, dtype=torch.int32,
                                            device=self.device).view(self.num_envs, -1) # 3 actors, franka, table, table_stand
 
-        target_pos = to_torch(self.cfg["reward"]["params"]["target_pos"], device=self.device)
+        target_pos = to_torch(self.cfg["reward"]["params"]["target_pos"], device=self.device).unsqueeze(0).repeat(self.num_envs, 1)
+        target_lift_dis = to_torch(self.cfg["reward"]["params"]["target_lift_dis"], device=self.device)
         target_quat = to_torch(self.cfg["reward"]["params"]["target_quat"], device=self.device)
 
         self.grasp_finger_dof_pos = self.robot_dof_upper_limits[7:] - self.robot_dof_lower_limits[7:]
@@ -284,7 +287,9 @@ class FrankaLEAP(VecTask):
         # finger indexing: 0-3:index ; 4-7:thumb ; 8-11:middle ; 12-15:ring
         self.grasp_finger_dof_pos[1] *= -1
         self.grasp_finger_dof_pos[4] = 1.57
-        self.grasp_finger_dof_pos[6] = 0.0
+        self.grasp_finger_dof_pos[5] = 0.0
+        self.grasp_finger_dof_pos[6] *= 0.25
+        self.grasp_finger_dof_pos[7] *= 1
         self.grasp_finger_dof_pos[9] = 0.0
         self.grasp_finger_dof_pos[13] *= 1
 
@@ -295,6 +300,7 @@ class FrankaLEAP(VecTask):
 
         self.reward_settings = {
             "target_pos": target_pos,
+            "target_lift_dis": target_lift_dis,
             "target_quat": target_quat,
             "target_rot_6d": matrix_to_rotation_6d(quaternion_to_matrix_ig(target_quat)),
             "lift_threshold": to_torch(self.cfg["reward"]["params"]["lift_threshold"], device=self.device),
@@ -332,6 +338,8 @@ class FrankaLEAP(VecTask):
         start_pose.p = gymapi.Vec3(*pos)
         start_pose.r = gymapi.Quat(*quat)  # quat in xyzw order
         self.cuboid_dims.append(size)
+        self.cuboid_pos.append(pos)
+        self.cuboid_quats.append(quat)
         return asset, start_pose
 
     def _create_sphere(self, pos, size):
@@ -452,7 +460,7 @@ class FrankaLEAP(VecTask):
         start_pose.r = gymapi.Quat(*quat)  # quat in xyzw order
         return asset, start_pose, scale, asset_obj_id, asset_mesh_id
 
-    def create_rand_mesh(self, fix_base_link=False, on_table=True):
+    def create_rand_mesh(self, fix_base_link=False):
         # get randomly sampled mesh path
         mesh_dir = self.mesh_args["mesh_dir"]
         object_list = self.mesh_args["obj_list"]
@@ -479,13 +487,11 @@ class FrankaLEAP(VecTask):
 
         mesh_scale = np.random.uniform(scale_range[0], scale_range[1])
         mesh_pos = np.random.uniform(pos_range[0], pos_range[1])
-        if on_table:
-            mesh_pos[2] = self.table_surface_height
         mesh_quat = R.random().as_quat()  # [x, y, z, w]
 
         return self._create_mesh(sampled_mesh_path, mesh_pos, mesh_scale, mesh_quat, fix_base_link)
 
-    def create_all_meshes(self, fix_base_link=False, on_table=True):
+    def create_all_meshes(self, fix_base_link=False):
         """
         Create all meshes in the mesh directory.
         Args:
@@ -519,8 +525,6 @@ class FrankaLEAP(VecTask):
 
             mesh_scale = np.random.uniform(scale_range[0], scale_range[1])
             mesh_pos = np.random.uniform(pos_range[0], pos_range[1])
-            if on_table:
-                mesh_pos[2] = self.table_surface_height
             mesh_quat = R.random().as_quat()
             asset, start_pose, scale, asset_obj_id, asset_mesh_id = self._create_mesh(
                 mesh_file_path, mesh_pos, mesh_scale, mesh_quat, fix_base_link
@@ -543,18 +547,22 @@ class FrankaLEAP(VecTask):
 
     def _update_states(self):
         # update arm eef state
-        eef_rot_6d = matrix_to_rotation_6d(quaternion_to_matrix_ig(self._eef_state[:, 3:7]))
+        eef_rot_mat = quaternion_to_matrix_ig(self._eef_state[:, 3:7])
+        eef_rot_6d = matrix_to_rotation_6d(eef_rot_mat)
         hand_base_pos = self._eef_state[:, :3]
 
         # update object state
         object_center_pos = self._object_state[:, :3].clone()
         local_offset = torch.zeros([self.num_envs, 3], dtype=torch.float, device=self.device)
         local_offset[:, 2] = self.mesh_aabb_extents[:, 2] / 2
-        object_rot = quaternion_to_matrix_ig(self._object_state[:, 3:7])
-        rotated_offset = torch.matmul(object_rot, local_offset.unsqueeze(-1)).squeeze(-1)
+        object_rot_mat = quaternion_to_matrix_ig(self._object_state[:, 3:7])
+        rotated_offset = torch.matmul(object_rot_mat, local_offset.unsqueeze(-1)).squeeze(-1)
         object_center_pos += rotated_offset
 
-        object_rot_6d = matrix_to_rotation_6d(object_rot)
+        object_rot_6d = matrix_to_rotation_6d(object_rot_mat)
+
+        object_rot_mat_in_eef_frame = torch.matmul(torch.inverse(eef_rot_mat), object_rot_mat)
+        object_to_eef_rot_6d = matrix_to_rotation_6d(object_rot_mat_in_eef_frame)
 
         # update point clouds
         object_pcds_world = transform_pcds_to_world(self.object_pcds, self._object_state[:, :7])
@@ -574,7 +582,7 @@ class FrankaLEAP(VecTask):
             "eef_finger2_pos": self._eef_finger2_state[:, :3],
             "eef_finger3_pos": self._eef_finger3_state[:, :3],
             "eef_finger4_pos": self._eef_finger4_state[:, :3],
-            
+
             # Fingertip positions relative to hand base (palm_center)
             "eef_finger1_pos_relative": self._eef_finger1_state[:, :3] - hand_base_pos,
             "eef_finger2_pos_relative": self._eef_finger2_state[:, :3] - hand_base_pos,
@@ -587,8 +595,9 @@ class FrankaLEAP(VecTask):
             "object_center_pos": object_center_pos,
             "object_pos": self._object_state[:, :3],
 
-            # task related
+            # Task related
             "hand_to_object": object_center_pos - self._eef_state[:, :3],
+            "object_to_eef_rot_6d": object_to_eef_rot_6d,
             "object_to_target": self.reward_settings["target_pos"] - object_center_pos,
             "object_target_6d_diff": self.reward_settings["target_rot_6d"] - object_rot_6d,
         })
@@ -778,7 +787,7 @@ class FrankaLEAP(VecTask):
         reset_pos = torch.rand(num_resets, 3, device=self.device) * (pos_range[1] - pos_range[0]) + pos_range[0]
 
         if on_table:
-            reset_pos[:, 2] = self.table_surface_height
+            reset_pos[:, 2] = self.table_surface_height[env_ids]
 
         sampled_object_state[:, 6] = 1.0
         sampled_object_state[:, :3] = reset_pos
@@ -837,8 +846,11 @@ class FrankaLEAP(VecTask):
             # set the camera position based on up axis
             centre = self.cfg["env"]['envSpacing'] + int(np.sqrt(self.num_envs))
             
-            cam_pos = gymapi.Vec3(0, 0, 5)
-            cam_target = gymapi.Vec3(centre, centre, 0)
+            # cam_pos = gymapi.Vec3(0, 0, 5)
+            # cam_target = gymapi.Vec3(centre, centre, 0)
+            # let camera look at env 0
+            cam_pos = gymapi.Vec3(1.5, 0, 0.7)
+            cam_target = gymapi.Vec3(0.5, 0, 0.1)
 
             self.gym.viewer_camera_look_at(self.viewer, None, cam_pos, cam_target)
 
@@ -986,131 +998,6 @@ class FrankaLEAP(VecTask):
             )
 
     # for debugging purposes only, so this scripts on its own can run
-    def _create_envs(self, spacing, num_per_row):
-        """
-        loading Franka + LEAP + a table in the environment, this is for debugging purposes only
-        """
-        lower = gymapi.Vec3(-spacing, -spacing, 0.0)
-        upper = gymapi.Vec3(spacing, spacing, spacing)
-
-        # setup params
-        table_thickness = 0.05
-        self.cuboid_dims = []  # xyz
-        self.capsule_dims = []  # r, l
-        self.sphere_radii = []  # r
-        self.mesh_aabb_extents = None  # xyz, axis-aligned bounding box full extents
-
-        # setup robot (franka + leap)
-        robot_dof_props = self._create_franka_leap()
-        robot_asset = self.robot_asset
-        robot_start_pose = gymapi.Transform()
-        robot_start_pose.p = gymapi.Vec3(0.0, 0.0, 0.0) # make sure robot spawns at the origin, this matches the IK setting with cuRobo
-        robot_start_pose.r = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
-
-        # setup table
-        table_asset, table_start_pose = self._create_cube(
-            pos=[0.5, 0.0, -table_thickness/2],
-            size=[0.7, 1.2, table_thickness],
-        )
-        self.table_surface_height = table_start_pose.p.z + table_thickness / 2
-
-        # compute aggregate size
-        num_robot_bodies = self.gym.get_asset_rigid_body_count(robot_asset)
-        num_robot_shapes = self.gym.get_asset_rigid_shape_count(robot_asset)
-        max_agg_bodies = num_robot_bodies + 1 + 1  # 1 for table, 1 for object
-        max_agg_shapes = num_robot_shapes + 1 + 1  # 1 for table, 1 for object
-
-        self.robots = []
-        self.objects = []
-        self.env_ptrs = []
-        self._object_center_init_state = torch.zeros((self.num_envs, 3), device=self.device)
-
-        # load all meshes first
-        all_meshes_list = self.create_all_meshes()
-
-        # Create environments
-        for i in tqdm(range(self.num_envs), desc="Creating Envs"):
-            # grasp object
-            object_asset, object_start_pose, object_scale, object_id, mesh_id = all_meshes_list[i % len(all_meshes_list)]
-
-            # create env instance
-            env_ptr = self.gym.create_env(self.sim, lower, upper, num_per_row)
-
-            # Create actors and define aggregate group appropriately depending on setting
-            # NOTE: franka should ALWAYS be loaded first in sim!
-            if self.aggregate_mode >= 3:
-                self.gym.begin_aggregate(env_ptr, max_agg_bodies, max_agg_shapes, True)
-
-            # Create robot (franka + leap)
-            robot_actor = self.gym.create_actor(
-                env_ptr, robot_asset, robot_start_pose, "franka", i, 0, 0
-            )
-            self.gym.set_actor_dof_properties(env_ptr, robot_actor, robot_dof_props)
-
-            if self.aggregate_mode == 2:
-                self.gym.begin_aggregate(env_ptr, max_agg_bodies, max_agg_shapes, True)
-
-            # Create table
-            self.gym.create_actor(
-                env_ptr, table_asset, table_start_pose, "table", i, 1, 0
-            )
-
-            # Create object
-            self._object_id = self.gym.create_actor(
-                env_ptr, object_asset, object_start_pose, "object", i, 2, 0
-            )
-            self._object_center_init_state[i, :3] = torch.tensor([object_start_pose.p.x, object_start_pose.p.y, object_start_pose.p.z], device=self.device)
-
-            if self.aggregate_mode == 1:
-                self.gym.begin_aggregate(env_ptr, max_agg_bodies, max_agg_shapes, True)
-
-            if self.aggregate_mode > 0:
-                self.gym.end_aggregate(env_ptr)
-
-            # Store the created env pointers
-            self.env_ptrs.append(env_ptr)
-            self.robots.append(robot_actor)
-            self.objects.append(self._object_id)
-
-            # Precompute static and object point cloud
-            # TODO: now this is hardcoded to current simple settings, need to adapt later
-            static_pcd_i = torch.from_numpy(compute_scene_oracle_pcd(
-                num_obstacle_points=self.pcd_spec_dict["num_static_points"],
-                cuboid_dims=self.cuboid_dims,
-                cuboid_centers=np.array([[table_start_pose.p.x, table_start_pose.p.y, table_start_pose.p.z]]),
-                cuboid_quats=np.array([[table_start_pose.r.x, table_start_pose.r.y, table_start_pose.r.z, table_start_pose.r.w]]),
-            )).to(self.device)
-            self.static_pcds.append(static_pcd_i)
-
-            object_pcd_i = torch.from_numpy(compute_scene_oracle_pcd(
-                num_obstacle_points=self.pcd_spec_dict["num_object_points"],
-                mesh_position=np.array([[0.0, 0.0, 0.0]]),
-                mesh_scale=np.array([object_scale]),
-                mesh_quaternion=np.array([[0.0, 0.0, 0.0, 1.0]]),
-                obj_id=np.array([object_id]),
-                mesh_id=np.array([mesh_id]),
-                meshes_dir=self.mesh_args["mesh_dir"],
-            )).to(self.device)
-            self.object_pcds.append(object_pcd_i)
-
-        self.cuboid_dims = torch.tensor(self.cuboid_dims, device=self.device)  # (num_envs, 3)
-        self.capsule_dims = torch.tensor(self.capsule_dims, device=self.device)  # (num_envs, 2)
-        self.sphere_radii = torch.tensor(self.sphere_radii, device=self.device)
-
-        self.static_pcds = torch.stack(self.static_pcds, dim=0).to(self.device).to(torch.float32) # (num_envs, num_points, 3)
-        self.object_pcds = torch.stack(self.object_pcds, dim=0).to(self.device).to(torch.float32)
-        self.combined_pcds = torch.cat([self.static_pcds, self.object_pcds], dim=1).to(self.device) # (num_envs, num_static_points + num_object_points, 3)
-
-        # get mesh AABB (axis-aligned bounding box) extents
-        min_xyz = self.object_pcds.min(axis=1).values
-        max_xyz = self.object_pcds.max(axis=1).values
-        self.mesh_aabb_extents = max_xyz - min_xyz
-        self._object_center_init_state[:, 2] += self.mesh_aabb_extents[:, 2] / 2
-
-        # Setup data
-        actor_num = 1 + 1 + 1  # robot, table, object
-        self.init_data(actor_num=actor_num)
-
     def reset_idx(self, env_ids=None):
         if env_ids is None:
             env_ids = torch.arange(self.num_envs, device=self.device)
@@ -1148,6 +1035,8 @@ class FrankaLEAP(VecTask):
                 self.robot_dof_lower_limits, self.robot_dof_upper_limits)
 
         self.set_robot_joint_state(reset_joint_config, env_ids=env_ids)
+        self.success_flags[env_ids] = 0
+        self.lifting_flags[env_ids] = 0
         self.progress_buf[env_ids] = 0
         self.reset_buf[env_ids] = 0
 
@@ -1209,7 +1098,7 @@ class FrankaLEAP(VecTask):
             self.reset_idx(env_ids)
 
         self.compute_observations()
-        self.compute_reward(self.actions)
+        self.compute_reward()
 
         # video logging
         if self.video_logging["capture"]:
@@ -1217,7 +1106,11 @@ class FrankaLEAP(VecTask):
         self.sim_steps += 1
 
     @abstractmethod
-    def compute_reward(self, actions):
+    def _create_envs(self, spacing, num_per_row):
+        pass
+
+    @abstractmethod
+    def compute_reward(self):
         pass
 
     @abstractmethod

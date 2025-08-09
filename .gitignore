@@ -32,5 +32,8 @@ outputs/
 *.hydra*
 /isaacgymenvs/wandb
 meshes*
+static_scenes/
 ckpts/
 /isaacgymenvs/tests
+/isaacgymenvs/ref
+*.zip
