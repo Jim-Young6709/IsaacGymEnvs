@@ -562,10 +562,10 @@ class FrankaLEAP(VecTask):
 
         object_rot_6d = matrix_to_rotation_6d(object_rot_mat)
 
-        object_rot_mat_in_eef_frame = torch.matmul(eef_rot_mat.T, object_rot_mat)
+        object_rot_mat_in_eef_frame = torch.matmul(eef_rot_mat.transpose(1, 2), object_rot_mat)
         object_to_eef_rot_6d = matrix_to_rotation_6d(object_rot_mat_in_eef_frame)
 
-        box_to_eef_rot_6d = matrix_to_rotation_6d(eef_rot_mat.T)
+        box_to_eef_rot_6d = matrix_to_rotation_6d(eef_rot_mat.transpose(1, 2))
 
         # update point clouds
         object_pcds_world = transform_pcds_to_world(self.object_pcds, self._object_state[:, :7])
