@@ -303,6 +303,7 @@ class FrankaLEAPPickSide(FrankaLEAP):
     def compute_reward(self):
         self.reset_buf[:] = torch.where((self.progress_buf >= self.max_episode_length - 1), torch.ones_like(self.reset_buf), self.reset_buf)
         self.reset_buf[self.states['object_center_pos'][:, 2] < self.table_surface_height-0.1] = 1
+        self.reset_buf[self.states['eef_pos'][:, 2] < self.table_surface_height-0.1] = 1
 
         if self.scene_box_cfg["colli_reset"]:
             self.reset_buf[self.box_collision] = 1
