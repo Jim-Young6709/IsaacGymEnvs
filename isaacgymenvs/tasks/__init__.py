@@ -27,7 +27,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 from .franka_leap import FrankaLEAP
-from .franka_leap_pick import FrankaLEAPPick
+from .franka_leap_pick_top import FrankaLEAPPickTop
 from .franka_leap_pick_side import FrankaLEAPPickSide
 
 
@@ -35,6 +35,6 @@ from .franka_leap_pick_side import FrankaLEAPPickSide
 # Mappings from strings to environments
 isaacgym_task_map = {
     "FrankaLEAP": FrankaLEAP,
-    "FrankaLEAPPick": FrankaLEAPPick,
+    "FrankaLEAPPickTop": FrankaLEAPPickTop,
     "FrankaLEAPPickSide": FrankaLEAPPickSide,
 }

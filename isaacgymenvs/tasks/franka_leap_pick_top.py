@@ -19,7 +19,7 @@ from tqdm import tqdm
 
 
 
-class FrankaLEAPPick(FrankaLEAP):
+class FrankaLEAPPickTop(FrankaLEAP):
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
         self.scene_box_cfg = cfg["env"]["scene"]["safety_box"]
         super().__init__(
@@ -402,7 +402,7 @@ def launch_test(cfg: DictConfig):
     graphics_device_id = 0
     virtual_screen_capture = False
     force_render = False
-    env = FrankaLEAPPick(cfg_task, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render)
+    env = FrankaLEAPPickTop(cfg_task, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render)
     env.reset()
 
     for i in tqdm(range(1000)):
