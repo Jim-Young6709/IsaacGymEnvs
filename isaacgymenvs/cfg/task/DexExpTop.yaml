@@ -51,9 +51,9 @@ env:
     scale_range: [0.1, 0.1]
 
   eef_init:
-    enable: False
-    r_range: [0.15, 0.2]
-    z_shift: 0.2 # to avoid collision with the object
+    enable: True
+    dis_open_range: [0.3, 0.35]
+    dis_side_range: 0.1
 
   image_height: 224
   image_width: 224

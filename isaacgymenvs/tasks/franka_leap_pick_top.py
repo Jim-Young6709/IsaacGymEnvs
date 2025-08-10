@@ -32,6 +32,28 @@ class FrankaLEAPPickTop(FrankaLEAP):
             force_render=force_render
         )
 
+        if self.eef_init["enable"]:
+            dis_open_range = self.eef_init["dis_open_range"]
+            dis_open = torch.rand(self.num_envs, device=self.device) * (dis_open_range[1] - dis_open_range[0]) + dis_open_range[0]
+            dis_side_range = self.eef_init["dis_side_range"]
+            dis_side_x = torch.rand(self.num_envs, device=self.device) * (self.box_dims[:, 0] + 2*dis_side_range) - (self.box_dims[:, 0]/2 + dis_side_range)
+            dis_side_y = torch.rand(self.num_envs, device=self.device) * (self.box_dims[:, 1] + 2*dis_side_range) - (self.box_dims[:, 1]/2 + dis_side_range)
+
+            eef_init_pos = self.box_pos.clone()
+            eef_init_pos[:, 0] += dis_side_x
+            eef_init_pos[:, 1] += dis_side_y
+            eef_init_pos[:, 2] += dis_open + self.box_dims[:, 2]
+
+            eef_init_quat = A2B_quaternion(eef_init_pos, self.box_pos, max_angle_deg=20)
+            flip_idx = eef_init_pos[:, 0] < self.box_pos[:, 0]
+            rot_local_z_180 = torch.tensor([[0.0, 0.0, 1.0, 0.0]]*sum(flip_idx), device=self.device)  # 180 degrees around local z-axis
+            eef_init_quat[flip_idx] = quat_mul(eef_init_quat[flip_idx], rot_local_z_180)  # rotate by 180 degrees around local z-axis
+
+            eef_init_pos7 = torch.cat((eef_init_pos, eef_init_quat), dim=-1)  # (num_envs, 7)
+
+            # TODO: resampling mechanism here when IK failed
+            self.canonical_joint_config[:, :7] = self.get_joint_from_ee(eef_init_pos7)
+
     def _create_envs(self, spacing, num_per_row):
         """
         loading Franka + LEAP + a table in the environment, this is for debugging purposes only
@@ -210,22 +232,22 @@ class FrankaLEAPPickTop(FrankaLEAP):
             # left wall
             self._create_cube(
                 pos=[x_shift+0.0, size[1]/2 + wall_thickness/2, size[2]/2],
-                size=[size[0], wall_thickness, size[2]],
+                size=[size[0]+wall_thickness*2, wall_thickness, size[2]],
             ),
             # right wall
             self._create_cube(
                 pos=[x_shift+0.0, -size[1]/2 - wall_thickness/2, size[2]/2],
-                size=[size[0], wall_thickness, size[2]],
+                size=[size[0]+wall_thickness*2, wall_thickness, size[2]],
             ),
             # front wall
             self._create_cube(
                 pos=[x_shift+-size[0]/2 - wall_thickness/2, 0.0, size[2]/2],
-                size=[wall_thickness, size[1]+wall_thickness*2, size[2]],
+                size=[wall_thickness, size[1], size[2]],
             ),
             # back wall
             self._create_cube(
                 pos=[x_shift+size[0]/2 + wall_thickness/2, 0.0, size[2]/2],
-                size=[wall_thickness, size[1]+wall_thickness*2, size[2]],
+                size=[wall_thickness, size[1], size[2]],
             ),
         ]
 
@@ -321,6 +343,27 @@ class FrankaLEAPPickTop(FrankaLEAP):
         self.extras["metrics/lifting_rate_5cm_per_step"] = torch.mean(lifting_5cm_per_step.float()).item()
         self.extras["metrics/success_rate_5cm_per_ep"] = torch.mean(self.success_flags).item()
         self.extras["metrics/lifting_rate_5cm_per_ep"] = torch.mean(self.lifting_flags).item()
+
+    def reset_idx(self, env_ids=None):
+        if env_ids is None:
+            env_ids = torch.arange(self.num_envs, device=self.device)
+
+        self._reset_object_state(env_ids) # reset object state
+
+        reset_noise_scale = 0.2
+
+        reset_noise = torch.rand((len(env_ids), 23), device=self.device)
+        reset_joint_config = tensor_clamp(
+            self.canonical_joint_config[env_ids] +
+            reset_noise_scale * 2.0 * (reset_noise - 0.5),
+            self.robot_dof_lower_limits, self.robot_dof_upper_limits)
+
+        self.set_robot_joint_state(reset_joint_config, env_ids=env_ids)
+        self.success_flags[env_ids] = 0
+        self.lifting_flags[env_ids] = 0
+        self.progress_buf[env_ids] = 0
+        self.reset_buf[env_ids] = 0
+
 
 @torch.jit.script
 def compute_franka_leap_reward(states, reward_settings):
