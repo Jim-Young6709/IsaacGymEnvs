@@ -32,6 +32,8 @@ env:
     safety_box:
       wall_thickness: 0.01
       size: [[0.2, 0.3, 0.3], [0.3, 0.5, 0.5]] # x, y, z
+      x_shift: 0.7
+      z_shift: 0.3
       z: [0.2, 0.7]
       r: [0.2, 0.4] # rot_ex radius
       rot_in: [-0.4, 0.4] # radians
@@ -53,7 +55,7 @@ env:
   eef_init:
     enable: True
     dis_open_range: [0.3, 0.35]
-    dis_side_range: 0.1
+    dis_side_range: -0.1
 
   image_height: 224
   image_width: 224

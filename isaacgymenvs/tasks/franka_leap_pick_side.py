@@ -40,7 +40,7 @@ class FrankaLEAPPickSide(FrankaLEAP):
             dis_side_z = torch.rand(self.num_envs, device=self.device) * (self.box_dims[:, 2] + 2*dis_side_range) - (self.box_dims[:, 2]/2 + dis_side_range)
 
             eef_init_pos = self.box_pos.clone()
-            eef_init_pos[:, 0] -= dis_open
+            eef_init_pos[:, 0] -= dis_open + self.box_dims[:, 0] / 2
             eef_init_pos[:, 1] += dis_side_y
             eef_init_pos[:, 2] += dis_side_z + self.box_dims[:, 2] / 2
 
@@ -224,8 +224,8 @@ class FrankaLEAPPickSide(FrankaLEAP):
         size = np.random.uniform(size_range[0], size_range[1]) # inner size of the box
 
         # for simple debugging scenario training
-        x_shift = 0.6
-        z_shift = 0.3
+        x_shift = self.scene_box_cfg["x_shift"]
+        z_shift = self.scene_box_cfg["z_shift"]
 
         self.box_dims.append(size.tolist())
         self.box_pos.append([x_shift, 0.0, z_shift])

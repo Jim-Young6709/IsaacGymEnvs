@@ -225,7 +225,7 @@ class FrankaLEAPPickTop(FrankaLEAP):
         size = np.random.uniform(size_range[0], size_range[1]) # inner size of the box
 
         # for simple debugging scenario training
-        x_shift = 0.5
+        x_shift = self.scene_box_cfg["x_shift"]
 
         self.box_dims.append(size.tolist())
         self.box_pos.append([x_shift, 0.0, 0.0])

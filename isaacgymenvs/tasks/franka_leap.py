@@ -704,7 +704,7 @@ class FrankaLEAP(VecTask):
         goal = Pose(eef_pos, eef_quat_wxyz) # Pose need quat in wxyz format
         result = self.ik_solver.solve_batch(goal)
         if torch.any(result.success[:B] == False):
-            print("IK solver failed for some environments.")
+            print(f"IK solver failed for some environments: {sum(result.success)}/{result.success.shape[0]}")
             # TODO: need to think a bit how to handle such cases
 
         q_solution = result.solution[:B, 0]
