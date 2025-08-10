@@ -782,7 +782,7 @@ class FrankaLEAP(VecTask):
             len(multi_env_ids_int32),
         )
 
-    def _reset_object_state(self, env_ids, on_table=True):
+    def _reset_object_state(self, env_ids):
         if env_ids is None:
             env_ids = torch.arange(self.num_envs, device=self.device)
 
@@ -791,11 +791,9 @@ class FrankaLEAP(VecTask):
         sampled_object_state = torch.zeros(num_resets, 13, device=self.device)
 
         # Sampling is "centered" around middle of table
-        pos_range = torch.tensor(self.cfg["env"]["object_settings"]["xyz_range"], device=self.device)
-        reset_pos = torch.rand(num_resets, 3, device=self.device) * (pos_range[1] - pos_range[0]) + pos_range[0]
-
-        if on_table:
-            reset_pos[:, 2] = self.table_surface_height[env_ids]
+        reset_pos = torch.zeros(num_resets, 3, device=self.device)
+        reset_pos[:, :2] = torch.rand(num_resets, 2, device=self.device) * (self.obj_pos_range[env_ids][:, [1,3]] - self.obj_pos_range[env_ids][:, [0,2]]) + self.obj_pos_range[env_ids][:, [0,2]]
+        reset_pos[:, 2] = self.table_surface_height[env_ids]
 
         sampled_object_state[:, 6] = 1.0
         sampled_object_state[:, :3] = reset_pos
@@ -1005,7 +1003,6 @@ class FrankaLEAP(VecTask):
                 colors_flat     # flat list of RGB triples
             )
 
-    # for debugging purposes only, so this scripts on its own can run
     def reset_idx(self, env_ids=None):
         if env_ids is None:
             env_ids = torch.arange(self.num_envs, device=self.device)
@@ -1014,33 +1011,11 @@ class FrankaLEAP(VecTask):
 
         reset_noise_scale = 0.2
 
-        if self.eef_init['enable']:
-            # sample initial eef state based on object location
-            shell_sample = sample_spherical_shell(self.eef_init['r_range'], n_samples=len(env_ids), device=self.device)
-            eef_init_pos = self._object_center_init_state[env_ids] + shell_sample
-            eef_init_pos[:, 2] += self.eef_init['z_shift']
-
-            # sample eef quaternion so it face towards the objects (with minor randomization)
-            eef_init_quat = A2B_quaternion(eef_init_pos, self._object_center_init_state[env_ids])
-
-            # get eef7 targets and solve IK
-            eef_init_pos7 = torch.cat((eef_init_pos, eef_init_quat), dim=-1)  # (num_envs, 7)
-            reset_arm_joint = self.get_joint_from_ee(eef_init_pos7)
-
-            # sample hand joint reset angles
-            reset_noise = torch.rand((len(env_ids), 16), device=self.device)
-            reset_hand_joint = tensor_clamp(
-                self.canonical_joint_config[env_ids, 7:] +
-                reset_noise_scale * 2.0 * (reset_noise - 0.5),
-                self.robot_dof_lower_limits[7:], self.robot_dof_upper_limits[7:])
-
-            reset_joint_config = torch.cat((reset_arm_joint, reset_hand_joint), dim=-1)  # (num_envs, 23)
-        else:
-            reset_noise = torch.rand((len(env_ids), 23), device=self.device)
-            reset_joint_config = tensor_clamp(
-                self.canonical_joint_config[env_ids] +
-                reset_noise_scale * 2.0 * (reset_noise - 0.5),
-                self.robot_dof_lower_limits, self.robot_dof_upper_limits)
+        reset_noise = torch.rand((len(env_ids), 23), device=self.device)
+        reset_joint_config = tensor_clamp(
+            self.canonical_joint_config[env_ids] +
+            reset_noise_scale * 2.0 * (reset_noise - 0.5),
+            self.robot_dof_lower_limits, self.robot_dof_upper_limits)
 
         self.set_robot_joint_state(reset_joint_config, env_ids=env_ids)
         self.success_flags[env_ids] = 0
@@ -1048,6 +1023,7 @@ class FrankaLEAP(VecTask):
         self.progress_buf[env_ids] = 0
         self.reset_buf[env_ids] = 0
 
+    # for debugging purposes only, so this scripts on its own can run
     def pre_physics_step(self, actions):
         """
         Args:

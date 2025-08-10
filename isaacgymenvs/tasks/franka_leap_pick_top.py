@@ -259,31 +259,6 @@ class FrankaLEAPPickTop(FrankaLEAP):
         rot_in = self.scene_box_cfg["rot_in"]
         rot_ex = self.scene_box_cfg["rot_ex"]
 
-    def _reset_object_state(self, env_ids):
-        if env_ids is None:
-            env_ids = torch.arange(self.num_envs, device=self.device)
-
-        # Initialize buffer to hold sampled values
-        num_resets = len(env_ids)
-        sampled_object_state = torch.zeros(num_resets, 13, device=self.device)
-
-        # Sampling is "centered" around middle of table
-        reset_pos = torch.zeros(num_resets, 3, device=self.device)
-        reset_pos[:, :2] = torch.rand(num_resets, 2, device=self.device) * (self.obj_pos_range[env_ids][:, [1,3]] - self.obj_pos_range[env_ids][:, [0,2]]) + self.obj_pos_range[env_ids][:, [0,2]]
-        reset_pos[:, 2] = self.table_surface_height[env_ids]
-
-        sampled_object_state[:, 6] = 1.0
-        sampled_object_state[:, :3] = reset_pos
-        self._object_state[env_ids] = sampled_object_state
-        self._object_center_init_state[env_ids] = reset_pos
-        self._object_center_init_state[env_ids, 2] += self.mesh_aabb_extents[env_ids, 2] / 2
-
-        multi_env_ids_obj_int32 = self._global_indices[env_ids, self._object_id].flatten()
-        self.gym.set_actor_root_state_tensor_indexed(
-            self.sim, gymtorch.unwrap_tensor(self._root_state),
-            gymtorch.unwrap_tensor(multi_env_ids_obj_int32), len(multi_env_ids_obj_int32),
-        )
-
     def check_robot_collision(self):
         super().check_robot_collision()
         self.box_collision = torch.any(self.contact_forces[:, 31:35].view(self.num_envs, -1) != 0, dim=1)
@@ -343,26 +318,6 @@ class FrankaLEAPPickTop(FrankaLEAP):
         self.extras["metrics/lifting_rate_5cm_per_step"] = torch.mean(lifting_5cm_per_step.float()).item()
         self.extras["metrics/success_rate_5cm_per_ep"] = torch.mean(self.success_flags).item()
         self.extras["metrics/lifting_rate_5cm_per_ep"] = torch.mean(self.lifting_flags).item()
-
-    def reset_idx(self, env_ids=None):
-        if env_ids is None:
-            env_ids = torch.arange(self.num_envs, device=self.device)
-
-        self._reset_object_state(env_ids) # reset object state
-
-        reset_noise_scale = 0.2
-
-        reset_noise = torch.rand((len(env_ids), 23), device=self.device)
-        reset_joint_config = tensor_clamp(
-            self.canonical_joint_config[env_ids] +
-            reset_noise_scale * 2.0 * (reset_noise - 0.5),
-            self.robot_dof_lower_limits, self.robot_dof_upper_limits)
-
-        self.set_robot_joint_state(reset_joint_config, env_ids=env_ids)
-        self.success_flags[env_ids] = 0
-        self.lifting_flags[env_ids] = 0
-        self.progress_buf[env_ids] = 0
-        self.reset_buf[env_ids] = 0
 
 
 @torch.jit.script
