@@ -28,6 +28,7 @@
 
 from .franka_leap import FrankaLEAP
 from .franka_leap_pick import FrankaLEAPPick
+from .franka_leap_pick_side import FrankaLEAPPickSide
 
 
 
@@ -35,4 +36,5 @@ from .franka_leap_pick import FrankaLEAPPick
 isaacgym_task_map = {
     "FrankaLEAP": FrankaLEAP,
     "FrankaLEAPPick": FrankaLEAPPick,
+    "FrankaLEAPPickSide": FrankaLEAPPickSide,
 }
