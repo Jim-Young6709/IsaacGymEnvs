@@ -179,8 +179,8 @@ class FrankaLEAPPickSide(FrankaLEAP):
         self.box_pos = torch.tensor(self.box_pos, device=self.device) # (num_envs, 3)
         self.box_quats = torch.tensor(self.box_quats, device=self.device)
 
-        self.obj_pos_target[:, :2] = self.box_pos[:, :2]
-        self.obj_pos_target[:, 2] = self.box_pos[:, 2] + self.box_dims[:, 2]
+        self.obj_pos_target[:, 1:] = self.box_pos[:, 1:]
+        self.obj_pos_target[:, 0] = self.box_pos[:, 0] - self.box_dims[:, 0] / 2
 
         self.cuboid_dims = torch.from_numpy(self.cuboid_dims).to(self.device)
         self.cuboid_pos = torch.from_numpy(self.cuboid_pos).to(self.device)
