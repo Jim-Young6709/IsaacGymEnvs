@@ -126,6 +126,14 @@ class FrankaLEAPPickSide(FrankaLEAP):
                 )
                 self._box_wall_ids.append(wall_actor)
 
+            self.gym.set_rigid_body_color(
+                env_ptr,
+                self._box_wall_ids[0],
+                0,  # body index; 0 for single-body assets like cubes
+                gymapi.MESH_VISUAL_AND_COLLISION,
+                gymapi.Vec3(1.0, 0.0, 0.0)  # RGB in [0, 1]
+            )
+
             # Create object
             self._object_id = self.gym.create_actor(
                 env_ptr, object_asset, object_start_pose, "object", i, 2, 0
@@ -318,6 +326,12 @@ class FrankaLEAPPickSide(FrankaLEAP):
         self.extras["metrics/lifting_rate_5cm_per_step"] = torch.mean(lifting_5cm_per_step.float()).item()
         self.extras["metrics/success_rate_5cm_per_ep"] = torch.mean(self.success_flags).item()
         self.extras["metrics/lifting_rate_5cm_per_ep"] = torch.mean(self.lifting_flags).item()
+
+    def set_viewer(self):
+        super().set_viewer(
+            pos=[-0.3, 0.0, 1.2],
+            target=[0.5, 0.0, 0.1],
+        )
 
 
 @torch.jit.script

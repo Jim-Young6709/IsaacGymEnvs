@@ -832,7 +832,7 @@ class FrankaLEAP(VecTask):
         return lower_limits, upper_limits
 
     # visualization
-    def set_viewer(self):
+    def set_viewer(self, pos=[1.5, 0.0, 0.7], target=[0.5, 0.0, 0.1]):
         """
         Create the viewer.
         """
@@ -855,8 +855,8 @@ class FrankaLEAP(VecTask):
             # cam_pos = gymapi.Vec3(0, 0, 5)
             # cam_target = gymapi.Vec3(centre, centre, 0)
             # let camera look at env 0
-            cam_pos = gymapi.Vec3(1.5, 0, 0.7)
-            cam_target = gymapi.Vec3(0.5, 0, 0.1)
+            cam_pos = gymapi.Vec3(pos[0], pos[1], pos[2])
+            cam_target = gymapi.Vec3(target[0], target[1], target[2])
 
             self.gym.viewer_camera_look_at(self.viewer, None, cam_pos, cam_target)
 
@@ -880,8 +880,8 @@ class FrankaLEAP(VecTask):
                     print(f"Failed to create camera sensor for env {i}")
                     continue  # Skip this camera if creation failed
 
-                camera_position = gymapi.Vec3(1.5, 0.0, 0.7)
-                camera_target = gymapi.Vec3(0.5, 0.0, 0.1)
+                camera_position = gymapi.Vec3(pos[0], pos[1], pos[2])
+                camera_target = gymapi.Vec3(target[0], target[1], target[2])
                 self.gym.set_camera_location(
                     camera_handle, self.env_ptrs[i], camera_position, camera_target
                 )
