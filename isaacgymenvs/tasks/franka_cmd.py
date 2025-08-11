@@ -73,7 +73,7 @@ class FrankaCMD(VecTask):
 
         if not hasattr(self, 'canonical_joint_config'):
             self.canonical_joint_config = torch.tensor(
-                [[0, 0, 0, -3*torch.pi/4, 0, 3*torch.pi/4, torch.pi/2] + [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]] * self.num_envs
+                [[0, 0, 0, -3*torch.pi/4, 0, 3*torch.pi/4, torch.pi/2] + [0]*(self.num_dofs-7)] * self.num_envs
             ).to(self.device)
 
         self.actions = torch.zeros((self.num_envs, self.num_robot_dofs), device=self.device, dtype=torch.float) # Current delta actions to be deployed
@@ -114,7 +114,7 @@ class FrankaCMD(VecTask):
         self._mm = None                         # Mass matrix
         self._pos_control = None                # Position actions
         self._effort_control = None             # Torque actions
-        self._robot_effort_limits = None        # Actuator effort limits for the robot (franka 7 + leap 4*4)
+        self._robot_effort_limits = None        # Actuator effort limits for the robot (franka 7 + cmd 4*3)
         self._global_indices = None             # Unique indices corresponding to all envs in flattened array
 
         # pcd
@@ -231,7 +231,7 @@ class FrankaCMD(VecTask):
         # Setup sim handles
         env_ptr = self.env_ptrs[0]
         robot_handle = 0
-        self.handles = {
+        self.handles = { # TODO: update this according to urdf
             # FrankaCMD
             "hand": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "palm_center"),
             "finger1_tip": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "realtip_1"),
@@ -263,7 +263,7 @@ class FrankaCMD(VecTask):
 
         _jacobian = self.gym.acquire_jacobian_tensor(self.sim, "franka")
         jacobian = gymtorch.wrap_tensor(_jacobian)
-        hand_joint_index = self.gym.get_actor_joint_dict(env_ptr, robot_handle)['palm_center_joint']
+        hand_joint_index = self.gym.get_actor_joint_dict(env_ptr, robot_handle)['panda_hand_joint'] # TODO: check this
         self._j_eef = jacobian[:, hand_joint_index, :, :7]
         _massmatrix = self.gym.acquire_mass_matrix_tensor(self.sim, "franka")
         mm = gymtorch.wrap_tensor(_massmatrix)
@@ -284,16 +284,17 @@ class FrankaCMD(VecTask):
         target_quat = target_quat / (target_quat_norm + 1e-10)
 
         self.grasp_finger_dof_pos = self.robot_dof_upper_limits[7:] - self.robot_dof_lower_limits[7:]
-        self.grasp_finger_dof_pos *= 0.4
+        self.grasp_finger_dof_pos *= 0.0
 
+        # import ipdb ; ipdb.set_trace()
         # finger indexing: 0-3:index ; 4-7:thumb ; 8-11:middle ; 12-15:ring
-        self.grasp_finger_dof_pos[1] *= -1
-        self.grasp_finger_dof_pos[4] = 1.57
-        self.grasp_finger_dof_pos[5] = 0.0
-        self.grasp_finger_dof_pos[6] *= 0.25
-        self.grasp_finger_dof_pos[7] *= 1
-        self.grasp_finger_dof_pos[9] = 0.0
-        self.grasp_finger_dof_pos[13] *= 1
+        # self.grasp_finger_dof_pos[1] *= -1
+        # self.grasp_finger_dof_pos[4] = 1.57
+        # self.grasp_finger_dof_pos[5] = 0.0
+        # self.grasp_finger_dof_pos[6] *= 0.25
+        # self.grasp_finger_dof_pos[7] *= 1
+        # self.grasp_finger_dof_pos[9] = 0.0
+        # self.grasp_finger_dof_pos[13] *= 1
 
         # for visualization purposes
         self.canonical_grasp_config = torch.tensor(
@@ -661,11 +662,11 @@ class FrankaCMD(VecTask):
         # TODO: figure out arm & hand collision
         self.gym.refresh_net_contact_force_tensor(self.sim)
         self.scene_collision = torch.where(
-            torch.norm(torch.sum(self.contact_forces[:, :30, :], dim=1), dim=1) > 1.0, 1.0, 0.0
-        )  # the first 30 elements belong to franka + leap
+            torch.norm(torch.sum(self.contact_forces[:, :26, :], dim=1), dim=1) > 1.0, 1.0, 0.0
+        )  # the first 26 elements belong to franka + cmd
         self.collision = torch.where(
-            torch.sum(torch.norm(self.contact_forces[:, :30, :], dim=2), dim=1) > 1.0, 1.0, 0.0
-        )  # the first 16 elements belong to franka + leap, this includes self collision
+            torch.sum(torch.norm(self.contact_forces[:, :26, :], dim=2), dim=1) > 1.0, 1.0, 0.0
+        )  # the first 26 elements belong to franka + cmd, this includes self collision
 
     def normalize_robot_joints(self, joint_angles: torch.Tensor, robot: bool, delta: bool = False) -> torch.Tensor:
         """
@@ -680,7 +681,7 @@ class FrankaCMD(VecTask):
             lower_limits, upper_limits = self.get_joint_limits_franka()
         elif robot=="hand":
             assert joint_angles.shape[-1] == 16
-            lower_limits, upper_limits = self.get_joint_limits_leap()
+            lower_limits, upper_limits = self.get_joint_limits_cmd()
         else:
             raise ValueError("robot must be either 'arm' or 'hand'")
 
@@ -709,7 +710,7 @@ class FrankaCMD(VecTask):
             lower_limits, upper_limits = self.get_joint_limits_franka()
         elif robot=="hand":
             assert joint_angles.shape[-1] == 16
-            lower_limits, upper_limits = self.get_joint_limits_leap()
+            lower_limits, upper_limits = self.get_joint_limits_cmd()
         else:
             raise ValueError("robot must be either 'arm' or 'hand'")
 
@@ -798,7 +799,7 @@ class FrankaCMD(VecTask):
         state_tensor = torch.cat((state_tensor, torch.zeros_like(state_tensor)), dim=2)
 
         if joint_vel is not None:
-            state_tensor[:, :23, 1] = joint_vel
+            state_tensor[:, self.num_robot_dofs, 1] = joint_vel
 
         pos = state_tensor[:, :, 0].contiguous()
         vel = state_tensor[:, :, 1].contiguous()
@@ -856,7 +857,7 @@ class FrankaCMD(VecTask):
 
     def get_joint_limits_franka(self):
         """
-        Get the joint limits of the Franka arm. Franka (7) + LEAP (4*4), 23 DOF in total
+        Get the joint limits of the Franka arm. Franka (7) + CMD (4*3), 19 DOF in total
 
         Returns:
             lower_limits (torch.Tensor): (7,)
@@ -866,13 +867,13 @@ class FrankaCMD(VecTask):
         upper_limits = self.robot_dof_upper_limits[:7]
         return lower_limits, upper_limits
 
-    def get_joint_limits_leap(self):
+    def get_joint_limits_cmd(self):
         """
-        Get the joint limits of the LEAP hand. Franka (7) + LEAP (4*4), 23 DOF in total
+        Get the joint limits of the CMD hand. Franka (7) + CMD (4*3), 19 DOF in total
 
         Returns:
-            lower_limits (torch.Tensor): (16,)
-            upper_limits (torch.Tensor): (16,)
+            lower_limits (torch.Tensor): (4*3,)
+            upper_limits (torch.Tensor): (4*3,)
         """
         lower_limits = self.robot_dof_lower_limits[7:]
         upper_limits = self.robot_dof_upper_limits[7:]
@@ -1058,7 +1059,7 @@ class FrankaCMD(VecTask):
 
         reset_noise_scale = 0.2
 
-        reset_noise = torch.rand((len(env_ids), 23), device=self.device)
+        reset_noise = torch.rand((len(env_ids), self.num_robot_dofs), device=self.device)
         reset_joint_config = tensor_clamp(
             self.canonical_joint_config[env_ids] +
             reset_noise_scale * 2.0 * (reset_noise - 0.5),
