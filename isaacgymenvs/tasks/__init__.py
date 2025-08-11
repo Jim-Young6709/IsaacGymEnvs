@@ -31,6 +31,8 @@ from .franka_leap_pick_table import FrankaLEAPPickTable
 from .franka_leap_pick_top import FrankaLEAPPickTop
 from .franka_leap_pick_side import FrankaLEAPPickSide
 
+from .franka_cmd import FrankaCMD
+from .franka_cmd_pick_table import FrankaCMDPickTable
 
 
 # Mappings from strings to environments
@@ -39,4 +41,6 @@ isaacgym_task_map = {
     "FrankaLEAPPickTable": FrankaLEAPPickTable,
     "FrankaLEAPPickTop": FrankaLEAPPickTop,
     "FrankaLEAPPickSide": FrankaLEAPPickSide,
+    "FrankaCMD": FrankaCMD,
+    "FrankaCMDPickTable": FrankaCMDPickTable,
 }

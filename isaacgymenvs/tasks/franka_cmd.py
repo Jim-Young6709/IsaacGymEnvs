@@ -173,7 +173,7 @@ class FrankaCMD(VecTask):
 
     def _create_franka_leap(self, ):
         asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../assets")
-        robot_asset_file = "urdf/franka_hand/robots/franka_leap_right.urdf"
+        robot_asset_file = "urdf/franka_cmd/franka_cmd_right.urdf"
 
         if "asset" in self.cfg["env"]:
             asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), self.cfg["env"]["asset"].get("assetRoot", asset_root))
