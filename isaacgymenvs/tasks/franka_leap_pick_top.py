@@ -261,6 +261,18 @@ class FrankaLEAPPickTop(FrankaLEAP):
 
         return walls
 
+    def _update_states(self):
+        super()._update_states()
+        eef_rot_mat = quaternion_to_matrix_ig(self._eef_state[:, 3:7])
+        box_to_eef_rot_6d = matrix_to_rotation_6d(eef_rot_mat.transpose(1, 2)) # since its eef policy, so box quat can always be [0, 0, 0, 1]
+
+        self.states.update({
+            # Box region
+            "box_to_eef_pos": self.box_pos - self._eef_state[:, :3],
+            "box_dims": self.box_dims,
+            "box_to_eef_rot_6d": box_to_eef_rot_6d,
+        })
+
     def _reset_box_state(self):
         z_shift = self.scene_box_cfg["z"]
         r_rot_ex = self.scene_box_cfg["r"]

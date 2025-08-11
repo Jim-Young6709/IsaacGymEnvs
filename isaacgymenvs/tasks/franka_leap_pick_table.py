@@ -18,7 +18,7 @@ from tqdm import tqdm
 
 
 
-class FrankaLEAPPickSimple(FrankaLEAP):
+class FrankaLEAPPickTable(FrankaLEAP):
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
         super().__init__(
             cfg=cfg,
@@ -60,6 +60,13 @@ class FrankaLEAPPickSimple(FrankaLEAP):
             size=[0.7, 1.2, table_thickness],
         )
         self.table_surface_height = torch.tensor([table_start_pose.p.z + table_thickness / 2] * self.num_envs, device=self.device)
+
+        obj_xyz_range = self.cfg["env"]["object_settings"]["xyz_range"]
+        self.obj_pos_range = torch.zeros((self.num_envs, 4), device=self.device) # x-min, x-max, y-min, y-max
+        self.obj_pos_range[:, 0] = obj_xyz_range[0][0] # x-min
+        self.obj_pos_range[:, 1] = obj_xyz_range[1][0] # x-max
+        self.obj_pos_range[:, 2] = obj_xyz_range[0][1] # y-min
+        self.obj_pos_range[:, 3] = obj_xyz_range[1][1] # y-max
 
         # compute aggregate size
         num_robot_bodies = self.gym.get_asset_rigid_body_count(robot_asset)
@@ -162,18 +169,16 @@ class FrankaLEAPPickSimple(FrankaLEAP):
         self._refresh()
 
         obs_components = ["q_hand",
-                          "eef_rot_6d",
                           "eef_finger1_pos_relative", "eef_finger2_pos_relative",
                           "eef_finger3_pos_relative", "eef_finger4_pos_relative",
-                          "object_rot_6d",
-                          "hand_to_object", "object_to_target"]#, "object_target_6d_diff"]
+                          "hand_to_object", "object_to_eef_rot_6d", "object_to_target"]#, "object_target_6d_diff"]
 
         states_components = ["q", "qd",
                              "eef_pos", "eef_rot_6d", "eef_vel",
                              "eef_finger1_pos_relative", "eef_finger2_pos_relative",
                              "eef_finger3_pos_relative", "eef_finger4_pos_relative",
                              "object_center_pos", "object_rot_6d",
-                             "hand_to_object", "object_to_target"]#, "object_target_6d_diff"]
+                             "hand_to_object", "object_to_eef_rot_6d", "object_to_target"]#, "object_target_6d_diff"]
 
         obs_buf = torch.cat([self.states[ob] for ob in obs_components], dim=-1)
         states_buf = torch.cat([self.states[st] for st in states_components], dim=-1)
@@ -288,7 +293,7 @@ def launch_test(cfg: DictConfig):
     graphics_device_id = 0
     virtual_screen_capture = False
     force_render = False
-    env = FrankaLEAPPickSimple(cfg_task, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render)
+    env = FrankaLEAPPickTable(cfg_task, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render)
     env.reset()
 
     for i in tqdm(range(1000)):

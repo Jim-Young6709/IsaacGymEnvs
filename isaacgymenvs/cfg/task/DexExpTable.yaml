@@ -1,5 +1,5 @@
 # TODO (Jim): cleanup
-name: FrankaLEAPPick
+name: FrankaLEAPPickTable
 
 physics_engine: ${..physics_engine}
 
@@ -64,8 +64,8 @@ env:
     width: 640
     height: 480
 
-  numObservations: 55
-  numStates: 109
+  numObservations: 43
+  numStates: 97
   numActions: 22 # delta eef actions 6 (xyz, rpy) + normalized hand joint actions 16
 
   base_policy_url: "jimyoung6709/DRP_Dagger"
