@@ -1,5 +1,5 @@
 """
-Franka + LEAP Hand Env
+Franka + CMD Hand Env
 """
 
 import os
@@ -171,7 +171,7 @@ class FrankaCMD(VecTask):
         plane_params.distance = 0.3 # according to current randomization params, -0.275 would be the lowest surface from the env
         self.gym.add_ground(self.sim, plane_params)
 
-    def _create_franka_leap(self, ):
+    def _create_franka_cmd(self):
         asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../assets")
         robot_asset_file = "urdf/franka_cmd/franka_cmd_right.urdf"
 
@@ -179,7 +179,7 @@ class FrankaCMD(VecTask):
             asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), self.cfg["env"]["asset"].get("assetRoot", asset_root))
             robot_asset_file = self.cfg["env"]["asset"].get("assetFileNameFranka", robot_asset_file)
 
-        # load FrankaLEAP asset
+        # load FrankaCMD asset
         asset_options = gymapi.AssetOptions()
         asset_options.flip_visual_attachments = False
         asset_options.fix_base_link = True
@@ -198,10 +198,10 @@ class FrankaCMD(VecTask):
         self.num_robot_bodies = self.gym.get_asset_rigid_body_count(robot_asset)
         self.num_robot_dofs = self.gym.get_asset_dof_count(robot_asset)
 
-        print("num FrankaLEAP bodies: ", self.num_robot_bodies)
-        print("num FrankaLEAP dofs: ", self.num_robot_dofs)
+        print("num FrankaCMD bodies: ", self.num_robot_bodies)
+        print("num FrankaCMD dofs: ", self.num_robot_dofs)
 
-        # set FrankaLEAP dof properties
+        # set FrankaCMD dof properties
         robot_dof_props = self.gym.get_asset_dof_properties(robot_asset)
         self.robot_dof_lower_limits = []
         self.robot_dof_upper_limits = []
@@ -232,7 +232,7 @@ class FrankaCMD(VecTask):
         env_ptr = self.env_ptrs[0]
         robot_handle = 0
         self.handles = {
-            # FrankaLEAP
+            # FrankaCMD
             "hand": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "palm_center"),
             "finger1_tip": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "realtip_1"),
             "finger2_tip": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "realtip_2"),

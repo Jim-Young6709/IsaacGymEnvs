@@ -10,7 +10,7 @@ import numpy as np
 import torch
 from isaacgym.torch_utils import *
 from isaacgym import gymapi
-from isaacgymenvs.tasks import FrankaLEAP
+from isaacgymenvs.tasks import FrankaCMD
 from isaacgymenvs.utils.reformat import omegaconf_to_dict
 from isaacgymenvs.utils.pcd_utils import *
 from omegaconf import DictConfig
@@ -18,7 +18,7 @@ from tqdm import tqdm
 
 
 
-class FrankaCMDPickTable(FrankaLEAP):
+class FrankaCMDPickTable(FrankaCMD):
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
         super().__init__(
             cfg=cfg,
@@ -32,7 +32,7 @@ class FrankaCMDPickTable(FrankaLEAP):
 
     def _create_envs(self, spacing, num_per_row):
         """
-        loading Franka + LEAP + a table in the environment, this is for debugging purposes only
+        loading Franka + CMD + a table in the environment, this is for debugging purposes only
         """
         lower = gymapi.Vec3(-spacing, -spacing, 0.0)
         upper = gymapi.Vec3(spacing, spacing, spacing)
@@ -47,8 +47,8 @@ class FrankaCMDPickTable(FrankaLEAP):
         self.sphere_radii = []  # r
         self.mesh_aabb_extents = None  # xyz, axis-aligned bounding box full extents
 
-        # setup robot (franka + leap)
-        robot_dof_props = self._create_franka_leap()
+        # setup robot (franka + cmd)
+        robot_dof_props = self._create_franka_cmd()
         robot_asset = self.robot_asset
         robot_start_pose = gymapi.Transform()
         robot_start_pose.p = gymapi.Vec3(0.0, 0.0, 0.0) # make sure robot spawns at the origin, this matches the IK setting with cuRobo
@@ -95,7 +95,7 @@ class FrankaCMDPickTable(FrankaLEAP):
             if self.aggregate_mode >= 3:
                 self.gym.begin_aggregate(env_ptr, max_agg_bodies, max_agg_shapes, True)
 
-            # Create robot (franka + leap)
+            # Create robot (franka + cmd)
             robot_actor = self.gym.create_actor(
                 env_ptr, robot_asset, robot_start_pose, "franka", i, 0, 0
             )
@@ -195,7 +195,7 @@ class FrankaCMDPickTable(FrankaLEAP):
     def compute_reward(self):
         self.reset_buf[:] = torch.where((self.progress_buf >= self.max_episode_length - 1), torch.ones_like(self.reset_buf), self.reset_buf)
         self.reset_buf[self.states['object_center_pos'][:, 2] < self.table_surface_height-0.1] = 1
-        reward_dict = compute_franka_leap_reward(self.states, self.reward_settings)
+        reward_dict = compute_franka_cmd_reward(self.states, self.reward_settings)
 
         self.rew_buf[:] = reward_dict["r_total"]
         self.extras["sep_reward/r_hand_obj"] = torch.mean(reward_dict["r_hand_obj"]).item()
@@ -217,7 +217,7 @@ class FrankaCMDPickTable(FrankaLEAP):
         self.extras["metrics/lifting_rate_5cm_per_ep"] = torch.mean(self.lifting_flags).item()
 
 @torch.jit.script
-def compute_franka_leap_reward(states, reward_settings):
+def compute_franka_cmd_reward(states, reward_settings):
     # type: (Dict[str, Tensor], Dict[str, Tensor]) -> Dict[str, Tensor]
 
     # R1: Hand (palm, fingers) to object distance

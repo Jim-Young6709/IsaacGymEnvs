@@ -171,7 +171,7 @@ class FrankaLEAP(VecTask):
         plane_params.distance = 0.3 # according to current randomization params, -0.275 would be the lowest surface from the env
         self.gym.add_ground(self.sim, plane_params)
 
-    def _create_franka_leap(self, ):
+    def _create_franka_leap(self):
         asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../assets")
         robot_asset_file = "urdf/franka_hand/robots/franka_leap_right.urdf"
 
