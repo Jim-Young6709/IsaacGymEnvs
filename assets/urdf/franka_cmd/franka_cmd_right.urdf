@@ -1,0 +1,631 @@
+<?xml version="1.0"?>
+<robot name="franka_cmd" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <link name="panda_link0">
+    <inertial>
+      <origin rpy="0 0 0" xyz="0 0 0.05"/>
+      <mass value="2.9"/>
+      <inertia ixx="0.1" ixy="0" ixz="0" iyy="0.1" iyz="0" izz="0.1"/>
+    </inertial>
+    <visual>
+      <geometry>
+        <mesh filename="package://franka_cmd/meshes/franka/visual/link0.obj"/>
+      </geometry>
+      <material name="panda_white">
+        <color rgba="1. 1. 1. 1."/>
+      </material>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="package://franka_cmd/meshes/franka/collision/link0.obj"/>
+      </geometry>
+      <material name="panda_white"/>
+    </collision>
+  </link>
+  <link name="panda_link1">
+    <inertial>
+      <origin rpy="0 0 0" xyz="0 -0.04 -0.05"/>
+      <mass value="2.7"/>
+      <inertia ixx="0.1" ixy="0" ixz="0" iyy="0.1" iyz="0" izz="0.1"/>
+    </inertial>
+    <visual>
+      <geometry>
+        <mesh filename="package://franka_cmd/meshes/franka/visual/link1.obj"/>
+      </geometry>
+      <material name="panda_white"/>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="package://franka_cmd/meshes/franka/collision/link1.obj"/>
+      </geometry>
+      <material name="panda_white"/>
+    </collision>
+  </link>
+  <joint name="panda_joint1" type="revolute">
+    <safety_controller k_position="100.0" k_velocity="40.0" soft_lower_limit="-2.8973" soft_upper_limit="2.8973"/>
+    <origin rpy="0 0 0" xyz="0 0 0.333"/>
+    <parent link="panda_link0"/>
+    <child link="panda_link1"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="87" lower="-2.9671" upper="2.9671" velocity="2.1750"/>
+  </joint>
+  <link name="panda_link2">
+    <inertial>
+      <origin rpy="0 0 0" xyz="0 -0.04 0.06"/>
+      <mass value="2.73"/>
+      <inertia ixx="0.1" ixy="0" ixz="0" iyy="0.1" iyz="0" izz="0.1"/>
+    </inertial>
+    <visual>
+      <geometry>
+        <mesh filename="package://franka_cmd/meshes/franka/visual/link2.obj"/>
+      </geometry>
+      <material name="panda_white"/>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="package://franka_cmd/meshes/franka/collision/link2.obj"/>
+      </geometry>
+      <material name="panda_white"/>
+    </collision>
+  </link>
+  <joint name="panda_joint2" type="revolute">
+    <safety_controller k_position="100.0" k_velocity="40.0" soft_lower_limit="-1.7628" soft_upper_limit="1.7628"/>
+    <origin rpy="-1.57079632679 0 0" xyz="0 0 0"/>
+    <parent link="panda_link1"/>
+    <child link="panda_link2"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="87" lower="-1.8326" upper="1.8326" velocity="2.1750"/>
+  </joint>
+  <link name="panda_link3">
+    <inertial>
+      <origin rpy="0 0 0" xyz="0.01 0.01 -0.05"/>
+      <mass value="2.04"/>
+      <inertia ixx="0.1" ixy="0" ixz="0" iyy="0.1" iyz="0" izz="0.1"/>
+    </inertial>
+    <visual>
+      <geometry>
+        <mesh filename="package://franka_cmd/meshes/franka/visual/link3.obj"/>
+      </geometry>
+      <material name="panda_red">
+        <color rgba="1. 1. 1. 1."/>
+      </material>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="package://franka_cmd/meshes/franka/collision/link3.obj"/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="panda_joint3" type="revolute">
+    <safety_controller k_position="100.0" k_velocity="40.0" soft_lower_limit="-2.8973" soft_upper_limit="2.8973"/>
+    <origin rpy="1.57079632679 0 0" xyz="0 -0.316 0"/>
+    <parent link="panda_link2"/>
+    <child link="panda_link3"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="87" lower="-2.9671" upper="2.9671" velocity="2.1750"/>
+  </joint>
+  <link name="panda_link4">
+    <inertial>
+      <origin rpy="0 0 0" xyz="-0.03 0.03 0.02"/>
+      <mass value="2.08"/>
+      <inertia ixx="0.1" ixy="0" ixz="0" iyy="0.1" iyz="0" izz="0.1"/>
+    </inertial>
+    <visual>
+      <geometry>
+        <mesh filename="package://franka_cmd/meshes/franka/visual/link4.obj"/>
+      </geometry>
+      <material name="panda_white"/>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="package://franka_cmd/meshes/franka/collision/link4.obj"/>
+      </geometry>
+      <material name="panda_white"/>
+    </collision>
+  </link>
+  <joint name="panda_joint4" type="revolute">
+    <safety_controller k_position="100.0" k_velocity="40.0" soft_lower_limit="-3.0718" soft_upper_limit="-0.0698"/>
+    <origin rpy="1.57079632679 0 0" xyz="0.0825 0 0"/>
+    <parent link="panda_link3"/>
+    <child link="panda_link4"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="87" lower="-3.1416" upper="0.0" velocity="2.1750"/>
+  </joint>
+  <link name="panda_link5">
+    <inertial>
+      <origin rpy="0 0 0" xyz="0 0.04 -0.12"/>
+      <mass value="3"/>
+      <inertia ixx="0.1" ixy="0" ixz="0" iyy="0.1" iyz="0" izz="0.1"/>
+    </inertial>
+    <visual>
+      <geometry>
+        <mesh filename="package://franka_cmd/meshes/franka/visual/link5.obj"/>
+      </geometry>
+      <material name="panda_white"/>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="package://franka_cmd/meshes/franka/collision/link5.obj"/>
+      </geometry>
+      <material name="panda_white"/>
+    </collision>
+  </link>
+  <joint name="panda_joint5" type="revolute">
+    <safety_controller k_position="100.0" k_velocity="40.0" soft_lower_limit="-2.8973" soft_upper_limit="2.8973"/>
+    <origin rpy="-1.57079632679 0 0" xyz="-0.0825 0.384 0"/>
+    <parent link="panda_link4"/>
+    <child link="panda_link5"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="12" lower="-2.9671" upper="2.9671" velocity="2.6100"/>
+  </joint>
+  <link name="panda_link6">
+    <inertial>
+      <origin rpy="0 0 0" xyz="0.04 0 0"/>
+      <mass value="1.3"/>
+      <inertia ixx="0.1" ixy="0" ixz="0" iyy="0.1" iyz="0" izz="0.1"/>
+    </inertial>
+    <visual>
+      <geometry>
+        <mesh filename="package://franka_cmd/meshes/franka/visual/link6.obj"/>
+      </geometry>
+      <material name="panda_white"/>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="package://franka_cmd/meshes/franka/collision/link6.obj"/>
+      </geometry>
+      <material name="panda_white"/>
+    </collision>
+  </link>
+  <joint name="panda_joint6" type="revolute">
+    <safety_controller k_position="100.0" k_velocity="40.0" soft_lower_limit="-0.0175" soft_upper_limit="3.7525"/>
+    <origin rpy="1.57079632679 0 0" xyz="0 0 0"/>
+    <parent link="panda_link5"/>
+    <child link="panda_link6"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="12" lower="-0.0873" upper="3.8223" velocity="2.6100"/>
+  </joint>
+  <link name="panda_link7">
+    <inertial>
+      <origin rpy="0 0 0" xyz="0 0 0.08"/>
+      <mass value=".2"/>
+      <inertia ixx="0.1" ixy="0" ixz="0" iyy="0.1" iyz="0" izz="0.1"/>
+    </inertial>
+    <visual>
+      <geometry>
+        <mesh filename="package://franka_cmd/meshes/franka/visual/link7.obj"/>
+      </geometry>
+      <material name="panda_white"/>
+    </visual>
+    <collision>
+      <geometry>
+        <mesh filename="package://franka_cmd/meshes/franka/collision/link7.obj"/>
+      </geometry>
+      <material name="panda_white"/>
+    </collision>
+  </link>
+  <joint name="panda_joint7" type="revolute">
+    <safety_controller k_position="100.0" k_velocity="40.0" soft_lower_limit="-2.8973" soft_upper_limit="2.8973"/>
+    <origin rpy="1.57079632679 0 0" xyz="0.088 0 0"/>
+    <parent link="panda_link6"/>
+    <child link="panda_link7"/>
+    <axis xyz="0 0 1"/>
+    <limit effort="12" lower="-2.9671" upper="2.9671" velocity="2.6100"/>
+  </joint>
+
+
+
+  <!-- CMD Right Hand -->
+  <material name="cmd_grey">
+    <color rgba="0.7 0.7 0.7 1"/>
+  </material>
+  
+  <link name="right_hand">
+    <visual>
+      <origin xyz="0.00000000 0.00000000 0.00000000" rpy="0.0 0.0 0.0" />
+      <geometry>
+        <mesh filename="package://franka_cmd/meshes/cmd_right_hand/right_hand_base_link.obj" />
+      </geometry>
+      <material name="cmd_grey" />
+    </visual>
+    <collision>
+      <origin xyz="0.00000000 0.00000000 0.00000000" rpy="0.0 0.0 0.0" />
+      <geometry>
+        <mesh filename="package://franka_cmd/meshes/cmd_right_hand/right_hand_base_link.obj" />
+      </geometry>
+    </collision>
+  </link>
+
+  <!-- 0.215 -->
+  <joint name="panda_hand_joint" type="fixed">
+    <parent link="panda_link7" />
+    <child link="right_hand" />
+    <origin rpy="0 3.14159 1.5708" xyz="0.15 0 0.155" />
+  </joint>
+
+  <!-- purely for visual purposes -->
+  <link name="cmd_hand_mount">
+    <visual>
+      <origin xyz="0.00000000 0.00000000 0.00000000" rpy="0.0 0.0 0.0" />
+      <geometry>
+        <cylinder radius="0.05" length="0.1"/>
+      </geometry>
+      <material name="cmd_grey" />
+    </visual>
+  </link>
+  <joint name="cmd_hand_mount_joint" type="fixed">
+    <parent link="panda_link7" />
+    <child link="cmd_hand_mount" />
+    <origin rpy="0 0 0" xyz="0 0 0.155" />
+  </joint>
+
+  <link name="link_F0J0">
+    <visual>
+      <origin xyz="0.00000000 -0.01700000 0.00000000" rpy="3.141593 0.0 0.0" />
+      <geometry>
+        <mesh filename="package://franka_cmd/meshes/cmd_right_hand/J0~XY_roller.obj" />
+      </geometry>
+      <material name="cmd_grey" />
+    </visual>
+    <collision>
+      <origin xyz="0.00000000 -0.01700000 0.00000000" rpy="3.141593 0.0 0.0" />
+      <geometry>
+        <mesh filename="package://franka_cmd/meshes/cmd_right_hand/J0~XY_roller.obj" />
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0.02002062 -0.00420254 -0.00076433" />
+      <mass value="0.00425608" />
+      <inertia ixx="0.004438" iyy="0.001193" izz="0.004507" ixy="5e-06" iyz="5.5e-05" ixz="6e-06" />
+    </inertial>
+  </link>
+
+  <link name="link_F0J1">
+    <visual>
+      <origin xyz="0.00000000 0.00000000 0.00000000" rpy="0 0 3.1415" />
+      <geometry>
+        <mesh filename="package://franka_cmd/meshes/cmd_right_hand/J1~phalanx.obj" />
+      </geometry>
+      <material name="cmd_grey" />
+    </visual>
+    <collision>
+      <origin xyz="0.00000000 0.00000000 0.00000000" rpy="0 0 3.141593" />
+      <geometry>
+        <mesh filename="package://franka_cmd/meshes/cmd_right_hand/J1~phalanx.obj" />
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0.01993346 -0.03798722 -0.00120381" />
+      <mass value="0.00953523" />
+      <inertia ixx="0.021601" iyy="0.003369" izz="0.021338" ixy="9e-06" iyz="7.1e-05" ixz="-2.3e-05" />
+    </inertial>
+  </link>
+
+  <link name="link_F0J2">
+    <visual>
+      <origin xyz="0.00000000 0.00000000 0.00000000" rpy="0 0 3.14" />
+      <geometry>
+        <mesh filename="package://franka_cmd/meshes/cmd_right_hand/J2~fingertip.obj" />
+      </geometry>
+      <material name="cmd_grey" />
+    </visual>
+    <collision>
+      <origin xyz="0.01995147 -0.01300000 -0.00108104" rpy="0.0 -0.087266 3.141593" />
+      <geometry>
+        <mesh filename="package://franka_cmd/meshes/cmd_right_hand/J2~fingertip.obj" />
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0.01983286 -0.07567233 -0.00226248" />
+      <mass value="0.00695584" />
+      <inertia ixx="0.008399" iyy="0.00258" izz="0.009041" ixy="-4e-06" iyz="-7e-05" ixz="5.6e-05" />
+    </inertial>
+  </link>
+
+  <link name="link_F1J0">
+    <visual>
+      <origin xyz="0.00000000 -0.01700000 0.00000000" rpy="3.141593 0.0 0.0" />
+      <geometry>
+        <mesh filename="package://franka_cmd/meshes/cmd_right_hand/J0~XY_roller.obj" />
+      </geometry>
+      <material name="cmd_grey" />
+    </visual>
+    <collision>
+      <origin xyz="0.00000000 -0.01700000 0.00000000" rpy="3.141593 0.0 0.0" />
+      <geometry>
+        <mesh filename="package://franka_cmd/meshes/cmd_right_hand/J0~XY_roller.obj" />
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0.02002062 -0.00420254 -0.00076433" />
+      <mass value="0.00425608" />
+      <inertia ixx="0.004438" iyy="0.001193" izz="0.004507" ixy="5e-06" iyz="5.5e-05" ixz="6e-06" />
+    </inertial>
+  </link>
+
+  <link name="link_F1J1">
+    <visual>
+      <origin xyz="0.00000000 0.00000000 0.00000000" rpy="0 0 3.1415" />
+      <geometry>
+        <mesh filename="package://franka_cmd/meshes/cmd_right_hand/J1~phalanx.obj" />
+      </geometry>
+      <material name="cmd_grey" />
+    </visual>
+    <collision>
+      <origin xyz="0.00000000 0.00000000 0.00000000" rpy="0 0 3.141593" />
+      <geometry>
+        <mesh filename="package://franka_cmd/meshes/cmd_right_hand/J1~phalanx.obj" />
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0.01993346 -0.03798722 -0.00120381" />
+      <mass value="0.00953523" />
+      <inertia ixx="0.021601" iyy="0.003369" izz="0.021338" ixy="9e-06" iyz="7.1e-05" ixz="-2.3e-05" />
+    </inertial>
+  </link>
+
+  <link name="link_F1J2">
+    <visual>
+      <origin xyz="0.00000000 0.00000000 0.00000000" rpy="0 0 3.14" />
+      <geometry>
+        <mesh filename="package://franka_cmd/meshes/cmd_right_hand/J2~fingertip.obj" />
+      </geometry>
+      <material name="cmd_grey" />
+    </visual>
+    <collision>
+      <origin xyz="0.01995147 -0.01300000 -0.00108104" rpy="0.0 -0.087266 3.141593" />
+      <geometry>
+        <mesh filename="package://franka_cmd/meshes/cmd_right_hand/J2~fingertip.obj" />
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0.01983286 -0.07567233 -0.00226248" />
+      <mass value="0.00695584" />
+      <inertia ixx="0.008399" iyy="0.00258" izz="0.009041" ixy="-4e-06" iyz="-7e-05" ixz="5.6e-05" />
+    </inertial>
+  </link>
+
+  <link name="link_F2J0">
+    <visual>
+      <origin xyz="0.00000000 -0.01700000 0.00000000" rpy="3.141593 0.0 0.0" />
+      <geometry>
+        <mesh filename="package://franka_cmd/meshes/cmd_right_hand/J0~XY_roller.obj" />
+      </geometry>
+      <material name="cmd_grey" />
+    </visual>
+    <collision>
+      <origin xyz="0.00000000 -0.01700000 0.00000000" rpy="3.141593 0.0 0.0" />
+      <geometry>
+        <mesh filename="package://franka_cmd/meshes/cmd_right_hand/J0~XY_roller.obj" />
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0.02002062 -0.00420254 -0.00076433" />
+      <mass value="0.00425608" />
+      <inertia ixx="0.004438" iyy="0.001193" izz="0.004507" ixy="5e-06" iyz="5.5e-05" ixz="6e-06" />
+    </inertial>
+  </link>
+
+  <link name="link_F2J1">
+    <visual>
+      <origin xyz="0.00000000 0.00000000 0.00000000" rpy="0 0 3.1415" />
+      <geometry>
+        <mesh filename="package://franka_cmd/meshes/cmd_right_hand/J1~phalanx.obj" />
+      </geometry>
+      <material name="cmd_grey" />
+    </visual>
+    <collision>
+      <origin xyz="0.00000000 0.00000000 0.00000000" rpy="0 0 3.141593" />
+      <geometry>
+        <mesh filename="package://franka_cmd/meshes/cmd_right_hand/J1~phalanx.obj" />
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0.01993346 -0.03798722 -0.00120381" />
+      <mass value="0.00953523" />
+      <inertia ixx="0.021601" iyy="0.003369" izz="0.021338" ixy="9e-06" iyz="7.1e-05" ixz="-2.3e-05" />
+    </inertial>
+  </link>
+
+  <link name="link_F2J2">
+    <visual>
+      <origin xyz="0.00000000 0.00000000 0.00000000" rpy="0 0 3.14" />
+      <geometry>
+        <mesh filename="package://franka_cmd/meshes/cmd_right_hand/J2~fingertip.obj" />
+      </geometry>
+      <material name="cmd_grey" />
+    </visual>
+    <collision>
+      <origin xyz="0.01995147 -0.01300000 -0.00108104" rpy="0.0 -0.087266 3.141593" />
+      <geometry>
+        <mesh filename="package://franka_cmd/meshes/cmd_right_hand/J2~fingertip.obj" />
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0.01983286 -0.07567233 -0.00226248" />
+      <mass value="0.00695584" />
+      <inertia ixx="0.008399" iyy="0.00258" izz="0.009041" ixy="-4e-06" iyz="-7e-05" ixz="5.6e-05" />
+    </inertial>
+  </link>
+
+  <link name="link_F3J0">
+    <visual>
+      <origin xyz="0.00000000 -0.01700000 0.00000000" rpy="3.141593 0.0 0.0" />
+      <geometry>
+        <mesh filename="package://franka_cmd/meshes/cmd_right_hand/J0~XY_roller.obj" />
+      </geometry>
+      <material name="cmd_grey" />
+    </visual>
+    <collision>
+      <origin xyz="0.00000000 -0.01700000 0.00000000" rpy="3.141593 0.0 0.0" />
+      <geometry>
+        <mesh filename="package://franka_cmd/meshes/cmd_right_hand/J0~XY_roller.obj" />
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0.02002062 -0.00420254 -0.00076433" />
+      <mass value="0.00425608" />
+      <inertia ixx="0.004438" iyy="0.001193" izz="0.004507" ixy="5e-06" iyz="5.5e-05" ixz="6e-06" />
+    </inertial>
+  </link>
+
+  <link name="link_F3J1">
+    <visual>
+      <origin xyz="0.00000000 0.00000000 0.00000000" rpy="0 0 3.1415" />
+      <geometry>
+        <mesh filename="package://franka_cmd/meshes/cmd_right_hand/J1~phalanx.obj" />
+      </geometry>
+      <material name="cmd_grey" />
+    </visual>
+    <collision>
+      <origin xyz="0.00000000 0.00000000 0.00000000" rpy="0 0 3.141593" />
+      <geometry>
+        <mesh filename="package://franka_cmd/meshes/cmd_right_hand/J1~phalanx.obj" />
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0.01993346 -0.03798722 -0.00120381" />
+      <mass value="0.00953523" />
+      <inertia ixx="0.021601" iyy="0.003369" izz="0.021338" ixy="9e-06" iyz="7.1e-05" ixz="-2.3e-05" />
+    </inertial>
+  </link>
+
+  <link name="link_F3J2">
+    <visual>
+      <origin xyz="0.00000000 0.00000000 0.00000000" rpy="0 0 3.14" />
+      <geometry>
+        <mesh filename="package://franka_cmd/meshes/cmd_right_hand/J2~fingertip.obj" />
+      </geometry>
+      <material name="cmd_grey" />
+    </visual>
+    <collision>
+      <origin xyz="0.01995147 -0.01300000 -0.00108104" rpy="0.0 -0.087266 3.141593" />
+      <geometry>
+        <mesh filename="package://franka_cmd/meshes/cmd_right_hand/J2~fingertip.obj" />
+      </geometry>
+    </collision>
+    <inertial>
+      <origin xyz="0.01983286 -0.07567233 -0.00226248" />
+      <mass value="0.00695584" />
+      <inertia ixx="0.008399" iyy="0.00258" izz="0.009041" ixy="-4e-06" iyz="-7e-05" ixz="5.6e-05" />
+    </inertial>
+  </link>
+
+
+  <joint name="F0J0" type="revolute">
+    <origin xyz="0.04600000 0.05740000 -0.00860000" rpy="3 -0.68 4" />
+    <parent link="right_hand" />
+    <child link="link_F0J0" />
+    <axis xyz="-0.087156 0.0 -0.996195" />
+    <limit upper="0.174533" lower="-0.174533" effort="100" velocity="100" />
+  </joint>
+  <joint name="F0J1" type="revolute">
+    <origin xyz="0.00000000 -0.01700000 0.00000000" rpy="0.0 3.141593 0.0" />
+    <parent link="link_F0J0" />
+    <child link="link_F0J1" />
+    <axis xyz="-0.996195 0.0 0.087156" />
+    <limit upper="0.0" lower="-1.745329" effort="100" velocity="100" />
+  </joint>
+  <joint name="F0J2" type="revolute">
+    <origin xyz="0.00000000 -0.04500000 0.00000000" rpy="0.0 0.0 0.0" />
+    <parent link="link_F0J1" />
+    <child link="link_F0J2" />
+    <axis xyz="-0.996195 0.0 0.087156" />
+    <limit upper="0.0" lower="-1.570796" effort="100" velocity="100" />
+  </joint>
+
+  <joint name="F1J0" type="revolute">
+    <origin xyz="0.02000000 0.00400000 -0.00120000" rpy="3.141593 -0.087266 3.141593" />
+    <parent link="right_hand" />
+    <child link="link_F1J0" />
+    <axis xyz="-0.087156 0.0 -0.996195" />
+    <limit upper="0.174533" lower="-0.174533" effort="100" velocity="100" />
+  </joint>
+  <joint name="F1J1" type="revolute">
+    <origin xyz="0.00000000 -0.01700000 0.00000000" rpy="0.0 3.141593 0.0" />
+    <parent link="link_F1J0" />
+    <child link="link_F1J1" />
+    <axis xyz="-0.996195 0.0 0.087156" />
+    <limit upper="0.0" lower="-1.745329" effort="100" velocity="100" />
+  </joint>
+  <joint name="F1J2" type="revolute">
+    <origin xyz="0.00000000 -0.04500000 0.00000000" rpy="0.0 0.0 0.0" />
+    <parent link="link_F1J1" />
+    <child link="link_F1J2" />
+    <axis xyz="-0.996195 0.0 0.087156" />
+    <limit upper="0.0" lower="-1.570796" effort="100" velocity="100" />
+  </joint>
+
+  <joint name="F2J0" type="revolute">
+    <origin xyz="0.00000000 0.00000000 0.00000000" rpy="3.141593 -0.087266 3.141593" />
+    <parent link="right_hand" />
+    <child link="link_F2J0" />
+    <axis xyz="-0.087156 0.0 -0.996195" />
+    <limit upper="0.174533" lower="-0.174533" effort="100" velocity="100" />
+  </joint>
+  <joint name="F2J1" type="revolute">
+    <origin xyz="0.00000000 -0.01700000 0.00000000" rpy="0.0 3.141593 0.0" />
+    <parent link="link_F2J0" />
+    <child link="link_F2J1" />
+    <axis xyz="-0.996195 0.0 0.087156" />
+    <limit upper="0.0" lower="-1.745329" effort="100" velocity="100" />
+  </joint>
+  <joint name="F2J2" type="revolute">
+    <origin xyz="0.00000000 -0.04500000 0.00000000" rpy="0.0 0.0 0.0" />
+    <parent link="link_F2J1" />
+    <child link="link_F2J2" />
+    <axis xyz="-0.996195 0.0 0.087156" />
+    <limit upper="0.0" lower="-1.570796" effort="100" velocity="100" />
+  </joint>
+
+  <joint name="F3J0" type="revolute">
+    <origin xyz="-0.02000000 0.00400000 -0.00120000" rpy="3.141593 0.087266 3.141593" />
+    <parent link="right_hand" />
+    <child link="link_F3J0" />
+    <axis xyz="-0.087156 0.0 -0.996195" />
+    <limit upper="0.174533" lower="-0.174533" effort="100" velocity="100" />
+  </joint>
+  <joint name="F3J1" type="revolute">
+    <origin xyz="0.00000000 -0.01700000 0.00000000" rpy="0.0 3.141593 0.0" />
+    <parent link="link_F3J0" />
+    <child link="link_F3J1" />
+    <axis xyz="-0.996195 0.0 0.087156" />
+    <limit upper="0.0" lower="-1.745329" effort="100" velocity="100" />
+  </joint>
+  <joint name="F3J2" type="revolute">
+    <origin xyz="0.00000000 -0.04500000 0.00000000" rpy="0.0 0.0 0.0" />
+    <parent link="link_F3J1" />
+    <child link="link_F3J2" />
+    <axis xyz="-0.996195 0.0 0.087156" />
+    <limit upper="0.0" lower="-1.570796" effort="100" velocity="100" />
+  </joint>
+
+
+  <link name="thumb_tip"/>
+  <joint name="thumb_tip_joint" type="fixed">
+    <origin xyz="0 -0.04 0" rpy="0 0 0" />
+    <parent link="link_F0J2" />
+    <child link="thumb_tip" />
+  </joint>
+
+  <link name="index_tip"/>
+  <joint name="index_tip_joint" type="fixed">
+    <origin xyz="0 -0.04 0" rpy="0 0 0" />
+    <parent link="link_F1J2" />
+    <child link="index_tip" />
+  </joint>
+
+  <link name="middle_tip"/>
+  <joint name="middle_tip_joint" type="fixed">
+    <origin xyz="0 -0.04 0" rpy="0 0 0" />
+    <parent link="link_F2J2" />
+    <child link="middle_tip" />
+  </joint>
+
+  <link name="ring_tip"/>
+  <joint name="ring_tip_joint" type="fixed">
+    <origin xyz="0 -0.04 0" rpy="0 0 0" />
+    <parent link="link_F3J2" />
+    <child link="ring_tip" />
+  </joint>
+
+</robot>
