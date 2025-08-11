@@ -171,14 +171,15 @@ class FrankaLEAPPickTable(FrankaLEAP):
         obs_components = ["q_hand",
                           "eef_finger1_pos_relative", "eef_finger2_pos_relative",
                           "eef_finger3_pos_relative", "eef_finger4_pos_relative",
-                          "hand_to_object", "object_to_eef_rot_6d", "object_to_target"]#, "object_target_6d_diff"]
+                          "object_to_eef", "object_to_eef_rot_6d",
+                          "target_to_eef", "target_to_eef_rot_6d"]
 
         states_components = ["q", "qd",
                              "eef_pos", "eef_rot_6d", "eef_vel",
                              "eef_finger1_pos_relative", "eef_finger2_pos_relative",
                              "eef_finger3_pos_relative", "eef_finger4_pos_relative",
-                             "object_center_pos", "object_rot_6d",
-                             "hand_to_object", "object_to_eef_rot_6d", "object_to_target"]#, "object_target_6d_diff"]
+                             "object_to_eef", "object_to_eef_rot_6d",
+                             "target_to_eef", "target_to_eef_rot_6d"]
 
         obs_buf = torch.cat([self.states[ob] for ob in obs_components], dim=-1)
         states_buf = torch.cat([self.states[st] for st in states_components], dim=-1)
@@ -193,7 +194,7 @@ class FrankaLEAPPickTable(FrankaLEAP):
 
     def compute_reward(self):
         self.reset_buf[:] = torch.where((self.progress_buf >= self.max_episode_length - 1), torch.ones_like(self.reset_buf), self.reset_buf)
-        self.reset_buf[self.states['object_center_pos'][:, 2] < -0.1] = 1
+        self.reset_buf[self.states['object_center_pos'][:, 2] < self.table_surface_height-0.1] = 1
         reward_dict = compute_franka_leap_reward(self.states, self.reward_settings)
 
         self.rew_buf[:] = reward_dict["r_total"]
@@ -203,9 +204,10 @@ class FrankaLEAPPickTable(FrankaLEAP):
         self.extras["sep_reward/r_curl"] = torch.mean(reward_dict["r_curl"]).item()
         self.extras["dis/d_hand_obj"] = torch.mean(reward_dict["d_hand_obj"]).item()
         self.extras["dis/d_lift"] = torch.mean(reward_dict["d_lift"]).item()
+        self.extras["dis/d_eef_point_goal"] = torch.mean(reward_dict["d_eef_point_goal"]).item()
 
         # log metrics
-        success_5cm_per_step = (reward_dict["d_obj_goal"] < 0.05)
+        success_5cm_per_step = (reward_dict["d_eef_point_goal"] < 0.05)
         self.success_flags[success_5cm_per_step] = 1
         lifting_5cm_per_step = (reward_dict["d_lift"] > 0.05)
         self.lifting_flags[lifting_5cm_per_step] = 1
@@ -244,10 +246,10 @@ def compute_franka_leap_reward(states, reward_settings):
     else:
         r_lift = torch.where(object_height > reward_settings["lift_threshold"], 1.0, torch.zeros_like(object_height))
 
-    # R3: Object goal distance reward
-    d_obj_goal = torch.norm(states["object_center_pos"] - target_pos, dim=-1)
+    # R3: Object goal distance reward (based on average point matching distance)
+    d_eef_point_goal = states["point_matching_err"]
     beta_object_goal = reward_settings["beta_object_goal"]
-    r_obj_goal = torch.exp(-beta_object_goal * d_obj_goal)
+    r_obj_goal = torch.exp(-beta_object_goal * d_eef_point_goal)
     r_obj_goal = torch.where(object_height > reward_settings["lift_threshold"], r_obj_goal, 0.0)
 
     # R4: Finger curl
@@ -275,7 +277,7 @@ def compute_franka_leap_reward(states, reward_settings):
         "r_total": r_total,
         "d_hand_obj": d_hand_obj,
         "d_lift": object_height,
-        "d_obj_goal": d_obj_goal,
+        "d_eef_point_goal": d_eef_point_goal,
     }
 
     return rewards

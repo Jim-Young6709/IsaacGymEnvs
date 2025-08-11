@@ -18,7 +18,7 @@ import isaacgym
 import numpy as np
 import torch
 from isaacgym import gymapi, gymtorch
-from isaacgym.torch_utils import to_torch, tensor_clamp, quat_from_angle_axis, quat_mul
+from isaacgym.torch_utils import to_torch, tensor_clamp, quat_from_angle_axis, quat_mul, quat_apply
 from isaacgymenvs.tasks.base.vec_task import VecTask
 import isaacgymenvs.utils.eef_ctrl as eef_ctrl
 from isaacgymenvs.utils.reformat import omegaconf_to_dict
@@ -279,7 +279,7 @@ class FrankaLEAP(VecTask):
 
         target_pos = to_torch(self.cfg["reward"]["params"]["target_pos"], device=self.device).unsqueeze(0).repeat(self.num_envs, 1)
         target_lift_dis = to_torch(self.cfg["reward"]["params"]["target_lift_dis"], device=self.device)
-        target_quat = to_torch(self.cfg["reward"]["params"]["target_quat"], device=self.device)
+        target_quat = to_torch(self.cfg["reward"]["params"]["target_quat"], device=self.device).unsqueeze(0).repeat(self.num_envs, 1)
 
         self.grasp_finger_dof_pos = self.robot_dof_upper_limits[7:] - self.robot_dof_lower_limits[7:]
         self.grasp_finger_dof_pos *= 0.4
@@ -550,7 +550,6 @@ class FrankaLEAP(VecTask):
         # update arm eef state
         eef_rot_mat = quaternion_to_matrix_ig(self._eef_state[:, 3:7])
         eef_rot_6d = matrix_to_rotation_6d(eef_rot_mat)
-        hand_base_pos = self._eef_state[:, :3]
 
         # update object state
         object_center_pos = self._object_state[:, :3].clone()
@@ -564,6 +563,16 @@ class FrankaLEAP(VecTask):
 
         object_rot_mat_in_eef_frame = torch.matmul(eef_rot_mat.transpose(1, 2), object_rot_mat)
         object_to_eef_rot_6d = matrix_to_rotation_6d(object_rot_mat_in_eef_frame)
+
+        # update target state
+        target_rot_mat = quaternion_to_matrix_ig(self.reward_settings["target_quat"])
+        target_rot_mat_in_eef_frame = torch.matmul(eef_rot_mat.transpose(1, 2), target_rot_mat)
+        target_to_eef_rot_6d = matrix_to_rotation_6d(target_rot_mat_in_eef_frame)
+
+        point_matching_err = self._get_eef_point_matching_err(
+            curent_eef_pos7=self._eef_state[:, :7],
+            target_eef_pos7=torch.cat([self.reward_settings["target_pos"], self.reward_settings["target_quat"]], dim=-1)
+        )
 
         # update point clouds
         object_pcds_world = transform_pcds_to_world(self.object_pcds, self._object_state[:, :7])
@@ -585,10 +594,10 @@ class FrankaLEAP(VecTask):
             "eef_finger4_pos": self._eef_finger4_state[:, :3],
 
             # Fingertip positions relative to hand base (palm_center)
-            "eef_finger1_pos_relative": self._eef_finger1_state[:, :3] - hand_base_pos,
-            "eef_finger2_pos_relative": self._eef_finger2_state[:, :3] - hand_base_pos,
-            "eef_finger3_pos_relative": self._eef_finger3_state[:, :3] - hand_base_pos,
-            "eef_finger4_pos_relative": self._eef_finger4_state[:, :3] - hand_base_pos,
+            "eef_finger1_pos_relative": self._eef_finger1_state[:, :3] - self._eef_state[:, :3],
+            "eef_finger2_pos_relative": self._eef_finger2_state[:, :3] - self._eef_state[:, :3],
+            "eef_finger3_pos_relative": self._eef_finger3_state[:, :3] - self._eef_state[:, :3],
+            "eef_finger4_pos_relative": self._eef_finger4_state[:, :3] - self._eef_state[:, :3],
 
             # Object
             "object_quat": self._object_state[:, 3:7],
@@ -597,11 +606,54 @@ class FrankaLEAP(VecTask):
             "object_pos": self._object_state[:, :3],
 
             # Task related
-            "hand_to_object": object_center_pos - self._eef_state[:, :3],
+            "object_to_eef": object_center_pos - self._eef_state[:, :3],
             "object_to_eef_rot_6d": object_to_eef_rot_6d,
-            "object_to_target": self.reward_settings["target_pos"] - object_center_pos,
-            "object_target_6d_diff": self.reward_settings["target_rot_6d"] - object_rot_6d,
+            "target_to_eef": self.reward_settings["target_pos"] - self._eef_state[:, :3],
+            "target_to_eef_rot_6d": target_to_eef_rot_6d,
+            "point_matching_err": point_matching_err,
         })
+
+    def _get_eef_point_matching_err(self, curent_eef_pos7: torch.Tensor, target_eef_pos7: torch.Tensor):
+        """
+        Get the point matching error between current end effector position 
+        and target end effector position. (based on 5 points on eef)
+
+        Args:
+            curent_eef_pos7: (B, 7) xyz + xyzw
+            target_eef_pos7: (B, 7) xyz + xyzw
+        """
+        B = curent_eef_pos7.shape[0]
+
+        pos_c = curent_eef_pos7[:, :3]  # (B, 3)
+        quat_c = curent_eef_pos7[:, 3:] # (B, 4)
+        pos_t = target_eef_pos7[:, :3]  # (B, 3)
+        quat_t = target_eef_pos7[:, 3:] # (B, 4)
+
+        local_pts = torch.tensor(
+            [[0.1, 0., 0.],
+            [-0.1, 0., 0.],
+            [0., 0., 0.],
+            [0., 0.1, 0.],
+            [0., -0.1, 0.]],
+            dtype=curent_eef_pos7.dtype,
+            device=curent_eef_pos7.device
+        )
+        P = local_pts.shape[0]
+
+        # Repeat points and quats for batch
+        pts_a_flat = local_pts.unsqueeze(0).expand(B, P, 3).reshape(B*P, 3)
+        pts_b_flat = local_pts.unsqueeze(0).expand(B, P, 3).reshape(B*P, 3)
+        qc_rep = quat_c.repeat_interleave(P, dim=0)
+        qt_rep = quat_t.repeat_interleave(P, dim=0)
+
+        # Rotate and translate to world frame
+        world_c = quat_apply(qc_rep, pts_a_flat).view(B, P, 3) + pos_c.unsqueeze(1)
+        world_t = quat_apply(qt_rep, pts_b_flat).view(B, P, 3) + pos_t.unsqueeze(1)
+
+        # Mean squared error per sample
+        avg_point_dis_error = torch.norm(world_c - world_t, dim=-1).mean(dim=-1)
+
+        return avg_point_dis_error
 
     def check_robot_collision(self):
         # TODO: figure out arm & hand collision
