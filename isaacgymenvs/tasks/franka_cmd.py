@@ -38,7 +38,7 @@ class FrankaCMD(VecTask):
         self.device = sim_device
         self.max_episode_length = self.cfg["env"]["episodeLength"]
         self.action_scale = self.cfg["env"]["actionScale"]
-        self.eef_actions = True if self.cfg["env"]["numActions"] == 22 else False
+        self.eef_actions = True if self.cfg["env"]["numActions"] == 18 else False
         self.aggregate_mode = self.cfg["env"]["aggregateMode"]
         self.mesh_args = self.cfg["env"]["mesh"]
         self.eef_init = self.cfg["env"]["eef_init"]
@@ -73,7 +73,7 @@ class FrankaCMD(VecTask):
 
         if not hasattr(self, 'canonical_joint_config'):
             self.canonical_joint_config = torch.tensor(
-                [[0, 0, 0, -3*torch.pi/4, 0, 3*torch.pi/4, torch.pi/2] + [0]*(self.num_dofs-7)] * self.num_envs
+                [[0, 0, 0, -3*torch.pi/4, 0, 3*torch.pi/4, 0] + [0]*(self.num_dofs-7)] * self.num_envs
             ).to(self.device)
 
         self.actions = torch.zeros((self.num_envs, self.num_robot_dofs), device=self.device, dtype=torch.float) # Current delta actions to be deployed
@@ -192,8 +192,8 @@ class FrankaCMD(VecTask):
         self.robot_asset = robot_asset
 
         # currently only support joint position control
-        robot_dof_stiffness = to_torch([1000.0]*7 + [800.0]*16, dtype=torch.float, device=self.device)
-        robot_dof_damping = to_torch([50]*7 + [40.0]*16, dtype=torch.float, device=self.device)
+        robot_dof_stiffness = to_torch([1000.0]*7 + [800.0]*12, dtype=torch.float, device=self.device)
+        robot_dof_damping = to_torch([50]*7 + [40.0]*12, dtype=torch.float, device=self.device)
 
         self.num_robot_bodies = self.gym.get_asset_rigid_body_count(robot_asset)
         self.num_robot_dofs = self.gym.get_asset_dof_count(robot_asset)
@@ -233,11 +233,11 @@ class FrankaCMD(VecTask):
         robot_handle = 0
         self.handles = { # TODO: update this according to urdf
             # FrankaCMD
-            "hand": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "palm_center"),
-            "finger1_tip": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "realtip_1"),
-            "finger2_tip": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "realtip_2"),
-            "finger3_tip": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "realtip_3"),
-            "finger4_tip": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "realtip_4"),
+            "hand": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "right_hand"),
+            "finger1_tip": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "thumb_tip"),
+            "finger2_tip": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "index_tip"),
+            "finger3_tip": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "middle_tip"),
+            "finger4_tip": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "ring_tip"),
         }
 
         # Get total DOFs
@@ -263,7 +263,7 @@ class FrankaCMD(VecTask):
 
         _jacobian = self.gym.acquire_jacobian_tensor(self.sim, "franka")
         jacobian = gymtorch.wrap_tensor(_jacobian)
-        hand_joint_index = self.gym.get_actor_joint_dict(env_ptr, robot_handle)['panda_hand_joint'] # TODO: check this
+        hand_joint_index = self.gym.get_actor_joint_dict(env_ptr, robot_handle)['panda_hand_joint']
         self._j_eef = jacobian[:, hand_joint_index, :, :7]
         _massmatrix = self.gym.acquire_mass_matrix_tensor(self.sim, "franka")
         mm = gymtorch.wrap_tensor(_massmatrix)
@@ -283,22 +283,18 @@ class FrankaCMD(VecTask):
         target_quat_norm = torch.norm(target_quat, dim=1, keepdim=True)  # normalize quaternion
         target_quat = target_quat / (target_quat_norm + 1e-10)
 
-        self.grasp_finger_dof_pos = self.robot_dof_upper_limits[7:] - self.robot_dof_lower_limits[7:]
-        self.grasp_finger_dof_pos *= 0.0
-
-        # import ipdb ; ipdb.set_trace()
-        # finger indexing: 0-3:index ; 4-7:thumb ; 8-11:middle ; 12-15:ring
-        # self.grasp_finger_dof_pos[1] *= -1
-        # self.grasp_finger_dof_pos[4] = 1.57
-        # self.grasp_finger_dof_pos[5] = 0.0
-        # self.grasp_finger_dof_pos[6] *= 0.25
-        # self.grasp_finger_dof_pos[7] *= 1
-        # self.grasp_finger_dof_pos[9] = 0.0
-        # self.grasp_finger_dof_pos[13] *= 1
+        # finger indexing: 0-2:thumb ; 3-5:index ; 6-8:middle ; 9-11:ring
+        self.grasp_finger_dof_pos = torch.tensor(
+            [0.0, -1., -0.5,
+             0.0, -1., -1.,
+             0.0, -1., -1.,
+             0.0, -1., -1.,
+            ]
+        )
 
         # for visualization purposes
         self.canonical_grasp_config = torch.tensor(
-            [[0, 0, 0, -3*torch.pi/4, 0, 3*torch.pi/4, torch.pi/2] + self.grasp_finger_dof_pos.tolist()] * self.num_envs
+            [[0, 0, 0, -3*torch.pi/4, 0, 3*torch.pi/4, 0] + self.grasp_finger_dof_pos.tolist()] * self.num_envs
         ).to(self.device)
 
         self.reward_settings = {
@@ -680,7 +676,7 @@ class FrankaCMD(VecTask):
             assert joint_angles.shape[-1] == 7
             lower_limits, upper_limits = self.get_joint_limits_franka()
         elif robot=="hand":
-            assert joint_angles.shape[-1] == 16
+            assert joint_angles.shape[-1] == (self.num_dofs-7)
             lower_limits, upper_limits = self.get_joint_limits_cmd()
         else:
             raise ValueError("robot must be either 'arm' or 'hand'")
@@ -709,7 +705,7 @@ class FrankaCMD(VecTask):
             assert joint_angles.shape[-1] == 7
             lower_limits, upper_limits = self.get_joint_limits_franka()
         elif robot=="hand":
-            assert joint_angles.shape[-1] == 16
+            assert joint_angles.shape[-1] == (self.num_dofs-7)
             lower_limits, upper_limits = self.get_joint_limits_cmd()
         else:
             raise ValueError("robot must be either 'arm' or 'hand'")
@@ -1141,7 +1137,7 @@ class FrankaCMD(VecTask):
     def _create_envs(self, spacing, num_per_row):
         self.table_surface_height = ...
         self.mesh_aabb_extents = ...
-        pass
+        self.obj_pos_range = ...
 
     @abstractmethod
     def compute_reward(self):

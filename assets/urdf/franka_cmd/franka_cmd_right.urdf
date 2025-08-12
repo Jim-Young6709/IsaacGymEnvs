@@ -309,7 +309,7 @@
       <material name="cmd_grey" />
     </visual>
     <collision>
-      <origin xyz="0.01995147 -0.01300000 -0.00108104" rpy="0.0 -0.087266 3.141593" />
+      <origin xyz="0.00000000 0.00000000 0.00000000" rpy="0 0 3.14" />
       <geometry>
         <mesh filename="package://franka_cmd/meshes/cmd_right_hand/J2~fingertip.obj" />
       </geometry>
@@ -372,7 +372,7 @@
       <material name="cmd_grey" />
     </visual>
     <collision>
-      <origin xyz="0.01995147 -0.01300000 -0.00108104" rpy="0.0 -0.087266 3.141593" />
+      <origin xyz="0.00000000 0.00000000 0.00000000" rpy="0 0 3.14" />
       <geometry>
         <mesh filename="package://franka_cmd/meshes/cmd_right_hand/J2~fingertip.obj" />
       </geometry>
@@ -435,7 +435,7 @@
       <material name="cmd_grey" />
     </visual>
     <collision>
-      <origin xyz="0.01995147 -0.01300000 -0.00108104" rpy="0.0 -0.087266 3.141593" />
+      <origin xyz="0.00000000 0.00000000 0.00000000" rpy="0 0 3.14" />
       <geometry>
         <mesh filename="package://franka_cmd/meshes/cmd_right_hand/J2~fingertip.obj" />
       </geometry>
@@ -498,7 +498,7 @@
       <material name="cmd_grey" />
     </visual>
     <collision>
-      <origin xyz="0.01995147 -0.01300000 -0.00108104" rpy="0.0 -0.087266 3.141593" />
+      <origin xyz="0.00000000 0.00000000 0.00000000" rpy="0 0 3.14" />
       <geometry>
         <mesh filename="package://franka_cmd/meshes/cmd_right_hand/J2~fingertip.obj" />
       </geometry>
