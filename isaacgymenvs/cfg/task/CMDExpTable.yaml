@@ -64,8 +64,8 @@ env:
     width: 640
     height: 480
 
-  numObservations: 49
-  numStates: 94
+  numObservations: 45
+  numStates: 86
   numActions: 18 # delta eef actions 6 (xyz, rpy) + normalized hand joint actions 12
 
   base_policy_url: "jimyoung6709/DRP_Dagger"

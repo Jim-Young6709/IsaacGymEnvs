@@ -289,7 +289,8 @@ class FrankaCMD(VecTask):
              0.0, -1., -1.,
              0.0, -1., -1.,
              0.0, -1., -1.,
-            ]
+            ],
+            device=self.device, dtype=torch.float32
         )
 
         # for visualization purposes
