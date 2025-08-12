@@ -301,7 +301,7 @@ def launch_test(cfg: DictConfig):
     for i in tqdm(range(1000)):
         t1 = time.time()
         env.reset_idx()
-        env.set_robot_joint_state(env.canonical_grasp_config)
+        # env.set_robot_joint_state(env.canonical_grasp_config)
         env.step_sim_multi(1, False)
         env.compute_observations()
 
