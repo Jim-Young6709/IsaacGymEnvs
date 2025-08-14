@@ -73,7 +73,13 @@ class FrankaLEAP(VecTask):
 
         if not hasattr(self, 'canonical_joint_config'):
             self.canonical_joint_config = torch.tensor(
-                [[0, 0, 0, -3*torch.pi/4, 0, 3*torch.pi/4, torch.pi/2] + [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]] * self.num_envs
+                [
+                    [0, 0, 0, -3*torch.pi/4, 0, 3*torch.pi/4, torch.pi/2] + \
+                    [0.5,  0.0,  0.5,  0.5,
+                     1.57,  0.0, -0.3,  0.3,
+                     0.5,  0.0,  0.5,  0.5,
+                     0.5,  0.0,  0.5,  0.5,]
+                ] * self.num_envs
             ).to(self.device)
 
         self.actions = torch.zeros((self.num_envs, self.num_robot_dofs), device=self.device, dtype=torch.float) # Current delta actions to be deployed
@@ -283,17 +289,22 @@ class FrankaLEAP(VecTask):
         target_quat_norm = torch.norm(target_quat, dim=1, keepdim=True)  # normalize quaternion
         target_quat = target_quat / (target_quat_norm + 1e-10)
 
-        self.grasp_finger_dof_pos = self.robot_dof_upper_limits[7:] - self.robot_dof_lower_limits[7:]
-        self.grasp_finger_dof_pos *= 0.4
-
         # finger indexing: 0-3:index ; 4-7:thumb ; 8-11:middle ; 12-15:ring
-        self.grasp_finger_dof_pos[1] *= -1
-        self.grasp_finger_dof_pos[4] = 1.57
-        self.grasp_finger_dof_pos[5] = 0.0
-        self.grasp_finger_dof_pos[6] *= 0.25
-        self.grasp_finger_dof_pos[7] *= 1
-        self.grasp_finger_dof_pos[9] = 0.0
-        self.grasp_finger_dof_pos[13] *= 1
+        # v0
+        # self.grasp_finger_dof_pos = torch.tensor([
+        #     1.0176, -0.8376,  0.9564,  0.9632,
+        #     1.5700,  0.0000,  0.3100,  1.2880,
+        #     1.0176,  0.0000,  0.9564,  0.9632,
+        #     1.0176,  0.8376,  0.9564,  0.9632
+        # ], device='cuda:0')
+
+        # v1
+        self.grasp_finger_dof_pos = torch.tensor([
+            0.65,  0.0,  0.65,  0.65,
+            1.57,  0.0,  0.10,  0.40,
+            0.65,  0.0,  0.65,  0.65,
+            0.65,  0.0,  0.65,  0.65,
+        ], device='cuda:0')
 
         # for visualization purposes
         self.canonical_grasp_config = torch.tensor(

@@ -216,6 +216,8 @@ class FrankaLEAPPickSide(FrankaLEAP):
 
     def init_data(self, actor_num):
         super().init_data(actor_num)
+        self.obj_pos_target[:, 0] -= 0.1
+        self.obj_pos_target[:, 2] += 0.1
         self.reward_settings["target_pos"] = self.obj_pos_target
 
     def _create_box(self):
@@ -333,10 +335,11 @@ class FrankaLEAPPickSide(FrankaLEAP):
         self.extras["dis/d_eef_point_goal"] = torch.mean(reward_dict["d_eef_point_goal"]).item()
 
         # log metrics
-        success_5cm_per_step = (reward_dict["d_eef_point_goal"] < 0.05)
-        self.success_flags[success_5cm_per_step] = 1
         lifting_5cm_per_step = (reward_dict["d_lift"] > 0.05)
         self.lifting_flags[lifting_5cm_per_step] = 1
+        success_5cm_per_step = (reward_dict["d_eef_point_goal"] < 0.05) & lifting_5cm_per_step
+        self.success_flags[success_5cm_per_step] = 1
+
         self.extras["metrics/success_rate_5cm_per_step"] = torch.mean(success_5cm_per_step.float()).item()
         self.extras["metrics/lifting_rate_5cm_per_step"] = torch.mean(lifting_5cm_per_step.float()).item()
         self.extras["metrics/success_rate_5cm_per_ep"] = torch.mean(self.success_flags).item()

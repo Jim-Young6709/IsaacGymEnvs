@@ -54,8 +54,6 @@ class FrankaLEAPPickTop(FrankaLEAP):
             # TODO: resampling mechanism here when IK failed
             self.canonical_joint_config[:, :7] = self.get_joint_from_ee(eef_init_pos7)
 
-        self.canonical_joint_config[:, 7:] = self.init_finger_dof_pos
-
     def _create_envs(self, spacing, num_per_row):
         """
         loading Franka + LEAP + a table in the environment, this is for debugging purposes only
@@ -218,112 +216,8 @@ class FrankaLEAPPickTop(FrankaLEAP):
         self.init_data(actor_num=actor_num)
 
     def init_data(self, actor_num):
-        # Setup sim handles
-        env_ptr = self.env_ptrs[0]
-        robot_handle = 0
-        self.handles = {
-            # FrankaLEAP
-            "hand": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "palm_center"),
-            "finger1_tip": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "realtip_1"),
-            "finger2_tip": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "realtip_2"),
-            "finger3_tip": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "realtip_3"),
-            "finger4_tip": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "realtip_4"),
-        }
-
-        # Get total DOFs
-        self.num_dofs = self.gym.get_sim_dof_count(self.sim) // self.num_envs
-
-        # Setup tensor buffers
-        _net_contact_forces = self.gym.acquire_net_contact_force_tensor(self.sim)
-        self.contact_forces = gymtorch.wrap_tensor(_net_contact_forces).view(self.num_envs, -1, 3)
-        _actor_root_state_tensor = self.gym.acquire_actor_root_state_tensor(self.sim)
-        _dof_state_tensor = self.gym.acquire_dof_state_tensor(self.sim)
-        _rigid_body_state_tensor = self.gym.acquire_rigid_body_state_tensor(self.sim)
-        self._root_state = gymtorch.wrap_tensor(_actor_root_state_tensor).view(self.num_envs, -1, 13)
-        self._dof_state = gymtorch.wrap_tensor(_dof_state_tensor).view(self.num_envs, -1, 2)
-        self._rigid_body_state = gymtorch.wrap_tensor(_rigid_body_state_tensor).view(self.num_envs, -1, 13)
-        self._q = self._dof_state[..., 0]
-        self._qd = self._dof_state[..., 1]
-        self._eef_state = self._rigid_body_state[:, self.handles["hand"], :]
-        self._eef_finger1_state = self._rigid_body_state[:, self.handles["finger1_tip"], :]
-        self._eef_finger2_state = self._rigid_body_state[:, self.handles["finger2_tip"], :]
-        self._eef_finger3_state = self._rigid_body_state[:, self.handles["finger3_tip"], :]
-        self._eef_finger4_state = self._rigid_body_state[:, self.handles["finger4_tip"], :]
-        self._object_state = self._root_state[:, self._object_id, :]
-
-        _jacobian = self.gym.acquire_jacobian_tensor(self.sim, "franka")
-        jacobian = gymtorch.wrap_tensor(_jacobian)
-        hand_joint_index = self.gym.get_actor_joint_dict(env_ptr, robot_handle)['palm_center_joint']
-        self._j_eef = jacobian[:, hand_joint_index, :, :7]
-        _massmatrix = self.gym.acquire_mass_matrix_tensor(self.sim, "franka")
-        mm = gymtorch.wrap_tensor(_massmatrix)
-        self._mm = mm[:, :7, :7]
-
-        # Initialize actions
-        self._pos_control = torch.zeros((self.num_envs, self.num_dofs), dtype=torch.float, device=self.device)
-        self._effort_control = torch.zeros_like(self._pos_control)
-
-        # Initialize indices
-        self._global_indices = torch.arange(self.num_envs * actor_num, dtype=torch.int32,
-                                           device=self.device).view(self.num_envs, -1) # 3 actors, franka, table, table_stand
-
-        target_pos = to_torch(self.cfg["reward"]["params"]["target_pos"], device=self.device).unsqueeze(0).repeat(self.num_envs, 1)
-        target_lift_dis = to_torch(self.cfg["reward"]["params"]["target_lift_dis"], device=self.device)
-        target_quat = to_torch(self.cfg["reward"]["params"]["target_quat"], device=self.device).unsqueeze(0).repeat(self.num_envs, 1)
-        target_quat_norm = torch.norm(target_quat, dim=1, keepdim=True)  # normalize quaternion
-        target_quat = target_quat / (target_quat_norm + 1e-10)
-
-        # finger indexing: 0-3:index ; 4-7:thumb ; 8-11:middle ; 12-15:ring
-        # v0
-        # self.grasp_finger_dof_pos = torch.tensor([
-        #     1.0176, -0.8376,  0.9564,  0.9632,
-        #     1.5700,  0.0000,  0.3100,  1.2880,
-        #     1.0176,  0.0000,  0.9564,  0.9632,
-        #     1.0176,  0.8376,  0.9564,  0.9632
-        # ], device='cuda:0')
-
-        # v1
-        self.grasp_finger_dof_pos = torch.tensor([
-            0.65,  0.0,  0.65,  0.65,
-            1.57,  0.0,  0.10,  0.40,
-            0.65,  0.0,  0.65,  0.65,
-            0.65,  0.0,  0.65,  0.65,
-        ], device='cuda:0')
-
-        # v1
-        self.init_finger_dof_pos = torch.tensor([
-            0.5,  0.0,  0.5,  0.5,
-            1.57,  0.0, -0.3,  0.3,
-            0.5,  0.0,  0.5,  0.5,
-            0.5,  0.0,  0.5,  0.5,
-        ], device='cuda:0')
-
-        # for visualization purposes
-        self.canonical_grasp_config = torch.tensor(
-            [[0, 0, 0, -3*torch.pi/4, 0, 3*torch.pi/4, torch.pi/2] + self.grasp_finger_dof_pos.tolist()] * self.num_envs
-        ).to(self.device)
-
-        self.reward_settings = {
-            "target_pos": target_pos,
-            "target_lift_dis": target_lift_dis,
-            "target_quat": target_quat,
-            "target_rot_6d": matrix_to_rotation_6d(quaternion_to_matrix_ig(target_quat)),
-            "lift_threshold": to_torch(self.cfg["reward"]["params"]["lift_threshold"], device=self.device),
-            "curl_reaching_threshold": to_torch(self.cfg["reward"]["params"]["curl_reaching_threshold"], device=self.device),
-            "object_init_height": self.mesh_aabb_extents[:, 2] / 2 + self.table_surface_height,
-            "grasp_finger_dof_pos": self.grasp_finger_dof_pos,
-            "lift_thres_for_obj_goal": to_torch(self.cfg["reward"]["params"]["lift_thres_for_obj_goal"]),
-
-            "beta_hand_object": to_torch(self.cfg["reward"]["exp"]["beta_hand_object"], device=self.device),
-            "beta_object_goal": to_torch(self.cfg["reward"]["exp"]["beta_object_goal"], device=self.device),
-            "beta_lift": to_torch(self.cfg["reward"]["exp"]["beta_lift"], device=self.device),
-            "beta_curl": to_torch(self.cfg["reward"]["exp"]["beta_curl"], device=self.device),
-
-            "w_hand_obj": to_torch(self.cfg["reward"]["weights"]["w_hand_obj"], device=self.device),
-            "w_obj_goal": to_torch(self.cfg["reward"]["weights"]["w_obj_goal"], device=self.device),
-            "w_lift": to_torch(self.cfg["reward"]["weights"]["w_lift"], device=self.device),
-            "w_curl": to_torch(self.cfg["reward"]["weights"]["w_curl"], device=self.device),
-        }
+        super().init_data(actor_num=actor_num)
+        self.obj_pos_target[:, 2] += 0.2
         self.reward_settings["target_pos"] = self.obj_pos_target
 
     def _create_box(self):
@@ -439,10 +333,11 @@ class FrankaLEAPPickTop(FrankaLEAP):
         self.extras["dis/d_eef_point_goal"] = torch.mean(reward_dict["d_eef_point_goal"]).item()
 
         # log metrics
-        success_5cm_per_step = (reward_dict["d_eef_point_goal"] < 0.05)
-        self.success_flags[success_5cm_per_step] = 1
         lifting_5cm_per_step = (reward_dict["d_lift"] > 0.05)
         self.lifting_flags[lifting_5cm_per_step] = 1
+        success_5cm_per_step = (reward_dict["d_eef_point_goal"] < 0.05) & lifting_5cm_per_step
+        self.success_flags[success_5cm_per_step] = 1
+
         self.extras["metrics/success_rate_5cm_per_step"] = torch.mean(success_5cm_per_step.float()).item()
         self.extras["metrics/lifting_rate_5cm_per_step"] = torch.mean(lifting_5cm_per_step.float()).item()
         self.extras["metrics/success_rate_5cm_per_ep"] = torch.mean(self.success_flags).item()
