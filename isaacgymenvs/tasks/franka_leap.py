@@ -230,6 +230,11 @@ class FrankaLEAP(VecTask):
 
         self.robot_dof_lower_limits = to_torch(self.robot_dof_lower_limits, device=self.device)
         self.robot_dof_upper_limits = to_torch(self.robot_dof_upper_limits, device=self.device)
+
+        if self.cfg["env"]["eef_init"]["limit_abad"]:
+            # limit abduction to [-0.1, 0.1] for leap hand
+            self.robot_dof_lower_limits[[8, 16, 20]] = -0.15
+            self.robot_dof_upper_limits[[8, 16, 20]] = 0.15
         self._robot_effort_limits = to_torch(self._robot_effort_limits, device=self.device)
         return robot_dof_props
 
@@ -1130,6 +1135,9 @@ class FrankaLEAP(VecTask):
         self.actions[:, 7:] = delta_hand_joint_actions_unnormalized
 
         abs_actions = self.states['q'] + self.actions # need to really make sure states['q'] is always up to date
+        abs_actions = tensor_clamp(
+            abs_actions, self.robot_dof_lower_limits, self.robot_dof_upper_limits
+        )
         self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(abs_actions))
 
     def post_physics_step(self):

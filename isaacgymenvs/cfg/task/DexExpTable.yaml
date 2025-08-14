@@ -52,6 +52,7 @@ env:
 
   eef_init:
     enable: False
+    limit_abad: False
     r_range: [0.15, 0.2]
     z_shift: 0.2 # to avoid collision with the object
 
