@@ -44,9 +44,10 @@ class FrankaLEAPPickSide(FrankaLEAP):
             eef_init_pos[:, 1] += dis_side_y
             eef_init_pos[:, 2] += dis_side_z + self.box_dims[:, 2] / 2
 
-            eef_init_quat = A2B_quaternion(eef_init_pos, self.box_pos, max_angle_deg=20)
-            rot_local_z_180 = torch.tensor([[0.0, 0.0, 1.0, 0.0]]*self.num_envs, device=self.device)  # 180 degrees around local z-axis
-            eef_init_quat = quat_mul(eef_init_quat, rot_local_z_180)  # rotate by 180 degrees around local z-axis
+            # eef_init_quat = A2B_quaternion(eef_init_pos, self.box_pos, max_angle_deg=20)
+            # rot_local_z_180 = torch.tensor([[0.0, 0.0, 1.0, 0.0]]*self.num_envs, device=self.device)  # 180 degrees around local z-axis
+            # eef_init_quat = quat_mul(eef_init_quat, rot_local_z_180)  # rotate by 180 degrees around local z-axis
+            eef_init_quat = torch.tensor([[0, 0.707, 0, 0.707]]*self.num_envs, device=self.device)
 
             eef_init_pos7 = torch.cat((eef_init_pos, eef_init_quat), dim=-1)  # (num_envs, 7)
 
