@@ -53,6 +53,7 @@ env:
 
   eef_init:
     enable: True
+    limit_abad: False
     dis_open_range: [0.3, 0.35]
     dis_side_range: -0.1
 
