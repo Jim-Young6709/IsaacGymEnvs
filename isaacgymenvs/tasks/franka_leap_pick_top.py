@@ -272,6 +272,8 @@ class FrankaLEAPPickTop(FrankaLEAP):
             "box_to_eef_pos": self.box_pos - self._eef_state[:, :3],
             "box_dims": self.box_dims,
             "box_to_eef_rot_6d": box_to_eef_rot_6d,
+            # Bottom Board Contact Status, check whether the object is lifted
+            "box_bottom_contact": self.box_bottom_collision,
         })
 
     def _reset_box_state(self):
@@ -282,7 +284,8 @@ class FrankaLEAPPickTop(FrankaLEAP):
 
     def check_robot_collision(self):
         super().check_robot_collision()
-        self.box_collision = torch.any(self.contact_forces[:, 31:35].view(self.num_envs, -1) != 0, dim=1)
+        self.box_wall_collision = torch.any(self.contact_forces[:, 31:35].view(self.num_envs, -1) != 0, dim=1)
+        self.box_bottom_collision = torch.any(self.contact_forces[:, 30].view(self.num_envs, -1) != 0, dim=1)
 
     def compute_observations(self):
         self._refresh()
@@ -319,7 +322,7 @@ class FrankaLEAPPickTop(FrankaLEAP):
         self.reset_buf[self.states['object_center_pos'][:, 2] < self.table_surface_height-0.1] = 1
 
         if self.scene_box_cfg["colli_reset"]:
-            self.reset_buf[self.box_collision] = 1
+            self.reset_buf[self.box_wall_collision] = 1
 
         reward_dict = compute_franka_leap_reward(self.states, self.reward_settings)
 
@@ -376,16 +379,15 @@ def compute_franka_leap_reward(states, reward_settings):
     if beta_lift > 0:
         object_vertical_err = torch.abs(states["object_center_pos"][:, 2] - target_pos[2])
         r_lift = torch.exp(-beta_lift * object_vertical_err)
-        r_lift = torch.where(object_height > reward_settings["lift_threshold"], r_lift, 0.0)
+        r_lift = torch.where(states["box_bottom_contact"], r_lift, 0.0)
     else:
-        r_lift = torch.where(object_height > reward_settings["lift_threshold"], 1.0, torch.zeros_like(object_height))
+        r_lift = torch.where(states["box_bottom_contact"], 1.0, torch.zeros_like(object_height))
 
     # R3: Object goal distance reward (based on average point matching distance)
     d_eef_point_goal = states["point_matching_err"]
     beta_object_goal = reward_settings["beta_object_goal"]
     r_obj_goal = torch.exp(-beta_object_goal * d_eef_point_goal)
-    if reward_settings["lift_thres_for_obj_goal"]:
-        r_obj_goal = torch.where(object_height > reward_settings["lift_threshold"], r_obj_goal, 0.0)
+    r_obj_goal = torch.where(states["box_bottom_contact"], r_obj_goal, 0.0)
 
     # R4: Finger curl
     hand_dof_pos = states["q"][:, 7:] # hand joint angles

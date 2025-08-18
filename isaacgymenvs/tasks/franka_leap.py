@@ -321,11 +321,9 @@ class FrankaLEAP(VecTask):
             "target_lift_dis": target_lift_dis,
             "target_quat": target_quat,
             "target_rot_6d": matrix_to_rotation_6d(quaternion_to_matrix_ig(target_quat)),
-            "lift_threshold": to_torch(self.cfg["reward"]["params"]["lift_threshold"], device=self.device),
             "curl_reaching_threshold": to_torch(self.cfg["reward"]["params"]["curl_reaching_threshold"], device=self.device),
             "object_init_height": self.mesh_aabb_extents[:, 2] / 2 + self.table_surface_height,
             "grasp_finger_dof_pos": self.grasp_finger_dof_pos,
-            "lift_thres_for_obj_goal": to_torch(self.cfg["reward"]["params"]["lift_thres_for_obj_goal"]),
 
             "beta_hand_object": to_torch(self.cfg["reward"]["exp"]["beta_hand_object"], device=self.device),
             "beta_object_goal": to_torch(self.cfg["reward"]["exp"]["beta_object_goal"], device=self.device),
@@ -561,8 +559,8 @@ class FrankaLEAP(VecTask):
         self.gym.refresh_net_contact_force_tensor(self.sim)
 
         # Refresh states
-        self._update_states()
         self.check_robot_collision()
+        self._update_states()
 
     def _update_states(self):
         # update arm eef state
