@@ -170,7 +170,7 @@ class FrankaLEAPPickTable(FrankaLEAP):
 
         self.states.update({
             # Table Contact Status, check whether the object is lifted
-            "table_contact": self.table_collision,
+            "lift": self.table_collision,
         })
 
     def check_robot_collision(self):
@@ -219,7 +219,7 @@ class FrankaLEAPPickTable(FrankaLEAP):
         self.extras["dis/d_eef_point_goal"] = torch.mean(reward_dict["d_eef_point_goal"]).item()
 
         # log metrics
-        lifting_5cm_per_step = (reward_dict["d_lift"] > 0.05)
+        lifting_5cm_per_step = self.states["lift"]
         self.lifting_flags[lifting_5cm_per_step] = 1
         success_5cm_per_step = (reward_dict["d_eef_point_goal"] < 0.05) & lifting_5cm_per_step
         self.success_flags[success_5cm_per_step] = 1
@@ -255,15 +255,15 @@ def compute_franka_leap_reward(states, reward_settings):
     if beta_lift > 0:
         object_vertical_err = torch.abs(states["object_center_pos"][:, 2] - target_pos[2])
         r_lift = torch.exp(-beta_lift * object_vertical_err)
-        r_lift = torch.where(states["table_contact"], r_lift, 0.0)
+        r_lift = torch.where(states["lift"], r_lift, 0.0)
     else:
-        r_lift = torch.where(states["table_contact"], 1.0, torch.zeros_like(object_height))
+        r_lift = torch.where(states["lift"], 1.0, torch.zeros_like(object_height))
 
     # R3: Object goal distance reward (based on average point matching distance)
     d_eef_point_goal = states["point_matching_err"]
     beta_object_goal = reward_settings["beta_object_goal"]
     r_obj_goal = torch.exp(-beta_object_goal * d_eef_point_goal)
-    r_obj_goal = torch.where(states["table_contact"], r_obj_goal, 0.0)
+    r_obj_goal = torch.where(states["lift"], r_obj_goal, 0.0)
 
     # R4: Finger curl
     hand_dof_pos = states["q"][:, 7:] # hand joint angles
