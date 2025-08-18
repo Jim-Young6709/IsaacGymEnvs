@@ -170,7 +170,7 @@ class FrankaLEAPPickTable(FrankaLEAP):
 
         self.states.update({
             # Table Contact Status, check whether the object is lifted
-            "lift": self.table_collision,
+            "lift": ~self.table_collision,
         })
 
     def check_robot_collision(self):
