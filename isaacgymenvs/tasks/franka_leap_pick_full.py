@@ -99,6 +99,9 @@ class FrankaLEAPPickFull(FrankaLEAP):
         self.obj_pos_range[:, 3] = self.box_pos[:, 1]
         self.table_surface_height = self.box_pos[:, 2] - self.box_dims[:, 2] / 2
 
+        self.obj_pos_target[:, :2] = self.box_pos[:, :2]
+        self.obj_pos_target[:, 2] = self.box_pos[:, 2] + self.box_dims[:, 2] / 2 + 0.1
+
         # setup robot (franka + leap)
         robot_dof_props = self._create_franka_leap()
         robot_asset = self.robot_asset
