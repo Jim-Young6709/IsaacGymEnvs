@@ -1,6 +1,5 @@
 """
 Franka + LEAP Hand Pick Env
-TODO: now the hierarchy of franka_leap & franka_leap_pick is kinda chaotic, should figure out which function goes to which
 """
 
 import time
@@ -9,10 +8,11 @@ import hydra
 import isaacgym
 import numpy as np
 import torch
-from isaacgym import gymapi
 from isaacgym.torch_utils import *
+from isaacgym import gymapi
 from isaacgymenvs.tasks import FrankaLEAP
 from isaacgymenvs.utils.demo_loader import DemoLoader
+from isaacgymenvs.utils.rotation_conversions import *
 from isaacgymenvs.utils.pcd_utils import decompose_scene_pcd_params_obs, compute_scene_oracle_pcd
 from isaacgymenvs.utils.reformat import omegaconf_to_dict
 from omegaconf import DictConfig
@@ -30,12 +30,16 @@ class FrankaLEAPPickFull(FrankaLEAP):
         self.obstacle_handles = []
         self.obstacle_configs = []
         self.max_obstacles = 0
+        self.compartments = []
 
         for env_idx, demo in enumerate(self.batch):
             pcd_params = demo['states'][0][15:]
             obstacle_config = decompose_scene_pcd_params_obs(pcd_params)
             self.obstacle_configs.append(obstacle_config)
             self.max_obstacles = max(len(obstacle_config[0]), self.max_obstacles)
+            self.compartments.append(demo['compartment_states'][0])
+
+        self.compartments = torch.tensor(self.compartments, device=sim_device) # (num_envs, 10), 10 = 3 (xyz dims) + 3 (xyz pos) + 4 (xyzw quat)
 
         super().__init__(
             cfg=cfg,
@@ -47,6 +51,27 @@ class FrankaLEAPPickFull(FrankaLEAP):
             force_render=force_render
         )
 
+        if self.eef_init["enable"]:
+            dis_open_range = self.eef_init["dis_open_range"]
+            dis_open = torch.rand(self.num_envs, device=self.device) * (dis_open_range[1] - dis_open_range[0]) + dis_open_range[0]
+            dis_side_range = self.eef_init["dis_side_range"]
+            dis_side_x = 0#torch.rand(self.num_envs, device=self.device) * (self.box_dims[:, 0] + 2*dis_side_range) - (self.box_dims[:, 0]/2 + dis_side_range)
+            dis_side_y = 0#torch.rand(self.num_envs, device=self.device) * (self.box_dims[:, 1] + 2*dis_side_range) - (self.box_dims[:, 1]/2 + dis_side_range)
+
+            eef_init_pos = self.box_pos.clone()
+            eef_init_pos[:, 0] += dis_side_x
+            eef_init_pos[:, 1] += dis_side_y
+            eef_init_pos[:, 2] += dis_open + self.box_dims[:, 2]
+
+            eef_init_quat = self.box_quats.clone()
+            rot_local_x_180 = torch.tensor([[1.0, 0.0, 0.0, 0.0]]*self.num_envs, device=self.device)  # 180 degrees around local x-axis
+            eef_init_quat = quat_mul(eef_init_quat, rot_local_x_180)  # rotate by 180 degrees around local x-axis
+
+            eef_init_pos7 = torch.cat((eef_init_pos, eef_init_quat), dim=-1)  # (num_envs, 7)
+
+            # TODO: resampling mechanism here when IK failed
+            self.canonical_joint_config[:, :7] = self.get_joint_from_ee(eef_init_pos7)
+
     def _create_envs(self, spacing, num_per_row):
         """
         loading Franka + LEAP + a table in the environment, this is for debugging purposes only
@@ -56,10 +81,23 @@ class FrankaLEAPPickFull(FrankaLEAP):
 
         # setup params
         self.cuboid_dims = []  # xyz
-        self.capsule_dims = []  # r, l
-        self.sphere_radii = []  # r
+        self.cuboid_pos = []
+        self.cuboid_quats = []
+
         self.mesh_aabb_extents = None  # xyz, axis-aligned bounding box full extents
         self.table_surface_height = torch.zeros((self.num_envs,), device=self.device)
+        self.obj_pos_range = torch.zeros((self.num_envs, 4), device=self.device) # x-min, x-max, y-min, y-max
+        self.obj_pos_target = torch.zeros((self.num_envs, 3), device=self.device) # x, y, z
+
+        self.box_dims = self.compartments[:, :3]
+        self.box_pos = self.compartments[:, 3:6]
+        self.box_quats = self.compartments[:, 6:]
+        # TODO: hard coded for now, update this later, now object is always at the center
+        self.obj_pos_range[:, 0] = self.box_pos[:, 0]
+        self.obj_pos_range[:, 1] = self.box_pos[:, 0]
+        self.obj_pos_range[:, 2] = self.box_pos[:, 1]
+        self.obj_pos_range[:, 3] = self.box_pos[:, 1]
+        self.table_surface_height = self.box_pos[:, 2] - self.box_dims[:, 2] / 2
 
         # setup robot (franka + leap)
         robot_dof_props = self._create_franka_leap()
@@ -117,8 +155,6 @@ class FrankaLEAPPickFull(FrankaLEAP):
                 *_
             ) = self.obstacle_configs[i]
 
-            self.table_surface_height[i] = cuboid_centers[0, 2] + cuboid_dims[0, 2] / 2
-
             num_cubes = len(cuboid_dims)
             # Create obstacles
             for j in range(self.max_obstacles):
@@ -166,7 +202,6 @@ class FrankaLEAPPickFull(FrankaLEAP):
             self.objects.append(self._object_id)
 
             # Precompute static and object point cloud
-            # TODO: now this is hardcoded to current simple settings, need to adapt later
             static_pcd_i = torch.from_numpy(compute_scene_oracle_pcd(
                 num_obstacle_points=self.pcd_spec_dict["num_static_points"],
                 cuboid_dims=cuboid_dims,
@@ -186,9 +221,9 @@ class FrankaLEAPPickFull(FrankaLEAP):
             )).to(self.device)
             self.object_pcds.append(object_pcd_i)
 
-        self.cuboid_dims = torch.tensor(self.cuboid_dims, device=self.device)  # (num_envs, 3)
-        self.capsule_dims = torch.tensor(self.capsule_dims, device=self.device)  # (num_envs, 2)
-        self.sphere_radii = torch.tensor(self.sphere_radii, device=self.device)
+        self.cuboid_dims = torch.tensor(self.cuboid_dims, device=self.device).view(self.num_envs, -1, 3)
+        self.cuboid_pos = torch.tensor(self.cuboid_pos).view(self.num_envs, -1, 3)
+        self.cuboid_quats = torch.tensor(self.cuboid_quats).view(self.num_envs, -1, 4)
 
         self.static_pcds = torch.stack(self.static_pcds, dim=0).to(self.device).to(torch.float32) # (num_envs, num_points, 3)
         self.object_pcds = torch.stack(self.object_pcds, dim=0).to(self.device).to(torch.float32)
@@ -204,22 +239,44 @@ class FrankaLEAPPickFull(FrankaLEAP):
         actor_num = 1 + self.max_obstacles + 1  # robot, obstacles, object
         self.init_data(actor_num=actor_num)
 
+    def init_data(self, actor_num):
+        super().init_data(actor_num=actor_num)
+        self.obj_pos_target[:, 2] += 0.2
+        # self.reward_settings["target_pos"] = self.obj_pos_target
+
+    def _update_states(self):
+        super()._update_states()
+        eef_rot_mat = quaternion_to_matrix_ig(self._eef_state[:, 3:7])
+        box_rot_mat = quaternion_to_matrix_ig(self.box_quats)
+        box_to_eef_rot_mat = torch.matmul(eef_rot_mat.transpose(1, 2), box_rot_mat)
+        box_to_eef_rot_6d = matrix_to_rotation_6d(box_to_eef_rot_mat)
+
+        self.states.update({
+            # Box region
+            "box_to_eef_pos": self.box_pos - self._eef_state[:, :3],
+            "box_dims": self.box_dims[:, :3],
+            "box_to_eef_rot_6d": box_to_eef_rot_6d,
+            # check whether the object is lifted based on bottom board force contact info
+            "lift": torch.tensor([False]*self.num_envs, device=self.device) # TODO： ~self.box_bottom_collision,
+        })
+
     def compute_observations(self):
         self._refresh()
 
         obs_components = ["q_hand",
-                          "eef_rot_6d",
                           "eef_finger1_pos_relative", "eef_finger2_pos_relative",
                           "eef_finger3_pos_relative", "eef_finger4_pos_relative",
-                          "object_rot_6d",
-                          "hand_to_object", "object_to_target"]#, "object_target_6d_diff"]
+                          "box_to_eef_pos", "box_dims", "box_to_eef_rot_6d",
+                          "object_to_eef", "object_to_eef_rot_6d",
+                          "target_to_eef", "target_to_eef_rot_6d"]
 
         states_components = ["q", "qd",
                              "eef_pos", "eef_rot_6d", "eef_vel",
                              "eef_finger1_pos_relative", "eef_finger2_pos_relative",
                              "eef_finger3_pos_relative", "eef_finger4_pos_relative",
-                             "object_center_pos", "object_rot_6d",
-                             "hand_to_object", "object_to_target"]#, "object_target_6d_diff"]
+                             "box_to_eef_pos", "box_dims", "box_to_eef_rot_6d",
+                             "object_to_eef", "object_to_eef_rot_6d",
+                             "target_to_eef", "target_to_eef_rot_6d"]
 
         obs_buf = torch.cat([self.states[ob] for ob in obs_components], dim=-1)
         states_buf = torch.cat([self.states[st] for st in states_components], dim=-1)
@@ -234,7 +291,7 @@ class FrankaLEAPPickFull(FrankaLEAP):
 
     def compute_reward(self):
         self.reset_buf[:] = torch.where((self.progress_buf >= self.max_episode_length - 1), torch.ones_like(self.reset_buf), self.reset_buf)
-        self.reset_buf[self.states['object_center_pos'][:, 2] < -0.1] = 1
+        self.reset_buf[self.states['object_center_pos'][:, 2] < self.table_surface_height-0.1] = 1
         reward_dict = compute_franka_leap_reward(self.states, self.reward_settings)
 
         self.rew_buf[:] = reward_dict["r_total"]
@@ -244,16 +301,25 @@ class FrankaLEAPPickFull(FrankaLEAP):
         self.extras["sep_reward/r_curl"] = torch.mean(reward_dict["r_curl"]).item()
         self.extras["dis/d_hand_obj"] = torch.mean(reward_dict["d_hand_obj"]).item()
         self.extras["dis/d_lift"] = torch.mean(reward_dict["d_lift"]).item()
+        self.extras["dis/d_eef_point_goal"] = torch.mean(reward_dict["d_eef_point_goal"]).item()
 
         # log metrics
-        success_5cm_per_step = (reward_dict["d_obj_goal"] < 0.05)
-        self.success_flags[success_5cm_per_step] = 1
-        lifting_5cm_per_step = (reward_dict["d_lift"] > 0.05)
+        lifting_5cm_per_step = self.states["lift"]
         self.lifting_flags[lifting_5cm_per_step] = 1
+        success_5cm_per_step = (reward_dict["d_eef_point_goal"] < 0.05) & lifting_5cm_per_step
+        self.success_flags[success_5cm_per_step] = 1
+
         self.extras["metrics/success_rate_5cm_per_step"] = torch.mean(success_5cm_per_step.float()).item()
         self.extras["metrics/lifting_rate_5cm_per_step"] = torch.mean(lifting_5cm_per_step.float()).item()
         self.extras["metrics/success_rate_5cm_per_ep"] = torch.mean(self.success_flags).item()
         self.extras["metrics/lifting_rate_5cm_per_ep"] = torch.mean(self.lifting_flags).item()
+
+    def set_viewer(self):
+        super().set_viewer(
+            pos=[-0.3, 0.0, 1.2],
+            target=[0.5, 0.0, 0.1],
+        )
+
 
 @torch.jit.script
 def compute_franka_leap_reward(states, reward_settings):
@@ -281,15 +347,15 @@ def compute_franka_leap_reward(states, reward_settings):
     if beta_lift > 0:
         object_vertical_err = torch.abs(states["object_center_pos"][:, 2] - target_pos[2])
         r_lift = torch.exp(-beta_lift * object_vertical_err)
-        r_lift = torch.where(object_height > reward_settings["lift_threshold"], r_lift, 0.0)
+        r_lift = torch.where(states["lift"], r_lift, 0.0)
     else:
-        r_lift = torch.where(object_height > reward_settings["lift_threshold"], 1.0, torch.zeros_like(object_height))
+        r_lift = torch.where(states["lift"], 1.0, torch.zeros_like(object_height))
 
-    # R3: Object goal distance reward
-    d_obj_goal = torch.norm(states["object_center_pos"] - target_pos, dim=-1)
+    # R3: Object goal distance reward (based on average point matching distance)
+    d_eef_point_goal = states["point_matching_err"]
     beta_object_goal = reward_settings["beta_object_goal"]
-    r_obj_goal = torch.exp(-beta_object_goal * d_obj_goal)
-    r_obj_goal = torch.where(object_height > reward_settings["lift_threshold"], r_obj_goal, 0.0)
+    r_obj_goal = torch.exp(-beta_object_goal * d_eef_point_goal)
+    r_obj_goal = torch.where(states["lift"], r_obj_goal, 0.0)
 
     # R4: Finger curl
     hand_dof_pos = states["q"][:, 7:] # hand joint angles
@@ -316,7 +382,7 @@ def compute_franka_leap_reward(states, reward_settings):
         "r_total": r_total,
         "d_hand_obj": d_hand_obj,
         "d_lift": object_height,
-        "d_obj_goal": d_obj_goal,
+        "d_eef_point_goal": d_eef_point_goal,
     }
 
     return rewards
@@ -334,12 +400,13 @@ def launch_test(cfg: DictConfig):
     graphics_device_id = 0
     virtual_screen_capture = False
     force_render = False
-    env = FrankaLEAPPick(cfg_task, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render)
+    env = FrankaLEAPPickFull(cfg_task, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render)
     env.reset()
 
     for i in tqdm(range(1000)):
         t1 = time.time()
         env.reset_idx()
+        # env.set_robot_joint_state(env.canonical_joint_config)
         # env.set_robot_joint_state(env.canonical_grasp_config)
         env.step_sim_multi(1, False)
         env.compute_observations()

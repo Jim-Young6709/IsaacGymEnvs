@@ -51,6 +51,7 @@ class DemoLoader:
                 # Get all necessary data from the demo
                 demo_data = {
                     'states': self.demos[f"{demo_key}/states"][:],
+                    'compartment_states': self.demos[f"{demo_key}/compartment_states"][:],
                 }
                 batch_data.append(demo_data)
             except Exception as e:
