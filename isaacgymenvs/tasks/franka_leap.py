@@ -857,12 +857,16 @@ class FrankaLEAP(VecTask):
         reset_pos[:, 2] = self.table_surface_height[env_ids]
 
         sampled_object_state[:, 6] = 1.0
+        # theta = torch.rand(num_resets, device=self.device) * 2 * torch.pi  # random angle [0, 2π)
+        # # quat = [0.0, 0.0, torch.sin(theta/2), torch.cos(theta/2)]
+        # sampled_object_state[:, 5] = torch.sin(theta/2)
+        # sampled_object_state[:, 6] = torch.cos(theta/2)
         sampled_object_state[:, :3] = reset_pos
         self._object_state[env_ids] = sampled_object_state
         self._object_center_init_state[env_ids] = reset_pos
         self._object_center_init_state[env_ids, 2] += self.mesh_aabb_extents[env_ids, 2] / 2
 
-        multi_env_ids_obj_int32 = self._global_indices[env_ids, self._object_id].flatten()
+        multi_env_ids_obj_int32 = self._global_indices[env_ids].flatten()
         self.gym.set_actor_root_state_tensor_indexed(
             self.sim, gymtorch.unwrap_tensor(self._root_state),
             gymtorch.unwrap_tensor(multi_env_ids_obj_int32), len(multi_env_ids_obj_int32),
