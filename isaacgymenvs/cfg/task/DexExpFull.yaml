@@ -39,7 +39,7 @@ env:
       obj_wall_tol: 0.03
       colli_reset: False
     # if use hdf5 loading
-    hdf5_path: "./static_scenes/2box20.hdf5"
+    hdf5_path: "./static_scenes/2box100.hdf5"
     batch_idx: 0
 
   mesh:

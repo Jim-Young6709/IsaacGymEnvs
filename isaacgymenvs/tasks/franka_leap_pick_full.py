@@ -20,6 +20,15 @@ from tqdm import tqdm
 
 
 
+def rot_x180_z90(quat_xyzw, B, device):
+    quat = quat_xyzw.clone()
+    rot_local_x_180 = torch.tensor([[1.0, 0.0, 0.0, 0.0]]*B, device=device)  # 180 degrees around local x-axis
+    rot_local_z_90 = torch.tensor([[0,0,0.7071,0.7071]]*B, device=device)  # 90 degrees around local z-axis
+    quat = quat_mul(quat, rot_local_x_180)  # rotate by 180 degrees around local x-axis
+    quat = quat_mul(quat, rot_local_z_90)  # rotate by 90 degrees around local z-axis
+
+    return quat
+
 class FrankaLEAPPickFull(FrankaLEAP):
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
         # hdf5 scene loading
@@ -51,26 +60,106 @@ class FrankaLEAPPickFull(FrankaLEAP):
             force_render=force_render
         )
 
+        # TODO: the first reset iter already started before this, this is wrong
         if self.eef_init["enable"]:
             dis_open_range = self.eef_init["dis_open_range"]
             dis_open = torch.rand(self.num_envs, device=self.device) * (dis_open_range[1] - dis_open_range[0]) + dis_open_range[0]
             dis_side_range = self.eef_init["dis_side_range"]
-            dis_side_x = 0#torch.rand(self.num_envs, device=self.device) * (self.box_dims[:, 0] + 2*dis_side_range) - (self.box_dims[:, 0]/2 + dis_side_range)
-            dis_side_y = 0#torch.rand(self.num_envs, device=self.device) * (self.box_dims[:, 1] + 2*dis_side_range) - (self.box_dims[:, 1]/2 + dis_side_range)
 
             eef_init_pos = self.box_pos.clone()
-            eef_init_pos[:, 0] += dis_side_x
-            eef_init_pos[:, 1] += dis_side_y
             eef_init_pos[:, 2] += dis_open + self.box_dims[:, 2]
 
             eef_init_quat = self.box_quats.clone()
             rot_local_x_180 = torch.tensor([[1.0, 0.0, 0.0, 0.0]]*self.num_envs, device=self.device)  # 180 degrees around local x-axis
+            rot_local_z_90 = torch.tensor([[0,0,0.7071,0.7071]]*self.num_envs, device=self.device)  # 90 degrees around local z-axis
             eef_init_quat = quat_mul(eef_init_quat, rot_local_x_180)  # rotate by 180 degrees around local x-axis
+            eef_init_quat = quat_mul(eef_init_quat, rot_local_z_90)  # rotate by 90 degrees around local z-axis
 
             eef_init_pos7 = torch.cat((eef_init_pos, eef_init_quat), dim=-1)  # (num_envs, 7)
 
             # TODO: resampling mechanism here when IK failed
             self.canonical_joint_config[:, :7] = self.get_joint_from_ee(eef_init_pos7)
+
+        # if self.eef_init["enable"]:
+        #     dis_open_range = self.eef_init["dis_open_range"]
+        #     dis_open = torch.rand(self.num_envs, device=self.device) * (dis_open_range[1] - dis_open_range[0]) + dis_open_range[0]
+        #     dis_side_range = self.eef_init["dis_side_range"]
+        #     dis_side_y = torch.rand(self.num_envs, device=self.device) * (self.box_dims[:, 1] + 2*dis_side_range) - (self.box_dims[:, 1]/2 + dis_side_range)
+        #     dis_side_z = torch.rand(self.num_envs, device=self.device) * (self.box_dims[:, 2] + 2*dis_side_range) - (self.box_dims[:, 2]/2 + dis_side_range)
+
+        #     eef_init_pos = self.box_pos.clone()
+        #     eef_init_pos[:, 0] -= dis_open + self.box_dims[:, 0] / 2
+        #     eef_init_pos[:, 1] += dis_side_y
+        #     eef_init_pos[:, 2] += dis_side_z + self.box_dims[:, 2] / 2
+
+        #     # eef_init_quat = A2B_quaternion(eef_init_pos, self.box_pos, max_angle_deg=20)
+        #     # rot_local_z_180 = torch.tensor([[0.0, 0.0, 1.0, 0.0]]*self.num_envs, device=self.device)  # 180 degrees around local z-axis
+        #     # eef_init_quat = quat_mul(eef_init_quat, rot_local_z_180)  # rotate by 180 degrees around local z-axis
+        #     eef_init_quat = torch.tensor([[0, 0.707, 0, 0.707]]*self.num_envs, device=self.device)
+
+        #     eef_init_pos7 = torch.cat((eef_init_pos, eef_init_quat), dim=-1)  # (num_envs, 7)
+
+        #     # TODO: resampling mechanism here when IK failed
+        #     self.canonical_joint_config[:, :7] = self.get_joint_from_ee(eef_init_pos7)
+
+
+        self.draw_box_lines(0, self.box_pos[0].clone(), self.box_quats[0].clone(), self.box_dims[0].clone())
+        # # Reset all environments
+        # self._refresh()
+        # self.reset_idx(torch.arange(self.num_envs, device=self.device))
+        # self.compute_observations()
+
+        # # randomize progress buffer
+        # self.progress_buf = torch.randint(0, self.max_episode_length, (self.num_envs,)).to(self.device)
+        # self.sim_steps = 0 # keep track on the number of simulation steps
+
+    def draw_box_lines(self, env, pos_xyz, quat_xyzw, dims_xyz, color=(1.0, 0.2, 0.2)):
+        import numpy as np
+        from isaacgym import gymapi
+
+        px, py, pz = pos_xyz
+        qx, qy, qz, qw = quat_xyzw
+        sx, sy, sz = dims_xyz
+        sx -= 0.0001
+        sy -= 0.0001
+        sz -= 0.0001
+        pz += sz / 2
+
+        center = gymapi.Vec3(px, py, pz)
+        q = gymapi.Quat(qx, qy, qz, qw)
+
+        hx, hy, hz = sx * 0.5, sy * 0.5, sz * 0.5
+        corners_local = [
+            gymapi.Vec3(-hx, -hy, -hz),
+            gymapi.Vec3( hx, -hy, -hz),
+            gymapi.Vec3( hx,  hy, -hz),
+            gymapi.Vec3(-hx,  hy, -hz),
+            gymapi.Vec3(-hx, -hy,  hz),
+            gymapi.Vec3( hx, -hy,  hz),
+            gymapi.Vec3( hx,  hy,  hz),
+            gymapi.Vec3(-hx,  hy,  hz),
+        ]
+
+        corners_world = [gymapi.Quat.rotate(q, c) for c in corners_local]
+        corners_world = [gymapi.Vec3(c.x + center.x, c.y + center.y, c.z + center.z) for c in corners_world]
+
+        edges = [
+            (0,1), (1,2), (2,3), (3,0),
+            (4,5), (5,6), (6,7), (7,4),
+            (0,4), (1,5), (2,6), (3,7)
+        ]
+
+        # Collect line endpoints
+        lines = []
+        for i, j in edges:
+            lines.append(corners_world[i])
+            lines.append(corners_world[j])
+
+        # Convert to numpy
+        line_points = np.array([[p.x, p.y, p.z] for p in lines], dtype=np.float32)
+        line_colors = np.array([list(color)] * len(edges), dtype=np.float32)
+
+        self.gym.add_lines(self.viewer, self.env_ptrs[0], len(edges), line_points, line_colors)
 
     def _create_envs(self, spacing, num_per_row):
         """
@@ -91,16 +180,17 @@ class FrankaLEAPPickFull(FrankaLEAP):
 
         self.box_dims = self.compartments[:, :3]
         self.box_pos = self.compartments[:, 3:6]
+        self.box_pos[:, 2] -= self.box_dims[:, 2] / 2  # box z pos is the bottom of the box, not the center
         self.box_quats = self.compartments[:, 6:]
         # TODO: hard coded for now, update this later, now object is always at the center
         self.obj_pos_range[:, 0] = self.box_pos[:, 0]
         self.obj_pos_range[:, 1] = self.box_pos[:, 0]
         self.obj_pos_range[:, 2] = self.box_pos[:, 1]
         self.obj_pos_range[:, 3] = self.box_pos[:, 1]
-        self.table_surface_height = self.box_pos[:, 2] - self.box_dims[:, 2] / 2
+        self.table_surface_height = self.box_pos[:, 2]
 
         self.obj_pos_target[:, :2] = self.box_pos[:, :2]
-        self.obj_pos_target[:, 2] = self.box_pos[:, 2] + self.box_dims[:, 2] / 2 + 0.1
+        self.obj_pos_target[:, 2] = self.box_pos[:, 2] + self.box_dims[:, 2] / 2
 
         # setup robot (franka + leap)
         robot_dof_props = self._create_franka_leap()
@@ -108,6 +198,7 @@ class FrankaLEAPPickFull(FrankaLEAP):
         robot_start_pose = gymapi.Transform()
         robot_start_pose.p = gymapi.Vec3(0.0, 0.0, 0.0) # make sure robot spawns at the origin, this matches the IK setting with cuRobo
         robot_start_pose.r = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
+        # robot_start_pose.r = gymapi.Quat(0.2588, 0, 0, 0.9659)
 
         # compute aggregate size
         num_robot_bodies = self.gym.get_asset_rigid_body_count(robot_asset)
@@ -245,7 +336,8 @@ class FrankaLEAPPickFull(FrankaLEAP):
     def init_data(self, actor_num):
         super().init_data(actor_num=actor_num)
         self.obj_pos_target[:, 2] += 0.2
-        # self.reward_settings["target_pos"] = self.obj_pos_target
+        self.reward_settings["target_pos"] = self.obj_pos_target
+        self.reward_settings["target_quat"] = rot_x180_z90(self.box_quats, self.num_envs, self.device)
 
     def _update_states(self):
         super()._update_states()
@@ -257,7 +349,7 @@ class FrankaLEAPPickFull(FrankaLEAP):
         self.states.update({
             # Box region
             "box_to_eef_pos": self.box_pos - self._eef_state[:, :3],
-            "box_dims": self.box_dims[:, :3],
+            "box_dims": self.box_dims,
             "box_to_eef_rot_6d": box_to_eef_rot_6d,
             # check whether the object is lifted based on bottom board force contact info
             "lift": torch.tensor([False]*self.num_envs, device=self.device) # TODO： ~self.box_bottom_collision,
