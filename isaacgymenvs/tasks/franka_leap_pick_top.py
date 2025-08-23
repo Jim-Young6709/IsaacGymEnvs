@@ -277,6 +277,7 @@ class FrankaLEAPPickTop(FrankaLEAP):
             "obj_to_box_center_xy": self._object_state[:, :2] - self.box_pos[:, :2],
             # check whether the object is lifted based on bottom board force contact info
             "lift": ~self.box_bottom_collision,
+            "collision": self.box_wall_collision & (not self.scene_box_cfg["colli_reset"]),
         })
 
     def _reset_box_state(self):
@@ -350,6 +351,7 @@ class FrankaLEAPPickTop(FrankaLEAP):
         self.extras["metrics/lifting_rate_5cm_per_step"] = torch.mean(lifting_5cm_per_step.float()).item()
         self.extras["metrics/success_rate_5cm_per_ep"] = torch.mean(self.success_flags).item()
         self.extras["metrics/lifting_rate_5cm_per_ep"] = torch.mean(self.lifting_flags).item()
+        self.extras["metrics/collision_rate_per_step"] = torch.mean(self.states["collision"].float()).item()
 
     def set_viewer(self):
         super().set_viewer(
@@ -358,7 +360,7 @@ class FrankaLEAPPickTop(FrankaLEAP):
         )
 
 
-@torch.jit.script
+# @torch.jit.script
 def compute_franka_leap_reward(states, reward_settings):
     # type: (Dict[str, Tensor], Dict[str, Tensor]) -> Dict[str, Tensor]
 
@@ -399,7 +401,7 @@ def compute_franka_leap_reward(states, reward_settings):
     d_obj_drag = torch.norm(states["obj_to_box_center_xy"], dim=1)
     r_obj_drag = torch.exp(-beta_drag * d_obj_drag)
 
-    # R4: Finger curl
+    # R5: Finger curl
     hand_dof_pos = states["q"][:, 7:] # hand joint angles
     near_object = (d_hand_obj <= reward_settings["curl_reaching_threshold"])
     finger_pos_diff = torch.sum((hand_dof_pos - reward_settings["grasp_finger_dof_pos"]) ** 2, dim=1)
@@ -408,6 +410,9 @@ def compute_franka_leap_reward(states, reward_settings):
     r_curl= torch.exp(-beta_curl * finger_pos_diff)
     r_curl = torch.where(near_object, r_curl, 0.0)
 
+    # R6: Colli Penalty
+    # import ipdb ; ipdb.set_trace()
+    r_colli = torch.where(states["collision"], -1.0, 0.0)
 
     w_hand_obj = reward_settings["w_hand_obj"]
     w_obj_goal = reward_settings["w_obj_goal"]
@@ -415,7 +420,7 @@ def compute_franka_leap_reward(states, reward_settings):
     w_lift = reward_settings["w_lift"]
     w_curl = reward_settings["w_curl"]
 
-    r_total = w_hand_obj*r_hand_obj + w_obj_goal*r_obj_goal + w_obj_drag*r_obj_drag + w_lift*r_lift + w_curl*r_curl
+    r_total = w_hand_obj*r_hand_obj + w_obj_goal*r_obj_goal + w_obj_drag*r_obj_drag + w_lift*r_lift + w_curl*r_curl + r_colli
 
     rewards = {
         "r_hand_obj": w_hand_obj*r_hand_obj,
