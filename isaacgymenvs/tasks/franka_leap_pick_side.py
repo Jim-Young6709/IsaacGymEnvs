@@ -73,7 +73,6 @@ class FrankaLEAPPickSide(FrankaLEAP):
         self.mesh_aabb_extents = None  # xyz, axis-aligned bounding box full extents
         self.table_surface_height = torch.zeros((self.num_envs,), device=self.device)
         self.obj_pos_range = torch.zeros((self.num_envs, 4), device=self.device) # x-min, x-max, y-min, y-max
-        self.obj_pos_target = torch.zeros((self.num_envs, 3), device=self.device) # x, y, z
 
         # setup robot (franka + leap)
         robot_dof_props = self._create_franka_leap()

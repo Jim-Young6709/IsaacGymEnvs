@@ -1,5 +1,6 @@
 """
-Franka + LEAP Hand Pick Env
+Franka + LEAP Hand Pick Env + Env from DRP
+TODO: need major reformatting and deep clean up!!! now its for box & shelf env only!
 """
 
 import time
@@ -29,6 +30,14 @@ def rot_x180_z90(quat_xyzw, B, device):
 
     return quat
 
+def rot_y90(quat_xyzw, B, device):
+    quat = quat_xyzw.clone()
+    rot_local_y_90 = torch.tensor([[0.0, 0.7071, 0.0, 0.7071]]*B, device=device)  # 90 degrees around local y-axis
+    quat = quat_mul(quat, rot_local_y_90)  # rotate by 90 degrees around local y-axis
+
+    return quat
+
+
 class FrankaLEAPPickFull(FrankaLEAP):
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
         # hdf5 scene loading
@@ -40,13 +49,14 @@ class FrankaLEAPPickFull(FrankaLEAP):
         self.obstacle_configs = []
         self.max_obstacles = 0
         self.compartments = []
+        self.policy = cfg["policy"]
 
         for env_idx, demo in enumerate(self.batch):
             pcd_params = demo['states'][0][15:]
             obstacle_config = decompose_scene_pcd_params_obs(pcd_params)
             self.obstacle_configs.append(obstacle_config)
             self.max_obstacles = max(len(obstacle_config[0]), self.max_obstacles)
-            self.compartments.append(demo['compartment_states'][0])
+            self.compartments.append(demo['compartment_states'][1])
 
         self.compartments = torch.tensor(self.compartments, device=sim_device) # (num_envs, 10), 10 = 3 (xyz dims) + 3 (xyz pos) + 4 (xyzw quat)
 
@@ -60,58 +70,57 @@ class FrankaLEAPPickFull(FrankaLEAP):
             force_render=force_render
         )
 
-        # TODO: the first reset iter already started before this, this is wrong
+        # TODO: clean this up, its way too messy
         if self.eef_init["enable"]:
-            dis_open_range = self.eef_init["dis_open_range"]
-            dis_open = torch.rand(self.num_envs, device=self.device) * (dis_open_range[1] - dis_open_range[0]) + dis_open_range[0]
-            dis_side_range = self.eef_init["dis_side_range"]
+            if self.policy["top"]:
+                dis_open_range = self.eef_init["dis_open_range"]
+                dis_open = torch.rand(self.num_envs, device=self.device) * (dis_open_range[1] - dis_open_range[0]) + dis_open_range[0]
+                dis_side_range = self.eef_init["dis_side_range"]
 
-            eef_init_pos = self.box_pos.clone()
-            eef_init_pos[:, 2] += dis_open + self.box_dims[:, 2]
+                eef_init_pos = self.box_pos.clone()
+                eef_init_pos[:, 2] += dis_open + self.box_dims[:, 2]
 
-            eef_init_quat = self.box_quats.clone()
-            rot_local_x_180 = torch.tensor([[1.0, 0.0, 0.0, 0.0]]*self.num_envs, device=self.device)  # 180 degrees around local x-axis
-            rot_local_z_90 = torch.tensor([[0,0,0.7071,0.7071]]*self.num_envs, device=self.device)  # 90 degrees around local z-axis
-            eef_init_quat = quat_mul(eef_init_quat, rot_local_x_180)  # rotate by 180 degrees around local x-axis
-            eef_init_quat = quat_mul(eef_init_quat, rot_local_z_90)  # rotate by 90 degrees around local z-axis
+                eef_init_quat = self.box_quats.clone()
+                rot_local_x_180 = torch.tensor([[1.0, 0.0, 0.0, 0.0]]*self.num_envs, device=self.device)  # 180 degrees around local x-axis
+                rot_local_z_90 = torch.tensor([[0,0,0.7071,0.7071]]*self.num_envs, device=self.device)  # 90 degrees around local z-axis
+                eef_init_quat = quat_mul(eef_init_quat, rot_local_x_180)  # rotate by 180 degrees around local x-axis
+                eef_init_quat = quat_mul(eef_init_quat, rot_local_z_90)  # rotate by 90 degrees around local z-axis
 
-            eef_init_pos7 = torch.cat((eef_init_pos, eef_init_quat), dim=-1)  # (num_envs, 7)
+                eef_init_pos7 = torch.cat((eef_init_pos, eef_init_quat), dim=-1)  # (num_envs, 7)
 
-            # TODO: resampling mechanism here when IK failed
-            self.canonical_joint_config[:, :7] = self.get_joint_from_ee(eef_init_pos7)
+                # TODO: resampling mechanism here when IK failed
+                self.canonical_joint_config[:, :7] = self.get_joint_from_ee(eef_init_pos7)
 
-        # if self.eef_init["enable"]:
-        #     dis_open_range = self.eef_init["dis_open_range"]
-        #     dis_open = torch.rand(self.num_envs, device=self.device) * (dis_open_range[1] - dis_open_range[0]) + dis_open_range[0]
-        #     dis_side_range = self.eef_init["dis_side_range"]
-        #     dis_side_y = torch.rand(self.num_envs, device=self.device) * (self.box_dims[:, 1] + 2*dis_side_range) - (self.box_dims[:, 1]/2 + dis_side_range)
-        #     dis_side_z = torch.rand(self.num_envs, device=self.device) * (self.box_dims[:, 2] + 2*dis_side_range) - (self.box_dims[:, 2]/2 + dis_side_range)
+            elif self.policy["side"]:
+                dis_open_range = self.eef_init["dis_open_range"]
+                dis_open = torch.rand(self.num_envs, device=self.device) * (dis_open_range[1] - dis_open_range[0]) + dis_open_range[0]
+                # dis_side_range = self.eef_init["dis_side_range"]
+                # dis_side_y = torch.rand(self.num_envs, device=self.device) * (self.box_dims[:, 1] + 2*dis_side_range) - (self.box_dims[:, 1]/2 + dis_side_range)
+                # dis_side_z = torch.rand(self.num_envs, device=self.device) * (self.box_dims[:, 2] + 2*dis_side_range) - (self.box_dims[:, 2]/2 + dis_side_range)
 
-        #     eef_init_pos = self.box_pos.clone()
-        #     eef_init_pos[:, 0] -= dis_open + self.box_dims[:, 0] / 2
-        #     eef_init_pos[:, 1] += dis_side_y
-        #     eef_init_pos[:, 2] += dis_side_z + self.box_dims[:, 2] / 2
+                eef_init_pos = self.box_pos.clone()
+                eef_init_pos[:, 0] -= dis_open + self.box_dims[:, 0] / 2
+                eef_init_pos[:, 2] += self.box_dims[:, 2] / 2
 
-        #     # eef_init_quat = A2B_quaternion(eef_init_pos, self.box_pos, max_angle_deg=20)
-        #     # rot_local_z_180 = torch.tensor([[0.0, 0.0, 1.0, 0.0]]*self.num_envs, device=self.device)  # 180 degrees around local z-axis
-        #     # eef_init_quat = quat_mul(eef_init_quat, rot_local_z_180)  # rotate by 180 degrees around local z-axis
-        #     eef_init_quat = torch.tensor([[0, 0.707, 0, 0.707]]*self.num_envs, device=self.device)
+                # eef_init_quat = A2B_quaternion(eef_init_pos, self.box_pos, max_angle_deg=20)
+                # rot_local_z_180 = torch.tensor([[0.0, 0.0, 1.0, 0.0]]*self.num_envs, device=self.device)  # 180 degrees around local z-axis
+                # eef_init_quat = quat_mul(eef_init_quat, rot_local_z_180)  # rotate by 180 degrees around local z-axis
+                eef_init_quat = rot_y90(self.box_quats, self.num_envs, self.device)
 
-        #     eef_init_pos7 = torch.cat((eef_init_pos, eef_init_quat), dim=-1)  # (num_envs, 7)
+                eef_init_pos7 = torch.cat((eef_init_pos, eef_init_quat), dim=-1)  # (num_envs, 7)
 
-        #     # TODO: resampling mechanism here when IK failed
-        #     self.canonical_joint_config[:, :7] = self.get_joint_from_ee(eef_init_pos7)
-
+                # TODO: resampling mechanism here when IK failed
+                self.canonical_joint_config[:, :7] = self.get_joint_from_ee(eef_init_pos7)
 
         self.draw_box_lines(0, self.box_pos[0].clone(), self.box_quats[0].clone(), self.box_dims[0].clone())
-        # # Reset all environments
-        # self._refresh()
-        # self.reset_idx(torch.arange(self.num_envs, device=self.device))
-        # self.compute_observations()
+        # Reset all environments
+        self._refresh()
+        self.reset_idx(torch.arange(self.num_envs, device=self.device))
+        self.compute_observations()
 
-        # # randomize progress buffer
-        # self.progress_buf = torch.randint(0, self.max_episode_length, (self.num_envs,)).to(self.device)
-        # self.sim_steps = 0 # keep track on the number of simulation steps
+        # randomize progress buffer
+        self.progress_buf = torch.randint(0, self.max_episode_length, (self.num_envs,)).to(self.device)
+        self.sim_steps = 0 # keep track on the number of simulation steps
 
     def draw_box_lines(self, env, pos_xyz, quat_xyzw, dims_xyz, color=(1.0, 0.2, 0.2)):
         import numpy as np
@@ -176,21 +185,24 @@ class FrankaLEAPPickFull(FrankaLEAP):
         self.mesh_aabb_extents = None  # xyz, axis-aligned bounding box full extents
         self.table_surface_height = torch.zeros((self.num_envs,), device=self.device)
         self.obj_pos_range = torch.zeros((self.num_envs, 4), device=self.device) # x-min, x-max, y-min, y-max
-        self.obj_pos_target = torch.zeros((self.num_envs, 3), device=self.device) # x, y, z
 
         self.box_dims = self.compartments[:, :3]
         self.box_pos = self.compartments[:, 3:6]
         self.box_pos[:, 2] -= self.box_dims[:, 2] / 2  # box z pos is the bottom of the box, not the center
         self.box_quats = self.compartments[:, 6:]
+
+        if self.policy["side"]:
+            # TODO: this convension miss match (shifted xy dim) between drp and dex is really akward
+            self.box_dims = self.box_dims[:, [1, 0, 2]]
+            rot_local_z_90 = torch.tensor([[0,0,0.7071,0.7071]]*self.num_envs, device=self.device)  # 90 degrees around local z-axis
+            self.box_quats = quat_mul(self.box_quats, rot_local_z_90)  # rotate by 90 degrees around local z-axis
+
         # TODO: hard coded for now, update this later, now object is always at the center
         self.obj_pos_range[:, 0] = self.box_pos[:, 0]
         self.obj_pos_range[:, 1] = self.box_pos[:, 0]
         self.obj_pos_range[:, 2] = self.box_pos[:, 1]
         self.obj_pos_range[:, 3] = self.box_pos[:, 1]
         self.table_surface_height = self.box_pos[:, 2]
-
-        self.obj_pos_target[:, :2] = self.box_pos[:, :2]
-        self.obj_pos_target[:, 2] = self.box_pos[:, 2] + self.box_dims[:, 2] / 2
 
         # setup robot (franka + leap)
         robot_dof_props = self._create_franka_leap()
@@ -335,9 +347,17 @@ class FrankaLEAPPickFull(FrankaLEAP):
 
     def init_data(self, actor_num):
         super().init_data(actor_num=actor_num)
-        self.obj_pos_target[:, 2] += 0.2
+        self.obj_pos_target = self.box_pos.clone()
+
+        if self.policy["top"]:
+            self.obj_pos_target[:, 2] += (self.box_dims[:, 2] + 0.1)
+            self.reward_settings["target_quat"] = rot_x180_z90(self.box_quats, self.num_envs, self.device)
+        elif self.policy["side"]:
+            self.obj_pos_target[:, 0] -= (self.box_dims[:, 0] / 2 + 0.1)
+            self.obj_pos_target[:, 2] += self.box_dims[:, 2] / 2
+            self.reward_settings["target_quat"] = rot_y90(self.box_quats, self.num_envs, self.device)
+
         self.reward_settings["target_pos"] = self.obj_pos_target
-        self.reward_settings["target_quat"] = rot_x180_z90(self.box_quats, self.num_envs, self.device)
 
     def _update_states(self):
         super()._update_states()
