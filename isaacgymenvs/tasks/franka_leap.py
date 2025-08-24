@@ -985,7 +985,7 @@ class FrankaLEAP(VecTask):
         if render_step == 0:
             self.video_ims = []
 
-        if render_step < self.max_episode_length:
+        if render_step < self.max_episode_length * 2:
             camera_renders = self.get_camera_render()
             ims = np.array(camera_renders)[:, 0, :, :, :3]
 
@@ -1012,7 +1012,7 @@ class FrankaLEAP(VecTask):
             frames = np.asarray(self.video_ims) # (num_frames, num_envs, height, width, channels)
             frames = frames.transpose(1, 0, 2, 3, 4) # (num_envs, num_frames, height, width, channels)
             frames = frames.reshape(-1, frames.shape[2], frames.shape[3], frames.shape[4])  # (num_envs * num_frames, height, width, channels)
-            with imageio.get_writer(filename, fps=20) as writer:
+            with imageio.get_writer(filename, fps=60) as writer:
                 for frame in frames:
                     writer.append_data(frame)
 
