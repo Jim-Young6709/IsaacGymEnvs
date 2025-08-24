@@ -1006,7 +1006,7 @@ class FrankaLEAP(VecTask):
                 ims[env_idx] = img
             self.video_ims.append(ims)
 
-        if render_step == self.max_episode_length - 1:
+        if render_step == 2*self.max_episode_length - 1:
             render_step_start = self.sim_steps + 1 - self.max_episode_length
             filename = os.path.join(self.video_dir, f"viz_step{render_step_start}.mp4")
             frames = np.asarray(self.video_ims) # (num_frames, num_envs, height, width, channels)
