@@ -81,6 +81,7 @@ class FrankaLEAP(VecTask):
                      0.5,  0.0,  0.5,  0.5,]
                 ] * self.num_envs
             ).to(self.device)
+        self.ik_regularization_config = self.canonical_joint_config[:, :7]
 
         self.actions = torch.zeros((self.num_envs, self.num_robot_dofs), device=self.device, dtype=torch.float) # Current delta actions to be deployed
         self.success_flags = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device) # 1 if success condition has been achieved at any step, 0 otherwise
@@ -156,7 +157,7 @@ class FrankaLEAP(VecTask):
             self_collision_opt=False,
             tensor_args=tensor_args,
             use_cuda_graph=True,
-            regularization=False,
+            regularization=True,
             grad_iters=None
         )
         self.ik_solver = IKSolver(ik_config)
@@ -764,7 +765,10 @@ class FrankaLEAP(VecTask):
             eef_quat_wxyz = torch.cat((eef_quat_wxyz, eef_quat_wxyz_dummy), dim=0)
 
         goal = Pose(eef_pos, eef_quat_wxyz) # Pose need quat in wxyz format
-        result = self.ik_solver.solve_batch(goal)
+        result = self.ik_solver.solve_batch(
+            goal_pose=goal,
+            retract_config=self.ik_regularization_config,
+        )
         if torch.any(result.success[:B] == False):
             print(f"IK solver failed for some environments: {sum(result.success)}/{result.success.shape[0]}")
             # TODO: need to think a bit how to handle such cases
