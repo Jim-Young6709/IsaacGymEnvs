@@ -360,7 +360,7 @@ class FrankaLEAPPickTop(FrankaLEAP):
         )
 
 
-# @torch.jit.script
+@torch.jit.script
 def compute_franka_leap_reward(states, reward_settings):
     # type: (Dict[str, Tensor], Dict[str, Tensor]) -> Dict[str, Tensor]
 
