@@ -334,6 +334,7 @@ class FrankaLEAP(VecTask):
             "w_obj_goal": to_torch(self.cfg["reward"]["weights"]["w_obj_goal"], device=self.device),
             "w_lift": to_torch(self.cfg["reward"]["weights"]["w_lift"], device=self.device),
             "w_curl": to_torch(self.cfg["reward"]["weights"]["w_curl"], device=self.device),
+            "w_velreg": to_torch(self.cfg["reward"]["weights"]["w_velreg"], device=self.device),
         }
 
     def _create_cube(self, pos, size, quat=[0, 0, 0, 1]):
