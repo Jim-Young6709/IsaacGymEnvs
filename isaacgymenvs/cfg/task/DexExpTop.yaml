@@ -128,6 +128,8 @@ reward:
     w_obj_drag: 1.0
     w_lift: 2.0
     w_curl: 0.5
+    w_colli: -1.0
+    w_velreg: -0.001
 
 pcd_spec:
   num_static_points: 2048
