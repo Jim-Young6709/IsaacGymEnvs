@@ -336,6 +336,7 @@ class FrankaLEAPPickTop(FrankaLEAP):
         self.extras["sep_reward/r_obj_drag"] = torch.mean(reward_dict["r_obj_drag"]).item()
         self.extras["sep_reward/r_lift"] = torch.mean(reward_dict["r_lift"]).item()
         self.extras["sep_reward/r_curl"] = torch.mean(reward_dict["r_curl"]).item()
+        self.extras["sep_reward/r_colli"] = torch.mean(reward_dict["r_colli"]).item()
         self.extras["dis/d_hand_obj"] = torch.mean(reward_dict["d_hand_obj"]).item()
         self.extras["dis/d_lift"] = torch.mean(reward_dict["d_lift"]).item()
         self.extras["dis/d_eef_point_goal"] = torch.mean(reward_dict["d_eef_point_goal"]).item()
@@ -428,6 +429,7 @@ def compute_franka_leap_reward(states, reward_settings):
         "r_obj_goal": w_obj_goal*r_obj_goal,
         "r_obj_drag": w_obj_drag*r_obj_drag,
         "r_curl": w_curl*r_curl,
+        "r_colli": r_colli,
         "r_total": r_total,
         "d_hand_obj": d_hand_obj,
         "d_lift": object_height,

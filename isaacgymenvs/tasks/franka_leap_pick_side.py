@@ -1,5 +1,5 @@
 """
-Franka + LEAP Hand Pick Env
+Franka + LEAP Hand Pick Env ; TODO: there's a problem on the drag reward (should not be xy), def need to fix later
 """
 
 import time
@@ -216,8 +216,10 @@ class FrankaLEAPPickSide(FrankaLEAP):
         self.init_data(actor_num=actor_num)
 
     def init_data(self, actor_num):
-        super().init_data(actor_num)
+        super().init_data(actor_num=actor_num)
         self.reward_settings["target_pos"] = self.obj_pos_target
+        self.reward_settings["beta_object_drag"] = to_torch(self.cfg["reward"]["exp"]["beta_object_drag"], device=self.device)
+        self.reward_settings["w_obj_drag"] = to_torch(self.cfg["reward"]["weights"]["w_obj_drag"], device=self.device)
 
     def _create_box(self):
         wall_thickness = self.scene_box_cfg["wall_thickness"]
@@ -272,8 +274,10 @@ class FrankaLEAPPickSide(FrankaLEAP):
             "box_to_eef_pos": self.box_pos - self._eef_state[:, :3],
             "box_dims": self.box_dims,
             "box_to_eef_rot_6d": box_to_eef_rot_6d,
+            "obj_to_box_center_xy": self._object_state[:, :2] - self.box_pos[:, :2],
             # check whether the object is lifted based on bottom board force contact info
             "lift": ~self.box_bottom_collision,
+            "collision": self.box_wall_collision & (not self.scene_box_cfg["colli_reset"]),
         })
 
     def _reset_box_state(self):
@@ -330,11 +334,14 @@ class FrankaLEAPPickSide(FrankaLEAP):
         self.rew_buf[:] = reward_dict["r_total"]
         self.extras["sep_reward/r_hand_obj"] = torch.mean(reward_dict["r_hand_obj"]).item()
         self.extras["sep_reward/r_obj_goal"] = torch.mean(reward_dict["r_obj_goal"]).item()
+        self.extras["sep_reward/r_obj_drag"] = torch.mean(reward_dict["r_obj_drag"]).item()
         self.extras["sep_reward/r_lift"] = torch.mean(reward_dict["r_lift"]).item()
         self.extras["sep_reward/r_curl"] = torch.mean(reward_dict["r_curl"]).item()
+        self.extras["sep_reward/r_colli"] = torch.mean(reward_dict["r_colli"]).item()
         self.extras["dis/d_hand_obj"] = torch.mean(reward_dict["d_hand_obj"]).item()
         self.extras["dis/d_lift"] = torch.mean(reward_dict["d_lift"]).item()
         self.extras["dis/d_eef_point_goal"] = torch.mean(reward_dict["d_eef_point_goal"]).item()
+        self.extras["dis/d_obj_drag"] = torch.mean(reward_dict["d_obj_drag"]).item()
 
         # log metrics
         lifting_5cm_per_step = self.states["lift"]
@@ -346,6 +353,7 @@ class FrankaLEAPPickSide(FrankaLEAP):
         self.extras["metrics/lifting_rate_5cm_per_step"] = torch.mean(lifting_5cm_per_step.float()).item()
         self.extras["metrics/success_rate_5cm_per_ep"] = torch.mean(self.success_flags).item()
         self.extras["metrics/lifting_rate_5cm_per_ep"] = torch.mean(self.lifting_flags).item()
+        self.extras["metrics/collision_rate_per_step"] = torch.mean(self.states["collision"].float()).item()
 
     def set_viewer(self):
         super().set_viewer(
@@ -390,7 +398,12 @@ def compute_franka_leap_reward(states, reward_settings):
     r_obj_goal = torch.exp(-beta_object_goal * d_eef_point_goal)
     r_obj_goal = torch.where(states["lift"], r_obj_goal, 0.0)
 
-    # R4: Finger curl
+    # R4: Drag reward
+    beta_drag = reward_settings["beta_object_drag"]
+    d_obj_drag = torch.norm(states["obj_to_box_center_xy"], dim=1)
+    r_obj_drag = torch.exp(-beta_drag * d_obj_drag)
+
+    # R5: Finger curl
     hand_dof_pos = states["q"][:, 7:] # hand joint angles
     near_object = (d_hand_obj <= reward_settings["curl_reaching_threshold"])
     finger_pos_diff = torch.sum((hand_dof_pos - reward_settings["grasp_finger_dof_pos"]) ** 2, dim=1)
@@ -399,23 +412,29 @@ def compute_franka_leap_reward(states, reward_settings):
     r_curl= torch.exp(-beta_curl * finger_pos_diff)
     r_curl = torch.where(near_object, r_curl, 0.0)
 
+    # R6: Colli Penalty
+    r_colli = torch.where(states["collision"], -1.0, 0.0)
 
     w_hand_obj = reward_settings["w_hand_obj"]
     w_obj_goal = reward_settings["w_obj_goal"]
+    w_obj_drag = reward_settings["w_obj_drag"]
     w_lift = reward_settings["w_lift"]
     w_curl = reward_settings["w_curl"]
 
-    r_total = w_hand_obj*r_hand_obj + w_obj_goal*r_obj_goal + w_lift*r_lift + w_curl*r_curl
+    r_total = w_hand_obj*r_hand_obj + w_obj_goal*r_obj_goal + w_obj_drag*r_obj_drag + w_lift*r_lift + w_curl*r_curl + r_colli
 
     rewards = {
         "r_hand_obj": w_hand_obj*r_hand_obj,
         "r_lift": w_lift*r_lift,
         "r_obj_goal": w_obj_goal*r_obj_goal,
+        "r_obj_drag": w_obj_drag*r_obj_drag,
         "r_curl": w_curl*r_curl,
+        "r_colli": r_colli,
         "r_total": r_total,
         "d_hand_obj": d_hand_obj,
         "d_lift": object_height,
         "d_eef_point_goal": d_eef_point_goal,
+        "d_obj_drag": d_obj_drag,
     }
 
     return rewards

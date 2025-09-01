@@ -31,7 +31,7 @@ env:
   scene:
     safety_box:
       wall_thickness: 0.01
-      size: [[0.2, 0.3, 0.3], [0.3, 0.5, 0.5]] # x, y, z
+      size: [[0.2, 0.25, 0.25], [0.35, 0.5, 0.4]]
       x_shift: 0.7
       z_shift: 0.3
       z: [0.2, 0.7]
@@ -39,7 +39,7 @@ env:
       rot_in: [-0.4, 0.4] # radians
       rot_ex: [-1.5, 1.5] # radians
       obj_wall_tol: 0.03
-      colli_reset: True
+      colli_reset: False
     # if use hdf5 loading
     hdf5_path: "./static_scenes/box_tt_192.hdf5"
     batch_idx: 0
@@ -119,12 +119,14 @@ reward:
   exp:
     beta_hand_object: 5.0
     beta_object_goal: 5.0
+    beta_object_drag: 10.0
     beta_lift: 0.0 # set this to 0 to use a 0-1 lift reward
     beta_curl: 0.05
 
   weights:
     w_hand_obj: 1.0
     w_obj_goal: 4.0
+    w_obj_drag: 0.0 # should fix drag reward later, now its based on xy which doesn't make sense
     w_lift: 2.0
     w_curl: 0.5
 
