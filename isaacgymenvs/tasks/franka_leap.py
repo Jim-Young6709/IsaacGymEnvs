@@ -84,6 +84,7 @@ class FrankaLEAP(VecTask):
         self.ik_regularization_config = self.canonical_joint_config[:, :7]
 
         self.delta_joint_actions = torch.zeros((self.num_envs, self.num_robot_dofs), device=self.device, dtype=torch.float) # Current delta actions to be deployed
+        self.delta_eef_actions = torch.zeros((self.num_envs, self.num_robot_dofs-1), device=self.device, dtype=torch.float) # Current delta actions to be deployed at the end effector
         self.success_flags = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device) # 1 if success condition has been achieved at any step, 0 otherwise
         self.lifting_flags = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device)
 
