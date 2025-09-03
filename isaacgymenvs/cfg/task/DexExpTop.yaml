@@ -126,7 +126,9 @@ reward:
     w_lift: 2.0
     w_curl: 0.5
     w_colli: -1.0
-    w_velreg: -0.001
+    w_actionreg: -0.001
+
+  actionreg_type: "" # "delta_joint_action", "delta_eef_action", "delta_qd"
 
 pcd_spec:
   num_static_points: 2048

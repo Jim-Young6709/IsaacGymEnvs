@@ -124,6 +124,8 @@ class FrankaLEAP(VecTask):
         self._robot_effort_limits = None        # Actuator effort limits for the robot (franka 7 + leap 4*4)
         self._global_indices = None             # Unique indices corresponding to all envs in flattened array
 
+        self._qd_prev = None                    # Previous joint velocities (n_envs, n_dof)
+
         # pcd
         self.static_pcds = []
         self.object_pcds = []
@@ -335,7 +337,7 @@ class FrankaLEAP(VecTask):
             "w_obj_goal": to_torch(self.cfg["reward"]["weights"]["w_obj_goal"], device=self.device),
             "w_lift": to_torch(self.cfg["reward"]["weights"]["w_lift"], device=self.device),
             "w_curl": to_torch(self.cfg["reward"]["weights"]["w_curl"], device=self.device),
-            "w_velreg": to_torch(self.cfg["reward"]["weights"]["w_velreg"], device=self.device),
+            "w_actionreg": to_torch(self.cfg["reward"]["weights"]["w_actionreg"], device=self.device),
         }
 
     def _create_cube(self, pos, size, quat=[0, 0, 0, 1]):
@@ -553,6 +555,8 @@ class FrankaLEAP(VecTask):
         return meshes
 
     def _refresh(self):
+        self._qd_prev = self._qd.clone()
+
         self.gym.refresh_actor_root_state_tensor(self.sim)
         self.gym.refresh_dof_state_tensor(self.sim)
         self.gym.refresh_rigid_body_state_tensor(self.sim)
@@ -596,6 +600,15 @@ class FrankaLEAP(VecTask):
         object_pcds_world = transform_pcds_to_world(self.object_pcds, self._object_state[:, :7])
         self.combined_pcds[:, self.pcd_spec_dict["num_object_points"]:] = object_pcds_world
 
+        if self.cfg["reward"]["actionreg_type"] == "delta_joint_action":
+            actionreg = self.actions
+        elif self.cfg["reward"]["actionreg_type"] == "delta_eef_action":
+            actionreg = self.eef_actions
+        elif self.cfg["reward"]["actionreg_type"] == "delta_qd":
+            actionreg = self._qd - self._qd_prev
+        else:
+            actionreg = torch.zeros_like(self._qd)
+
         # update states
         self.states.update({
             # Robot
@@ -629,6 +642,9 @@ class FrankaLEAP(VecTask):
             "target_to_eef": self.reward_settings["target_pos"] - self._eef_state[:, :3],
             "target_to_eef_rot_6d": target_to_eef_rot_6d,
             "point_matching_err": point_matching_err,
+
+            # recorded actions
+            "actionreg": actionreg,
         })
 
     def _get_eef_point_matching_err(self, curent_eef_pos7: torch.Tensor, target_eef_pos7: torch.Tensor):
@@ -1100,6 +1116,7 @@ class FrankaLEAP(VecTask):
             actions (torch.Tensor): normalized delta joint angles (num_selected_envs, 7+4*4)
         """
         if self.eef_actions:
+            self.eef_actions = actions.clone()
             pos_actions = actions[:, 0:3] * self.action_scale["eef_pos"]
             ctrl_target_eef_pos = self.states['eef_pos'] + pos_actions
 

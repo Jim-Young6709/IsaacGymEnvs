@@ -338,7 +338,7 @@ class FrankaLEAPPickTop(FrankaLEAP):
         self.extras["sep_reward/r_lift"] = torch.mean(reward_dict["r_lift"]).item()
         self.extras["sep_reward/r_curl"] = torch.mean(reward_dict["r_curl"]).item()
         self.extras["sep_reward/r_colli"] = torch.mean(reward_dict["r_colli"]).item()
-        self.extras["sep_reward/r_velreg"] = torch.mean(reward_dict["r_velreg"]).item()
+        self.extras["sep_reward/r_actionreg"] = torch.mean(reward_dict["r_actionreg"]).item()
         self.extras["dis/d_hand_obj"] = torch.mean(reward_dict["d_hand_obj"]).item()
         self.extras["dis/d_lift"] = torch.mean(reward_dict["d_lift"]).item()
         self.extras["dis/d_eef_point_goal"] = torch.mean(reward_dict["d_eef_point_goal"]).item()
@@ -418,8 +418,8 @@ def compute_franka_leap_reward(states, reward_settings):
     r_colli = torch.where(states["collision"], 1.0, 0.0)
 
     # R7: Velocity Regularization/Penalty
-    q_vel = states["qd"]
-    r_velreg = torch.sum(q_vel**2, dim=-1)
+    actionreg = states["actionreg"]
+    r_actionreg = torch.sum(actionreg**2, dim=-1)
 
     w_hand_obj = reward_settings["w_hand_obj"]
     w_obj_goal = reward_settings["w_obj_goal"]
@@ -427,11 +427,11 @@ def compute_franka_leap_reward(states, reward_settings):
     w_lift = reward_settings["w_lift"]
     w_curl = reward_settings["w_curl"]
     w_colli = reward_settings["w_colli"]
-    w_velreg = reward_settings["w_velreg"]
+    w_actionreg = reward_settings["w_actionreg"]
 
     r_total = w_hand_obj*r_hand_obj + w_obj_goal*r_obj_goal + \
               w_obj_drag*r_obj_drag + w_lift*r_lift + w_curl*r_curl + \
-              w_colli*r_colli + w_velreg*r_velreg
+              w_colli*r_colli + w_actionreg*r_actionreg
 
     rewards = {
         "r_hand_obj": w_hand_obj*r_hand_obj,
@@ -440,7 +440,7 @@ def compute_franka_leap_reward(states, reward_settings):
         "r_obj_drag": w_obj_drag*r_obj_drag,
         "r_curl": w_curl*r_curl,
         "r_colli": w_colli*r_colli,
-        "r_velreg": w_velreg*r_velreg,
+        "r_actionreg": w_actionreg*r_actionreg,
         "r_total": r_total,
         "d_hand_obj": d_hand_obj,
         "d_lift": object_height,
