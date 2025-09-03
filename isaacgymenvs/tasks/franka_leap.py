@@ -83,7 +83,7 @@ class FrankaLEAP(VecTask):
             ).to(self.device)
         self.ik_regularization_config = self.canonical_joint_config[:, :7]
 
-        self.actions = torch.zeros((self.num_envs, self.num_robot_dofs), device=self.device, dtype=torch.float) # Current delta actions to be deployed
+        self.delta_joint_actions = torch.zeros((self.num_envs, self.num_robot_dofs), device=self.device, dtype=torch.float) # Current delta actions to be deployed
         self.success_flags = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device) # 1 if success condition has been achieved at any step, 0 otherwise
         self.lifting_flags = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device)
 
@@ -601,9 +601,9 @@ class FrankaLEAP(VecTask):
         self.combined_pcds[:, self.pcd_spec_dict["num_object_points"]:] = object_pcds_world
 
         if self.cfg["reward"]["actionreg_type"] == "delta_joint_action":
-            actionreg = self.actions
+            actionreg = self.delta_joint_actions
         elif self.cfg["reward"]["actionreg_type"] == "delta_eef_action":
-            actionreg = self.eef_actions
+            actionreg = self.delta_eef_actions
         elif self.cfg["reward"]["actionreg_type"] == "delta_qd":
             actionreg = self._qd - self._qd_prev
         else:
@@ -1116,7 +1116,7 @@ class FrankaLEAP(VecTask):
             actions (torch.Tensor): normalized delta joint angles (num_selected_envs, 7+4*4)
         """
         if self.eef_actions:
-            self.eef_actions = actions.clone()
+            self.delta_eef_actions = actions.clone()
             pos_actions = actions[:, 0:3] * self.action_scale["eef_pos"]
             ctrl_target_eef_pos = self.states['eef_pos'] + pos_actions
 
@@ -1155,10 +1155,10 @@ class FrankaLEAP(VecTask):
             delta_arm_joint_actions_unnormalized = self.unnormalize_robot_joints(arm_actions, robot="arm", delta=True)
             delta_hand_joint_actions_unnormalized = self.unnormalize_robot_joints(hand_actions, robot="hand", delta=True)
 
-        self.actions[:, :7] = delta_arm_joint_actions_unnormalized
-        self.actions[:, 7:] = delta_hand_joint_actions_unnormalized
+        self.delta_joint_actions[:, :7] = delta_arm_joint_actions_unnormalized
+        self.delta_joint_actions[:, 7:] = delta_hand_joint_actions_unnormalized
 
-        abs_actions = self.states['q'] + self.actions # need to really make sure states['q'] is always up to date
+        abs_actions = self.states['q'] + self.delta_joint_actions # need to really make sure states['q'] is always up to date
         abs_actions = tensor_clamp(
             abs_actions, self.robot_dof_lower_limits, self.robot_dof_upper_limits
         )
