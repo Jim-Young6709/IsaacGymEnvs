@@ -46,6 +46,9 @@ class FrankaLEAP(VecTask):
         self.video_dir = os.path.join('videos', self.cfg["name"] + '_{date:%d-%H-%M-%S}'.format(date=datetime.now()))
         os.makedirs(self.video_dir, exist_ok=True)
 
+        self.randomize = self.cfg["task"]["randomize"]
+        self.randomization_params = self.cfg["task"]["randomization_params"]
+
         # Controller type
         self.control_type = self.cfg["env"]["controlType"]
         assert self.control_type == "joint_position", "currently only support joint position control"
@@ -175,6 +178,10 @@ class FrankaLEAP(VecTask):
         self._create_ground_plane()
         self._create_envs(self.cfg["env"]['envSpacing'], int(np.sqrt(self.num_envs)))
 
+        # Domain randomization, apply once immediately on startup before the fist sim step
+        if self.randomize:
+            self.apply_randomizations(self.randomization_params)
+
     def _create_ground_plane(self):
         plane_params = gymapi.PlaneParams()
         plane_params.normal = gymapi.Vec3(0.0, 0.0, 1.0)
@@ -244,7 +251,7 @@ class FrankaLEAP(VecTask):
 
     def init_data(self, actor_num):
         # Setup sim handles
-        env_ptr = self.env_ptrs[0]
+        env_ptr = self.envs[0]
         robot_handle = 0
         self.handles = {
             # FrankaLEAP
@@ -961,7 +968,7 @@ class FrankaLEAP(VecTask):
                 self.obs_camera_handles.append([])
                 # global
                 camera_handle = self.gym.create_camera_sensor(
-                    self.env_ptrs[i], camera_props
+                    self.envs[i], camera_props
                 )
                 if camera_handle == -1:
                     print(f"Failed to create camera sensor for env {i}")
@@ -970,7 +977,7 @@ class FrankaLEAP(VecTask):
                 camera_position = gymapi.Vec3(pos[0], pos[1], pos[2])
                 camera_target = gymapi.Vec3(target[0], target[1], target[2])
                 self.gym.set_camera_location(
-                    camera_handle, self.env_ptrs[i], camera_position, camera_target
+                    camera_handle, self.envs[i], camera_position, camera_target
                 )
                 self.camera_handles[i].append(camera_handle)
 
@@ -994,7 +1001,7 @@ class FrankaLEAP(VecTask):
 
             camera_handle = self.camera_handles[env_id][0]
             camera_image = self.gym.get_camera_image(
-                self.sim, self.env_ptrs[env_id], camera_handle, gymapi.IMAGE_COLOR
+                self.sim, self.envs[env_id], camera_handle, gymapi.IMAGE_COLOR
             )
             shape = camera_image.shape
             camera_image = camera_image.reshape(shape[0], -1, 4)
@@ -1084,13 +1091,17 @@ class FrankaLEAP(VecTask):
             # Add lines to viewer
             self.gym.add_lines(
                 self.viewer,
-                self.env_ptrs[i],
+                self.envs[i],
                 num_points,     # num_lines = num points
                 verts_flat,     # flat list of start/end points
                 colors_flat     # flat list of RGB triples
             )
 
     def reset_idx(self, env_ids=None):
+        # Domain randomization, can happen only at reset time since it can reset actor positions on GPU
+        if self.randomize:
+            self.apply_randomizations(self.randomization_params)
+
         if env_ids is None:
             env_ids = torch.arange(self.num_envs, device=self.device)
 
@@ -1185,6 +1196,7 @@ class FrankaLEAP(VecTask):
         self.table_surface_height = ...
         self.mesh_aabb_extents = ...
         self.obj_pos_range = ...
+        self.envs = ...
 
     @abstractmethod
     def compute_reward(self):

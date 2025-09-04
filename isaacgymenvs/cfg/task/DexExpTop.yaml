@@ -171,8 +171,8 @@ task:
         # schedule: "linear"  # "linear" will linearly interpolate between no rand and max rand
         # schedule_steps: 40000
     actor_params:
-      robot:
-        color: True
+      franka:
+        # color: True
         dof_properties:
           damping:
             range: [0.3, 3.0]
@@ -207,7 +207,7 @@ task:
             # schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
             # schedule_steps: 30000
       object:
-        color: True
+        # color: True
         scale:
           range: [0.95, 1.05]
           operation: "scaling"
@@ -231,8 +231,8 @@ task:
             distribution: "uniform"
             # schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
             # schedule_steps: 30000
-      table:
-        color: True
+      box_wall0: # bottom wall of the box region
+        # color: True
         rigid_shape_properties:
           friction:
             num_buckets: 250
@@ -241,19 +241,3 @@ task:
             distribution: "uniform"
             # schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
             # schedule_steps: 30000
-    misc:
-      lights:
-        frequency: 4
-        focus_intensity: [[0., 0., 0.], [1., 1., 1.], [1., 0.7, 0.7], [0.7, 1., 0.7], [0.7, 0.7, 1.]]
-        ambient_intensity: [[0.3, 0.3, 0.3], [1., 1., 1.], [1., 0.7, 0.7], [0.7, 1., 0.7], [0.7, 0.7, 1.]]
-        theta: [0., 6.28]
-        phi: [-3.14, 0.]
-        focus_intensity_scale: 0.7
-        ambient_intensity_scale: 0.7
-      camera:
-        pos_sd: 0.015   # 1.5 cm
-        theta_sd: 5     # 5 degrees
-        phi_sd: 5       # 5 degrees
-        roll_sd: 5      # 5 degrees
-        fov_sd: 5       # 5 degrees
-        crop_shift: 10

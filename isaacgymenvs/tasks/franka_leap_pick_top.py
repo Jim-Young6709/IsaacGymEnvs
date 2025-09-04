@@ -90,7 +90,7 @@ class FrankaLEAPPickTop(FrankaLEAP):
 
         self.robots = []
         self.objects = []
-        self.env_ptrs = []
+        self.envs = []
         self._object_center_init_state = torch.zeros((self.num_envs, 3), device=self.device)
 
         # load all meshes first
@@ -148,7 +148,7 @@ class FrankaLEAPPickTop(FrankaLEAP):
                 self.gym.end_aggregate(env_ptr)
 
             # Store the created env pointers
-            self.env_ptrs.append(env_ptr)
+            self.envs.append(env_ptr)
             self.robots.append(robot_actor)
             self.objects.append(self._object_id)
 
