@@ -8,11 +8,12 @@ import hydra
 import isaacgym
 import numpy as np
 import torch
-from isaacgym.torch_utils import *
 from isaacgym import gymapi
+from isaacgym.torch_utils import *
+from isaacgymenvs.utils.pcd_utils import *
+from isaacgymenvs.utils.rotation_conversions import *
 from isaacgymenvs.tasks import FrankaLEAP
 from isaacgymenvs.utils.reformat import omegaconf_to_dict
-from isaacgymenvs.utils.pcd_utils import *
 from omegaconf import DictConfig
 from tqdm import tqdm
 
@@ -43,8 +44,6 @@ class FrankaLEAPPickTable(FrankaLEAP):
         self.cuboid_pos = []
         self.cuboid_quats = []
 
-        self.capsule_dims = []  # r, l
-        self.sphere_radii = []  # r
         self.mesh_aabb_extents = None  # xyz, axis-aligned bounding box full extents
 
         # setup robot (franka + leap)
@@ -53,13 +52,6 @@ class FrankaLEAPPickTable(FrankaLEAP):
         robot_start_pose = gymapi.Transform()
         robot_start_pose.p = gymapi.Vec3(0.0, 0.0, 0.0) # make sure robot spawns at the origin, this matches the IK setting with cuRobo
         robot_start_pose.r = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
-
-        # setup table
-        table_asset, table_start_pose = self._create_cube(
-            pos=[0.5, 0.0, -table_thickness/2],
-            size=[0.7, 1.2, table_thickness],
-        )
-        self.table_surface_height = torch.tensor([table_start_pose.p.z + table_thickness / 2] * self.num_envs, device=self.device)
 
         obj_xyz_range = self.cfg["env"]["object_settings"]["xyz_range"]
         self.obj_pos_range = torch.zeros((self.num_envs, 4), device=self.device) # x-min, x-max, y-min, y-max
@@ -76,7 +68,7 @@ class FrankaLEAPPickTable(FrankaLEAP):
 
         self.robots = []
         self.objects = []
-        self.env_ptrs = []
+        self.envs = []
         self._object_center_init_state = torch.zeros((self.num_envs, 3), device=self.device)
 
         # load all meshes first
@@ -105,6 +97,11 @@ class FrankaLEAPPickTable(FrankaLEAP):
                 self.gym.begin_aggregate(env_ptr, max_agg_bodies, max_agg_shapes, True)
 
             # Create table
+            # setup table
+            table_asset, table_start_pose = self._create_cube(
+                pos=[0.5, 0.0, -table_thickness/2],
+                size=[0.7, 1.2, table_thickness],
+            )
             self.gym.create_actor(
                 env_ptr, table_asset, table_start_pose, "table", i, 1, 0
             )
@@ -122,7 +119,7 @@ class FrankaLEAPPickTable(FrankaLEAP):
                 self.gym.end_aggregate(env_ptr)
 
             # Store the created env pointers
-            self.env_ptrs.append(env_ptr)
+            self.envs.append(env_ptr)
             self.robots.append(robot_actor)
             self.objects.append(self._object_id)
 
@@ -147,9 +144,15 @@ class FrankaLEAPPickTable(FrankaLEAP):
             )).to(self.device)
             self.object_pcds.append(object_pcd_i)
 
-        self.cuboid_dims = torch.tensor(self.cuboid_dims, device=self.device)  # (num_envs, 3)
-        self.capsule_dims = torch.tensor(self.capsule_dims, device=self.device)  # (num_envs, 2)
-        self.sphere_radii = torch.tensor(self.sphere_radii, device=self.device)
+        self.cuboid_dims = np.array(self.cuboid_dims).reshape(self.num_envs, -1, 3)
+        self.cuboid_pos = np.array(self.cuboid_pos).reshape(self.num_envs, -1, 3)
+        self.cuboid_quats = np.array(self.cuboid_quats).reshape(self.num_envs, -1, 4)
+
+        self.table_surface_height = torch.tensor([table_start_pose.p.z + table_thickness / 2] * self.num_envs, device=self.device)
+
+        self.cuboid_dims = torch.from_numpy(self.cuboid_dims).to(self.device)
+        self.cuboid_pos = torch.from_numpy(self.cuboid_pos).to(self.device)
+        self.cuboid_quats = torch.from_numpy(self.cuboid_quats).to(self.device)
 
         self.static_pcds = torch.stack(self.static_pcds, dim=0).to(self.device).to(torch.float32) # (num_envs, num_points, 3)
         self.object_pcds = torch.stack(self.object_pcds, dim=0).to(self.device).to(torch.float32)
@@ -214,6 +217,7 @@ class FrankaLEAPPickTable(FrankaLEAP):
         self.extras["sep_reward/r_obj_goal"] = torch.mean(reward_dict["r_obj_goal"]).item()
         self.extras["sep_reward/r_lift"] = torch.mean(reward_dict["r_lift"]).item()
         self.extras["sep_reward/r_curl"] = torch.mean(reward_dict["r_curl"]).item()
+        self.extras["sep_reward/r_actionreg"] = torch.mean(reward_dict["r_actionreg"]).item()
         self.extras["dis/d_hand_obj"] = torch.mean(reward_dict["d_hand_obj"]).item()
         self.extras["dis/d_lift"] = torch.mean(reward_dict["d_lift"]).item()
         self.extras["dis/d_eef_point_goal"] = torch.mean(reward_dict["d_eef_point_goal"]).item()
@@ -274,19 +278,25 @@ def compute_franka_leap_reward(states, reward_settings):
     r_curl= torch.exp(-beta_curl * finger_pos_diff)
     r_curl = torch.where(near_object, r_curl, 0.0)
 
+    # R5: Velocity Regularization/Penalty
+    actionreg = states["actionreg"]
+    r_actionreg = torch.sum(actionreg**2, dim=-1)
 
     w_hand_obj = reward_settings["w_hand_obj"]
     w_obj_goal = reward_settings["w_obj_goal"]
     w_lift = reward_settings["w_lift"]
     w_curl = reward_settings["w_curl"]
+    w_actionreg = reward_settings["w_actionreg"]
 
-    r_total = w_hand_obj*r_hand_obj + w_obj_goal*r_obj_goal + w_lift*r_lift + w_curl*r_curl
+    r_total = w_hand_obj*r_hand_obj + w_obj_goal*r_obj_goal + \
+              w_lift*r_lift + w_curl*r_curl + w_actionreg*r_actionreg
 
     rewards = {
         "r_hand_obj": w_hand_obj*r_hand_obj,
         "r_lift": w_lift*r_lift,
         "r_obj_goal": w_obj_goal*r_obj_goal,
         "r_curl": w_curl*r_curl,
+        "r_actionreg": w_actionreg*r_actionreg,
         "r_total": r_total,
         "d_hand_obj": d_hand_obj,
         "d_lift": object_height,
@@ -314,6 +324,7 @@ def launch_test(cfg: DictConfig):
     for i in tqdm(range(1000)):
         t1 = time.time()
         env.reset_idx()
+        # env.set_robot_joint_state(env.canonical_joint_config)
         # env.set_robot_joint_state(env.canonical_grasp_config)
         env.step_sim_multi(1, False)
         env.compute_observations()

@@ -8,7 +8,7 @@ import hydra
 import isaacgym
 import numpy as np
 import torch
-from isaacgym import gymapi, gymtorch
+from isaacgym import gymapi
 from isaacgym.torch_utils import *
 from isaacgymenvs.utils.pcd_utils import *
 from isaacgymenvs.utils.rotation_conversions import *
