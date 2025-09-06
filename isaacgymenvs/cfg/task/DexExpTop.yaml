@@ -156,21 +156,21 @@ task:
       operation: "additive"
       distribution: "gaussian"
       schedule: "linear"   # "constant" is to turn on noise after `schedule_steps` num steps
-      schedule_steps: ${schedule_steps_default}
+      schedule_steps: ${..schedule_steps_default}
     actions:
       range: [0., .05]
       range_correlated: [0, .015] # range for correlated noise, refreshed with freq `frequency`
       operation: "additive"
       distribution: "gaussian"
       schedule: "linear"  # "linear" will linearly interpolate between no rand and max rand
-      schedule_steps: ${schedule_steps_default}
+      schedule_steps: ${..schedule_steps_default}
     sim_params:
       gravity:
         range: [0, 0.4]
         operation: "additive"
         distribution: "gaussian"
         schedule: "linear"  # "linear" will linearly interpolate between no rand and max rand
-        schedule_steps: ${schedule_steps_default}
+        schedule_steps: ${...schedule_steps_default}
     actor_params:
       franka:
         # color: True
@@ -180,25 +180,25 @@ task:
             operation: "scaling"
             distribution: "loguniform"
             schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
-            schedule_steps: ${schedule_steps_default}
+            schedule_steps: ${.....schedule_steps_default}
           stiffness:
             range: [0.75, 1.5]
             operation: "scaling"
             distribution: "loguniform"
             schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
-            schedule_steps: ${schedule_steps_default}
+            schedule_steps: ${.....schedule_steps_default}
           lower:
             range: [0, 0.01]
             operation: "additive"
             distribution: "gaussian"
             schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
-            schedule_steps: ${schedule_steps_default}
+            schedule_steps: ${.....schedule_steps_default}
           upper:
             range: [0, 0.01]
             operation: "additive"
             distribution: "gaussian"
             schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
-            schedule_steps: ${schedule_steps_default}
+            schedule_steps: ${.....schedule_steps_default}
         rigid_shape_properties:
           friction:
             num_buckets: 250
@@ -206,7 +206,7 @@ task:
             operation: "scaling"
             distribution: "uniform"
             schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
-            schedule_steps: ${schedule_steps_default}
+            schedule_steps: ${.....schedule_steps_default}
       object:
         # color: True
         scale:
@@ -215,7 +215,7 @@ task:
           distribution: "uniform"
           setup_only: True # Property will only be randomized once before simulation is started. See Domain Randomization Documentation for more info.
           schedule: "linear"  # "linear" will scale the current random sample by ``min(current num steps, schedule_steps) / schedule_steps`
-          schedule_steps: ${schedule_steps_default}
+          schedule_steps: ${....schedule_steps_default}
         rigid_body_properties:
           mass:
             range: [0.8, 1.2]
@@ -223,7 +223,7 @@ task:
             distribution: "uniform"
             setup_only: True # Property will only be randomized once before simulation is started. See Domain Randomization Documentation for more info.
             schedule: "linear"  # "linear" will scale the current random sample by ``min(current num steps, schedule_steps) / schedule_steps`
-            schedule_steps: ${schedule_steps_default}
+            schedule_steps: ${.....schedule_steps_default}
         rigid_shape_properties:
           friction:
             num_buckets: 250
@@ -231,7 +231,7 @@ task:
             operation: "scaling"
             distribution: "uniform"
             schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
-            schedule_steps: ${schedule_steps_default}
+            schedule_steps: ${.....schedule_steps_default}
       box_wall0: # bottom wall of the box region
         # color: True
         rigid_shape_properties:
@@ -241,4 +241,4 @@ task:
             operation: "scaling"
             distribution: "uniform"
             schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
-            schedule_steps: ${schedule_steps_default}
+            schedule_steps: ${.....schedule_steps_default}
