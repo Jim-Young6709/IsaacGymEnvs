@@ -150,7 +150,7 @@ task:
   randomize: False
   randomization_params:
     frequency: 720   # Define how many simulation steps between generating new randomizations
-    schedule_steps_default: 1000000
+    schedule_steps_default: 200000
     observations:
       range: [0, .002] # range for the white noise
       range_correlated: [0, .001] # range for correlated noise, refreshed with freq `frequency`
