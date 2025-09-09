@@ -1,4 +1,4 @@
-# TODO (Jim): cleanup
+
 name: FrankaLEAPPickTable
 
 physics_engine: ${..physics_engine}
@@ -17,9 +17,9 @@ env:
 
   actionScale:
     hand: 0.05
-    arm: 0.01 # joint angle
-    eef_pos: 0.01
-    eef_rot: 0.01 # axis-angle rotation
+    arm: 0.03 # joint angle
+    eef_pos: 0.03
+    eef_rot: 0.03 # axis-angle rotation
 
   controlType: joint_position  # options are {joint_position, osc}
   controlFrequencyInv: 1
