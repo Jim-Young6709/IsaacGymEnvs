@@ -26,7 +26,8 @@ env:
 
   asset:
     assetRoot: "../../assets"
-    assetFileNameFranka: "urdf/franka_hand/robots/franka_leap_right.urdf"
+    # assetFileNameFranka: "urdf/franka_hand/robots/franka_leap_right.urdf"
+    assetFileNameFranka: "urdf/franka_hand/robots/franka_leap_right2_short_fingertips.urdf"
 
   scene:
     safety_box:
