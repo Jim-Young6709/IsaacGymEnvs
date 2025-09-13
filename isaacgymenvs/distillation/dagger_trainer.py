@@ -3,6 +3,10 @@ import isaacgymenvs, gym
 from datetime import datetime
 
 import torch
+import torch.optim as optim
+from hydra.utils import instantiate
+from nmp.training.train_utils import get_cosine_schedule_with_warmup
+
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.cuda.amp import GradScaler
@@ -78,9 +82,22 @@ class Dagger:
         self.teacher_network = self.load_networks(self.teacher_network_params)
         self.teacher_model = self.teacher_network.build(self.teacher_model_config).to(self.device)
         self.set_weights(self.cfg["teacher"]["ckpt"])
-        import ipdb ; ipdb.set_trace()
 
         # load student network
+        self.model = instantiate(self.cfg.model)
+        self.optimizer = optim.AdamW(
+            self.model.parameters(),
+            lr=self.cfg.dagger.learning_rate,
+            weight_decay=self.cfg.dagger.weight_decay,
+        )
+
+        self.scheduler = get_cosine_schedule_with_warmup(
+            self.optimizer,
+            num_warmup_steps=self.cfg.dagger.warmup_episodes * self.cfg.dagger.steps_per_episode,
+            num_training_steps=self.cfg.dagger.total_episodes * self.cfg.dagger.steps_per_episode
+        )
+
+        import ipdb ; ipdb.set_trace()
         # dagger
         #  step
         #  gradient update

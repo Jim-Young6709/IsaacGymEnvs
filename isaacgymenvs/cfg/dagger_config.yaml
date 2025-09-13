@@ -62,10 +62,35 @@ teacher:
   cfg: ../cfg/train/DexExpTablePPO.yaml
   ckpt: ./ckpts/exp_table.pth
 
+dagger:
+  batch_size: 500
+  total_episodes: 1000
+  steps_per_episode: ${task.env.episodeLength}
+  save_freq: 1
+  eval_freq: 1
+
+  learning_rate: 0.001
+  weight_decay: 0.01
+  warmup_episodes: 1
+
+  device: "cuda:0"
+
+  reaching_reset_threshold: 10
+  action_chunk_idx: 0
+
+  freeze_base_model: True
+
+normalize_state: True
+normalize_action: True
+action_space: "relative" # "absolute", "delta", "relative"
+chunk_size: 20
+
+
 # set default task and default training config based on task
 defaults:
   - task: Ant
   - train: ${task}PPO
+  - model: transformer
   - pbt: no_pbt
   - override hydra/job_logging: disabled
   - _self_
