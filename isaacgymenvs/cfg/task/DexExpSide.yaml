@@ -132,8 +132,8 @@ reward:
     w_curl: 0.5
 
 pcd_spec:
-  num_static_points: 2048
-  num_object_points: 2048
+  num_static_points: 1536
+  num_object_points: 512
   debug: False
 
   # TODO: cleanup

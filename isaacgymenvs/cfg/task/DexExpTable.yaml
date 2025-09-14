@@ -119,8 +119,8 @@ reward:
   actionreg_type: "" # "delta_joint_action", "delta_eef_action", "delta_qd"
 
 pcd_spec:
-  num_static_points: 2048
-  num_object_points: 2048
+  num_static_points: 1536
+  num_object_points: 512
   debug: False
 
   # TODO: cleanup
