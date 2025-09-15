@@ -5,6 +5,7 @@ from nmp.utils.pcd_utils import sample_points_fps
 from pointnet2_ops.pointnet2_modules import PointnetSAModule
 import copy
 
+
 def strip_prefix_from_state_dict(state_dict, prefix=None):
     """
     Strips a common prefix from all state dict keys that might be added during torch.compile.
@@ -25,6 +26,7 @@ def strip_prefix_from_state_dict(state_dict, prefix=None):
     if prefix:
         return {k[len(prefix):] if k.startswith(prefix) else k: v for k, v in state_dict.items()}
     return state_dict
+
 class PointNetEncoder(nn.Module):
     def __init__(self, output_dim, num_output_tokens, dropout=0):
         super().__init__()
@@ -49,7 +51,7 @@ class PointNetEncoder(nn.Module):
         xyz, features = self.SA_module(xyz, features)
         features = features.transpose(1, 2).contiguous()
         return self.fc_layer(features)
-    
+
 class MLPEncoder(nn.Module):
     def __init__(self, output_dim, num_output_tokens, dropout=0):
         super().__init__()
@@ -60,7 +62,7 @@ class MLPEncoder(nn.Module):
             nn.Dropout(dropout),
             nn.Linear(output_dim*2, output_dim)
         )
-        
+
     def forward(self, points):
         if points.shape[1] > self.num_output_tokens:
             points = sample_points_fps(points, points, self.num_output_tokens)
@@ -81,7 +83,7 @@ class StateEncoder(nn.Module):
             prev_dim = dim
         layers.append(nn.Linear(prev_dim, output_dim))
         self.net = nn.Sequential(*layers)
-        
+
     def forward(self, x):
         return self.net(x)
 
@@ -191,15 +193,15 @@ class PCDTransformer(BaseModel):
     
     def forward(self, obs, target=None, action_chunk_idx=None):
         # Get inputs
-        obs = copy.deepcopy(obs)
-        obs = self.normalize_state(obs)
-        obs_dict = {}
-        for key in obs.keys():
-            obs_dict[key] = obs[key][:,-1]
-        
-        obs_dict["delta_angles"] = obs_dict["goal_angles"] - obs_dict["current_angles"]  # (B, 7)
+        obs_dict = copy.deepcopy(obs)
+        # obs = self.normalize_state(obs)
+        # obs_dict = {}
+        # for key in obs.keys():
+        #     obs_dict[key] = obs[key][:,-1]
+
         B = obs_dict["scene_pcd"].shape[0]
-        
+
+        # import ipdb ; ipdb.set_trace()
         obs_tokens = []
         for key in self.encoders.keys():
             tokens = self.encoders[key](obs_dict[key])
@@ -225,7 +227,7 @@ class PCDTransformer(BaseModel):
             return torch.nn.functional.mse_loss(pred, target)
         else:
             return torch.nn.functional.mse_loss(pred[:, action_chunk_idx], target)
-    
+
     def forward_pass(self, obs, target):
         # This method is kept for backward compatibility
         # but now just calls forward with the target

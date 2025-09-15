@@ -20,10 +20,10 @@ pcd_encoders_cfg:
     type: "pointnet"  # Options: ["mlp", "pointnet"]
     num_output_tokens: 128  # Number of tokens for scene point cloud
     use_pcd: true
-  robot_pcd:
-    type: "pointnet"  # Options: ["mlp", "pointnet"]
-    num_output_tokens: 16  # Number of tokens for robot point cloud
-    use_pcd: true
+  # robot_pcd:
+  #   type: "pointnet"  # Options: ["mlp", "pointnet"]
+  #   num_output_tokens: 16  # Number of tokens for robot point cloud
+  #   use_pcd: true
   # target_pcd:
   #   type: "pointnet"  # Options: ["mlp", "pointnet"]
   #   num_output_tokens: 16  # Number of tokens for target point cloud
@@ -31,21 +31,26 @@ pcd_encoders_cfg:
 
 # State encoders (MLP parameters)
 state_encoders_cfg:
-  current_angles:
-    input_dim: 7
+  q_hand:
+    input_dim: 16
     hidden_dims: [128, 256]
     dropout: 0
     use_state: true
-  goal_angles:
-    input_dim: 7
-    hidden_dims: [128, 256]
-    dropout: 0
-    use_state: true
-  delta_angles:
-    input_dim: 7
-    hidden_dims: [128, 256]
-    dropout: 0
-    use_state: true
+  # current_angles:
+  #   input_dim: 7
+  #   hidden_dims: [128, 256]
+  #   dropout: 0
+  #   use_state: true
+  # goal_angles:
+  #   input_dim: 7
+  #   hidden_dims: [128, 256]
+  #   dropout: 0
+  #   use_state: true
+  # delta_angles:
+  #   input_dim: 7
+  #   hidden_dims: [128, 256]
+  #   dropout: 0
+  #   use_state: true
 
 # Transformer parameters
 transformer_cfg:

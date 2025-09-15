@@ -1,11 +1,15 @@
 import isaacgym
 import isaacgymenvs, gym
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import torch
 import torch.optim as optim
 from hydra.utils import instantiate
 from nmp.training.train_utils import get_cosine_schedule_with_warmup
+from nmp.utils.visualization_utils import colorprint, make_video
+from tqdm import tqdm
+from collections import OrderedDict
+import copy
 
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -29,21 +33,27 @@ import wandb
 
 from typing import Dict
 from isaacgymenvs.utils.common_utils import set_seed_and_precision
+from isaacgymenvs.tasks import FrankaLEAP
 
 
 class Dagger:
     def __init__(self, cfg):
+        # load configs
         self.cfg = cfg
+        self.multi_gpu = cfg.multi_gpu
+        self.total_episodes = cfg.dagger.total_episodes
+        self.steps_per_episode = cfg.dagger.steps_per_episode
+        self.warmup_episodes = cfg.dagger.warmup_episodes
         self.device = cfg['sim_device']
         set_seed_and_precision(42)
         # load env
         time_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         run_name = f"{cfg.wandb_name}_{time_str}"
-        def create_isaacgym_env(**kwargs):
+        def create_isaacgym_env(**kwargs) -> FrankaLEAP:
             envs = isaacgymenvs.make(
-                cfg.seed, 
-                cfg.task_name, 
-                cfg.task.env.numEnvs, 
+                cfg.seed,
+                cfg.task_name,
+                cfg.task.env.numEnvs,
                 cfg.sim_device,
                 cfg.rl_device,
                 cfg.graphics_device_id,
@@ -82,25 +92,41 @@ class Dagger:
         self.teacher_network = self.load_networks(self.teacher_network_params)
         self.teacher_model = self.teacher_network.build(self.teacher_model_config).to(self.device)
         self.set_weights(self.cfg["teacher"]["ckpt"])
+        self.teacher_model.eval()
+        self.is_teacher_rnn = self.teacher_model.is_rnn()
 
         # load student network
-        self.model = instantiate(self.cfg.model)
+        self.student_model = instantiate(self.cfg.model).to(self.device)
         self.optimizer = optim.AdamW(
-            self.model.parameters(),
+            self.student_model.parameters(),
             lr=self.cfg.dagger.learning_rate,
             weight_decay=self.cfg.dagger.weight_decay,
         )
 
         self.scheduler = get_cosine_schedule_with_warmup(
             self.optimizer,
-            num_warmup_steps=self.cfg.dagger.warmup_episodes * self.cfg.dagger.steps_per_episode,
-            num_training_steps=self.cfg.dagger.total_episodes * self.cfg.dagger.steps_per_episode
+            num_warmup_steps=self.warmup_episodes * self.steps_per_episode,
+            num_training_steps=self.total_episodes * self.steps_per_episode
         )
 
-        import ipdb ; ipdb.set_trace()
         # dagger
-        #  step
-        #  gradient update
+        self.episode = 0
+        self.total_steps = 0
+        self.batch_idx = 0
+
+        if self.multi_gpu:
+            self.local_rank = int(os.getenv("LOCAL_RANK", "0"))
+            self.global_rank = int(os.getenv("RANK", "0"))
+            self.world_size = int(os.getenv("WORLD_SIZE", "1"))   
+            
+            self.device = f"cuda:{self.local_rank}"
+            torch.cuda.set_device(self.local_rank)
+            
+            self.use_wandb = (self.cfg.wandb_activate and self.global_rank == 0)
+            
+            self.student_model = self.student_model.to(self.device)
+            self.base_model = self.base_model.to(self.device)
+            self.student_model = DDP(self.student_model, device_ids=[self.local_rank], static_graph=True, find_unused_parameters=True)
 
     # TODO: teacher loading utils, shall I just simply merge them?
     def load_param_dict(self, cfg_path) -> Dict:
@@ -124,10 +150,192 @@ class Dagger:
         if self.normalize_input and 'running_mean_std' in weights:
             model.running_mean_std.load_state_dict(weights["running_mean_std"])
 
+    def preprocess_inputs(self, obs):
+        # TODO: rotate pcd here
+        obs_input = copy.deepcopy(obs)
+        obs_input["scene_pcd"] = obs_input["scene_pcd"][..., :3]
+        obs_input["robot_pcd"] = obs_input["scene_pcd"][:, :256, :3]
+        return obs
 
+    def decode_actions(self, current_angles, actions):
+        pass
 
+    def save_checkpoint(self, episode, eval_success_rate=None, top_k=3): # TODO
+        checkpoint = {
+            "episode": episode,
+            "model_state_dict": self.student_model.state_dict(),
+            "optimizer_state_dict": self.optimizer.state_dict(),
+            "eval_success_rate": eval_success_rate,
+            "batch_idx": self.batch_idx,
+            "total_steps": self.total_steps,
+        }
+        if self.scheduler is not None:
+            checkpoint["scheduler_state_dict"] = self.scheduler.state_dict()
+        if self.use_wandb:
+            checkpoint["wandb_id"] = wandb.run.id
+            checkpoint["wandb_name"] = wandb.run.name
+            checkpoint["wandb_project"] = wandb.run.project
+        torch.save(checkpoint, self.save_dir / "latest.pt")
+        if episode % self.save_freq == 0:
+            torch.save(checkpoint, self.save_dir / f"episode_{episode:06d}.pt")
+        
+        checkpoint_files = sorted([f for f in os.listdir(self.save_dir) if f.startswith("episode_")])
+        if len(checkpoint_files) > top_k:
+            for old_checkpoint in checkpoint_files[:-top_k]:
+                os.remove(os.path.join(self.save_dir, old_checkpoint))
+        
+        best_path = os.path.join(self.save_dir, "best.pt")
+        if not os.path.exists(best_path) or eval_success_rate > torch.load(best_path, weights_only=True)["eval_success_rate"]:
+            torch.save(checkpoint, best_path)
 
+    def eval_student(self, metrics, prefix): # TODO
+        return None
+        model_to_evaluate = self.student_model.module if self.multi_gpu else self.student_model
+        # NOTE: supervise student model on first step
+        metrics_eval, ims = self.env.evaluate_policy(model_to_evaluate, action_chunk_idx=0, n_actions=1, use_fabric=False)
+        for key, value in metrics_eval.items():
+            metrics[f"{prefix}/{key}"] = value
+        if self.env.capture_video:
+            video_save_dir = self.save_dir / "videos"
+            video_save_dir.mkdir(parents=True, exist_ok=True)
+            ims = make_video(ims, video_save_dir, name=f"video_{self.episode}.mp4")
+            metrics[f"{prefix}/video"] = wandb.Video(str(video_save_dir / f"video_{self.episode}.mp4"))
+        return metrics
 
+    def train_episode(self):
+        self.env.reset() # TODO: necessary?
+        count_reaching = torch.zeros(self.env.num_envs, device=self.device).int()
+
+        for _ in tqdm(range(self.steps_per_episode), desc=f"Training {self.episode+1}/{self.total_episodes}", ncols=None, dynamic_ncols=True):
+            # get teacher action
+            teacher_obs = self.env.obs_buf
+            batch_dict = {
+                "is_train": False,
+                "obs": teacher_obs,
+                "prev_actions": None,
+            }
+
+            is_deterministic = True
+            res_dict = self.teacher_model(batch_dict)
+            mu = res_dict['mus']
+            action = res_dict['actions']
+            self.states = res_dict['rnn_states']
+            if is_deterministic:
+                teacher_action = mu
+            else:
+                teacher_action = action
+
+            # student obs, q_hand, rel_pcd
+            input_pcd = self.env.combined_pcds # scene + object pcd (num_envs, N, 3)
+            q_hand = self.env.states['q_hand'] # (num_envs, 16)
+            obs_dict = OrderedDict([
+                ("scene_pcd", input_pcd),
+                ("q_hand", q_hand),
+            ])
+            obs_input = self.preprocess_inputs(obs_dict)
+            self.student_model.eval()
+            student_actions_chunk = self.student_model(obs_input)
+
+            import ipdb ; ipdb.set_trace()
+            # step env and get obs and actions
+            obs = self.env.prepare_obs_dict()
+            with torch.no_grad():
+                student_model = self.student_model.module if self.multi_gpu else self.student_model
+                student_model.eval()
+                student_actions_chunk = student_model.get_action(obs)
+            # NOTE: get expert fabrics action from self.action_chunk_idx step
+            if self.freeze_base_model:
+                with torch.no_grad():
+                    base_actions_chunk = self.base_model.get_action(obs)
+                base_actions = base_actions_chunk[:, self.action_chunk_idx, :]
+            else:
+                base_actions = student_actions_chunk[:, 0, :]
+            abs_expert_actions = self.env.compute_fabric_action(base_actions)
+            # NOTE: assume model is using delta action space, supervise on first step
+            rel_expert_actions = abs_expert_actions - obs["current_angles"].squeeze(1)
+            gt_actions = self.base_model.normalize_action(rel_expert_actions)
+            # NOTE: supervise student model on first step
+            student_actions = student_actions_chunk[:, 0, :] # 
+
+            # step with student actions
+            self.env.step(student_actions)
+            
+            # reset envs to start config if reached
+            count_reaching += self.env.reaching_flags
+            if (count_reaching >= self.reaching_reset_threshold).any():
+                reached_reset_flags = count_reaching >= self.reaching_reset_threshold
+                reset_ids = torch.where(reached_reset_flags)[0]
+                self.env.reset_idx(reset_ids)
+                count_reaching[reached_reset_flags] = 0
+            
+            self.student_model.train()
+            n_batches = self.env.num_envs // self.batch_size
+            indices = torch.randperm(self.env.num_envs, device=self.device)
+            total_loss = 0
+            for i in range(n_batches):
+                batch_indices = indices[i * self.batch_size:(i + 1) * self.batch_size]
+                batch_obs = {k: v[batch_indices] for k, v in obs.items()}
+                batch_actions = gt_actions[batch_indices]
+                # NOTE: supervise student model on first step
+                loss = self.student_model.forward(batch_obs, batch_actions, action_chunk_idx=0)
+                self.optimizer.zero_grad()
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.student_model.parameters(), max_norm=self.max_grad_norm) 
+                self.optimizer.step()
+                total_loss += loss.item()
+            total_loss /= n_batches
+            
+            if self.scheduler is not None:
+                self.scheduler.step()
+                
+            if self.use_wandb:
+                wandb.log({
+                    "train/loss": total_loss,
+                    "train/lr": self.optimizer.param_groups[0]["lr"]
+                }, step=self.total_steps)
+                
+            self.total_steps += 1
+        
+        return total_loss
+
+    def train(self):
+        metrics = {}
+
+        start_time = time.time()
+        remaining_episodes = self.total_episodes - self.episode
+
+        # evaluate before training on the env
+        if not self.multi_gpu or self.global_rank == 0:
+            metrics = self.eval_student(metrics, "test_pre_train")
+        
+        train_loss = self.train_episode()
+        
+        if self.multi_gpu and self.global_rank != 0:
+            return
+        
+        # evaluate after training on the env
+        metrics = self.eval_student(metrics, "test_post_train")
+        
+        self.save_checkpoint(self.episode, metrics["test_pre_train/success_rate"])
+        
+        episode_time = time.time() - start_time
+        estimated_finish_time = start_time + episode_time * remaining_episodes
+        
+        metrics["train/loss_episode"] = train_loss
+        metrics["time/episode_time"] = episode_time
+        metrics["episode"] = self.episode
+        if self.use_wandb:
+            wandb.log(metrics, step=self.total_steps)
+        
+        colorprint(f"Episode {self.episode + 1}/{self.total_episodes} completed in {timedelta(seconds=int(episode_time))}", color="magenta")
+        for metric, value in metrics.items():
+            if type(value) == float:
+                colorprint(f"{metric}: {value:.4f}", color="green")
+        colorprint(f"Average episodes per hour: {1/episode_time*3600:.2f}")
+        colorprint(f"Estimated completion: {datetime.fromtimestamp(estimated_finish_time).strftime('%Y-%m-%d %H:%M:%S')}")
+        print("\n")
+        
+        self.episode += 1
 
 
 
