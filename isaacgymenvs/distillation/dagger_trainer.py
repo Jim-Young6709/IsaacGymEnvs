@@ -180,9 +180,6 @@ class Dagger:
 
         return obs
 
-    def decode_actions(self, current_angles, actions):
-        pass
-
     def save_checkpoint(self, episode, eval_success_rate=None, top_k=3): # TODO
         checkpoint = {
             "episode": episode,

@@ -1,5 +1,6 @@
-
-name: FrankaLEAPPickTable
+"""
+Base config for Franka+LEAP environment
+"""
 
 physics_engine: ${..physics_engine}
 
@@ -17,9 +18,9 @@ env:
 
   actionScale:
     hand: 0.05
-    arm: 0.03 # joint angle
-    eef_pos: 0.03
-    eef_rot: 0.03 # axis-angle rotation
+    arm: 0.01 # joint angle
+    eef_pos: 0.01
+    eef_rot: 0.01 # axis-angle rotation
 
   controlType: joint_position  # options are {joint_position, osc}
   controlFrequencyInv: 1
@@ -28,11 +29,6 @@ env:
     assetRoot: "../../assets"
     # assetFileNameFranka: "urdf/franka_hand/robots/franka_leap_right.urdf"
     assetFileNameFranka: "urdf/franka_hand/robots/franka_leap_right2_short_fingertips.urdf"
-
-  scene:
-    # if use hdf5 loading
-    hdf5_path: "./static_scenes/box_tt_192.hdf5"
-    batch_idx: 0
 
   mesh:
     mesh_dir: "./meshes_100"
@@ -47,24 +43,6 @@ env:
     limit_abad: False
     r_range: [0.15, 0.2]
     z_shift: 0.2 # to avoid collision with the object
-
-  image_height: 224
-  image_width: 224
-  disable_eef: True
-
-  # camera properties
-  camera:
-    width: 640
-    height: 480
-
-  numObservations: 49
-  numStates: 94
-  numActions: 22 # delta eef actions 6 (xyz, rpy) + normalized hand joint actions 16
-
-  base_policy_url: "jimyoung6709/DRP_Dagger"
-  hdf5_path: null # hdf5 file that contains env and trajectory info
-  batch_idx: 0 # index of the batch of envs to load from the hdf5 file
-  use_mean_actions: True
 
   # video logging
   video_logging:
@@ -137,27 +115,28 @@ task:
   randomize: False
   randomization_params:
     frequency: 720   # Define how many simulation steps between generating new randomizations
+    schedule_steps_default: 200000
     observations:
       range: [0, .002] # range for the white noise
       range_correlated: [0, .001] # range for correlated noise, refreshed with freq `frequency`
       operation: "additive"
       distribution: "gaussian"
       schedule: "linear"   # "constant" is to turn on noise after `schedule_steps` num steps
-      schedule_steps: 1000000
+      schedule_steps: ${..schedule_steps_default}
     actions:
       range: [0., .05]
       range_correlated: [0, .015] # range for correlated noise, refreshed with freq `frequency`
       operation: "additive"
       distribution: "gaussian"
       schedule: "linear"  # "linear" will linearly interpolate between no rand and max rand
-      schedule_steps: 1000000
+      schedule_steps: ${..schedule_steps_default}
     sim_params:
       gravity:
         range: [0, 0.4]
         operation: "additive"
         distribution: "gaussian"
         schedule: "linear"  # "linear" will linearly interpolate between no rand and max rand
-        schedule_steps: 1000000
+        schedule_steps: ${...schedule_steps_default}
     actor_params:
       franka:
         # color: True
@@ -167,25 +146,25 @@ task:
             operation: "scaling"
             distribution: "loguniform"
             schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
-            schedule_steps: 1000000
+            schedule_steps: ${.....schedule_steps_default}
           stiffness:
             range: [0.75, 1.5]
             operation: "scaling"
             distribution: "loguniform"
             schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
-            schedule_steps: 1000000
+            schedule_steps: ${.....schedule_steps_default}
           lower:
             range: [0, 0.01]
             operation: "additive"
             distribution: "gaussian"
             schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
-            schedule_steps: 1000000
+            schedule_steps: ${.....schedule_steps_default}
           upper:
             range: [0, 0.01]
             operation: "additive"
             distribution: "gaussian"
             schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
-            schedule_steps: 1000000
+            schedule_steps: ${.....schedule_steps_default}
         rigid_shape_properties:
           friction:
             num_buckets: 250
@@ -193,7 +172,7 @@ task:
             operation: "scaling"
             distribution: "uniform"
             schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
-            schedule_steps: 1000000
+            schedule_steps: ${.....schedule_steps_default}
       object:
         # color: True
         scale:
@@ -202,7 +181,7 @@ task:
           distribution: "uniform"
           setup_only: True # Property will only be randomized once before simulation is started. See Domain Randomization Documentation for more info.
           schedule: "linear"  # "linear" will scale the current random sample by ``min(current num steps, schedule_steps) / schedule_steps`
-          schedule_steps: 1000000
+          schedule_steps: ${....schedule_steps_default}
         rigid_body_properties:
           mass:
             range: [0.8, 1.2]
@@ -210,7 +189,7 @@ task:
             distribution: "uniform"
             setup_only: True # Property will only be randomized once before simulation is started. See Domain Randomization Documentation for more info.
             schedule: "linear"  # "linear" will scale the current random sample by ``min(current num steps, schedule_steps) / schedule_steps`
-            schedule_steps: 1000000
+            schedule_steps: ${.....schedule_steps_default}
         rigid_shape_properties:
           friction:
             num_buckets: 250
@@ -218,7 +197,7 @@ task:
             operation: "scaling"
             distribution: "uniform"
             schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
-            schedule_steps: 1000000
+            schedule_steps: ${.....schedule_steps_default}
       table: # table
         # color: True
         rigid_shape_properties:
@@ -228,4 +207,4 @@ task:
             operation: "scaling"
             distribution: "uniform"
             schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
-            schedule_steps: 1000000
+            schedule_steps: ${.....schedule_steps_default}
