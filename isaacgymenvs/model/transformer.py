@@ -103,6 +103,7 @@ class PCDTransformer(BaseModel):
         normalize_action=False,
         action_std=None,
         action_space="delta",
+        action_dim=22,
     ):
         super().__init__(
             normalize_state=normalize_state,
@@ -159,7 +160,7 @@ class PCDTransformer(BaseModel):
             raise NotImplementedError(f"Transformer type {transformer_cfg['type']} not implemented")
         
         # Output head
-        self.action_head = nn.Linear(hidden_dim, 7)  # 7 DoF actions
+        self.action_head = nn.Linear(hidden_dim, action_dim)  # eef (6) + hand (16)
     
     def load_checkpoint(self, checkpoint_path):
         checkpoint = torch.load(checkpoint_path)

@@ -71,6 +71,7 @@ dagger:
 
   learning_rate: 0.001
   weight_decay: 0.01
+  max_grad_norm: 1.0
   warmup_episodes: 1
 
   device: "cuda:0"
@@ -83,7 +84,7 @@ dagger:
 normalize_state: True
 normalize_action: True
 action_space: "relative" # "absolute", "delta", "relative"
-chunk_size: 20
+chunk_size: 1
 
 
 # set default task and default training config based on task
