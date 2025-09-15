@@ -576,7 +576,7 @@ class FrankaCMD(VecTask):
 
         # update point clouds
         object_pcds_world = transform_pcds_to_world(self.object_pcds, self._object_state[:, :7])
-        self.combined_pcds[:, self.pcd_spec_dict["num_object_points"]:] = object_pcds_world
+        self.combined_pcds[:, -self.pcd_spec_dict["num_object_points"]:] = object_pcds_world
 
         # update states
         self.states.update({
