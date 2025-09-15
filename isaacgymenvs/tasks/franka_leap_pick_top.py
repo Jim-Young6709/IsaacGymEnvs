@@ -122,8 +122,12 @@ class FrankaLEAPPickTop(FrankaLEAP):
             self._box_wall_ids = []
             box_info = self._create_box()
             for wall_idx, (wall_asset, wall_start_pose) in enumerate(box_info):
+                if wall_idx == 0:
+                    wall_name = "table"
+                else:
+                    wall_name = f"box_wall{wall_idx}"
                 wall_actor = self.gym.create_actor(
-                    env_ptr, wall_asset, wall_start_pose, f"box_wall{wall_idx}", i, 1, 0
+                    env_ptr, wall_asset, wall_start_pose, wall_name, i, 1, 0
                 )
                 self._box_wall_ids.append(wall_actor)
 

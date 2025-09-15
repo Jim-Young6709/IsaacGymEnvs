@@ -1,34 +1,14 @@
-# TODO (Jim): cleanup
+# Top-down box grasping config for Franka+LEAP environment
+
+defaults:
+  - LEAPExpBase
+
 name: FrankaLEAPPickTop
 
 physics_engine: ${..physics_engine}
 
 # if given, will override the device setting in gym. 
 env:
-  numEnvs: ${resolve_default:1024,${...num_envs}}
-  envSpacing: 1.5
-  episodeLength: 500
-  enableDebugVis: False
-
-  clipObservations: 5.0
-  clipActions: 1.0
-
-  aggregateMode: 3
-
-  actionScale:
-    hand: 0.05
-    arm: 0.01 # joint angle
-    eef_pos: 0.01
-    eef_rot: 0.01 # axis-angle rotation
-
-  controlType: joint_position  # options are {joint_position, osc}
-  controlFrequencyInv: 1
-
-  asset:
-    assetRoot: "../../assets"
-    # assetFileNameFranka: "urdf/franka_hand/robots/franka_leap_right.urdf"
-    assetFileNameFranka: "urdf/franka_hand/robots/franka_leap_right2_short_fingertips.urdf"
-
   scene:
     safety_box:
       wall_thickness: 0.01
@@ -40,71 +20,15 @@ env:
       rot_ex: [-1.5, 1.5] # radians
       obj_wall_tol: 0.03
       colli_reset: False
-    # if use hdf5 loading
-    hdf5_path: "./static_scenes/box_tt_192.hdf5"
-    batch_idx: 0
-
-  mesh:
-    mesh_dir: "./meshes_100"
-    obj_list: ["all"]
-
-  object_settings:
-    xyz_range: [[0.35, -0.2, 0.2], [0.55, 0.2, 0.25]] # xy is center position, z is BOTTOM height
-    scale_range: [0.1, 0.1]
 
   eef_init:
     enable: True
-    limit_abad: False
     dis_open_range: [0.3, 0.35]
     dis_side_range: -0.1
-
-  image_height: 224
-  image_width: 224
-  disable_eef: True
-
-  # camera properties
-  camera:
-    width: 640
-    height: 480
 
   numObservations: 61
   numStates: 106
   numActions: 22 # delta eef actions 6 (xyz, rpy) + normalized hand joint actions 16
-
-  base_policy_url: "jimyoung6709/DRP_Dagger"
-  hdf5_path: null # hdf5 file that contains env and trajectory info
-  batch_idx: 0 # index of the batch of envs to load from the hdf5 file
-  use_mean_actions: True
-
-  # video logging
-  video_logging:
-    capture: False
-    envs: 4
-    freq: 10000 # record video every 10k sim steps
-
-  # set to True if use camera sensors in the environment
-  enableCameraSensors: ${task.env.video_logging.capture}
-
-sim:
-  dt: 0.01667 # 1/60
-  substeps: 1
-  up_axis: "z"
-  use_gpu_pipeline: ${eq:${...pipeline},"gpu"}
-  gravity: [0.0, 0.0, -9.81]
-  physx:
-    num_threads: ${....num_threads}
-    solver_type: ${....solver_type}
-    use_gpu: ${contains:"cuda",${....sim_device}} # set to False to run on CPU
-    num_position_iterations: 8
-    num_velocity_iterations: 1
-    contact_offset: 0.005
-    rest_offset: 0.0
-    bounce_threshold_velocity: 0.2
-    max_depenetration_velocity: 1000.0
-    default_buffer_size_multiplier: 5.0
-    max_gpu_contact_pairs: 1048576 # 1024*1024
-    num_subscenes: ${....num_subscenes}
-    contact_collection: 1 # 0: CC_NEVER (don't collect contact info), 1: CC_LAST_SUBSTEP (collect only contacts on last substep), 2: CC_ALL_SUBSTEPS (broken - do not use!)
 
 reward:
   params:
@@ -130,116 +54,3 @@ reward:
     w_actionreg: -0.001
 
   actionreg_type: "" # "delta_joint_action", "delta_eef_action", "delta_qd"
-
-pcd_spec:
-  num_static_points: 1536
-  num_object_points: 512
-  debug: False
-
-  # TODO: cleanup
-  num_robot_points: 2048
-  num_obstacle_points: 4096
-  num_moving_obstacle_points_per_obj: 500
-  num_extra_points_per_obj: 500
-  num_ground_plane_points: 500
-  num_target_points: 2048
-  max_rollout_length: 150
-
-# Domain Randomization
-task:
-  randomize: False
-  randomization_params:
-    frequency: 720   # Define how many simulation steps between generating new randomizations
-    schedule_steps_default: 200000
-    observations:
-      range: [0, .002] # range for the white noise
-      range_correlated: [0, .001] # range for correlated noise, refreshed with freq `frequency`
-      operation: "additive"
-      distribution: "gaussian"
-      schedule: "linear"   # "constant" is to turn on noise after `schedule_steps` num steps
-      schedule_steps: ${..schedule_steps_default}
-    actions:
-      range: [0., .05]
-      range_correlated: [0, .015] # range for correlated noise, refreshed with freq `frequency`
-      operation: "additive"
-      distribution: "gaussian"
-      schedule: "linear"  # "linear" will linearly interpolate between no rand and max rand
-      schedule_steps: ${..schedule_steps_default}
-    sim_params:
-      gravity:
-        range: [0, 0.4]
-        operation: "additive"
-        distribution: "gaussian"
-        schedule: "linear"  # "linear" will linearly interpolate between no rand and max rand
-        schedule_steps: ${...schedule_steps_default}
-    actor_params:
-      franka:
-        # color: True
-        dof_properties:
-          damping:
-            range: [0.3, 3.0]
-            operation: "scaling"
-            distribution: "loguniform"
-            schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
-            schedule_steps: ${.....schedule_steps_default}
-          stiffness:
-            range: [0.75, 1.5]
-            operation: "scaling"
-            distribution: "loguniform"
-            schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
-            schedule_steps: ${.....schedule_steps_default}
-          lower:
-            range: [0, 0.01]
-            operation: "additive"
-            distribution: "gaussian"
-            schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
-            schedule_steps: ${.....schedule_steps_default}
-          upper:
-            range: [0, 0.01]
-            operation: "additive"
-            distribution: "gaussian"
-            schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
-            schedule_steps: ${.....schedule_steps_default}
-        rigid_shape_properties:
-          friction:
-            num_buckets: 250
-            range: [0.7, 1.3]
-            operation: "scaling"
-            distribution: "uniform"
-            schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
-            schedule_steps: ${.....schedule_steps_default}
-      object:
-        # color: True
-        scale:
-          range: [0.95, 1.05]
-          operation: "scaling"
-          distribution: "uniform"
-          setup_only: True # Property will only be randomized once before simulation is started. See Domain Randomization Documentation for more info.
-          schedule: "linear"  # "linear" will scale the current random sample by ``min(current num steps, schedule_steps) / schedule_steps`
-          schedule_steps: ${....schedule_steps_default}
-        rigid_body_properties:
-          mass:
-            range: [0.8, 1.2]
-            operation: "scaling"
-            distribution: "uniform"
-            setup_only: True # Property will only be randomized once before simulation is started. See Domain Randomization Documentation for more info.
-            schedule: "linear"  # "linear" will scale the current random sample by ``min(current num steps, schedule_steps) / schedule_steps`
-            schedule_steps: ${.....schedule_steps_default}
-        rigid_shape_properties:
-          friction:
-            num_buckets: 250
-            range: [0.7, 1.3]
-            operation: "scaling"
-            distribution: "uniform"
-            schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
-            schedule_steps: ${.....schedule_steps_default}
-      box_wall0: # bottom wall of the box region
-        # color: True
-        rigid_shape_properties:
-          friction:
-            num_buckets: 250
-            range: [0.7, 1.3]
-            operation: "scaling"
-            distribution: "uniform"
-            schedule: "linear"  # "linear" will scale the current random sample by `min(current num steps, schedule_steps) / schedule_steps`
-            schedule_steps: ${.....schedule_steps_default}
