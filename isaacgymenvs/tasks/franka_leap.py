@@ -616,8 +616,11 @@ class FrankaLEAP(VecTask):
         self.combined_pcds[:, -self.pcd_spec_dict["num_object_points"]:] = object_pcds_world
 
         # update initial frame pcd
-        init_flag = (self.progress_buf == 0)
-        self.object_pcd_t0[init_flag] = object_pcds_world[init_flag].clone()
+        if self.object_pcd_t0 is None:
+            self.object_pcd_t0 = object_pcds_world.clone()
+        else:
+            init_flag = (self.progress_buf == 0)
+            self.object_pcd_t0[init_flag] = object_pcds_world[init_flag].clone()
 
         if self.cfg["reward"]["actionreg_type"] == "delta_joint_action":
             actionreg = self.delta_joint_actions
