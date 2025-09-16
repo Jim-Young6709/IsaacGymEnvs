@@ -5,8 +5,6 @@ defaults:
 
 name: FrankaLEAPPickTop
 
-physics_engine: ${..physics_engine}
-
 # if given, will override the device setting in gym. 
 env:
   scene:
