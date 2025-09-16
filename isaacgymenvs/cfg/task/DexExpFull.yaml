@@ -1,4 +1,8 @@
 # TODO (Jim): cleanup
+
+defaults:
+  - LEAPExpBase
+
 name: FrankaLEAPPickFull
 
 physics_engine: ${..physics_engine}

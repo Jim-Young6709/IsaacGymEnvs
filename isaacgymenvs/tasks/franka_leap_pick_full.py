@@ -168,7 +168,7 @@ class FrankaLEAPPickFull(FrankaLEAP):
         line_points = np.array([[p.x, p.y, p.z] for p in lines], dtype=np.float32)
         line_colors = np.array([list(color)] * len(edges), dtype=np.float32)
 
-        self.gym.add_lines(self.viewer, self.env_ptrs[0], len(edges), line_points, line_colors)
+        self.gym.add_lines(self.viewer, self.envs[0], len(edges), line_points, line_colors)
 
     def _create_envs(self, spacing, num_per_row):
         """
@@ -220,7 +220,7 @@ class FrankaLEAPPickFull(FrankaLEAP):
 
         self.robots = []
         self.objects = []
-        self.env_ptrs = []
+        self.envs = []
         self._object_center_init_state = torch.zeros((self.num_envs, 3), device=self.device)
 
         # load all meshes first
@@ -303,7 +303,7 @@ class FrankaLEAPPickFull(FrankaLEAP):
                 self.gym.end_aggregate(env_ptr)
 
             # Store the created env pointers
-            self.env_ptrs.append(env_ptr)
+            self.envs.append(env_ptr)
             self.robots.append(robot_actor)
             self.objects.append(self._object_id)
 
