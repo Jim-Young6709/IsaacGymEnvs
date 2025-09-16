@@ -74,22 +74,7 @@ class FrankaLEAP(VecTask):
             force_render=force_render
         )
 
-        if not hasattr(self, 'canonical_joint_config'):
-            self.canonical_joint_config = torch.tensor(
-                [
-                    [0, 0, 0, -3*torch.pi/4, 0, 3*torch.pi/4, torch.pi/2] + \
-                    [0.5,  0.0,  0.5,  0.5,
-                     1.57,  0.0, -0.3,  0.3,
-                     0.5,  0.0,  0.5,  0.5,
-                     0.5,  0.0,  0.5,  0.5,]
-                ] * self.num_envs
-            ).to(self.device)
-        self.ik_regularization_config = self.canonical_joint_config[:, :7]
-
-        self.delta_joint_actions = torch.zeros((self.num_envs, self.num_robot_dofs), device=self.device, dtype=torch.float) # Current delta actions to be deployed
-        self.delta_eef_actions = torch.zeros((self.num_envs, self.num_robot_dofs-1), device=self.device, dtype=torch.float) # Current delta actions to be deployed at the end effector
-        self.success_flags = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device) # 1 if success condition has been achieved at any step, 0 otherwise
-        self.lifting_flags = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device)
+        self._post_init_buffers()
 
         # Reset all environments
         self._refresh()
@@ -134,6 +119,28 @@ class FrankaLEAP(VecTask):
         self.static_pcds = []
         self.object_pcds = []
         self.combined_pcds = []
+        self.scene_pcd_t0 = None
+        self.object_pcd_t0 = None
+
+    def _post_init_buffers(self):
+        if not hasattr(self, 'canonical_joint_config'):
+            self.canonical_joint_config = torch.tensor(
+                [
+                    [0, 0, 0, -3*torch.pi/4, 0, 3*torch.pi/4, torch.pi/2] + \
+                    [0.5,  0.0,  0.5,  0.5,
+                     1.57,  0.0, -0.3,  0.3,
+                     0.5,  0.0,  0.5,  0.5,
+                     0.5,  0.0,  0.5,  0.5,]
+                ] * self.num_envs
+            ).to(self.device)
+        self.ik_regularization_config = self.canonical_joint_config[:, :7]
+
+        self.delta_joint_actions = torch.zeros((self.num_envs, self.num_robot_dofs), device=self.device, dtype=torch.float) # Current delta actions to be deployed
+        self.delta_eef_actions = torch.zeros((self.num_envs, self.num_robot_dofs-1), device=self.device, dtype=torch.float) # Current delta actions to be deployed at the end effector
+        self.success_flags = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device) # 1 if success condition has been achieved at any step, 0 otherwise
+        self.lifting_flags = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device)
+
+        self.scene_pcd_t0 = self.static_pcds.clone()
 
     def _init_cuRobo_ik_solver(self):
         """
@@ -607,6 +614,10 @@ class FrankaLEAP(VecTask):
         # update point clouds
         object_pcds_world = transform_pcds_to_world(self.object_pcds, self._object_state[:, :7])
         self.combined_pcds[:, -self.pcd_spec_dict["num_object_points"]:] = object_pcds_world
+
+        # update initial frame pcd
+        init_flag = (self.progress_buf == 0)
+        self.object_pcd_t0[init_flag] = object_pcds_world[init_flag].clone()
 
         if self.cfg["reward"]["actionreg_type"] == "delta_joint_action":
             actionreg = self.delta_joint_actions
