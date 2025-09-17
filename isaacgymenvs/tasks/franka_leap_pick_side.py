@@ -44,10 +44,12 @@ class FrankaLEAPPickSide(FrankaLEAP):
             eef_init_pos[:, 1] += dis_side_y
             eef_init_pos[:, 2] += dis_side_z + self.box_dims[:, 2] / 2
 
-            # eef_init_quat = A2B_quaternion(eef_init_pos, self.box_pos, max_angle_deg=20)
-            # rot_local_z_180 = torch.tensor([[0.0, 0.0, 1.0, 0.0]]*self.num_envs, device=self.device)  # 180 degrees around local z-axis
-            # eef_init_quat = quat_mul(eef_init_quat, rot_local_z_180)  # rotate by 180 degrees around local z-axis
-            eef_init_quat = torch.tensor([[0, 0.707, 0, 0.707]]*self.num_envs, device=self.device)
+            box_center_pos = self.box_pos.clone()
+            box_center_pos[:, 2] += self.box_dims[:, 2] / 2
+
+            eef_init_quat = A2B_quaternion(eef_init_pos, box_center_pos, max_angle_deg=20, right_axis="x")
+            rot_local_z_180 = torch.tensor([[0.0, 0.0, 1.0, 0.0]]*self.num_envs, device=self.device)  # 180 degrees around local z-axis
+            eef_init_quat = quat_mul(eef_init_quat, rot_local_z_180)  # rotate by 180 degrees around local z-axis
 
             eef_init_pos7 = torch.cat((eef_init_pos, eef_init_quat), dim=-1)  # (num_envs, 7)
 
@@ -462,6 +464,7 @@ def launch_test(cfg: DictConfig):
     for i in tqdm(range(1000)):
         t1 = time.time()
         env.reset_idx()
+        # env.set_robot_joint_state(env.canonical_joint_config)
         # env.set_robot_joint_state(env.canonical_grasp_config)
         env.step_sim_multi(1, False)
         env.compute_observations()

@@ -140,7 +140,10 @@ def matrix_to_quaternion_ig(matrix: torch.Tensor) -> torch.Tensor:
     return torch.roll(quat_real_first, shifts=-1, dims=-1)
 
 
-def A2B_quaternion(posA: torch.Tensor, posB: torch.Tensor, max_angle_deg=5.0):
+def A2B_quaternion(posA: torch.Tensor, posB: torch.Tensor, max_angle_deg=5.0, right_axis="x"):
+    """
+    right_axis: "x" or "y", which axis is perpendicular to the 'up' direction
+    """
     B = posA.shape[0]
     device = posA.device
     up=torch.tensor([[0.0, 0.0, 1.0]]*B, device=device)
@@ -153,11 +156,16 @@ def A2B_quaternion(posA: torch.Tensor, posB: torch.Tensor, max_angle_deg=5.0):
     right = torch.cross(up, forward)
     right = right / torch.norm(right, dim=-1, keepdim=True)
 
-    # Corrected up vector
-    up_corrected = torch.cross(forward, right)
+    if right_axis == "x":
+        # Corrected up vector
+        up_corrected = torch.cross(forward, right)
 
-    # Rotation matrix and quaternion
-    rot_mat = torch.stack((right, up_corrected, forward), dim=-1)
+        # Rotation matrix and quaternion
+        rot_mat = torch.stack((right, up_corrected, forward), dim=-1)
+    elif right_axis == "y":
+        x_axis = torch.cross(right, forward)
+        rot_mat = torch.stack((x_axis, right, forward), dim=-1)
+
     quat = matrix_to_quaternion_ig(rot_mat)
 
     # Add small random rotation

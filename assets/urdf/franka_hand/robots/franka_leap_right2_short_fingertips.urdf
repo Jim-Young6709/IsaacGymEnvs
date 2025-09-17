@@ -196,7 +196,7 @@
   <joint name="palm_center_joint" type="fixed">
     <parent link="palm_center"/>
     <child link="palm_lower"/>
-    <origin rpy="3.14159 0 -1.5707" xyz="-0.03 -0.065 0"/>
+    <origin rpy="3.14159 0 0" xyz="0.065 -0.035 0"/>
   </joint>
 	<link name="palm_lower">
 		<visual>

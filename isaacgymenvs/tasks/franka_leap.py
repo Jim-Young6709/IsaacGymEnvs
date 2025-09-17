@@ -127,7 +127,7 @@ class FrankaLEAP(VecTask):
         if not hasattr(self, 'canonical_joint_config'):
             self.canonical_joint_config = torch.tensor(
                 [
-                    [0, 0, 0, -3*torch.pi/4, 0, 3*torch.pi/4, torch.pi/2] + \
+                    [0, 0, 0, -3*torch.pi/4, 0, 3*torch.pi/4, 0] + \
                     [0.5,  0.0,  0.5,  0.5,
                      1.57,  0.0, -0.3,  0.3,
                      0.5,  0.0,  0.5,  0.5,
