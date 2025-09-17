@@ -39,6 +39,7 @@ class Dagger:
         self.warmup_episodes = cfg.dagger.warmup_episodes
         self.max_grad_norm = cfg.dagger.max_grad_norm
         self.local_pcd_range = cfg.dagger.local_pcd_range
+        self.reaching_reset_threshold = cfg.dagger.reaching_reset_threshold
         self.device = cfg['sim_device']
         self.seed = cfg.seed
         set_seed_and_precision(self.seed)
@@ -283,12 +284,13 @@ class Dagger:
             self.env.step(step_actions)
 
             # reset envs to start config if reached
-            # count_reaching += self.env.reaching_flags
-            # if (count_reaching >= self.reaching_reset_threshold).any():
-            #     reached_reset_flags = count_reaching >= self.reaching_reset_threshold
-            #     reset_ids = torch.where(reached_reset_flags)[0]
-            #     self.env.reset_idx(reset_ids)
-            #     count_reaching[reached_reset_flags] = 0
+            count_reaching += self.env.success_5cm_per_step
+            count_reaching *= self.env.success_5cm_per_step
+            if (count_reaching >= self.reaching_reset_threshold).any():
+                reached_reset_flags = (count_reaching >= self.reaching_reset_threshold)
+                reset_ids = torch.where(reached_reset_flags)[0]
+                self.env.reset_buf[reset_ids] = 1
+                count_reaching[reached_reset_flags] = 0
             
             self.student_model.train()
             n_batches = self.env.num_envs // self.batch_size # now this is 1
