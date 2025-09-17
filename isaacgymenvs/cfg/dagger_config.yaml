@@ -78,6 +78,7 @@ dagger:
 
   reaching_reset_threshold: 10
   action_chunk_idx: 0
+  local_pcd_range: 0.3 # range (in meters) for cropping local point cloud
 
   freeze_base_model: True
 

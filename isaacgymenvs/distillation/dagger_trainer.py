@@ -11,6 +11,7 @@ from tqdm import tqdm
 from collections import OrderedDict
 import copy
 from isaacgymenvs.utils.rotation_conversions import quaternion_to_matrix_ig
+from isaacgymenvs.utils.pcd_utils import crop_local_pcd
 
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -37,6 +38,7 @@ class Dagger:
         self.steps_per_episode = cfg.dagger.steps_per_episode
         self.warmup_episodes = cfg.dagger.warmup_episodes
         self.max_grad_norm = cfg.dagger.max_grad_norm
+        self.local_pcd_range = cfg.dagger.local_pcd_range
         self.device = cfg['sim_device']
         self.seed = cfg.seed
         set_seed_and_precision(self.seed)
@@ -117,6 +119,8 @@ class Dagger:
         self.wandb_name = self.cfg.wandb_name
         self.wandb_id = None
 
+        self.num_local_points = self.env.pcd_spec_dict["num_local_points"]
+
         if self.use_wandb and (not self.multi_gpu or self.global_rank == 0):
             wandb.init(
                 project=self.wandb_project,
@@ -174,9 +178,15 @@ class Dagger:
         eef_rot_mat = quaternion_to_matrix_ig(eef_quat)
         rot_global2eef = eef_rot_mat.transpose(1, 2) # (num_envs, 3, 3)
 
-        pcd_shifted = obs["scene_pcd"] - eef_pos.unsqueeze(1) # (num_envs, N, 3)
-        pcd_eef_frame = torch.bmm(pcd_shifted, rot_global2eef) # (num_envs, N, 3), bmm is like matmul but specifically made for batches of 2D matrices, faster than matmul
-        obs["scene_pcd"] = pcd_eef_frame
+        for key in obs.keys():
+            if "pcd" in key:
+                pcd_shifted = obs[key] - eef_pos.unsqueeze(1) # (num_envs, N, 3)
+                pcd_eef_frame = torch.bmm(pcd_shifted, rot_global2eef) # (num_envs, N, 3), bmm is like matmul but specifically made for batches of 2D matrices, faster than matmul
+                obs[key] = pcd_eef_frame
+
+        # get local pcd
+        combined_pcds = torch.cat([obs["scene_pcd_t0"], obs["object_pcd_t0"]], dim=1) # (num_envs, num_static_points + num_object_points, 3)
+        obs["local_pcd"] = crop_local_pcd(combined_pcds, self.local_pcd_range, self.num_local_points) # (num_envs, num_local_points, 3)
 
         return obs
 
@@ -250,10 +260,12 @@ class Dagger:
             teacher_actions = torch.clamp(teacher_actions, -self.env.clip_actions, self.env.clip_actions)
 
             # student obs, q_hand, rel_pcd
-            input_pcd = self.env.combined_pcds # scene + object pcd (num_envs, N, 3)
+            scene_pcd_t0 = self.env.scene_pcd_t0
+            object_pcd_t0 = self.env.object_pcd_t0
             q_hand = self.env.states['q_hand'] # (num_envs, 16)
             obs_dict = OrderedDict([
-                ("scene_pcd", input_pcd),
+                ("scene_pcd_t0", scene_pcd_t0),
+                ("object_pcd_t0", object_pcd_t0),
                 ("q_hand", q_hand),
             ])
             obs_input = self.preprocess_inputs(obs_dict)
