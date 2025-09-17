@@ -212,7 +212,11 @@ class FrankaLEAP(VecTask):
         asset_options.disable_gravity = True
         asset_options.thickness = 0.001
         asset_options.default_dof_drive_mode = gymapi.DOF_MODE_POS
-        asset_options.use_mesh_materials = True
+        # NOTE: setting it to False allows Leap hand to be black
+        asset_options.use_mesh_materials = False
+        # NOTE: convex decomposition: disable this for now due to penetration of meshes
+        asset_options.vhacd_enabled = False
+
         robot_asset = self.gym.load_asset(self.sim, asset_root, robot_asset_file, asset_options)
         self.robot_asset = robot_asset
 
