@@ -23,7 +23,7 @@ from isaacgymenvs.tasks.base.vec_task import VecTask
 import isaacgymenvs.utils.eef_ctrl as eef_ctrl
 from isaacgymenvs.utils.reformat import omegaconf_to_dict
 from isaacgymenvs.utils.rotation_conversions import quaternion_to_matrix_ig, matrix_to_rotation_6d, sample_spherical_shell, A2B_quaternion
-from isaacgymenvs.utils.pcd_utils import transform_pcds_to_world
+from isaacgymenvs.utils.pcd_utils import transform_pcds_to_world, FrankaLeapSampler
 from omegaconf import DictConfig
 from tqdm import tqdm
 import random
@@ -203,6 +203,12 @@ class FrankaLEAP(VecTask):
         if "asset" in self.cfg["env"]:
             asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), self.cfg["env"]["asset"].get("assetRoot", asset_root))
             robot_asset_file = self.cfg["env"]["asset"].get("assetFileNameFranka", robot_asset_file)
+
+        full_robot_asset_path = os.path.join(asset_root, robot_asset_file)
+        self.pcd_sampler = FrankaLeapSampler(
+            urdf_path=full_robot_asset_path,
+            device=self.device,
+        )
 
         # load FrankaLEAP asset
         asset_options = gymapi.AssetOptions()

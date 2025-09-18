@@ -1,9 +1,13 @@
 import numpy as np
 import torch
 import random
+import trimesh
+from pathlib import Path
+import open3d as o3d
 from typing import Sequence, Union
 from geometrout.primitive import Cuboid, Cylinder, Sphere
 from isaacgymenvs.utils.geometry import ObjaMesh
+from isaacgymenvs.utils.torch_urdf import TorchURDF
 
 
 def construct_mixed_point_cloud(
@@ -310,3 +314,66 @@ def crop_local_pcd(pcd: torch.Tensor, local_range: torch.float, num_local_points
     # replace nan values as 0s
     local_pcd_zero_padding = torch.nan_to_num(pcd_local_nan_padding, nan=0.0)
     return local_pcd_zero_padding
+
+
+def transform_pointcloud(pc, T):
+    """pc: (B,N,3), T: (B,4,4) -> (B,N,3)"""
+    B, N, _ = pc.shape
+    homo = torch.cat([pc, torch.ones(B, N, 1, device=pc.device)], dim=-1)  # (B,N,4)
+    out = torch.matmul(T, homo.transpose(1,2))  # (B,4,N)
+    return out[:, :3].transpose(1,2)  # (B,N,3)
+
+
+class FrankaLeapSampler:
+    def __init__(self, urdf_path, device, num_points=4096):
+        self.device = device
+        self.robot = TorchURDF.load(urdf_path, lazy_load_meshes=True, device=device)
+        # Load meshes for all links with visuals
+        self.links = [l for l in self.robot.links if len(l.visuals)]
+
+        meshes = [
+            trimesh.load(Path(urdf_path).parent.parent / l.visuals[0].geometry.mesh.filename, force="mesh")
+            for l in self.links
+        ]
+        areas = np.array([m.bounding_box_oriented.area for m in meshes])
+        n_pts = np.round(num_points * areas / areas.sum()).astype(int)
+        n_pts[0] += num_points - n_pts.sum()  # fix rounding
+        self.points = {
+            l.name: torch.as_tensor(
+                trimesh.sample.sample_surface(meshes[i], n_pts[i])[0],
+                device=device, dtype=torch.float32
+            ).unsqueeze(0)  # (1,Ni,3)
+            for i, l in enumerate(self.links)
+        }
+
+    def sample(self, q, num_points=None):
+        """
+        q: (B, 23) Franka(7) + LEAP(16) joint config
+        returns: (B, num_points, 3) world-frame pointcloud
+        """
+        if q.ndim == 1:
+            q = q.unsqueeze(0)
+        fk = self.robot.visual_geometry_fk_batch(q)  # dict[geom] -> (B,4,4)
+        pcs = []
+        for l in self.links:
+            T = fk[l.visuals[0].geometry]  # (B,4,4)
+            pc = self.points[l.name].repeat(q.shape[0], 1, 1)  # (B,Ni,3)
+            pcs.append(transform_pointcloud(pc, T))
+
+        pc = torch.cat(pcs, dim=1)  # (B, totalN, 3)
+        if num_points is None:
+            return pc
+        idx = np.random.choice(pc.shape[1], num_points, replace=False)
+        return pc[:, idx, :]
+
+    def visualize_pcd(self, points):
+        """
+        points: (N,3) torch or numpy
+        """
+        if isinstance(points, torch.Tensor):
+            points = points.detach().cpu().numpy()
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(points)
+        pcd.paint_uniform_color([0.2, 0.6, 0.9])  # light blue
+        o3d.visualization.draw_geometries([pcd])
+
