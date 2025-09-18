@@ -1,7 +1,7 @@
-# Blender MTL File: 'None'
+# Blender MTL File: 'link4.blend'
 # Material Count: 4
 
-newmtl Part__Feature001_010_001_002.001
+newmtl Part__Feature001_010_001_002
 Ns -1.960784
 Ka 1.000000 1.000000 1.000000
 Kd 1.000000 1.000000 1.000000
@@ -10,8 +10,9 @@ Ke 0.000000 0.000000 0.000000
 Ni 1.000000
 d 1.000000
 illum 2
+map_Kd colors.png
 
-newmtl Part__Feature002_007_001_002.001
+newmtl Part__Feature002_007_001_002
 Ns -1.960784
 Ka 1.000000 1.000000 1.000000
 Kd 1.000000 1.000000 1.000000
@@ -20,8 +21,9 @@ Ke 0.000000 0.000000 0.000000
 Ni 1.000000
 d 1.000000
 illum 2
+map_Kd colors.png
 
-newmtl Part__Feature003_004_001_002.001
+newmtl Part__Feature003_004_001_002
 Ns -1.960784
 Ka 1.000000 1.000000 1.000000
 Kd 1.000000 1.000000 1.000000
@@ -30,8 +32,9 @@ Ke 0.000000 0.000000 0.000000
 Ni 1.000000
 d 1.000000
 illum 2
+map_Kd colors.png
 
-newmtl Part__Feature_001_001_001_002.001
+newmtl Part__Feature_001_001_001_002
 Ns -1.960784
 Ka 1.000000 1.000000 1.000000
 Kd 0.250980 0.250980 0.250980
@@ -40,3 +43,4 @@ Ke 0.000000 0.000000 0.000000
 Ni 1.000000
 d 1.000000
 illum 2
+map_Kd colors.png
