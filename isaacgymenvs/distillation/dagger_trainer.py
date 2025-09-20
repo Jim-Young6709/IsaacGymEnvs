@@ -261,15 +261,20 @@ class Dagger:
             teacher_actions = torch.clamp(teacher_actions, -self.env.clip_actions, self.env.clip_actions)
 
             # student obs, q_hand, rel_pcd
+            q_robot = self.env.states['q'] # (num_envs, 23)
+            q_hand = self.env.states['q_hand'] # (num_envs, 16)
             scene_pcd_t0 = self.env.scene_pcd_t0
             object_pcd_t0 = self.env.object_pcd_t0
-            q_hand = self.env.states['q_hand'] # (num_envs, 16)
+            robot_pcd_t = self.env.robot_pcd_sampler.sample(q_robot, self.env.isaac_to_torchurdf_idx)
+
             obs_dict = OrderedDict([
                 ("scene_pcd_t0", scene_pcd_t0),
                 ("object_pcd_t0", object_pcd_t0),
+                ("robot_pcd_t", robot_pcd_t),
                 ("q_hand", q_hand),
             ])
             obs_input = self.preprocess_inputs(obs_dict)
+
             with torch.no_grad():
                 student_model = self.student_model.module if self.multi_gpu else self.student_model
                 student_model.eval()

@@ -346,18 +346,23 @@ class FrankaLeapSampler:
             for i, l in enumerate(self.links)
         }
 
-    def sample(self, q, num_points=None):
+    def sample(self, joint_angles, joint_mapping_list=None, num_points=None):
         """
-        q: (B, 23) Franka(7) + LEAP(16) joint config
+        joint_angles: (B, 23) Franka(7) + LEAP(16) joint config
+        joint_mapping_list: list of int, mapping from input q to torch_urdf's dof ordering convention
         returns: (B, num_points, 3) world-frame pointcloud
         """
-        if q.ndim == 1:
-            q = q.unsqueeze(0)
-        fk = self.robot.visual_geometry_fk_batch(q)  # dict[geom] -> (B,4,4)
+        if joint_angles.ndim == 1:
+            joint_angles = joint_angles.unsqueeze(0)
+
+        if joint_mapping_list is not None:
+            joint_angles = joint_angles[:, joint_mapping_list]
+
+        fk = self.robot.visual_geometry_fk_batch(joint_angles)  # dict[geom] -> (B,4,4)
         pcs = []
         for l in self.links:
             T = fk[l.visuals[0].geometry]  # (B,4,4)
-            pc = self.points[l.name].repeat(q.shape[0], 1, 1)  # (B,Ni,3)
+            pc = self.points[l.name].repeat(joint_angles.shape[0], 1, 1)  # (B,Ni,3)
             pcs.append(transform_pointcloud(pc, T))
 
         pc = torch.cat(pcs, dim=1)  # (B, totalN, 3)

@@ -75,6 +75,7 @@ class FrankaLEAP(VecTask):
         )
 
         self._post_init_buffers()
+        self._build_joint_mapping()
 
         # Reset all environments
         self._refresh() # TODO: what is this for?
@@ -143,6 +144,25 @@ class FrankaLEAP(VecTask):
 
         self.scene_pcd_t0 = self.static_pcds.clone()
 
+    def _build_joint_mapping(self):
+        env_ptr = self.envs[0]
+        robot_handle = self.robots[0]
+
+        isaacgym_dof_list = self.gym.get_actor_dof_names(env_ptr, robot_handle)
+        torch_urdf_dof_list = self.robot_pcd_sampler.robot.actuated_joint_names
+
+        assert len(isaacgym_dof_list) == len(torch_urdf_dof_list), \
+            f"Mismatch: IsaacGym({len(isaacgym_dof_list)} DOFs) vs TorchURDF({len(torch_urdf_dof_list)} DOFs)"
+
+        # Build mapping lists
+        self.torchurdf_to_isaac_idx = []
+        self.isaac_to_torchurdf_idx = []
+
+        for i, name in enumerate(torch_urdf_dof_list):
+            self.torchurdf_to_isaac_idx.append(isaacgym_dof_list.index(name))
+        for i, name in enumerate(isaacgym_dof_list):
+            self.isaac_to_torchurdf_idx.append(torch_urdf_dof_list.index(name))
+
     def _init_cuRobo_ik_solver(self):
         """
         IK is solved with respect to Franka link "panda_link7"
@@ -205,9 +225,10 @@ class FrankaLEAP(VecTask):
             robot_asset_file = self.cfg["env"]["asset"].get("assetFileNameFranka", robot_asset_file)
 
         full_robot_asset_path = os.path.join(asset_root, robot_asset_file)
-        self.pcd_sampler = FrankaLeapSampler(
+        self.robot_pcd_sampler = FrankaLeapSampler(
             urdf_path=full_robot_asset_path,
             device=self.device,
+            num_points=self.pcd_spec_dict["num_robot_points"],
         )
 
         # load FrankaLEAP asset
