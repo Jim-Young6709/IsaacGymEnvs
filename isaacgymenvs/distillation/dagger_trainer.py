@@ -149,9 +149,13 @@ class Dagger:
 
         if self.multi_gpu:            
             self.use_wandb = (self.cfg.wandb_activate and self.global_rank == 0)
-            
+
             self.student_model = self.student_model.to(self.device)
-            self.student_model = DDP(self.student_model, device_ids=[self.local_rank], static_graph=True, find_unused_parameters=True)
+            self.student_model = DDP(
+                self.student_model,
+                device_ids=[self.local_rank],
+                static_graph=True,
+            )
 
     # TODO: teacher loading utils, shall I just simply merge them?
     def load_param_dict(self, cfg_path) -> Dict:
