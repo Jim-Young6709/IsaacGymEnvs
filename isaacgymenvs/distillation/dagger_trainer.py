@@ -43,7 +43,7 @@ class Dagger:
             if self.local_rank == 0:
                 cfg.graphics_device_id = self.local_rank
             else:
-                cfg.task.env.capture_video = False # note the actual video logging flag is in task env, not in general cfg.capture_video
+                cfg.task.env.video_logging.capture = False # note the actual video logging flag is in task env, not in general cfg.capture_video
                 cfg.graphics_device_id = -1
 
         self.cfg = cfg
