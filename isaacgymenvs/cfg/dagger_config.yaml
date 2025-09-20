@@ -74,7 +74,7 @@ dagger:
   max_grad_norm: 1.0
   warmup_episodes: 1
 
-  device: "cuda:0"
+  device: ${rl_device}
 
   reaching_reset_threshold: 100
   action_chunk_idx: 0

@@ -29,8 +29,18 @@ from isaacgymenvs.tasks import FrankaLEAP
 class Dagger:
     def __init__(self, cfg):
         # load configs
-        self.cfg = cfg
         self.multi_gpu = cfg.multi_gpu
+        if self.multi_gpu:
+            dist.init_process_group(backend="nccl")
+            self.local_rank = int(os.getenv("LOCAL_RANK", "0"))
+            self.global_rank = int(os.getenv("RANK", "0"))
+            self.world_size = int(os.getenv("WORLD_SIZE", "1"))   
+
+            cfg.sim_device = f"cuda:{self.local_rank}"
+            cfg.rl_device = f"cuda:{self.local_rank}"
+            torch.cuda.set_device(self.local_rank)
+
+        self.cfg = cfg
         self.total_episodes = cfg.dagger.total_episodes
         self.steps_per_episode = cfg.dagger.steps_per_episode
         self.warmup_episodes = cfg.dagger.warmup_episodes
@@ -133,18 +143,10 @@ class Dagger:
                 }
             )
 
-        if self.multi_gpu:
-            self.local_rank = int(os.getenv("LOCAL_RANK", "0"))
-            self.global_rank = int(os.getenv("RANK", "0"))
-            self.world_size = int(os.getenv("WORLD_SIZE", "1"))   
-            
-            self.device = f"cuda:{self.local_rank}"
-            torch.cuda.set_device(self.local_rank)
-            
+        if self.multi_gpu:            
             self.use_wandb = (self.cfg.wandb_activate and self.global_rank == 0)
             
             self.student_model = self.student_model.to(self.device)
-            self.base_model = self.base_model.to(self.device)
             self.student_model = DDP(self.student_model, device_ids=[self.local_rank], static_graph=True, find_unused_parameters=True)
 
     # TODO: teacher loading utils, shall I just simply merge them?
