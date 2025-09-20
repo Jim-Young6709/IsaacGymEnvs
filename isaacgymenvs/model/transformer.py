@@ -1,9 +1,28 @@
 import torch
 import torch.nn as nn
-from nmp.model.base_model import BaseModel
-from nmp.utils.pcd_utils import sample_points_fps
+from isaacgymenvs.model.base_model import BaseModel
+from pointnet2_ops.pointnet2_utils import furthest_point_sample, gather_operation
 from pointnet2_ops.pointnet2_modules import PointnetSAModule
 import copy
+
+
+def sample_points_fps(points, features, npoint):
+    """
+    Sample points from the point cloud using the farthest point sampling algorithm.
+    Args:
+        points: (B, N, D)
+        features: (B, N, F)
+        npoint: int
+    Returns:
+        (B, npoint, D)
+    """
+    assert points.shape[:2] == features.shape[:2], "Points and features must have the same batch size and number of points"
+    features_flipped = features.transpose(1, 2).contiguous()
+    npoint = min(npoint, features.shape[1])
+    new_features = gather_operation(
+        features_flipped, furthest_point_sample(points, npoint)
+    ).transpose(1, 2).contiguous()
+    return new_features
 
 
 def strip_prefix_from_state_dict(state_dict, prefix=None):
@@ -26,6 +45,7 @@ def strip_prefix_from_state_dict(state_dict, prefix=None):
     if prefix:
         return {k[len(prefix):] if k.startswith(prefix) else k: v for k, v in state_dict.items()}
     return state_dict
+
 
 class PointNetEncoder(nn.Module):
     def __init__(self, output_dim, num_output_tokens, dropout=0):
