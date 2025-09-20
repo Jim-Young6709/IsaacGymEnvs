@@ -457,37 +457,39 @@ class FrankaLEAP(VecTask):
         mesh_name, _ = os.path.splitext(mesh_filename)
 
         urdf_rel = mesh_name + ".urdf"
-        urdf_path = os.path.join(mesh_dir, urdf_rel)
 
-        mesh = trimesh.load(mesh_path)
-        z_com = mesh.extents[2] * scale[2] / 2
+        # TODO: change logic in the future, recreating urdf might not be a good idea
+        # urdf_path = os.path.join(mesh_dir, urdf_rel)
 
-        # URDF content
-        urdf_str = f"""<?xml version="1.0" ?>
-            <robot name="mesh_object">
-            <link name="base">
-                <visual>
-                    <geometry>
-                        <mesh filename="{mesh_filename}" scale="{scale[0]} {scale[1]} {scale[2]}"/>
-                    </geometry>
-                </visual>
-                <collision>
-                    <geometry>
-                        <mesh filename="{mesh_filename}" scale="{scale[0]} {scale[1]} {scale[2]}"/>
-                    </geometry>
-                </collision>
-                <inertial>
-                    <origin xyz="0 0 {z_com}" rpy="0 0 0"/>
-                    <mass value="{mass}"/>
-                    <inertia ixx="0.01" iyy="0.01" izz="0.01" ixy="0" ixz="0" iyz="0"/>
-                </inertial>
-            </link>
-            </robot>
-        """
+        # mesh = trimesh.load(mesh_path)
+        # z_com = mesh.extents[2] * scale[2] / 2
 
-        # Save URDF
-        with open(urdf_path, 'w') as f:
-            f.write(urdf_str)
+        # # URDF content
+        # urdf_str = f"""<?xml version="1.0" ?>
+        #     <robot name="mesh_object">
+        #     <link name="base">
+        #         <visual>
+        #             <geometry>
+        #                 <mesh filename="{mesh_filename}" scale="{scale[0]} {scale[1]} {scale[2]}"/>
+        #             </geometry>
+        #         </visual>
+        #         <collision>
+        #             <geometry>
+        #                 <mesh filename="{mesh_filename}" scale="{scale[0]} {scale[1]} {scale[2]}"/>
+        #             </geometry>
+        #         </collision>
+        #         <inertial>
+        #             <origin xyz="0 0 {z_com}" rpy="0 0 0"/>
+        #             <mass value="{mass}"/>
+        #             <inertia ixx="0.01" iyy="0.01" izz="0.01" ixy="0" ixz="0" iyz="0"/>
+        #         </inertial>
+        #     </link>
+        #     </robot>
+        # """
+
+        # # Save URDF
+        # with open(urdf_path, 'w') as f:
+        #     f.write(urdf_str)
         return urdf_rel, mesh_dir
 
     def _create_mesh(self, mesh_path, pos, scale, quat=[0, 0, 0, 1], fix_base_link=True):
