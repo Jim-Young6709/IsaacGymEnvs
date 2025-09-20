@@ -40,6 +40,9 @@ class Dagger:
             cfg.rl_device = f"cuda:{self.local_rank}"
             torch.cuda.set_device(self.local_rank)
 
+            if self.local_rank != 0:
+                cfg.capture_video = False
+
         self.cfg = cfg
         self.total_episodes = cfg.dagger.total_episodes
         self.steps_per_episode = cfg.dagger.steps_per_episode
