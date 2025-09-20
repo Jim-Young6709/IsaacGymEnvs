@@ -186,7 +186,7 @@ class Dagger:
                 obs[key] = pcd_eef_frame
 
         # get local pcd
-        combined_pcds = torch.cat([obs["scene_pcd_t0"], obs["object_pcd_t0"]], dim=1) # (num_envs, num_static_points + num_object_points, 3)
+        combined_pcds = torch.cat([obs["scene_pcd_t0"], obs["object_pcd_t0"], obs["robot_pcd_t"]], dim=1) # (num_envs, num_static_points + num_object_points, 3)
         obs["local_pcd"] = crop_local_pcd(combined_pcds, self.local_pcd_range, self.num_local_points) # (num_envs, num_local_points, 3)
 
         return obs
@@ -281,8 +281,6 @@ class Dagger:
                 student_actions_chunk = student_model(obs_input)
 
             student_actions = student_actions_chunk[:, 0, :] # NOTE: supervise student model on first step, there might be a way to still do ACT
-
-            # import ipdb ; ipdb.set_trace()
 
             # step with student actions
             step_actions = torch.clamp(student_actions, -self.env.clip_actions, self.env.clip_actions)
