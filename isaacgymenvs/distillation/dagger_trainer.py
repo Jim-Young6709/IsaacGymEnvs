@@ -38,11 +38,13 @@ class Dagger:
 
             cfg.sim_device = f"cuda:{self.local_rank}"
             cfg.rl_device = f"cuda:{self.local_rank}"
-            cfg.graphics_device_id = self.local_rank
             torch.cuda.set_device(self.local_rank)
 
-            if self.local_rank != 0:
-                cfg.capture_video = False
+            if self.local_rank == 0:
+                cfg.graphics_device_id = self.local_rank
+            else:
+                cfg.task.env.capture_video = False # note the actual video logging flag is in task env, not in general cfg.capture_video
+                cfg.graphics_device_id = -1
 
         self.cfg = cfg
         self.total_episodes = cfg.dagger.total_episodes
