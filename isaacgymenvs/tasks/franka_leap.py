@@ -351,7 +351,7 @@ class FrankaLEAP(VecTask):
         #     1.5700,  0.0000,  0.3100,  1.2880,
         #     1.0176,  0.0000,  0.9564,  0.9632,
         #     1.0176,  0.8376,  0.9564,  0.9632
-        # ], device='cuda:0')
+        # ], device=self.device)
 
         # v1
         self.grasp_finger_dof_pos = torch.tensor([
@@ -359,7 +359,7 @@ class FrankaLEAP(VecTask):
             1.57,  0.0,  0.10,  0.40,
             0.65,  0.0,  0.65,  0.65,
             0.65,  0.0,  0.65,  0.65,
-        ], device='cuda:0')
+        ], device=self.device)
 
         # for visualization purposes
         self.canonical_grasp_config = torch.tensor(
