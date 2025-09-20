@@ -340,12 +340,9 @@ class Dagger:
             # evaluate before training on the env
             # if not self.multi_gpu or self.global_rank == 0:
             #     metrics = self.eval_student(metrics, "test_pre_train")
-            
+
             train_loss = self.train_episode()
-            
-            if self.multi_gpu and self.global_rank != 0:
-                return
-            
+
             # evaluate after training on the env
             # metrics = self.eval_student(metrics, "test_post_train")
 
