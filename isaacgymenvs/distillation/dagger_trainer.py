@@ -38,6 +38,7 @@ class Dagger:
 
             cfg.sim_device = f"cuda:{self.local_rank}"
             cfg.rl_device = f"cuda:{self.local_rank}"
+            cfg.graphics_device_id = self.local_rank
             torch.cuda.set_device(self.local_rank)
 
             if self.local_rank != 0:
