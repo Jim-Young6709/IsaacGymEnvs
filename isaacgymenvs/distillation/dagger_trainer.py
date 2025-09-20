@@ -240,7 +240,9 @@ class Dagger:
         self.env.reset() # TODO: necessary?
         count_reaching = torch.zeros(self.env.num_envs, device=self.device).int()
 
-        for _ in tqdm(range(self.steps_per_episode), desc=f"Training {self.episode+1}/{self.total_episodes}", ncols=None, dynamic_ncols=True):
+        for _ in tqdm(range(self.steps_per_episode), desc=f"Training {self.episode+1}/{self.total_episodes}", \
+            ncols=None, dynamic_ncols=True, disable=(self.multi_gpu and self.global_rank != 0) ):
+
             # get teacher action
             teacher_obs = self.env.obs_buf.clone()
             batch_dict = {
@@ -346,24 +348,24 @@ class Dagger:
             
             # evaluate after training on the env
             # metrics = self.eval_student(metrics, "test_post_train")
-            
-            # self.save_checkpoint(self.episode, metrics["test_pre_train/success_rate"])
-            
-            episode_time = time.time() - start_time
-            estimated_finish_time = start_time + episode_time * remaining_episodes
 
-            metrics["train/loss_episode"] = train_loss
-            metrics["time/episode_time"] = episode_time
-            metrics["episode"] = self.episode
-            if self.use_wandb:
-                wandb.log(metrics, step=self.total_steps)
-            
-            colorprint(f"Episode {self.episode + 1}/{self.total_episodes} completed in {timedelta(seconds=int(episode_time))}", color="magenta")
-            for metric, value in metrics.items():
-                if type(value) == float:
-                    colorprint(f"{metric}: {value:.4f}", color="green")
-            colorprint(f"Average episodes per hour: {1/episode_time*3600:.2f}")
-            colorprint(f"Estimated completion: {datetime.fromtimestamp(estimated_finish_time).strftime('%Y-%m-%d %H:%M:%S')}")
-            print("\n")
+            if (not self.multi_gpu) or (self.global_rank == 0):
+                # self.save_checkpoint(self.episode, metrics["test_pre_train/success_rate"])
+                episode_time = time.time() - start_time
+                estimated_finish_time = start_time + episode_time * remaining_episodes
+
+                metrics["train/loss_episode"] = train_loss
+                metrics["time/episode_time"] = episode_time
+                metrics["episode"] = self.episode
+                if self.use_wandb:
+                    wandb.log(metrics, step=self.total_steps)
+                
+                colorprint(f"Episode {self.episode + 1}/{self.total_episodes} completed in {timedelta(seconds=int(episode_time))}", color="magenta")
+                for metric, value in metrics.items():
+                    if type(value) == float:
+                        colorprint(f"{metric}: {value:.4f}", color="green")
+                colorprint(f"Average episodes per hour: {1/episode_time*3600:.2f}")
+                colorprint(f"Estimated completion: {datetime.fromtimestamp(estimated_finish_time).strftime('%Y-%m-%d %H:%M:%S')}")
+                print("\n")
             
             self.episode += 1
