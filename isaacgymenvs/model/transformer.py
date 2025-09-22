@@ -215,7 +215,7 @@ class PCDTransformer(BaseModel):
     def forward(self, obs, target=None, action_chunk_idx=None):
         # Get inputs
         obs_dict = copy.deepcopy(obs)
-        B = obs_dict["scene_pcd_t0"].shape[0]
+        B = obs_dict["q_hand"].shape[0]
 
         obs_tokens = []
         for key in self.encoders.keys():
