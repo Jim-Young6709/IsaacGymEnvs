@@ -220,7 +220,7 @@ class Dagger:
         if "local_scene_pcd_t" in self.pcd_encoders_keys:
             obs_student["local_scene_pcd_t"] = crop_local_pcd(obs["full_scene_pcd_t"], self.local_pcd_range, self.num_local_points)
 
-        return obs
+        return obs_student
 
     def save_checkpoint(self, episode, eval_success_rate=None, top_k=3): # TODO
         checkpoint = {
