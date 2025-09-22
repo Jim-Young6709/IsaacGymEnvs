@@ -17,6 +17,8 @@ action_dim: ${task.env.numActions}  # Dimension of action space
 
 # Point cloud encoder parameters
 pcd_encoders_cfg:
+  # Note this is just for reference, not all obs are used at the same time
+  # initial frame obs
   # static_scene_pcd_t0:
   #   type: "pointnet"  # Options: ["mlp", "pointnet"]
   #   num_output_tokens: 64  # Number of tokens for scene point cloud
@@ -25,14 +27,36 @@ pcd_encoders_cfg:
   #   type: "pointnet"  # Options: ["mlp", "pointnet"]
   #   num_output_tokens: 32  # Number of tokens for robot point cloud
   #   use_pcd: true
-  # local_pcd_t:
-  #   type: "pointnet"  # Options: ["mlp", "pointnet"]
-  #   num_output_tokens: 128  # 32 Number of tokens for target point cloud
-  #   use_pcd: true
-  full_scene_pcd_t:
+  full_scene_pcd_t0:
     type: "pointnet"  # Options: ["mlp", "pointnet"]
-    num_output_tokens: 128  # 32 Number of tokens for target point cloud
+    num_output_tokens: 128 # 32 Number of tokens for target point cloud
     use_pcd: true
+
+  # # full scene pcd
+  # full_scene_pcd_t:
+  #   type: "pointnet"  # Options: ["mlp", "pointnet"]
+  #   num_output_tokens: 128 # Number of tokens for target point cloud
+  #   use_pcd: true
+
+  # # robot pcd obs
+  # robot_pcd_t:
+  #   type: "pointnet"  # Options: ["mlp", "pointnet"]
+  #   num_output_tokens: 32  # Number of tokens for robot point cloud
+  #   use_pcd: true
+  # hand_pcd_t:
+  #   type: "pointnet"  # Options: ["mlp", "pointnet"]
+  #   num_output_tokens: 32  # Number of tokens for robot point cloud
+  #   use_pcd: true
+
+  # # local pcd
+  local_pcd_t:
+    type: "pointnet"  # Options: ["mlp", "pointnet"]
+    num_output_tokens: 32  # Number of tokens for target point cloud
+    use_pcd: true
+  # local_scene_pcd_t:
+  #   type: "pointnet"  # Options: ["mlp", "pointnet"]
+  #   num_output_tokens: 32  # Number of tokens for target point cloud
+  #   use_pcd: true
 
 # State encoders (MLP parameters)
 state_encoders_cfg:
