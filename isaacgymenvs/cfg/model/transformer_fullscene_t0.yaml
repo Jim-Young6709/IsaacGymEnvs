@@ -32,6 +32,12 @@ pcd_encoders_cfg:
     num_output_tokens: 128 # 32 Number of tokens for target point cloud
     use_pcd: true
 
+  # # full scene pcd
+  # full_scene_pcd_t:
+  #   type: "pointnet"  # Options: ["mlp", "pointnet"]
+  #   num_output_tokens: 128 # Number of tokens for target point cloud
+  #   use_pcd: true
+
   # # robot pcd obs
   # robot_pcd_t:
   #   type: "pointnet"  # Options: ["mlp", "pointnet"]
@@ -40,12 +46,6 @@ pcd_encoders_cfg:
   # hand_pcd_t:
   #   type: "pointnet"  # Options: ["mlp", "pointnet"]
   #   num_output_tokens: 32  # Number of tokens for robot point cloud
-  #   use_pcd: true
-
-  # full scene pcd
-  # full_scene_pcd_t:
-  #   type: "pointnet"  # Options: ["mlp", "pointnet"]
-  #   num_output_tokens: 128 # Number of tokens for target point cloud
   #   use_pcd: true
 
   # local pcd
