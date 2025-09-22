@@ -17,7 +17,7 @@ action_dim: ${task.env.numActions}  # Dimension of action space
 
 # Point cloud encoder parameters
 pcd_encoders_cfg:
-  # scene_pcd_t0:
+  # static_scene_pcd_t0:
   #   type: "pointnet"  # Options: ["mlp", "pointnet"]
   #   num_output_tokens: 64  # Number of tokens for scene point cloud
   #   use_pcd: true

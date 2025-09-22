@@ -330,6 +330,7 @@ class FrankaLeapSampler:
         self.robot = TorchURDF.load(urdf_path, lazy_load_meshes=True, device=device)
         # Load meshes for all links with visuals
         self.links = [l for l in self.robot.links if len(l.visuals)]
+        self.hand_links = [l for l in self.links if ("panda" not in l.name)]
 
         meshes = [
             trimesh.load(Path(urdf_path).parent.parent / l.visuals[0].geometry.mesh.filename, force="mesh")
@@ -346,10 +347,11 @@ class FrankaLeapSampler:
             for i, l in enumerate(self.links)
         }
 
-    def sample(self, joint_angles, joint_mapping_list=None, num_points=None):
+    def sample(self, joint_angles, joint_mapping_list=None, num_points=None, hand_only=False):
         """
-        joint_angles: (B, 23) Franka(7) + LEAP(16) joint config
-        joint_mapping_list: list of int, mapping from input q to torch_urdf's dof ordering convention
+        joint_angles: (B, 23) joint config
+        joint_mapping_list: list[int], optional mapping to torch_urdf ordering
+        hand_only: if True, only sample from hand_links
         returns: (B, num_points, 3) world-frame pointcloud
         """
         if joint_angles.ndim == 1:
@@ -360,7 +362,9 @@ class FrankaLeapSampler:
 
         fk = self.robot.visual_geometry_fk_batch(joint_angles)  # dict[geom] -> (B,4,4)
         pcs = []
-        for l in self.links:
+
+        link_set = self.hand_links if hand_only else self.links
+        for l in link_set:
             T = fk[l.visuals[0].geometry]  # (B,4,4)
             pc = self.points[l.name].repeat(joint_angles.shape[0], 1, 1)  # (B,Ni,3)
             pcs.append(transform_pointcloud(pc, T))

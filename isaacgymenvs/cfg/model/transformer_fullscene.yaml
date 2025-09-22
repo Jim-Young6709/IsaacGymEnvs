@@ -17,17 +17,21 @@ action_dim: ${task.env.numActions}  # Dimension of action space
 
 # Point cloud encoder parameters
 pcd_encoders_cfg:
-  static_scene_pcd_t0:
+  # static_scene_pcd_t0:
+  #   type: "pointnet"  # Options: ["mlp", "pointnet"]
+  #   num_output_tokens: 64  # Number of tokens for scene point cloud
+  #   use_pcd: true
+  # object_pcd_t0:
+  #   type: "pointnet"  # Options: ["mlp", "pointnet"]
+  #   num_output_tokens: 32  # Number of tokens for robot point cloud
+  #   use_pcd: true
+  # local_pcd_t:
+  #   type: "pointnet"  # Options: ["mlp", "pointnet"]
+  #   num_output_tokens: 128  # 32 Number of tokens for target point cloud
+  #   use_pcd: true
+  full_scene_pcd_t:
     type: "pointnet"  # Options: ["mlp", "pointnet"]
-    num_output_tokens: 64  # Number of tokens for scene point cloud
-    use_pcd: true
-  object_pcd_t0:
-    type: "pointnet"  # Options: ["mlp", "pointnet"]
-    num_output_tokens: 32  # Number of tokens for robot point cloud
-    use_pcd: true
-  local_pcd:
-    type: "pointnet"  # Options: ["mlp", "pointnet"]
-    num_output_tokens: 32  # Number of tokens for target point cloud
+    num_output_tokens: 128  # 32 Number of tokens for target point cloud
     use_pcd: true
 
 # State encoders (MLP parameters)

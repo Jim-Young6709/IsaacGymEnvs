@@ -121,7 +121,7 @@ class FrankaLEAP(VecTask):
         self.static_pcds = []
         self.object_pcds = []
         self.combined_pcds = []
-        self.scene_pcd_t0 = None
+        self.static_scene_pcd_t0 = None
         self.object_pcd_t0 = None
 
     def _post_init_buffers(self):
@@ -142,7 +142,7 @@ class FrankaLEAP(VecTask):
         self.success_flags = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device) # 1 if success condition has been achieved at any step, 0 otherwise
         self.lifting_flags = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device)
 
-        self.scene_pcd_t0 = self.static_pcds.clone()
+        self.static_scene_pcd_t0 = self.static_pcds.clone()
 
     def _build_joint_mapping(self):
         env_ptr = self.envs[0]
