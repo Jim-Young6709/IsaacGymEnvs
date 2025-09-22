@@ -49,14 +49,14 @@ pcd_encoders_cfg:
   #   use_pcd: true
 
   # local pcd
-  local_pcd_t:
-    type: "pointnet"  # Options: ["mlp", "pointnet"]
-    num_output_tokens: 32  # Number of tokens for target point cloud
-    use_pcd: true
-  # local_scene_pcd_t:
+  # local_pcd_t:
   #   type: "pointnet"  # Options: ["mlp", "pointnet"]
   #   num_output_tokens: 32  # Number of tokens for target point cloud
   #   use_pcd: true
+  local_scene_pcd_t:
+    type: "pointnet"  # Options: ["mlp", "pointnet"]
+    num_output_tokens: 32  # Number of tokens for target point cloud
+    use_pcd: true
 
 # State encoders (MLP parameters)
 state_encoders_cfg:
