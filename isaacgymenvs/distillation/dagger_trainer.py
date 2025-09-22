@@ -228,20 +228,6 @@ class Dagger:
         if not os.path.exists(best_path) or eval_success_rate > torch.load(best_path, weights_only=True)["eval_success_rate"]:
             torch.save(checkpoint, best_path)
 
-    def eval_student(self, metrics, prefix): # TODO
-        return None
-        model_to_evaluate = self.student_model.module if self.multi_gpu else self.student_model
-        # NOTE: supervise student model on first step
-        metrics_eval, ims = self.env.evaluate_policy(model_to_evaluate, action_chunk_idx=0, n_actions=1, use_fabric=False)
-        for key, value in metrics_eval.items():
-            metrics[f"{prefix}/{key}"] = value
-        if self.env.capture_video:
-            video_save_dir = self.save_dir / "videos"
-            video_save_dir.mkdir(parents=True, exist_ok=True)
-            ims = make_video(ims, video_save_dir, name=f"video_{self.episode}.mp4")
-            metrics[f"{prefix}/video"] = wandb.Video(str(video_save_dir / f"video_{self.episode}.mp4"))
-        return metrics
-
     def train_episode(self):
         self.env.reset() # TODO: necessary?
         count_reaching = torch.zeros(self.env.num_envs, device=self.device).int()
@@ -360,6 +346,7 @@ class Dagger:
                 metrics["train/loss_episode"] = train_loss
                 metrics["time/episode_time"] = episode_time
                 metrics["episode"] = self.episode
+                metrics.update(self.env.extras)
                 if self.use_wandb:
                     wandb.log(metrics, step=self.total_steps)
                 
