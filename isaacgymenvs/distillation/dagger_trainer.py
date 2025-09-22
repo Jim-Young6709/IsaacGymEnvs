@@ -133,6 +133,7 @@ class Dagger:
         self.wandb_name = self.cfg.wandb_name
         self.wandb_id = None
 
+        self.pcd_encoders_keys = self.cfg.model.pcd_encoders_cfg.keys()
         self.num_local_points = self.env.pcd_spec_dict["num_local_points"]
 
         if self.use_wandb and (not self.multi_gpu or self.global_rank == 0):
@@ -188,15 +189,36 @@ class Dagger:
         eef_rot_mat = quaternion_to_matrix_ig(eef_quat)
         rot_global2eef = eef_rot_mat.transpose(1, 2) # (num_envs, 3, 3)
 
+        # convert all pcd to eef frame
         for key in obs.keys():
             if "pcd" in key:
                 pcd_shifted = obs[key] - eef_pos.unsqueeze(1) # (num_envs, N, 3)
                 pcd_eef_frame = torch.bmm(pcd_shifted, rot_global2eef) # (num_envs, N, 3), bmm is like matmul but specifically made for batches of 2D matrices, faster than matmul
                 obs[key] = pcd_eef_frame
 
-        # get local pcd
-        combined_pcds = torch.cat([obs["scene_pcd_t0"], obs["object_pcd_t0"], obs["robot_pcd_t"]], dim=1) # (num_envs, num_static_points + num_object_points, 3)
-        obs["local_pcd"] = crop_local_pcd(combined_pcds, self.local_pcd_range, self.num_local_points) # (num_envs, num_local_points, 3)
+        obs_student = OrderedDict()
+        obs_student["q_hand"] = obs["q_hand"]
+
+        if "static_scene_pcd_t0" in self.pcd_encoders_keys:
+            obs_student["static_scene_pcd_t0"] = obs["static_scene_pcd_t0"]
+        if "object_pcd_t0" in self.pcd_encoders_keys:
+            obs_student["object_pcd_t0"] = obs["object_pcd_t0"]
+        if "full_scene_pcd_t0" in self.pcd_encoders_keys:
+            obs_student["full_scene_pcd_t0"] = torch.cat([obs["static_scene_pcd_t0"], obs["object_pcd_t0"]], dim=1)
+
+        if "robot_pcd_t" in self.pcd_encoders_keys:
+            obs_student["robot_pcd_t"] = obs["robot_pcd_t"]
+        if "hand_pcd_t" in self.pcd_encoders_keys:
+            obs_student["hand_pcd_t"] = obs["hand_pcd_t"]
+
+        if "full_scene_pcd_t" in self.pcd_encoders_keys:
+            obs_student["full_scene_pcd_t"] = obs["full_scene_pcd_t"]
+
+        if "local_pcd_t" in self.pcd_encoders_keys:
+            full_pcds = torch.cat([obs["full_scene_pcd_t"], obs["robot_pcd_t"]], dim=1) # (num_envs, num_static_points + num_object_points, 3)
+            obs_student["local_pcd_t"] = crop_local_pcd(full_pcds, self.local_pcd_range, self.num_local_points) # (num_envs, num_local_points, 3)
+        if "local_scene_pcd_t" in self.pcd_encoders_keys:
+            obs_student["local_scene_pcd_t"] = crop_local_pcd(obs["full_scene_pcd_t"], self.local_pcd_range, self.num_local_points)
 
         return obs
 
@@ -260,14 +282,19 @@ class Dagger:
             # student obs, q_hand, rel_pcd
             q_robot = self.env.states['q'] # (num_envs, 23)
             q_hand = self.env.states['q_hand'] # (num_envs, 16)
-            scene_pcd_t0 = self.env.scene_pcd_t0
+
+            static_scene_pcd_t0 = self.env.static_scene_pcd_t0
             object_pcd_t0 = self.env.object_pcd_t0
+            full_scene_pcd_t = self.env.combined_pcds
             robot_pcd_t = self.env.robot_pcd_sampler.sample(q_robot, self.env.isaac_to_torchurdf_idx)
+            hand_pcd_t = self.env.robot_pcd_sampler.sample(q_robot, self.env.isaac_to_torchurdf_idx, hand_only=True)
 
             obs_dict = OrderedDict([
-                ("scene_pcd_t0", scene_pcd_t0),
+                ("static_scene_pcd_t0", static_scene_pcd_t0),
                 ("object_pcd_t0", object_pcd_t0),
+                ("full_scene_pcd_t", full_scene_pcd_t),
                 ("robot_pcd_t", robot_pcd_t),
+                ("hand_pcd_t", hand_pcd_t),
                 ("q_hand", q_hand),
             ])
             obs_input = self.preprocess_inputs(obs_dict)
@@ -359,3 +386,16 @@ class Dagger:
                 print("\n")
             
             self.episode += 1
+
+    @staticmethod
+    def vis_pcd(pc: torch.Tensor):
+        import open3d as o3d
+        # Make sure they’re on CPU and in float64
+        pc_np = pc.detach().cpu().numpy().astype("float64")
+
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(pc_np)
+        pcd.paint_uniform_color([0.1, 0.6, 1.0])
+
+        axis = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.1)
+        o3d.visualization.draw_geometries([pcd, axis])
