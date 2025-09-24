@@ -19,4 +19,6 @@ pip install -e ./isaacgym/python/
 git clone -b eef git@github.com:Jim-Young6709/IsaacGymEnvs.git
 pip install -e IsaacGymEnvs/
 
+pip install tqdm ipdb geometrout==0.0.3.4
+
 ```
