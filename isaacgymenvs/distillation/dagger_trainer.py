@@ -189,6 +189,58 @@ class Dagger:
         eef_rot_mat = quaternion_to_matrix_ig(eef_quat)
         rot_global2eef = eef_rot_mat.transpose(1, 2) # (num_envs, 3, 3)
 
+        def show_three_pcd_torch(pc1: torch.Tensor, pc2: torch.Tensor, pc3: torch.Tensor):
+            import open3d as o3d
+            # Convert to numpy
+            pc1_np = pc1.detach().cpu().numpy().astype("float64")
+            pc2_np = pc2.detach().cpu().numpy().astype("float64")
+            pc3_np = pc3.detach().cpu().numpy().astype("float64")
+
+            pcd1 = o3d.geometry.PointCloud()
+            pcd1.points = o3d.utility.Vector3dVector(pc1_np)
+            pcd1.paint_uniform_color([0.1, 0.6, 1.0])  # blue
+
+            pcd2 = o3d.geometry.PointCloud()
+            pcd2.points = o3d.utility.Vector3dVector(pc2_np)
+            pcd2.paint_uniform_color([1.0, 0.2, 0.2])  # red
+
+            pcd3 = o3d.geometry.PointCloud()
+            pcd3.points = o3d.utility.Vector3dVector(pc3_np)
+            pcd3.paint_uniform_color([0.2, 1.0, 0.2])  # green
+
+            axis = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.1)
+
+            # Use Visualizer to control window lifetime
+            vis = o3d.visualization.Visualizer()
+            vis.create_window()
+            vis.add_geometry(pcd1)
+            vis.add_geometry(pcd2)
+            vis.add_geometry(pcd3)
+            vis.add_geometry(axis)
+
+            vis.run()
+
+        def show_pcd_torch(pc1: torch.Tensor, pc2: torch.Tensor, pc3: torch.Tensor):
+            import open3d as o3d
+            # Convert to numpy
+            pc1_np = pc1.detach().cpu().numpy().astype("float64")
+
+            pcd1 = o3d.geometry.PointCloud()
+            pcd1.points = o3d.utility.Vector3dVector(pc1_np)
+            pcd1.paint_uniform_color([0.1, 0.6, 1.0])  # blue
+
+            axis = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.1)
+
+            # Use Visualizer to control window lifetime
+            vis = o3d.visualization.Visualizer()
+            vis.create_window()
+            vis.add_geometry(pcd1)
+            vis.add_geometry(axis)
+            vis.run()
+
+        show_pcd_torch(obs["robot_pcd_t"][0], None, None)
+        show_pcd_torch(obs["hand_pcd_t"][0], None, None)
+
         # convert all pcd to eef frame
         for key in obs.keys():
             if "pcd" in key:
@@ -219,6 +271,8 @@ class Dagger:
             obs_student["local_pcd_t"] = crop_local_pcd(full_pcds, self.local_pcd_range, self.num_local_points) # (num_envs, num_local_points, 3)
         if "local_scene_pcd_t" in self.pcd_encoders_keys:
             obs_student["local_scene_pcd_t"] = crop_local_pcd(obs["full_scene_pcd_t"], self.local_pcd_range, self.num_local_points)
+
+        show_three_pcd_torch(obs_student["static_scene_pcd_t0"][0], obs_student["robot_pcd_t"][0], obs_student["object_pcd_t0"][0])
 
         return obs_student
 
@@ -286,8 +340,8 @@ class Dagger:
             static_scene_pcd_t0 = self.env.static_scene_pcd_t0
             object_pcd_t0 = self.env.object_pcd_t0
             full_scene_pcd_t = self.env.combined_pcds
-            robot_pcd_t = self.env.robot_pcd_sampler.sample(q_robot, self.env.isaac_to_torchurdf_idx)
-            hand_pcd_t = self.env.robot_pcd_sampler.sample(q_robot, self.env.isaac_to_torchurdf_idx, hand_only=True)
+            robot_pcd_t = self.env.robot_pcd_sampler.sample(q_robot, self.env.torchurdf_to_isaac_idx)
+            hand_pcd_t = self.env.robot_pcd_sampler.sample(q_robot, self.env.torchurdf_to_isaac_idx, hand_only=True)
 
             obs_dict = OrderedDict([
                 ("static_scene_pcd_t0", static_scene_pcd_t0),
