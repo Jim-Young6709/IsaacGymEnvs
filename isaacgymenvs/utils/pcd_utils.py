@@ -324,6 +324,18 @@ def transform_pointcloud(pc, T):
     return out[:, :3].transpose(1,2)  # (B,N,3)
 
 
+def visualize_pcd(points):
+    """
+    points: (N,3) torch or numpy
+    """
+    if isinstance(points, torch.Tensor):
+        points = points.detach().cpu().numpy()
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(points)
+    pcd.paint_uniform_color([0.2, 0.6, 0.9])  # light blue
+    o3d.visualization.draw_geometries([pcd])
+
+
 class FrankaLeapSampler:
     def __init__(self, urdf_path, device, num_points=4096):
         self.device = device
@@ -374,15 +386,4 @@ class FrankaLeapSampler:
             return pc
         idx = np.random.choice(pc.shape[1], num_points, replace=False)
         return pc[:, idx, :]
-
-    def visualize_pcd(self, points):
-        """
-        points: (N,3) torch or numpy
-        """
-        if isinstance(points, torch.Tensor):
-            points = points.detach().cpu().numpy()
-        pcd = o3d.geometry.PointCloud()
-        pcd.points = o3d.utility.Vector3dVector(points)
-        pcd.paint_uniform_color([0.2, 0.6, 0.9])  # light blue
-        o3d.visualization.draw_geometries([pcd])
 
