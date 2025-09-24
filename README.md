@@ -22,3 +22,25 @@ pip install -e IsaacGymEnvs/
 pip install tqdm ipdb geometrout==0.0.3.4
 
 ```
+
+Note that if you encounter the following errors when running Isaac Gym:
+```bash
+in import_module return _bootstrap._gcd_import(name[level:], package, level) ImportError: libpython3.8.so.1.0: cannot open shared object file: No such file or directory
+```
+you should do the following:
+```bash
+# inside (dex_drp)
+mkdir -p "$CONDA_PREFIX/etc/conda/activate.d" "$CONDA_PREFIX/etc/conda/deactivate.d"
+
+# add on activate
+cat > "$CONDA_PREFIX/etc/conda/activate.d/zz_libpath.sh" <<'EOF'
+export _OLD_LD_LIBRARY_PATH="$LD_LIBRARY_PATH"
+export LD_LIBRARY_PATH="$CONDA_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+EOF
+
+# restore on deactivate
+cat > "$CONDA_PREFIX/etc/conda/deactivate.d/zz_libpath.sh" <<'EOF'
+export LD_LIBRARY_PATH="$_OLD_LD_LIBRARY_PATH"
+unset _OLD_LD_LIBRARY_PATH
+EOF
+```
