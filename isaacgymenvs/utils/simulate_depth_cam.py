@@ -332,6 +332,7 @@ def subsample_to_M_rowloop(
 # fully integrated single function wrapper
 def simulate_depth_cam_render(
     pcd: torch.Tensor, cam_target_pos: torch.Tensor, M: int,
+    inflate_px: int = 2, jitter_std_m: float = 0.004
 ):
     batch_size = pcd.shape[0]
     device = pcd.device
@@ -341,8 +342,8 @@ def simulate_depth_cam_render(
         pcd, # (B, N, 3)
         view_dirs, # (B, 3), normalized view direction vector
         cam_pos, # (B, 3), xyz cam pos
-        inflate_px=2, # 'pooling' kernal size, 2 is 5x5
-        jitter_std_m=0.004, # noise
+        inflate_px=inflate_px, # 'pooling' kernal size, 2 is 5x5
+        jitter_std_m=jitter_std_m, # noise
     )
 
     return pcd_world[0][valid[0]]
