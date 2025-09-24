@@ -25,7 +25,8 @@ pip install tqdm ipdb geometrout==0.0.3.4
 
 Note that if you encounter the following errors when running Isaac Gym:
 ```bash
-in import_module return _bootstrap._gcd_import(name[level:], package, level) ImportError: libpython3.8.so.1.0: cannot open shared object file: No such file or directory
+in import_module return _bootstrap._gcd_import(name[level:], package, level)
+  ImportError: libpython3.8.so.1.0: cannot open shared object file: No such file or directory
 ```
 you should do the following:
 ```bash
