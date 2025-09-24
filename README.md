@@ -7,6 +7,10 @@ to simplify set up.
 ```bash
 pip install torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cu121
 
+# curobo for IK
+git clone https://github.com/NVlabs/curobo.git
+pip install -e curobo/ --no-build-isolation
+
 # pointnet++
 git clone -b drp git@github.com:Jim-Young6709/pointnet2_ops.git
 pip install -e pointnet2_ops/ --no-build-isolation
@@ -19,7 +23,7 @@ pip install -e ./isaacgym/python/
 git clone -b eef git@github.com:Jim-Young6709/IsaacGymEnvs.git
 pip install -e IsaacGymEnvs/
 
-pip install tqdm ipdb geometrout==0.0.3.4
+pip install tqdm ipdb geometrout==0.0.3.4 numpy==1.23.0 open3d urchin h5py
 
 ```
 
