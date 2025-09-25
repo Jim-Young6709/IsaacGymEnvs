@@ -8,8 +8,9 @@ from hydra.utils import instantiate
 from tqdm import tqdm
 from collections import OrderedDict
 from isaacgymenvs.utils.rotation_conversions import quaternion_to_matrix_ig
-from isaacgymenvs.utils.pcd_utils import crop_local_pcd
+from isaacgymenvs.utils.pcd_utils import crop_local_pcd, visualize_pcd
 from isaacgymenvs.utils.training_utils import *
+from isaacgymenvs.utils.simulate_depth_cam import simulate_depth_cam_render
 
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -189,6 +190,24 @@ class Dagger:
         eef_rot_mat = quaternion_to_matrix_ig(eef_quat)
         rot_global2eef = eef_rot_mat.transpose(1, 2) # (num_envs, 3, 3)
 
+        obs['full_pcd_t'] = torch.cat([obs["full_scene_pcd_t"], obs["robot_pcd_t"]], dim=1)
+
+        if self.env.pcd_spec_dict['simulate_depth_cam']:
+            num_full_pcd_points = self.env.pcd_spec_dict['num_static_points'] + \
+                                  self.env.pcd_spec_dict['num_robot_points'] + \
+                                  self.env.pcd_spec_dict['num_object_points']
+
+            pcd = simulate_depth_cam_render(
+                obs['full_pcd_t'],
+                self.env.states['object_pos'],
+                num_full_pcd_points,
+            )
+
+            # TODO: remove the debugging logic once the implementation is verified
+            import ipdb ; ipdb.set_trace()
+            visualize_pcd(obs['full_pcd_t'][0])
+            visualize_pcd(pcd)
+
         # convert all pcd to eef frame
         for key in obs.keys():
             if "pcd" in key:
@@ -215,8 +234,7 @@ class Dagger:
             obs_student["full_scene_pcd_t"] = obs["full_scene_pcd_t"]
 
         if "local_pcd_t" in self.pcd_encoders_keys:
-            full_pcds = torch.cat([obs["full_scene_pcd_t"], obs["robot_pcd_t"]], dim=1) # (num_envs, num_static_points + num_object_points, 3)
-            obs_student["local_pcd_t"] = crop_local_pcd(full_pcds, self.local_pcd_range, self.num_local_points) # (num_envs, num_local_points, 3)
+            obs_student["local_pcd_t"] = crop_local_pcd(obs['full_pcd_t'], self.local_pcd_range, self.num_local_points) # (num_envs, num_local_points, 3)
         if "local_scene_pcd_t" in self.pcd_encoders_keys:
             obs_student["local_scene_pcd_t"] = crop_local_pcd(obs["full_scene_pcd_t"], self.local_pcd_range, self.num_local_points)
 

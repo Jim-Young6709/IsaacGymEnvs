@@ -20,9 +20,9 @@ INTEL_455 = {
 def sample_cameras(
     B: int,
     cam_target_pos: torch.Tensor,
-    # cam_pos_rand=[[0.0, -0.2, 0.2], [0.4, -0.6, 0.6]],
-    cam_pos_rand=[[0.0, -0.4, 0.4], [0.0, -0.4, 0.4]],
-    cam_target_xyz_rand=0.0,
+    cam_pos_rand=[[-0.3, -0.2, 0.2], [0.3, -0.6, 0.9]],
+    # cam_pos_rand=[[0.0, -0.4, 0.4], [0.0, -0.4, 0.4]],
+    cam_target_xyz_rand=0.1,
     device=None,
     dtype=None
 ):
@@ -346,6 +346,7 @@ def simulate_depth_cam_render(
         jitter_std_m=jitter_std_m, # noise
     )
 
+    # TODO: this is just for debugging, complete the logic here with subsampling
     return pcd_world[0][valid[0]]
 
 
