@@ -24,6 +24,7 @@ from rl_games.algos_torch.model_builder import ModelBuilder
 import wandb
 
 from typing import Dict
+from pathlib import Path
 from isaacgymenvs.tasks import FrankaLEAP
 
 
@@ -56,6 +57,7 @@ class Dagger:
         self.reaching_reset_threshold = cfg.dagger.reaching_reset_threshold
         self.device = cfg['sim_device']
         self.seed = cfg.seed
+        self.exp_name = cfg.experiment
         set_seed_and_precision(self.seed)
 
         self.learning_rate = cfg.dagger.learning_rate
@@ -136,6 +138,10 @@ class Dagger:
 
         self.pcd_encoders_keys = self.cfg.model.pcd_encoders_cfg.keys()
         self.num_local_points = self.env.pcd_spec_dict["num_local_points"]
+
+        self.save_dir = Path("dagger_ckpts") / self.exp_name
+        self.save_freq = self.cfg.dagger.save_freq
+        os.makedirs(self.save_dir, exist_ok=True)
 
         if self.use_wandb and (not self.multi_gpu or self.global_rank == 0):
             wandb.init(
