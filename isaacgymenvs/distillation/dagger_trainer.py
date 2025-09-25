@@ -125,6 +125,12 @@ class Dagger:
             num_training_steps=self.total_episodes * self.steps_per_episode
         )
 
+        # Load stats if provided
+        load_checkpoint_path = self.cfg.dagger.load_ckpt_path
+        if load_checkpoint_path is not None:
+            success_rate_ep = self.load_checkpoint(load_checkpoint_path)
+            colorprint(f"Resumed training from {load_checkpoint_path}: steps={self.total_steps}, success_rate_ep={success_rate_ep}", color="magenta")
+
         # dagger
         self.episode = 0
         self.total_steps = 0
@@ -246,12 +252,12 @@ class Dagger:
 
         return obs_student
 
-    def save_checkpoint(self, episode, success_rate=None, top_k=3): # TODO
+    def save_checkpoint(self, episode, success_rate_ep=None, top_k=3): # TODO
         checkpoint = {
             "episode": episode,
             "model_state_dict": self.student_model.state_dict(),
             "optimizer_state_dict": self.optimizer.state_dict(),
-            "eval_success_rate": success_rate,
+            "success_rate_ep": success_rate_ep,
             "batch_idx": self.batch_idx,
             "total_steps": self.total_steps,
         }
@@ -271,8 +277,23 @@ class Dagger:
                 os.remove(os.path.join(self.save_dir, old_checkpoint))
         
         best_path = os.path.join(self.save_dir, "best.pt")
-        if not os.path.exists(best_path) or success_rate > torch.load(best_path, weights_only=True)["eval_success_rate"]:
+        if not os.path.exists(best_path) or success_rate_ep > torch.load(best_path, weights_only=True)["success_rate_ep"]:
             torch.save(checkpoint, best_path)
+
+    def load_checkpoint(self, checkpoint_path):
+        checkpoint = torch.load(checkpoint_path, map_location=self.device)
+        self.student_model.load_state_dict(checkpoint["model_state_dict"])
+        self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        if self.scheduler is not None and "scheduler_state_dict" in checkpoint:
+            self.scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+        self.episode = (checkpoint["episode"] + 1) % self.total_episodes
+        self.total_steps = checkpoint["total_steps"]
+        self.batch_idx = checkpoint["batch_idx"]
+        if "wandb_id" in checkpoint:
+            self.wandb_id = checkpoint["wandb_id"]
+            self.wandb_name = checkpoint["wandb_name"]
+            self.wandb_project = checkpoint["wandb_project"]
+        return checkpoint["success_rate_ep"]
 
     def train_episode(self):
         self.env.reset() # TODO: necessary?
@@ -380,14 +401,7 @@ class Dagger:
             start_time = time.time()
             remaining_episodes = self.total_episodes - self.episode
 
-            # evaluate before training on the env
-            # if not self.multi_gpu or self.global_rank == 0:
-            #     metrics = self.eval_student(metrics, "test_pre_train")
-
             train_loss = self.train_episode()
-
-            # evaluate after training on the env
-            # metrics = self.eval_student(metrics, "test_post_train")
 
             if (not self.multi_gpu) or (self.global_rank == 0):
                 episode_time = time.time() - start_time
