@@ -405,15 +405,3 @@ class Dagger:
             
             self.episode += 1
 
-    @staticmethod
-    def vis_pcd(pc: torch.Tensor):
-        import open3d as o3d
-        # Make sure they’re on CPU and in float64
-        pc_np = pc.detach().cpu().numpy().astype("float64")
-
-        pcd = o3d.geometry.PointCloud()
-        pcd.points = o3d.utility.Vector3dVector(pc_np)
-        pcd.paint_uniform_color([0.1, 0.6, 1.0])
-
-        axis = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.1)
-        o3d.visualization.draw_geometries([pcd, axis])
