@@ -126,6 +126,7 @@ class Dagger:
         )
 
         # Load stats if provided
+        # TODO: give options for resume training / retrain from scratch
         load_checkpoint_path = self.cfg.dagger.load_ckpt_path
         if load_checkpoint_path is not None:
             success_rate_ep = self.load_checkpoint(load_checkpoint_path)
