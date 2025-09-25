@@ -125,13 +125,6 @@ class Dagger:
             num_training_steps=self.total_episodes * self.steps_per_episode
         )
 
-        # Load stats if provided
-        # TODO: give options for resume training / retrain from scratch
-        load_checkpoint_path = self.cfg.dagger.load_ckpt_path
-        if load_checkpoint_path is not None:
-            success_rate_ep = self.load_checkpoint(load_checkpoint_path)
-            colorprint(f"Resumed training from {load_checkpoint_path}: steps={self.total_steps}, success_rate_ep={success_rate_ep}", color="magenta")
-
         # dagger
         self.episode = 0
         self.total_steps = 0
@@ -173,6 +166,14 @@ class Dagger:
                 device_ids=[self.local_rank],
                 static_graph=True,
             )
+
+        # Load stats if provided
+        # TODO: give options for resume training / retrain from scratch
+        load_checkpoint_path = self.cfg.dagger.load_ckpt_path
+        if load_checkpoint_path is not None:
+            success_rate_ep = self.load_checkpoint(load_checkpoint_path)
+            colorprint(f"Resumed training from {load_checkpoint_path}: steps={self.total_steps}, success_rate_ep={success_rate_ep}", color="magenta")
+
 
     # TODO: teacher loading utils, shall I just simply merge them?
     def load_param_dict(self, cfg_path) -> Dict:
