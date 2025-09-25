@@ -240,12 +240,12 @@ class Dagger:
 
         return obs_student
 
-    def save_checkpoint(self, episode, eval_success_rate=None, top_k=3): # TODO
+    def save_checkpoint(self, episode, success_rate=None, top_k=3): # TODO
         checkpoint = {
             "episode": episode,
             "model_state_dict": self.student_model.state_dict(),
             "optimizer_state_dict": self.optimizer.state_dict(),
-            "eval_success_rate": eval_success_rate,
+            "eval_success_rate": success_rate,
             "batch_idx": self.batch_idx,
             "total_steps": self.total_steps,
         }
@@ -265,7 +265,7 @@ class Dagger:
                 os.remove(os.path.join(self.save_dir, old_checkpoint))
         
         best_path = os.path.join(self.save_dir, "best.pt")
-        if not os.path.exists(best_path) or eval_success_rate > torch.load(best_path, weights_only=True)["eval_success_rate"]:
+        if not os.path.exists(best_path) or success_rate > torch.load(best_path, weights_only=True)["eval_success_rate"]:
             torch.save(checkpoint, best_path)
 
     def train_episode(self):
@@ -384,7 +384,6 @@ class Dagger:
             # metrics = self.eval_student(metrics, "test_post_train")
 
             if (not self.multi_gpu) or (self.global_rank == 0):
-                # self.save_checkpoint(self.episode, metrics["test_pre_train/success_rate"])
                 episode_time = time.time() - start_time
                 estimated_finish_time = start_time + episode_time * remaining_episodes
 
@@ -394,7 +393,10 @@ class Dagger:
                 metrics.update(self.env.extras)
                 if self.use_wandb:
                     wandb.log(metrics, step=self.total_steps)
-                
+
+                # TODO: add args: save ckpt? frequency?
+                self.save_checkpoint(self.episode, metrics["metrics/success_rate_5cm_per_ep"])
+
                 colorprint(f"Episode {self.episode + 1}/{self.total_episodes} completed in {timedelta(seconds=int(episode_time))}", color="magenta")
                 for metric, value in metrics.items():
                     if type(value) == float:
