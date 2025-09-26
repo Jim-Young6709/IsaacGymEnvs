@@ -213,7 +213,7 @@ class Dagger:
 
             sim_depth_pcd, logs = simulate_depth_cam_render(
                 obs['full_pcd_t'],
-                self.env.states['object_pos'],
+                self.env._object_center_init_state,
                 num_full_pcd_points,
             )
 

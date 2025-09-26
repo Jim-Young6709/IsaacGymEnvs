@@ -28,9 +28,9 @@ def sample_cameras(
 ):
     cam_pos_range = torch.tensor(cam_pos_rand, device=device, dtype=dtype)
     cam_pos = torch.rand((B, 3), device=device) * (cam_pos_range[1] - cam_pos_range[0]) + cam_pos_range[0]
-    rand1 = (torch.rand((B, 3), device=device, dtype=dtype) - 0.5) * 2.0
-    cam_target_pos = cam_target_pos + rand1 * cam_target_xyz_rand
-    dirs = cam_target_pos - cam_pos
+    rand1 = (torch.rand((B, 3), device=device, dtype=dtype) - 0.5) * 2.0 # uniform rand [-1, 1)
+    cam_target_pos_rand = cam_target_pos + rand1 * cam_target_xyz_rand
+    dirs = cam_target_pos_rand - cam_pos
     dirs /= torch.norm(dirs, dim=-1, keepdim=True).clamp_min(1e-12)
 
     return cam_pos, dirs
