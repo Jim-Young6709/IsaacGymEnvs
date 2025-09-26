@@ -211,16 +211,16 @@ class Dagger:
                                   self.env.pcd_spec_dict['num_robot_points'] + \
                                   self.env.pcd_spec_dict['num_object_points']
 
-            pcd = simulate_depth_cam_render(
+            sim_depth_pcd, logs = simulate_depth_cam_render(
                 obs['full_pcd_t'],
                 self.env.states['object_pos'],
                 num_full_pcd_points,
             )
 
-            # TODO: remove the debugging logic once the implementation is verified
-            import ipdb ; ipdb.set_trace()
-            visualize_pcd(obs['full_pcd_t'][0])
-            visualize_pcd(pcd)
+            if self.use_wandb:
+                wandb.log(logs, step=self.total_steps)
+
+            obs['full_pcd_t'] = sim_depth_pcd
 
         # convert all pcd to eef frame
         for key in obs.keys():
@@ -248,9 +248,13 @@ class Dagger:
             obs_student["full_scene_pcd_t"] = obs["full_scene_pcd_t"]
 
         if "local_pcd_t" in self.pcd_encoders_keys:
-            obs_student["local_pcd_t"] = crop_local_pcd(obs['full_pcd_t'], self.local_pcd_range, self.num_local_points) # (num_envs, num_local_points, 3)
-        if "local_scene_pcd_t" in self.pcd_encoders_keys:
-            obs_student["local_scene_pcd_t"] = crop_local_pcd(obs["full_scene_pcd_t"], self.local_pcd_range, self.num_local_points)
+            obs_student["local_pcd_t"], crop_logs = crop_local_pcd(obs['full_pcd_t'], self.local_pcd_range, self.num_local_points) # (num_envs, num_local_points, 3)
+            if self.use_wandb:
+                wandb.log(crop_logs, step=self.total_steps)
+        elif "local_scene_pcd_t" in self.pcd_encoders_keys:
+            obs_student["local_scene_pcd_t"], crop_logs = crop_local_pcd(obs["full_scene_pcd_t"], self.local_pcd_range, self.num_local_points)
+            if self.use_wandb:
+                wandb.log(crop_logs, step=self.total_steps)
 
         return obs_student
 

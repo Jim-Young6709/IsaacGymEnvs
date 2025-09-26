@@ -4,7 +4,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from typing import List, Optional, Tuple
-from isaacgymenvs.utils.rotation_conversions import A2B_quaternion
+from isaacgymenvs.utils.pcd_utils import shuffle_pcd
 
 
 INTEL_455 = {
@@ -331,7 +331,7 @@ def subsample_to_M_rowloop(
 
 # fully integrated single function wrapper
 def simulate_depth_cam_render(
-    pcd: torch.Tensor, cam_target_pos: torch.Tensor, M: int,
+    pcd: torch.Tensor, cam_target_pos: torch.Tensor, num_points: int,
     inflate_px: int = 2, jitter_std_m: float = 0.004
 ):
     batch_size = pcd.shape[0]
@@ -346,8 +346,25 @@ def simulate_depth_cam_render(
         jitter_std_m=jitter_std_m, # noise
     )
 
-    # TODO: this is just for debugging, complete the logic here with subsampling
-    return pcd_world[0][valid[0]]
+    rendered_pcd = pcd_world.view(batch_size, -1, 3)
+    num_total_points = rendered_pcd.shape[1]
+    rendered_pcd = shuffle_pcd(rendered_pcd)
+    nan_mask = torch.isnan(rendered_pcd).any(dim=-1)
+    sort_key = nan_mask.int() # 0: valid ; 1: invalid
+    sort_idx = torch.argsort(sort_key, dim=-1)
+    batch_idx = torch.arange(batch_size, device=device)[:, None].expand(batch_size, num_total_points)
+    sorted_pcds = rendered_pcd[batch_idx, sort_idx]  # (B, N, 3)
+
+    avg_num_valid_points = num_total_points - nan_mask.sum() / batch_size
+    min_num_valid_points = (num_total_points - nan_mask.sum(dim=-1)).min()
+    logs = {
+        "sim_depth_cam_render/avg_num_valid_points": avg_num_valid_points.item(),
+        "sim_depth_cam_render/min_num_valid_points": min_num_valid_points.item(),
+    }
+
+    pcd_nan_padding = sorted_pcds[:, :num_points]
+
+    return pcd_nan_padding, logs
 
 
 # ------------------------------ Demo ------------------------------

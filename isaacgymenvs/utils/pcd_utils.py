@@ -288,7 +288,7 @@ def shuffle_pcd(pcd: torch.Tensor) -> torch.Tensor:
     return pcd[batch_idx, idx]  # (B, N, 3)
 
 
-def crop_local_pcd(pcd: torch.Tensor, local_range: torch.float, num_local_points: torch.int) -> torch.Tensor:
+def crop_local_pcd(pcd: torch.Tensor, local_range: torch.float, num_local_points: torch.int):
     """
     Crop the point cloud to a local region around the origin with 0 padding.
     Args:
@@ -301,7 +301,7 @@ def crop_local_pcd(pcd: torch.Tensor, local_range: torch.float, num_local_points
     # get local pcd
     masked_pcds = shuffle_pcd(pcd)
     dist = torch.norm(masked_pcds, dim=-1)
-    mask = dist < local_range
+    mask = dist < local_range # nan < X always returns false, so if there are nan values in pcd input, it get automatically filtered out
     masked_pcds[~mask] = float("nan")
 
     # sort to get all the valid points
@@ -311,9 +311,17 @@ def crop_local_pcd(pcd: torch.Tensor, local_range: torch.float, num_local_points
     sorted_pcds = masked_pcds[batch_idx, sort_idx]  # (B, N, 3)
     pcd_local_nan_padding = sorted_pcds[:, :num_local_points]
 
+    avg_num_valid_points = is_valid.sum() / B
+    min_num_valid_points = is_valid.sum(dim=-1).min()
+    logs = {
+        "local_crop/avg_num_valid_points": avg_num_valid_points.item(),
+        "local_crop/min_num_valid_points": min_num_valid_points.item(),
+    }
+
     # replace nan values as 0s
     local_pcd_zero_padding = torch.nan_to_num(pcd_local_nan_padding, nan=0.0)
-    return local_pcd_zero_padding
+
+    return local_pcd_zero_padding, logs
 
 
 def transform_pointcloud(pc, T):
