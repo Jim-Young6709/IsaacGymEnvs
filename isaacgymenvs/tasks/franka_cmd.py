@@ -192,14 +192,14 @@ class FrankaCMD(VecTask):
         self.robot_asset = robot_asset
 
         # currently only support joint position control
-        robot_dof_stiffness = to_torch([1000.0]*7 + [800.0]*12, dtype=torch.float, device=self.device)
-        robot_dof_damping = to_torch([50]*7 + [40.0]*12, dtype=torch.float, device=self.device)
-
         self.num_robot_bodies = self.gym.get_asset_rigid_body_count(robot_asset)
         self.num_robot_dofs = self.gym.get_asset_dof_count(robot_asset)
 
         print("num FrankaCMD bodies: ", self.num_robot_bodies)
         print("num FrankaCMD dofs: ", self.num_robot_dofs)
+
+        robot_dof_stiffness = to_torch([1000.0]*7 + [800.0]*(self.num_robot_dofs-7), dtype=torch.float, device=self.device)
+        robot_dof_damping = to_torch([50]*7 + [40.0]*(self.num_robot_dofs-7), dtype=torch.float, device=self.device)
 
         # set FrankaCMD dof properties
         robot_dof_props = self.gym.get_asset_dof_properties(robot_asset)

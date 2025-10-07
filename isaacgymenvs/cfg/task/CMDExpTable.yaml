@@ -26,7 +26,7 @@ env:
 
   asset:
     assetRoot: "../../assets"
-    assetFileNameFranka: "urdf/franka_cmd/franka_cmd_right.urdf"
+    assetFileNameFranka: "urdf/franka_cmd/franka_cmd_left.urdf"
 
   scene:
     safety_box:
