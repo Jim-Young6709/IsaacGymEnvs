@@ -73,7 +73,12 @@ class FrankaCMD(VecTask):
 
         if not hasattr(self, 'canonical_joint_config'):
             self.canonical_joint_config = torch.tensor(
-                [[0, 0, 0, -3*torch.pi/4, 0, 3*torch.pi/4, 0] + [0]*(self.num_dofs-7)] * self.num_envs
+                [[0, 0, 0, -3*torch.pi/4, 0, 3*torch.pi/4, 0] + \
+                 [0, 0, 0,
+                  0, 0, 0,
+                  0, 0,
+                  0, 0, 0,
+                  0, 0, 0,]] * self.num_envs
             ).to(self.device)
 
         self.actions = torch.zeros((self.num_envs, self.num_robot_dofs), device=self.device, dtype=torch.float) # Current delta actions to be deployed
@@ -233,11 +238,12 @@ class FrankaCMD(VecTask):
         robot_handle = 0
         self.handles = { # TODO: update this according to urdf
             # FrankaCMD
-            "hand": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "right_hand"),
+            "hand": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "palm_5_fingers"),
             "finger1_tip": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "thumb_tip"),
             "finger2_tip": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "index_tip"),
             "finger3_tip": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "middle_tip"),
             "finger4_tip": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "ring_tip"),
+            "finger5_tip": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "little_tip"),
         }
 
         # Get total DOFs
