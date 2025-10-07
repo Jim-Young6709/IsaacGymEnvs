@@ -240,7 +240,7 @@
   <joint name="panda_hand_joint" type="fixed">
     <parent link="panda_link7" />
     <child link="palm_5_fingers" />
-    <origin rpy="0 3.14159 1.5708" xyz="0.15 0 0.155" />
+    <origin rpy="0 3.14159 1.5708" xyz="0.15 0 0.175" />
   </joint>
 
   <!-- purely for visual purposes -->
@@ -299,7 +299,7 @@
       <material name="custom"/>
     </visual>
     <collision>
-      <origin xyz="0.0 0.0 0.0032" rpy="1.602036 1.570796 3.141593"/>
+      <origin xyz="0.0 0.0 0.0032" rpy="0.0 1.570796 0.0"/>
       <geometry>
         <mesh filename="package://franka_cmd/meshes/fingertip~40mm.stl"/>
       </geometry>
@@ -329,7 +329,7 @@
       <material name="custom"/>
     </visual>
     <collision>
-      <origin xyz="0.0 0.0 -0.0034" rpy="-1.541393 -1.570796 3.141593"/>
+      <origin xyz="0.0 0.0 -0.0034" rpy="3.141593 -1.570796  0.0"/>
       <geometry>
         <mesh filename="package://franka_cmd/meshes/phalange~40mm.stl"/>
       </geometry>
@@ -344,7 +344,7 @@
       <material name="custom"/>
     </visual>
     <collision>
-      <origin xyz="0.0 0.0 0.0032" rpy="1.602036 1.570796 3.141593"/>
+      <origin xyz="0.0 0.0 0.0032" rpy="0.0 1.570796 0.0"/>
       <geometry>
         <mesh filename="package://franka_cmd/meshes/fingertip~40mm.stl"/>
       </geometry>
@@ -374,7 +374,7 @@
       <material name="custom"/>
     </visual>
     <collision>
-      <origin xyz="0.0 0.0 -0.0034" rpy="-1.541393 -1.570796 3.141593"/>
+      <origin xyz="0.0 0.0 -0.0034" rpy="3.141593 -1.570796  0.0"/>
       <geometry>
         <mesh filename="package://franka_cmd/meshes/phalange~45mm.stl"/>
       </geometry>
@@ -389,7 +389,7 @@
       <material name="custom"/>
     </visual>
     <collision>
-      <origin xyz="0.0 0.0 0.0032" rpy="1.602036 1.570796 3.141593"/>
+      <origin xyz="0.0 0.0 0.0032" rpy="0.0 1.570796 0.0"/>
       <geometry>
         <mesh filename="package://franka_cmd/meshes/fingertip~40mm.stl"/>
       </geometry>
@@ -419,7 +419,7 @@
       <material name="custom"/>
     </visual>
     <collision>
-      <origin xyz="0.0 0.0 -0.0034" rpy="-1.541393 -1.570796 3.141593"/>
+      <origin xyz="0.0 0.0 -0.0034" rpy="3.141593 -1.570796  0.0"/>
       <geometry>
         <mesh filename="package://franka_cmd/meshes/phalange~40mm.stl"/>
       </geometry>
@@ -434,7 +434,7 @@
       <material name="custom"/>
     </visual>
     <collision>
-      <origin xyz="0.0 0.0 0.0032" rpy="1.602036 1.570796 3.141593"/>
+      <origin xyz="0.0 0.0 0.0032" rpy="0.0 1.570796 0.0"/>
       <geometry>
         <mesh filename="package://franka_cmd/meshes/fingertip~40mm.stl"/>
       </geometry>
@@ -464,7 +464,7 @@
       <material name="custom"/>
     </visual>
     <collision>
-      <origin xyz="0.0 0.0 -0.0034" rpy="-1.541393 -1.570796 3.141593"/>
+      <origin xyz="0.0 0.0 -0.0034" rpy="3.141593 -1.570796  0.0"/>
       <geometry>
         <mesh filename="package://franka_cmd/meshes/phalange~35mm.stl"/>
       </geometry>
@@ -479,7 +479,7 @@
       <material name="custom"/>
     </visual>
     <collision>
-      <origin xyz="0.0 0.0 0.032" rpy="1.602036 1.570796 3.141593"/>
+      <origin xyz="0.0 0.0 0.0032" rpy="0.0 1.570796 0.0"/>
       <geometry>
         <mesh filename="package://franka_cmd/meshes/fingertip~40mm.stl"/>
       </geometry>
