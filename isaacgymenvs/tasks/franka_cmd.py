@@ -127,7 +127,7 @@ class FrankaCMD(VecTask):
         if not hasattr(self, 'canonical_joint_config'):
             self.canonical_joint_config = torch.tensor(
                 [[0, 0, 0, -3*torch.pi/4, 0, 3*torch.pi/4, 0] + \
-                 [0.2, 1.5, 0.0,
+                 [0.6, 0.4, 0.4,
                   0, 0.75, 0.75,
                   0.75, 0.75,
                   0.0, 0.75, 0.75,
@@ -197,7 +197,7 @@ class FrankaCMD(VecTask):
 
     def _create_franka_cmd(self):
         asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../assets")
-        robot_asset_file = "urdf/franka_cmd/franka_cmd_right.urdf"
+        robot_asset_file = "urdf/franka_cmd/franka_cmd_left.urdf"
 
         if "asset" in self.cfg["env"]:
             asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), self.cfg["env"]["asset"].get("assetRoot", asset_root))
@@ -212,6 +212,9 @@ class FrankaCMD(VecTask):
         asset_options.thickness = 0.001
         asset_options.default_dof_drive_mode = gymapi.DOF_MODE_POS
         asset_options.use_mesh_materials = True
+        # NOTE: convex decomposition: disable this for now due to penetration of meshes
+        asset_options.vhacd_enabled = True # TODO: currently enable this cause CMD hand has more complicated sturcture, parts will collide with each other if use simplified mesh (another solution: disable collision between specific parts)
+
         robot_asset = self.gym.load_asset(self.sim, asset_root, robot_asset_file, asset_options)
         self.robot_asset = robot_asset
 
@@ -310,10 +313,11 @@ class FrankaCMD(VecTask):
 
         # finger indexing: 0-2:thumb ; 3-5:index ; 6-8:middle ; 9-11:ring
         self.grasp_finger_dof_pos = torch.tensor(
-            [0.0, -1., -0.5,
-             0.0, -1., -1.,
-             0.0, -1., -1.,
-             0.0, -1., -1.,
+            [1.0, 0.6, 0.6,
+             0, 1.2, 1.2,
+             1.2, 1.2,
+             0.0, 1.2, 1.2,
+             0.0, 1.2, 1.2,
             ],
             device=self.device, dtype=torch.float32
         )
@@ -328,11 +332,9 @@ class FrankaCMD(VecTask):
             "target_lift_dis": target_lift_dis,
             "target_quat": target_quat,
             "target_rot_6d": matrix_to_rotation_6d(quaternion_to_matrix_ig(target_quat)),
-            "lift_threshold": to_torch(self.cfg["reward"]["params"]["lift_threshold"], device=self.device),
             "curl_reaching_threshold": to_torch(self.cfg["reward"]["params"]["curl_reaching_threshold"], device=self.device),
             "object_init_height": self.mesh_aabb_extents[:, 2] / 2 + self.table_surface_height,
             "grasp_finger_dof_pos": self.grasp_finger_dof_pos,
-            "lift_thres_for_obj_goal": to_torch(self.cfg["reward"]["params"]["lift_thres_for_obj_goal"]),
 
             "beta_hand_object": to_torch(self.cfg["reward"]["exp"]["beta_hand_object"], device=self.device),
             "beta_object_goal": to_torch(self.cfg["reward"]["exp"]["beta_object_goal"], device=self.device),
@@ -570,8 +572,8 @@ class FrankaCMD(VecTask):
         self.gym.refresh_net_contact_force_tensor(self.sim)
 
         # Refresh states
-        self._update_states()
         self.check_robot_collision()
+        self._update_states()
 
     def _update_states(self):
         # update arm eef state
@@ -686,11 +688,11 @@ class FrankaCMD(VecTask):
         # TODO: figure out arm & hand collision
         self.gym.refresh_net_contact_force_tensor(self.sim)
         self.scene_collision = torch.where(
-            torch.norm(torch.sum(self.contact_forces[:, :26, :], dim=1), dim=1) > 1.0, 1.0, 0.0
-        )  # the first 26 elements belong to franka + cmd
+            torch.norm(torch.sum(self.contact_forces[:, :30, :], dim=1), dim=1) > 1.0, 1.0, 0.0
+        )  # the first 30 elements belong to franka + cmd
         self.collision = torch.where(
-            torch.sum(torch.norm(self.contact_forces[:, :26, :], dim=2), dim=1) > 1.0, 1.0, 0.0
-        )  # the first 26 elements belong to franka + cmd, this includes self collision
+            torch.sum(torch.norm(self.contact_forces[:, :30, :], dim=2), dim=1) > 1.0, 1.0, 0.0
+        )  # the first 30 elements belong to franka + cmd, this includes self collision
 
     def normalize_robot_joints(self, joint_angles: torch.Tensor, robot: bool, delta: bool = False) -> torch.Tensor:
         """
@@ -774,7 +776,10 @@ class FrankaCMD(VecTask):
             eef_quat_wxyz = torch.cat((eef_quat_wxyz, eef_quat_wxyz_dummy), dim=0)
 
         goal = Pose(eef_pos, eef_quat_wxyz) # Pose need quat in wxyz format
-        result = self.ik_solver.solve_batch(goal)
+        result = self.ik_solver.solve_batch(
+            goal_pose=goal,
+            retract_config=self.ik_regularization_config,
+        )
         if torch.any(result.success[:B] == False):
             print(f"IK solver failed for some environments: {sum(result.success)}/{result.success.shape[0]}")
             # TODO: need to think a bit how to handle such cases
@@ -881,7 +886,7 @@ class FrankaCMD(VecTask):
 
     def get_joint_limits_franka(self):
         """
-        Get the joint limits of the Franka arm. Franka (7) + CMD (4*3), 19 DOF in total
+        Get the joint limits of the Franka arm. Franka (7) + CMD (4*3 + 2), 21 DOF in total
 
         Returns:
             lower_limits (torch.Tensor): (7,)
@@ -893,11 +898,11 @@ class FrankaCMD(VecTask):
 
     def get_joint_limits_cmd(self):
         """
-        Get the joint limits of the CMD hand. Franka (7) + CMD (4*3), 19 DOF in total
+        Get the joint limits of the CMD hand. Franka (7) + CMD (4*3 + 2), 21 DOF in total
 
         Returns:
-            lower_limits (torch.Tensor): (4*3,)
-            upper_limits (torch.Tensor): (4*3,)
+            lower_limits (torch.Tensor): (14,)
+            upper_limits (torch.Tensor): (14,)
         """
         lower_limits = self.robot_dof_lower_limits[7:]
         upper_limits = self.robot_dof_upper_limits[7:]
@@ -992,7 +997,7 @@ class FrankaCMD(VecTask):
         if render_step == 0:
             self.video_ims = []
 
-        if render_step < self.max_episode_length:
+        if render_step < self.max_episode_length * 2:
             camera_renders = self.get_camera_render()
             ims = np.array(camera_renders)[:, 0, :, :, :3]
 
@@ -1013,13 +1018,13 @@ class FrankaCMD(VecTask):
                 ims[env_idx] = img
             self.video_ims.append(ims)
 
-        if render_step == self.max_episode_length - 1:
+        if render_step == 2*self.max_episode_length - 1:
             render_step_start = self.sim_steps + 1 - self.max_episode_length
             filename = os.path.join(self.video_dir, f"viz_step{render_step_start}.mp4")
             frames = np.asarray(self.video_ims) # (num_frames, num_envs, height, width, channels)
             frames = frames.transpose(1, 0, 2, 3, 4) # (num_envs, num_frames, height, width, channels)
             frames = frames.reshape(-1, frames.shape[2], frames.shape[3], frames.shape[4])  # (num_envs * num_frames, height, width, channels)
-            with imageio.get_writer(filename, fps=20) as writer:
+            with imageio.get_writer(filename, fps=60) as writer:
                 for frame in frames:
                     writer.append_data(frame)
 
@@ -1076,6 +1081,10 @@ class FrankaCMD(VecTask):
             )
 
     def reset_idx(self, env_ids=None):
+        # Domain randomization, can happen only at reset time since it can reset actor positions on GPU
+        if self.randomize:
+            self.apply_randomizations(self.randomization_params)
+
         if env_ids is None:
             env_ids = torch.arange(self.num_envs, device=self.device)
 

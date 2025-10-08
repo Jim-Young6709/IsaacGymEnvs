@@ -363,7 +363,7 @@ class FrankaLEAP(VecTask):
 
         # for visualization purposes
         self.canonical_grasp_config = torch.tensor(
-            [[0, 0, 0, -3*torch.pi/4, 0, 3*torch.pi/4, torch.pi/2] + self.grasp_finger_dof_pos.tolist()] * self.num_envs
+            [[0, 0, 0, -3*torch.pi/4, 0, 3*torch.pi/4, 0] + self.grasp_finger_dof_pos.tolist()] * self.num_envs
         ).to(self.device)
 
         self.reward_settings = {
@@ -753,7 +753,7 @@ class FrankaLEAP(VecTask):
         )  # the first 30 elements belong to franka + leap
         self.collision = torch.where(
             torch.sum(torch.norm(self.contact_forces[:, :30, :], dim=2), dim=1) > 1.0, 1.0, 0.0
-        )  # the first 16 elements belong to franka + leap, this includes self collision
+        )  # the first 30 elements belong to franka + leap, this includes self collision
 
     def normalize_robot_joints(self, joint_angles: torch.Tensor, robot: bool, delta: bool = False) -> torch.Tensor:
         """
@@ -943,7 +943,7 @@ class FrankaLEAP(VecTask):
         self._object_center_init_state[env_ids] = reset_pos
         self._object_center_init_state[env_ids, 2] += self.mesh_aabb_extents[env_ids, 2] / 2
 
-        multi_env_ids_obj_int32 = self._global_indices[env_ids].flatten()
+        multi_env_ids_obj_int32 = self._global_indices[env_ids, self._object_id].flatten()
         self.gym.set_actor_root_state_tensor_indexed(
             self.sim, gymtorch.unwrap_tensor(self._root_state),
             gymtorch.unwrap_tensor(multi_env_ids_obj_int32), len(multi_env_ids_obj_int32),
