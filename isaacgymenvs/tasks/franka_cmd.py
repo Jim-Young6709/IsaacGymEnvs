@@ -213,7 +213,8 @@ class FrankaCMD(VecTask):
         asset_options.default_dof_drive_mode = gymapi.DOF_MODE_POS
         asset_options.use_mesh_materials = True
         # NOTE: convex decomposition: disable this for now due to penetration of meshes
-        asset_options.vhacd_enabled = True # TODO: currently enable this cause CMD hand has more complicated sturcture, parts will collide with each other if use simplified mesh (another solution: disable collision between specific parts)
+        self.enable_vhacd = False
+        asset_options.vhacd_enabled = self.enable_vhacd # TODO: currently enable this cause CMD hand has more complicated sturcture, parts will collide with each other if use simplified mesh (another solution: disable collision between specific parts)
 
         robot_asset = self.gym.load_asset(self.sim, asset_root, robot_asset_file, asset_options)
         self.robot_asset = robot_asset
