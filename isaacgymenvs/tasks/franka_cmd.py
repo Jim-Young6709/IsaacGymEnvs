@@ -23,7 +23,7 @@ from isaacgymenvs.tasks.base.vec_task import VecTask
 import isaacgymenvs.utils.eef_ctrl as eef_ctrl
 from isaacgymenvs.utils.reformat import omegaconf_to_dict
 from isaacgymenvs.utils.rotation_conversions import quaternion_to_matrix_ig, matrix_to_rotation_6d, sample_spherical_shell, A2B_quaternion
-from isaacgymenvs.utils.pcd_utils import compute_scene_oracle_pcd, transform_pcds_to_world
+from isaacgymenvs.utils.pcd_utils import transform_pcds_to_world
 from omegaconf import DictConfig
 from tqdm import tqdm
 import random
@@ -38,13 +38,16 @@ class FrankaCMD(VecTask):
         self.device = sim_device
         self.max_episode_length = self.cfg["env"]["episodeLength"]
         self.action_scale = self.cfg["env"]["actionScale"]
-        self.eef_actions = True if self.cfg["env"]["numActions"] == 18 else False
+        self.eef_actions = True if self.cfg["env"]["numActions"] == 20 else False
         self.aggregate_mode = self.cfg["env"]["aggregateMode"]
         self.mesh_args = self.cfg["env"]["mesh"]
         self.eef_init = self.cfg["env"]["eef_init"]
         self.video_logging = self.cfg["env"]["video_logging"]
         self.video_dir = os.path.join('videos', self.cfg["name"] + '_{date:%d-%H-%M-%S}'.format(date=datetime.now()))
         os.makedirs(self.video_dir, exist_ok=True)
+
+        self.randomize = self.cfg["task"]["randomize"]
+        self.randomization_params = self.cfg["task"]["randomization_params"]
 
         # Controller type
         self.control_type = self.cfg["env"]["controlType"]
@@ -71,23 +74,12 @@ class FrankaCMD(VecTask):
             force_render=force_render
         )
 
-        if not hasattr(self, 'canonical_joint_config'):
-            self.canonical_joint_config = torch.tensor(
-                [[0, 0, 0, -3*torch.pi/4, 0, 3*torch.pi/4, 0] + \
-                 [0.2, 1.5, 0.0,
-                  0, 0.75, 0.75,
-                  0.75, 0.75,
-                  0.0, 0.75, 0.75,
-                  0.0, 0.75, 0.75,]] * self.num_envs
-            ).to(self.device)
-
-        self.actions = torch.zeros((self.num_envs, self.num_robot_dofs), device=self.device, dtype=torch.float) # Current delta actions to be deployed
-        self.success_flags = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device) # 1 if success condition has been achieved at any step, 0 otherwise
-        self.lifting_flags = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device)
+        self._post_init_buffers()
 
         # Reset all environments
-        self._refresh()
+        self._refresh() # TODO: what is this for?
         self.reset_idx(torch.arange(self.num_envs, device=self.device))
+        self.step_sim_multi(1, False)
         self.compute_observations()
 
         # randomize progress buffer
@@ -119,13 +111,36 @@ class FrankaCMD(VecTask):
         self._mm = None                         # Mass matrix
         self._pos_control = None                # Position actions
         self._effort_control = None             # Torque actions
-        self._robot_effort_limits = None        # Actuator effort limits for the robot (franka 7 + cmd 4*3)
+        self._robot_effort_limits = None        # Actuator effort limits for the robot (franka 7 + cmd 14)
         self._global_indices = None             # Unique indices corresponding to all envs in flattened array
+
+        self._qd_prev = None                    # Previous joint velocities (n_envs, n_dof)
 
         # pcd
         self.static_pcds = []
         self.object_pcds = []
         self.combined_pcds = []
+        self.static_scene_pcd_t0 = None
+        self.object_pcd_t0 = None
+
+    def _post_init_buffers(self):
+        if not hasattr(self, 'canonical_joint_config'):
+            self.canonical_joint_config = torch.tensor(
+                [[0, 0, 0, -3*torch.pi/4, 0, 3*torch.pi/4, 0] + \
+                 [0.2, 1.5, 0.0,
+                  0, 0.75, 0.75,
+                  0.75, 0.75,
+                  0.0, 0.75, 0.75,
+                  0.0, 0.75, 0.75,]] * self.num_envs
+            ).to(self.device)
+        self.ik_regularization_config = self.canonical_joint_config[:, :7]
+
+        self.delta_joint_actions = torch.zeros((self.num_envs, self.num_robot_dofs), device=self.device, dtype=torch.float) # Current delta actions to be deployed
+        self.delta_eef_actions = torch.zeros((self.num_envs, self.num_robot_dofs-1), device=self.device, dtype=torch.float) # Current delta actions to be deployed at the end effector
+        self.success_flags = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device) # 1 if success condition has been achieved at any step, 0 otherwise
+        self.lifting_flags = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device)
+
+        self.static_scene_pcd_t0 = self.static_pcds.clone()
 
     def _init_cuRobo_ik_solver(self):
         """
@@ -155,7 +170,7 @@ class FrankaCMD(VecTask):
             self_collision_opt=False,
             tensor_args=tensor_args,
             use_cuda_graph=True,
-            regularization=False,
+            regularization=True,
             grad_iters=None
         )
         self.ik_solver = IKSolver(ik_config)
@@ -169,6 +184,10 @@ class FrankaCMD(VecTask):
             self.device_id, self.graphics_device_id, self.physics_engine, self.sim_params)
         self._create_ground_plane()
         self._create_envs(self.cfg["env"]['envSpacing'], int(np.sqrt(self.num_envs)))
+
+        # Domain randomization, apply once immediately on startup before the fist sim step
+        if self.randomize:
+            self.apply_randomizations(self.randomization_params)
 
     def _create_ground_plane(self):
         plane_params = gymapi.PlaneParams()
@@ -396,37 +415,39 @@ class FrankaCMD(VecTask):
         mesh_name, _ = os.path.splitext(mesh_filename)
 
         urdf_rel = mesh_name + ".urdf"
-        urdf_path = os.path.join(mesh_dir, urdf_rel)
 
-        mesh = trimesh.load(mesh_path)
-        z_com = mesh.extents[2] * scale[2] / 2
+        # TODO: change logic in the future, recreating urdf might not be a good idea
+        # urdf_path = os.path.join(mesh_dir, urdf_rel)
 
-        # URDF content
-        urdf_str = f"""<?xml version="1.0" ?>
-            <robot name="mesh_object">
-            <link name="base">
-                <visual>
-                    <geometry>
-                        <mesh filename="{mesh_filename}" scale="{scale[0]} {scale[1]} {scale[2]}"/>
-                    </geometry>
-                </visual>
-                <collision>
-                    <geometry>
-                        <mesh filename="{mesh_filename}" scale="{scale[0]} {scale[1]} {scale[2]}"/>
-                    </geometry>
-                </collision>
-                <inertial>
-                    <origin xyz="0 0 {z_com}" rpy="0 0 0"/>
-                    <mass value="{mass}"/>
-                    <inertia ixx="0.01" iyy="0.01" izz="0.01" ixy="0" ixz="0" iyz="0"/>
-                </inertial>
-            </link>
-            </robot>
-        """
+        # mesh = trimesh.load(mesh_path)
+        # z_com = mesh.extents[2] * scale[2] / 2
 
-        # Save URDF
-        with open(urdf_path, 'w') as f:
-            f.write(urdf_str)
+        # # URDF content
+        # urdf_str = f"""<?xml version="1.0" ?>
+        #     <robot name="mesh_object">
+        #     <link name="base">
+        #         <visual>
+        #             <geometry>
+        #                 <mesh filename="{mesh_filename}" scale="{scale[0]} {scale[1]} {scale[2]}"/>
+        #             </geometry>
+        #         </visual>
+        #         <collision>
+        #             <geometry>
+        #                 <mesh filename="{mesh_filename}" scale="{scale[0]} {scale[1]} {scale[2]}"/>
+        #             </geometry>
+        #         </collision>
+        #         <inertial>
+        #             <origin xyz="0 0 {z_com}" rpy="0 0 0"/>
+        #             <mass value="{mass}"/>
+        #             <inertia ixx="0.01" iyy="0.01" izz="0.01" ixy="0" ixz="0" iyz="0"/>
+        #         </inertial>
+        #     </link>
+        #     </robot>
+        # """
+
+        # # Save URDF
+        # with open(urdf_path, 'w') as f:
+        #     f.write(urdf_str)
         return urdf_rel, mesh_dir
 
     def _create_mesh(self, mesh_path, pos, scale, quat=[0, 0, 0, 1], fix_base_link=True):
@@ -1081,6 +1102,7 @@ class FrankaCMD(VecTask):
             actions (torch.Tensor): normalized delta joint angles (num_selected_envs, 7+4*4)
         """
         if self.eef_actions:
+            self.delta_eef_actions = actions.clone()
             pos_actions = actions[:, 0:3] * self.action_scale["eef_pos"]
             ctrl_target_eef_pos = self.states['eef_pos'] + pos_actions
 
@@ -1119,10 +1141,13 @@ class FrankaCMD(VecTask):
             delta_arm_joint_actions_unnormalized = self.unnormalize_robot_joints(arm_actions, robot="arm", delta=True)
             delta_hand_joint_actions_unnormalized = self.unnormalize_robot_joints(hand_actions, robot="hand", delta=True)
 
-        self.actions[:, :7] = delta_arm_joint_actions_unnormalized
-        self.actions[:, 7:] = delta_hand_joint_actions_unnormalized
+        self.delta_joint_actions[:, :7] = delta_arm_joint_actions_unnormalized
+        self.delta_joint_actions[:, 7:] = delta_hand_joint_actions_unnormalized
 
-        abs_actions = self.states['q'] + self.actions # need to really make sure states['q'] is always up to date
+        abs_actions = self.states['q'] + self.delta_joint_actions # need to really make sure states['q'] is always up to date
+        abs_actions = tensor_clamp(
+            abs_actions, self.robot_dof_lower_limits, self.robot_dof_upper_limits
+        )
         self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(abs_actions))
 
     def post_physics_step(self):
@@ -1145,6 +1170,7 @@ class FrankaCMD(VecTask):
         self.table_surface_height = ...
         self.mesh_aabb_extents = ...
         self.obj_pos_range = ...
+        self.envs = ...
 
     @abstractmethod
     def compute_reward(self):

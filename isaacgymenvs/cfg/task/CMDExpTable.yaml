@@ -66,7 +66,7 @@ env:
 
   numObservations: 45
   numStates: 86
-  numActions: 18 # delta eef actions 6 (xyz, rpy) + normalized hand joint actions 12
+  numActions: 20 # delta eef actions 6 (xyz, rpy) + normalized hand joint actions 14
 
   base_policy_url: "jimyoung6709/DRP_Dagger"
   hdf5_path: null # hdf5 file that contains env and trajectory info
