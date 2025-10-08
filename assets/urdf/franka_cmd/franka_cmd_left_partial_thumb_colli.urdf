@@ -595,35 +595,35 @@
   <!-- finger tip joints -->
   <link name="thumb_tip"/>
   <joint name="thumb_tip_joint" type="fixed">
-    <origin xyz="0 -0.04 0" rpy="0 0 0" />
+    <origin xyz="0 0.04 0" rpy="0 0 0" />
     <parent link="F0J2" />
     <child link="thumb_tip" />
   </joint>
 
   <link name="index_tip"/>
   <joint name="index_tip_joint" type="fixed">
-    <origin xyz="0 -0.04 0" rpy="0 0 0" />
+    <origin xyz="0 0.04 0" rpy="0 0 0" />
     <parent link="F1J2" />
     <child link="index_tip" />
   </joint>
 
   <link name="middle_tip"/>
   <joint name="middle_tip_joint" type="fixed">
-    <origin xyz="0 -0.04 0" rpy="0 0 0" />
+    <origin xyz="0 0.04 0" rpy="0 0 0" />
     <parent link="F2J2" />
     <child link="middle_tip" />
   </joint>
 
   <link name="ring_tip"/>
   <joint name="ring_tip_joint" type="fixed">
-    <origin xyz="0 -0.04 0" rpy="0 0 0" />
+    <origin xyz="0 0.04 0" rpy="0 0 0" />
     <parent link="F3J2" />
     <child link="ring_tip" />
   </joint>
 
   <link name="little_tip"/>
   <joint name="little_tip_joint" type="fixed">
-    <origin xyz="0 -0.04 0" rpy="0 0 0" />
+    <origin xyz="0 0.04 0" rpy="0 0 0" />
     <parent link="F4J2" />
     <child link="little_tip" />
   </joint>
