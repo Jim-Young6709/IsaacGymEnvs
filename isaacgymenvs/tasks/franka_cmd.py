@@ -314,11 +314,11 @@ class FrankaCMD(VecTask):
 
         # finger indexing: 0-2:thumb ; 3-5:index ; 6-8:middle ; 9-11:ring
         self.grasp_finger_dof_pos = torch.tensor(
-            [1.0, 0.6, 0.6,
-             0, 1.2, 1.2,
-             1.2, 1.2,
-             0.0, 1.2, 1.2,
-             0.0, 1.2, 1.2,
+            [1.2, 1.2, 1.2,
+             0, 1.3, 1.3,
+             1.3, 1.3,
+             0.0, 1.3, 1.3,
+             0.0, 1.3, 1.3,
             ],
             device=self.device, dtype=torch.float32
         )
