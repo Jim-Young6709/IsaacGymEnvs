@@ -14,8 +14,8 @@ env:
     assetRoot: "../../assets"
     assetFileNameFranka: "urdf/franka_cmd/franka_cmd_left.urdf"
 
-  numObservations: 45
-  numStates: 86
+  numObservations: 47
+  numStates: 90
   numActions: 20 # delta eef actions 6 (xyz, rpy) + normalized hand joint actions 14
 
 reward:
