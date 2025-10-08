@@ -8,11 +8,11 @@ import hydra
 import isaacgym
 import numpy as np
 import torch
-from isaacgym.torch_utils import *
 from isaacgym import gymapi
+from isaacgym.torch_utils import *
+from isaacgymenvs.utils.pcd_utils import *
 from isaacgymenvs.tasks import FrankaCMD
 from isaacgymenvs.utils.reformat import omegaconf_to_dict
-from isaacgymenvs.utils.pcd_utils import *
 from omegaconf import DictConfig
 from tqdm import tqdm
 
@@ -43,8 +43,6 @@ class FrankaCMDPickTable(FrankaCMD):
         self.cuboid_pos = []
         self.cuboid_quats = []
 
-        self.capsule_dims = []  # r, l
-        self.sphere_radii = []  # r
         self.mesh_aabb_extents = None  # xyz, axis-aligned bounding box full extents
 
         # setup robot (franka + cmd)
@@ -53,13 +51,6 @@ class FrankaCMDPickTable(FrankaCMD):
         robot_start_pose = gymapi.Transform()
         robot_start_pose.p = gymapi.Vec3(0.0, 0.0, 0.0) # make sure robot spawns at the origin, this matches the IK setting with cuRobo
         robot_start_pose.r = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
-
-        # setup table
-        table_asset, table_start_pose = self._create_cube(
-            pos=[0.5, 0.0, -table_thickness/2],
-            size=[0.7, 1.2, table_thickness],
-        )
-        self.table_surface_height = torch.tensor([table_start_pose.p.z + table_thickness / 2] * self.num_envs, device=self.device)
 
         obj_xyz_range = self.cfg["env"]["object_settings"]["xyz_range"]
         self.obj_pos_range = torch.zeros((self.num_envs, 4), device=self.device) # x-min, x-max, y-min, y-max
@@ -76,7 +67,7 @@ class FrankaCMDPickTable(FrankaCMD):
 
         self.robots = []
         self.objects = []
-        self.env_ptrs = []
+        self.envs = []
         self._object_center_init_state = torch.zeros((self.num_envs, 3), device=self.device)
 
         # load all meshes first
@@ -105,6 +96,11 @@ class FrankaCMDPickTable(FrankaCMD):
                 self.gym.begin_aggregate(env_ptr, max_agg_bodies, max_agg_shapes, True)
 
             # Create table
+            # setup table
+            table_asset, table_start_pose = self._create_cube(
+                pos=[0.5, 0.0, -table_thickness/2],
+                size=[0.7, 1.2, table_thickness],
+            )
             self.gym.create_actor(
                 env_ptr, table_asset, table_start_pose, "table", i, 1, 0
             )
@@ -122,7 +118,7 @@ class FrankaCMDPickTable(FrankaCMD):
                 self.gym.end_aggregate(env_ptr)
 
             # Store the created env pointers
-            self.env_ptrs.append(env_ptr)
+            self.envs.append(env_ptr)
             self.robots.append(robot_actor)
             self.objects.append(self._object_id)
 
@@ -147,9 +143,15 @@ class FrankaCMDPickTable(FrankaCMD):
             )).to(self.device)
             self.object_pcds.append(object_pcd_i)
 
-        self.cuboid_dims = torch.tensor(self.cuboid_dims, device=self.device)  # (num_envs, 3)
-        self.capsule_dims = torch.tensor(self.capsule_dims, device=self.device)  # (num_envs, 2)
-        self.sphere_radii = torch.tensor(self.sphere_radii, device=self.device)
+        self.cuboid_dims = np.array(self.cuboid_dims).reshape(self.num_envs, -1, 3)
+        self.cuboid_pos = np.array(self.cuboid_pos).reshape(self.num_envs, -1, 3)
+        self.cuboid_quats = np.array(self.cuboid_quats).reshape(self.num_envs, -1, 4)
+
+        self.table_surface_height = torch.tensor([table_start_pose.p.z + table_thickness / 2] * self.num_envs, device=self.device)
+
+        self.cuboid_dims = torch.from_numpy(self.cuboid_dims).to(self.device)
+        self.cuboid_pos = torch.from_numpy(self.cuboid_pos).to(self.device)
+        self.cuboid_quats = torch.from_numpy(self.cuboid_quats).to(self.device)
 
         self.static_pcds = torch.stack(self.static_pcds, dim=0).to(self.device).to(torch.float32) # (num_envs, num_points, 3)
         self.object_pcds = torch.stack(self.object_pcds, dim=0).to(self.device).to(torch.float32)
@@ -164,6 +166,18 @@ class FrankaCMDPickTable(FrankaCMD):
         # Setup data
         actor_num = 1 + 1 + 1  # robot, table, object
         self.init_data(actor_num=actor_num)
+
+    def _update_states(self):
+        super()._update_states()
+
+        self.states.update({
+            # Table Contact Status, check whether the object is lifted
+            "lift": ~self.table_collision,
+        })
+
+    def check_robot_collision(self):
+        super().check_robot_collision()
+        self.table_collision = torch.any(self.contact_forces[:, 30].view(self.num_envs, -1) != 0, dim=1)
 
     def compute_observations(self):
         self._refresh()
@@ -207,12 +221,13 @@ class FrankaCMDPickTable(FrankaCMD):
         self.extras["dis/d_eef_point_goal"] = torch.mean(reward_dict["d_eef_point_goal"]).item()
 
         # log metrics
-        success_5cm_per_step = (reward_dict["d_eef_point_goal"] < 0.05)
-        self.success_flags[success_5cm_per_step] = 1
-        lifting_5cm_per_step = (reward_dict["d_lift"] > 0.05)
-        self.lifting_flags[lifting_5cm_per_step] = 1
-        self.extras["metrics/success_rate_5cm_per_step"] = torch.mean(success_5cm_per_step.float()).item()
-        self.extras["metrics/lifting_rate_5cm_per_step"] = torch.mean(lifting_5cm_per_step.float()).item()
+        self.lifting_5cm_per_step = self.states["lift"]
+        self.lifting_flags[self.lifting_5cm_per_step] = 1
+        self.success_5cm_per_step = (reward_dict["d_eef_point_goal"] < 0.05) & self.lifting_5cm_per_step
+        self.success_flags[self.success_5cm_per_step] = 1
+
+        self.extras["metrics/success_rate_5cm_per_step"] = torch.mean(self.success_5cm_per_step.float()).item()
+        self.extras["metrics/lifting_rate_5cm_per_step"] = torch.mean(self.lifting_5cm_per_step.float()).item()
         self.extras["metrics/success_rate_5cm_per_ep"] = torch.mean(self.success_flags).item()
         self.extras["metrics/lifting_rate_5cm_per_ep"] = torch.mean(self.lifting_flags).item()
 
@@ -242,15 +257,15 @@ def compute_franka_cmd_reward(states, reward_settings):
     if beta_lift > 0:
         object_vertical_err = torch.abs(states["object_center_pos"][:, 2] - target_pos[2])
         r_lift = torch.exp(-beta_lift * object_vertical_err)
-        r_lift = torch.where(object_height > reward_settings["lift_threshold"], r_lift, 0.0)
+        r_lift = torch.where(states["lift"], r_lift, 0.0)
     else:
-        r_lift = torch.where(object_height > reward_settings["lift_threshold"], 1.0, torch.zeros_like(object_height))
+        r_lift = torch.where(states["lift"], 1.0, torch.zeros_like(object_height))
 
     # R3: Object goal distance reward (based on average point matching distance)
     d_eef_point_goal = states["point_matching_err"]
     beta_object_goal = reward_settings["beta_object_goal"]
     r_obj_goal = torch.exp(-beta_object_goal * d_eef_point_goal)
-    r_obj_goal = torch.where(object_height > reward_settings["lift_threshold"], r_obj_goal, 0.0)
+    r_obj_goal = torch.where(states["lift"], r_obj_goal, 0.0)
 
     # R4: Finger curl
     hand_dof_pos = states["q"][:, 7:] # hand joint angles
@@ -267,7 +282,8 @@ def compute_franka_cmd_reward(states, reward_settings):
     w_lift = reward_settings["w_lift"]
     w_curl = reward_settings["w_curl"]
 
-    r_total = w_hand_obj*r_hand_obj + w_obj_goal*r_obj_goal + w_lift*r_lift + w_curl*r_curl
+    r_total = w_hand_obj*r_hand_obj + w_obj_goal*r_obj_goal + \
+              w_lift*r_lift + w_curl*r_curl
 
     rewards = {
         "r_hand_obj": w_hand_obj*r_hand_obj,
@@ -301,6 +317,7 @@ def launch_test(cfg: DictConfig):
     for i in tqdm(range(1000)):
         t1 = time.time()
         env.reset_idx()
+        # env.set_robot_joint_state(env.canonical_joint_config)
         # env.set_robot_joint_state(env.canonical_grasp_config)
         env.step_sim_multi(1, False)
         env.compute_observations()

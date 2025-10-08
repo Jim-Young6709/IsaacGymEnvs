@@ -74,11 +74,11 @@ class FrankaCMD(VecTask):
         if not hasattr(self, 'canonical_joint_config'):
             self.canonical_joint_config = torch.tensor(
                 [[0, 0, 0, -3*torch.pi/4, 0, 3*torch.pi/4, 0] + \
-                 [0, 0, 0,
-                  0, 0, 0,
-                  0, 0,
-                  0, 0, 0,
-                  0, 0, 0,]] * self.num_envs
+                 [0.2, 1.5, 0.0,
+                  0, 0.75, 0.75,
+                  0.75, 0.75,
+                  0.0, 0.75, 0.75,
+                  0.0, 0.75, 0.75,]] * self.num_envs
             ).to(self.device)
 
         self.actions = torch.zeros((self.num_envs, self.num_robot_dofs), device=self.device, dtype=torch.float) # Current delta actions to be deployed
@@ -234,7 +234,7 @@ class FrankaCMD(VecTask):
 
     def init_data(self, actor_num):
         # Setup sim handles
-        env_ptr = self.env_ptrs[0]
+        env_ptr = self.envs[0]
         robot_handle = 0
         self.handles = { # TODO: update this according to urdf
             # FrankaCMD
@@ -925,7 +925,7 @@ class FrankaCMD(VecTask):
                 self.obs_camera_handles.append([])
                 # global
                 camera_handle = self.gym.create_camera_sensor(
-                    self.env_ptrs[i], camera_props
+                    self.envs[i], camera_props
                 )
                 if camera_handle == -1:
                     print(f"Failed to create camera sensor for env {i}")
@@ -934,7 +934,7 @@ class FrankaCMD(VecTask):
                 camera_position = gymapi.Vec3(pos[0], pos[1], pos[2])
                 camera_target = gymapi.Vec3(target[0], target[1], target[2])
                 self.gym.set_camera_location(
-                    camera_handle, self.env_ptrs[i], camera_position, camera_target
+                    camera_handle, self.envs[i], camera_position, camera_target
                 )
                 self.camera_handles[i].append(camera_handle)
 
@@ -958,7 +958,7 @@ class FrankaCMD(VecTask):
 
             camera_handle = self.camera_handles[env_id][0]
             camera_image = self.gym.get_camera_image(
-                self.sim, self.env_ptrs[env_id], camera_handle, gymapi.IMAGE_COLOR
+                self.sim, self.envs[env_id], camera_handle, gymapi.IMAGE_COLOR
             )
             shape = camera_image.shape
             camera_image = camera_image.reshape(shape[0], -1, 4)
@@ -1048,7 +1048,7 @@ class FrankaCMD(VecTask):
             # Add lines to viewer
             self.gym.add_lines(
                 self.viewer,
-                self.env_ptrs[i],
+                self.envs[i],
                 num_points,     # num_lines = num points
                 verts_flat,     # flat list of start/end points
                 colors_flat     # flat list of RGB triples
