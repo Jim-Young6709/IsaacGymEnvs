@@ -18,8 +18,6 @@ env:
   numStates: 90
   numActions: 20 # delta eef actions 6 (xyz, rpy) + normalized hand joint actions 14
 
-  enable_vhacd: False
-
 reward:
   params:
     target_pos: [0.5, 0.0, 0.3]

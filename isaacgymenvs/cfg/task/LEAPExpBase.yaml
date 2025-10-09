@@ -39,6 +39,8 @@ env:
     enable: False
     limit_abad: False
 
+  enable_vhacd: False
+
   # video logging
   video_logging:
     capture: False
