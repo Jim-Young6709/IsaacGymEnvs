@@ -43,6 +43,7 @@ class FrankaCMD(VecTask):
         self.mesh_args = self.cfg["env"]["mesh"]
         self.eef_init = self.cfg["env"]["eef_init"]
         self.video_logging = self.cfg["env"]["video_logging"]
+        self.enable_vhacd = self.cfg["env"]["enable_vhacd"]
         self.video_dir = os.path.join('videos', self.cfg["name"] + '_{date:%d-%H-%M-%S}'.format(date=datetime.now()))
         os.makedirs(self.video_dir, exist_ok=True)
 
@@ -213,7 +214,6 @@ class FrankaCMD(VecTask):
         asset_options.default_dof_drive_mode = gymapi.DOF_MODE_POS
         asset_options.use_mesh_materials = True
         # NOTE: convex decomposition: disable this for now due to penetration of meshes
-        self.enable_vhacd = False
         asset_options.vhacd_enabled = self.enable_vhacd # TODO: currently enable this cause CMD hand has more complicated sturcture, parts will collide with each other if use simplified mesh (another solution: disable collision between specific parts)
 
         robot_asset = self.gym.load_asset(self.sim, asset_root, robot_asset_file, asset_options)
