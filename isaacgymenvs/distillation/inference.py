@@ -1,4 +1,5 @@
 import torch
+import time
 from hydra.utils import instantiate
 from omegaconf import OmegaConf
 from pathlib import Path
@@ -318,9 +319,22 @@ if __name__ == "__main__":
 
         return full_pcd_eef_frame_t, q_hand, eef_abs_pose
 
-    test_input = generate_random_inputs()
-
     model = Transformer_FrankaLEAP(device, TRANSFORMER_CONFIGS)
-    action = model.get_action(*test_input)
 
-    print(action)
+    print("warm up")
+    t_1 = time.time()
+    for i in range(3):
+        test_input = generate_random_inputs()
+        action = model.get_action(*test_input)
+    t_2 = time.time()
+    print(f"warm up time: {t_2 - t_1}")
+
+    test_num = 100.
+    print(f"profiling with {test_num} inferences")
+    t_3 = time.time()
+    for i in range(int(test_num)):
+        test_input = generate_random_inputs()
+        action = model.get_action(*test_input)
+    t_4 = time.time()
+    t_test = t_4 - t_3
+    print(f"time for {test_num} inference: {t_test} ; HZ: {test_num/t_test}")
