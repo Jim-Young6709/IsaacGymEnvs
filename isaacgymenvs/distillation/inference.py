@@ -148,6 +148,8 @@ class Transformer_FrankaLEAP:
             success_rate_ep = self.load_checkpoint(load_checkpoint_path)
             colorprint(f"Loading ckpt from {load_checkpoint_path}: success_rate_ep={success_rate_ep}", color="magenta")
 
+        self.model = torch.compile(self.model)
+
         self.robot_dof_lower_limits = torch.tensor([-2.8973, -1.7628, -2.8973, -3.0718, -2.8973, -0.0175, -2.8973,
                 -0.3140, -1.0470, -0.5060, -0.3660,
                 -0.3490, -0.4700, -1.2000, -1.3400,
@@ -234,7 +236,7 @@ class Transformer_FrankaLEAP:
         # get the step action that goes into env.step() in sim
         step_actions = torch.clamp(student_actions, -self.clip_actions, self.clip_actions)
 
-        return step_actions
+        return step_actions, obs_input
 
     def get_action(self, full_pcd_eef_frame_t, q_hand, eef_abs_pose):
         """
@@ -260,8 +262,8 @@ class Transformer_FrankaLEAP:
             ("full_pcd_eef_frame_t", full_pcd_eef_frame_t_b),
             ("q_hand", q_hand_b),
         ])
-
-        step_action = self.get_step_action(obs_dict)
+        
+        step_action, obs_input = self.get_step_action(obs_dict)
 
         pos_actions = step_action[:3] * self.action_scale["eef_pos"]
         ctrl_target_eef_pos = eef_abs_pose[:3] + pos_actions
@@ -288,9 +290,8 @@ class Transformer_FrankaLEAP:
             abs_hand_actions, self.hand_dof_lower_limits, self.hand_dof_upper_limits
         )
 
-        actions = torch.cat([ctrl_target_eef_pos, ctrl_target_eef_quat, abs_hand_actions])
+        return ctrl_target_eef_pos.cpu().numpy(), ctrl_target_eef_quat.cpu().numpy(), abs_hand_actions.cpu().numpy(), obs_input["local_pcd_t"]
 
-        return actions # eef_xyz, eef_xyzw, q_hand_16
 
 if __name__ == "__main__":
     device = "cuda:0"
