@@ -1,5 +1,3 @@
-import isaacgym
-
 import torch
 from hydra.utils import instantiate
 from omegaconf import OmegaConf
@@ -7,7 +5,50 @@ from pathlib import Path
 from collections import OrderedDict
 from isaacgymenvs.utils.pcd_utils import crop_local_pcd
 from isaacgymenvs.utils.training_utils import *
-from isaacgym.torch_utils import quat_from_angle_axis, quat_mul, tensor_clamp
+
+
+@torch.jit.script
+def normalize(x, eps: float = 1e-9):
+    return x / x.norm(p=2, dim=-1).clamp(min=eps, max=None).unsqueeze(-1)
+
+@torch.jit.script
+def quat_unit(a):
+    return normalize(a)
+
+@torch.jit.script
+def quat_from_angle_axis(angle, axis):
+    theta = (angle / 2).unsqueeze(-1)
+    xyz = normalize(axis) * theta.sin()
+    w = theta.cos()
+    return quat_unit(torch.cat([xyz, w], dim=-1))
+
+
+@torch.jit.script
+def quat_mul(a, b):
+    assert a.shape == b.shape
+    shape = a.shape
+    a = a.reshape(-1, 4)
+    b = b.reshape(-1, 4)
+
+    x1, y1, z1, w1 = a[:, 0], a[:, 1], a[:, 2], a[:, 3]
+    x2, y2, z2, w2 = b[:, 0], b[:, 1], b[:, 2], b[:, 3]
+    ww = (z1 + x1) * (x2 + y2)
+    yy = (w1 - y1) * (w2 + z2)
+    zz = (w1 + y1) * (w2 - z2)
+    xx = ww + yy + zz
+    qq = 0.5 * (xx + (z1 - x1) * (x2 - y2))
+    w = qq - ww + (z1 - y1) * (y2 - z2)
+    x = qq - xx + (x1 + w1) * (x2 + w2)
+    y = qq - yy + (w1 - x1) * (y2 + z2)
+    z = qq - zz + (z1 + y1) * (w2 - x2)
+
+    quat = torch.stack([x, y, z, w], dim=-1).view(shape)
+
+    return quat
+
+@torch.jit.script
+def tensor_clamp(t, min_t, max_t):
+    return torch.max(torch.min(t, max_t), min_t)
 
 
 
