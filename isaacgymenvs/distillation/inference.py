@@ -53,7 +53,7 @@ def tensor_clamp(t, min_t, max_t):
 
 
 # TODO: hardcode for now for simplicity, but ideally this should be loaded from a config file
-HARDCODED_VALUES = {
+TRANSFORMER_CONFIGS = {
     "clip_actions": 1.0,
     "local_pcd_range": 0.5,
     "num_local_points": 512,
@@ -69,16 +69,16 @@ HARDCODED_VALUES = {
 
 
 class Transformer_FrankaLEAP:
-    def __init__(self, device):
+    def __init__(self, device, configs):
         self.device = device
-        set_seed_and_precision(HARDCODED_VALUES["seed"])
-        self.local_pcd_range = HARDCODED_VALUES["local_pcd_range"]
-        self.num_local_points = HARDCODED_VALUES["num_local_points"]
-        self.clip_actions = HARDCODED_VALUES["clip_actions"]
-        self.action_scale = HARDCODED_VALUES["action_scale"]
+        set_seed_and_precision(configs["seed"])
+        self.local_pcd_range = configs["local_pcd_range"]
+        self.num_local_points = configs["num_local_points"]
+        self.clip_actions = configs["clip_actions"]
+        self.action_scale = configs["action_scale"]
 
         # load model from config
-        model_config_file = Path(HARDCODED_VALUES["model_config_path"])
+        model_config_file = Path(configs["model_config_path"])
         assert model_config_file.exists(), f"Model config file {model_config_file} does not exist"
         with open(model_config_file, "r") as f:
             model_config = OmegaConf.load(f)
@@ -86,7 +86,7 @@ class Transformer_FrankaLEAP:
         self.model = self.model.to(self.device)
 
         # load ckpt weight
-        load_checkpoint_path = HARDCODED_VALUES["ckpt_path"]
+        load_checkpoint_path = configs["ckpt_path"]
         if load_checkpoint_path is not None:
             success_rate_ep = self.load_checkpoint(load_checkpoint_path)
             colorprint(f"Loading ckpt from {load_checkpoint_path}: success_rate_ep={success_rate_ep}", color="magenta")
@@ -262,7 +262,7 @@ if __name__ == "__main__":
 
     test_input = generate_random_inputs()
 
-    model = Transformer_FrankaLEAP(device)
+    model = Transformer_FrankaLEAP(device, TRANSFORMER_CONFIGS)
     action = model.get_action(*test_input)
 
     print(action)
