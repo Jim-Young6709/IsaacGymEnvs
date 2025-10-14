@@ -290,6 +290,26 @@ class Transformer_FrankaLEAP:
         )
 
         return ctrl_target_eef_pos.cpu().numpy(), ctrl_target_eef_quat.cpu().numpy(), abs_hand_actions.cpu().numpy(), obs_input["local_pcd_t"][0]
+    
+
+    def generate_random_inputs(self):
+        """
+        Generate random inputs for the get_action function using torch.rand
+        """      
+        # Generate random point cloud in EEF frame (N, 3)
+        N = 1500  # Larger than typical num_local_points
+        full_pcd_eef_frame_t = torch.rand(N, 3, device=device)  # Random point cloud in [0, 1)
+
+        # Generate random hand configuration (16,)
+        q_hand = torch.rand(16, device=device)  # In [0, 1)
+
+        # Generate random EEF absolute pose (7,) - xyz + xyzw quaternion
+        eef_pos = torch.rand(3, device=device)  # xyz position in [0, 1)
+        eef_quat = torch.rand(4, device=device)  # xyzw quaternion in [0, 1)
+        eef_quat = eef_quat / torch.norm(eef_quat)  # Normalize to get valid quaternion
+        eef_abs_pose = torch.cat([eef_pos, eef_quat])
+        return full_pcd_eef_frame_t, q_hand, eef_abs_pose
+
 
 
 if __name__ == "__main__":
