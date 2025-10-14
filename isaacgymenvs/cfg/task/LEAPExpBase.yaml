@@ -20,6 +20,10 @@ env:
     eef_pos: 0.6
     eef_rot: 0.6 # axis-angle rotation
 
+  resetNoiseScale:
+    hand: 0.5
+    arm: 0.2 # joint angle
+
   controlType: joint_position  # options are {joint_position, osc}
   controlFrequencyInv: 1
 

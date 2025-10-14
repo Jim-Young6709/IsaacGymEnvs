@@ -38,6 +38,7 @@ class FrankaLEAP(VecTask):
         self.device = sim_device
         self.max_episode_length = self.cfg["env"]["episodeLength"]
         self.action_scale = self.cfg["env"]["actionScale"]
+        self.reset_noise_scale = self.cfg["env"]["resetNoiseScale"]
         self.eef_actions = True if self.cfg["env"]["numActions"] == 22 else False
         self.aggregate_mode = self.cfg["env"]["aggregateMode"]
         self.mesh_args = self.cfg["env"]["mesh"]
@@ -1157,11 +1158,16 @@ class FrankaLEAP(VecTask):
 
         reset_noise_scale = 0.2
 
-        reset_noise = torch.rand((len(env_ids), 23), device=self.device)
+        reset_noise = torch.rand((len(env_ids), 23), device=self.device) # [0, 1]
+        reset_noise = 2.0 * (reset_noise - 0.5) # [-1, 1]
+        reset_noise[:, :7] *= self.reset_noise_scale["arm"]
+        reset_noise[:, 7:] *= self.reset_noise_scale["hand"]
+
         reset_joint_config = tensor_clamp(
-            self.canonical_joint_config[env_ids] +
-            reset_noise_scale * 2.0 * (reset_noise - 0.5),
-            self.robot_dof_lower_limits, self.robot_dof_upper_limits)
+            self.canonical_joint_config[env_ids] + reset_noise,
+            self.robot_dof_lower_limits,
+            self.robot_dof_upper_limits,
+        )
 
         self.set_robot_joint_state(reset_joint_config, env_ids=env_ids)
         self.success_flags[env_ids] = 0
