@@ -149,8 +149,6 @@ class Transformer_FrankaLEAP:
             success_rate_ep = self.load_checkpoint(load_checkpoint_path)
             colorprint(f"Loading ckpt from {load_checkpoint_path}: success_rate_ep={success_rate_ep}", color="magenta")
 
-        self.model = torch.compile(self.model)
-
         self.robot_dof_lower_limits = torch.tensor([-2.8973, -1.7628, -2.8973, -3.0718, -2.8973, -0.0175, -2.8973,
                 -0.3140, -1.0470, -0.5060, -0.3660,
                 -0.3490, -0.4700, -1.2000, -1.3400,
@@ -169,9 +167,9 @@ class Transformer_FrankaLEAP:
     def preprocess_inputs(self, obs):
         obs_input = OrderedDict()
         obs_input["q_hand"] = obs["q_hand"]
-
-        obs_input["local_pcd_t"], crop_logs = crop_local_pcd(obs['full_pcd_eef_frame_t'], self.local_pcd_range, self.num_local_points) # (1, num_local_points, 3)
-
+        obs_input["local_pcd_t"], crop_logs = crop_local_pcd(
+            obs['full_pcd_eef_frame_t'], self.local_pcd_range, self.num_local_points
+        ) # (1, num_local_points, 3)
         return obs_input
 
     def load_checkpoint(self, checkpoint_path):
@@ -291,7 +289,7 @@ class Transformer_FrankaLEAP:
             abs_hand_actions, self.hand_dof_lower_limits, self.hand_dof_upper_limits
         )
 
-        return ctrl_target_eef_pos.cpu().numpy(), ctrl_target_eef_quat.cpu().numpy(), abs_hand_actions.cpu().numpy(), obs_input["local_pcd_t"]
+        return ctrl_target_eef_pos.cpu().numpy(), ctrl_target_eef_quat.cpu().numpy(), abs_hand_actions.cpu().numpy(), obs_input["local_pcd_t"][0]
 
 
 if __name__ == "__main__":
