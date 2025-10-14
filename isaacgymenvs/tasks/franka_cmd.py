@@ -1123,11 +1123,11 @@ class FrankaCMD(VecTask):
         """
         if self.eef_actions:
             self.delta_eef_actions = actions.clone()
-            pos_actions = actions[:, 0:3] * self.action_scale["eef_pos"]
+            pos_actions = actions[:, 0:3] * self.action_scale["eef_pos"] * self.dt
             ctrl_target_eef_pos = self.states['eef_pos'] + pos_actions
 
             # Interpret actions as target rot (axis-angle) displacements
-            rot_actions = actions[:, 3:6] * self.action_scale["eef_rot"]
+            rot_actions = actions[:, 3:6] * self.action_scale["eef_rot"] * self.dt
             angle = torch.norm(rot_actions, p=2, dim=-1)
             axis = rot_actions / angle.unsqueeze(-1)
             rot_actions_quat = quat_from_angle_axis(angle, axis)
@@ -1153,11 +1153,11 @@ class FrankaCMD(VecTask):
                 ctrl_target_eef_quat=ctrl_target_eef_quat,
             )
 
-            hand_actions = actions[:, 6:] * self.action_scale["hand"]
+            hand_actions = actions[:, 6:] * self.action_scale["hand"] * self.dt
             delta_hand_joint_actions_unnormalized = self.unnormalize_robot_joints(hand_actions, robot="hand", delta=True)
         else:
-            arm_actions = actions[:, :7] * self.action_scale["arm"]
-            hand_actions = actions[:, 7:] * self.action_scale["hand"]
+            arm_actions = actions[:, :7] * self.action_scale["arm"] * self.dt
+            hand_actions = actions[:, 7:] * self.action_scale["hand"] * self.dt
             delta_arm_joint_actions_unnormalized = self.unnormalize_robot_joints(arm_actions, robot="arm", delta=True)
             delta_hand_joint_actions_unnormalized = self.unnormalize_robot_joints(hand_actions, robot="hand", delta=True)
 
