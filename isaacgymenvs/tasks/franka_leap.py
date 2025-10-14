@@ -1156,8 +1156,6 @@ class FrankaLEAP(VecTask):
 
         self._reset_object_state(env_ids) # reset object state
 
-        reset_noise_scale = 0.2
-
         reset_noise = torch.rand((len(env_ids), 23), device=self.device) # [0, 1]
         reset_noise = 2.0 * (reset_noise - 0.5) # [-1, 1]
         reset_noise[:, :7] *= self.reset_noise_scale["arm"]
