@@ -298,14 +298,14 @@ class Transformer_FrankaLEAP:
         """      
         # Generate random point cloud in EEF frame (N, 3)
         N = 1500  # Larger than typical num_local_points
-        full_pcd_eef_frame_t = torch.rand(N, 3, device=device)  # Random point cloud in [0, 1)
+        full_pcd_eef_frame_t = torch.rand(N, 3, device=self.device)  # Random point cloud in [0, 1)
 
         # Generate random hand configuration (16,)
-        q_hand = torch.rand(16, device=device)  # In [0, 1)
+        q_hand = torch.rand(16, device=self.device)  # In [0, 1)
 
         # Generate random EEF absolute pose (7,) - xyz + xyzw quaternion
-        eef_pos = torch.rand(3, device=device)  # xyz position in [0, 1)
-        eef_quat = torch.rand(4, device=device)  # xyzw quaternion in [0, 1)
+        eef_pos = torch.rand(3, device=self.device)  # xyz position in [0, 1)
+        eef_quat = torch.rand(4, device=self.device)  # xyzw quaternion in [0, 1)
         eef_quat = eef_quat / torch.norm(eef_quat)  # Normalize to get valid quaternion
         eef_abs_pose = torch.cat([eef_pos, eef_quat])
         return full_pcd_eef_frame_t, q_hand, eef_abs_pose
