@@ -108,6 +108,7 @@ class FrankaCMD(VecTask):
         self._eef_finger2_state = None          # End effector state (at finger 2)
         self._eef_finger3_state = None          # End effector state (at finger 3)
         self._eef_finger4_state = None          # End effector state (at finger 4)
+        self._eef_finger5_state = None          # End effector state (at finger 5)
         self._j_eef = None                      # Jacobian for end effector
         self._mm = None                         # Mass matrix
         self._pos_control = None                # Position actions
@@ -288,6 +289,7 @@ class FrankaCMD(VecTask):
         self._eef_finger2_state = self._rigid_body_state[:, self.handles["finger2_tip"], :]
         self._eef_finger3_state = self._rigid_body_state[:, self.handles["finger3_tip"], :]
         self._eef_finger4_state = self._rigid_body_state[:, self.handles["finger4_tip"], :]
+        self._eef_finger5_state = self._rigid_body_state[:, self.handles["finger5_tip"], :]
         self._object_state = self._root_state[:, self._object_id, :]
 
         _jacobian = self.gym.acquire_jacobian_tensor(self.sim, "franka")
@@ -632,12 +634,14 @@ class FrankaCMD(VecTask):
             "eef_finger2_pos": self._eef_finger2_state[:, :3],
             "eef_finger3_pos": self._eef_finger3_state[:, :3],
             "eef_finger4_pos": self._eef_finger4_state[:, :3],
+            "eef_finger5_pos": self._eef_finger5_state[:, :3],
 
             # Fingertip positions relative to hand base (palm_center)
             "eef_finger1_pos_relative": self._eef_finger1_state[:, :3] - self._eef_state[:, :3],
             "eef_finger2_pos_relative": self._eef_finger2_state[:, :3] - self._eef_state[:, :3],
             "eef_finger3_pos_relative": self._eef_finger3_state[:, :3] - self._eef_state[:, :3],
             "eef_finger4_pos_relative": self._eef_finger4_state[:, :3] - self._eef_state[:, :3],
+            "eef_finger5_pos_relative": self._eef_finger5_state[:, :3] - self._eef_state[:, :3],
 
             # Object
             "object_quat": self._object_state[:, 3:7],

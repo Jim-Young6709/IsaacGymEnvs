@@ -184,14 +184,14 @@ class FrankaCMDPickTable(FrankaCMD):
 
         obs_components = ["q_hand",
                           "eef_finger1_pos_relative", "eef_finger2_pos_relative",
-                          "eef_finger3_pos_relative", "eef_finger4_pos_relative",
+                          "eef_finger3_pos_relative", "eef_finger4_pos_relative", "eef_finger5_pos_relative",
                           "object_to_eef", "object_to_eef_rot_6d",
                           "target_to_eef", "target_to_eef_rot_6d"]
 
         states_components = ["q", "qd",
                              "eef_pos", "eef_rot_6d", "eef_vel",
                              "eef_finger1_pos_relative", "eef_finger2_pos_relative",
-                             "eef_finger3_pos_relative", "eef_finger4_pos_relative",
+                             "eef_finger3_pos_relative", "eef_finger4_pos_relative", "eef_finger5_pos_relative",
                              "object_to_eef", "object_to_eef_rot_6d",
                              "target_to_eef", "target_to_eef_rot_6d"]
 
@@ -241,9 +241,10 @@ def compute_franka_cmd_reward(states, reward_settings):
     d_finger2 = torch.norm(states["object_center_pos"] - states["eef_finger2_pos"], dim=-1)
     d_finger3 = torch.norm(states["object_center_pos"] - states["eef_finger3_pos"], dim=-1)
     d_finger4 = torch.norm(states["object_center_pos"] - states["eef_finger4_pos"], dim=-1)
+    d_finger5 = torch.norm(states["object_center_pos"] - states["eef_finger5_pos"], dim=-1)
 
     # R1: Max dist component to object: max_i∈{palm_pos,fingertips} ||x^i - x^obj||
-    d_hand_obj = torch.stack([d_palm, d_finger1, d_finger2, d_finger3, d_finger4], dim=1)
+    d_hand_obj = torch.stack([d_palm, d_finger1, d_finger2, d_finger3, d_finger4, d_finger5], dim=1)
     d_hand_obj = torch.max(d_hand_obj, dim=1)[0]
 
     # R1: Hand object distance reward
