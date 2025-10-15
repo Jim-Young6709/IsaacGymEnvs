@@ -1159,7 +1159,12 @@ class FrankaLEAP(VecTask):
         reset_noise = torch.rand((len(env_ids), 23), device=self.device) # [0, 1]
         reset_noise = 2.0 * (reset_noise - 0.5) # [-1, 1]
         reset_noise[:, :7] *= self.reset_noise_scale["arm"]
-        reset_noise[:, 7:] *= self.reset_noise_scale["hand"]
+
+        if self.reset_noise_scale["hand"] is None:
+            reset_noise[:, 7:] = self.unnormalize_robot_joints(reset_noise[:, 7:], robot="hand", delta=False)
+            reset_noise[:, 7:] -= self.canonical_joint_config[env_ids, 7:]
+        else:
+            reset_noise[:, 7:] *= self.reset_noise_scale["hand"]
 
         reset_joint_config = tensor_clamp(
             self.canonical_joint_config[env_ids] + reset_noise,
