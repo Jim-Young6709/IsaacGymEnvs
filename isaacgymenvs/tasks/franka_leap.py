@@ -145,6 +145,8 @@ class FrankaLEAP(VecTask):
 
         self.static_scene_pcd_t0 = self.static_pcds.clone()
 
+        self.abs_actions = torch.zeros(self.num_envs, 23, device=self.device)
+
     def _build_joint_mapping(self):
         env_ptr = self.envs[0]
         robot_handle = self.robots[0]
@@ -1227,11 +1229,11 @@ class FrankaLEAP(VecTask):
         self.delta_joint_actions[:, :7] = delta_arm_joint_actions_unnormalized
         self.delta_joint_actions[:, 7:] = delta_hand_joint_actions_unnormalized
 
-        abs_actions = self.states['q'] + self.delta_joint_actions # need to really make sure states['q'] is always up to date
-        abs_actions = tensor_clamp(
-            abs_actions, self.robot_dof_lower_limits, self.robot_dof_upper_limits
+        self.abs_actions[:] = self.states['q'] + self.delta_joint_actions # need to really make sure states['q'] is always up to date
+        self.abs_actions[:] = tensor_clamp(
+            self.abs_actions, self.robot_dof_lower_limits, self.robot_dof_upper_limits
         )
-        self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(abs_actions))
+        self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(self.abs_actions))
 
     def post_physics_step(self):
         self.progress_buf += 1

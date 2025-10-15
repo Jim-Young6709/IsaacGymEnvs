@@ -136,6 +136,7 @@ class Dagger:
         self.wandb_name = self.cfg.wandb_name
         self.wandb_id = None
 
+        self.state_encoders_keys = self.cfg.model.state_encoders_cfg.keys()
         self.pcd_encoders_keys = self.cfg.model.pcd_encoders_cfg.keys()
         self.num_local_points = self.env.pcd_spec_dict["num_local_points"]
 
@@ -333,6 +334,8 @@ class Dagger:
             # student obs, q_hand, rel_pcd
             q_robot = self.env.states['q'] # (num_envs, 23)
             q_hand = self.env.states['q_hand'] # (num_envs, 16)
+            if self.env.sim_steps == 0:
+                self.env.abs_actions[:] = q_robot.clone()
 
             static_scene_pcd_t0 = self.env.static_scene_pcd_t0
             object_pcd_t0 = self.env.object_pcd_t0
@@ -349,6 +352,9 @@ class Dagger:
                 ("q_hand", q_hand),
             ])
             obs_input = self.preprocess_inputs(obs_dict)
+
+            if "q_hand_ctrl_delta" in self.state_encoders_keys:
+                obs_input["q_hand_ctrl_delta"] = q_hand - self.env.abs_actions[:, 7:]
 
             with torch.no_grad():
                 student_model = self.student_model.module if self.multi_gpu else self.student_model
