@@ -207,7 +207,7 @@ class LocalPolicyTransformer:
 
 if __name__ == "__main__":
     device = "cuda:0"
-    model = Transformer_FrankaLEAP(device, TRANSFORMER_CONFIGS)
+    model = LocalPolicyTransformer(device, TRANSFORMER_CONFIGS)
 
     print("warm up")
     t_1 = time.time()
