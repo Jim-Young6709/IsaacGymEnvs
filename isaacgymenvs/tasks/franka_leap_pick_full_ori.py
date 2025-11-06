@@ -1,5 +1,6 @@
 """
-Franka + LEAP Hand Pick Env
+Franka + LEAP Hand Pick Env + Env from DRP
+TODO: need major reformatting and deep clean up!!! now its for box & shelf env only!
 """
 
 import time
@@ -8,7 +9,7 @@ import hydra
 import isaacgym
 import numpy as np
 import torch
-from isaacgym import gymapi, gymtorch
+from isaacgym import gymapi
 from isaacgym.torch_utils import *
 from isaacgymenvs.utils.pcd_utils import *
 from isaacgymenvs.utils.rotation_conversions import *
@@ -16,12 +17,49 @@ from isaacgymenvs.tasks import FrankaLEAP
 from isaacgymenvs.utils.reformat import omegaconf_to_dict
 from omegaconf import DictConfig
 from tqdm import tqdm
+from isaacgymenvs.utils.demo_loader import DemoLoader
 
 
 
-class FrankaLEAPPickTop(FrankaLEAP):
+def rot_x180_z90(quat_xyzw, B, device):
+    quat = quat_xyzw.clone()
+    rot_local_x_180 = torch.tensor([[1.0, 0.0, 0.0, 0.0]]*B, device=device)  # 180 degrees around local x-axis
+    rot_local_z_90 = torch.tensor([[0,0,0.7071,0.7071]]*B, device=device)  # 90 degrees around local z-axis
+    quat = quat_mul(quat, rot_local_x_180)  # rotate by 180 degrees around local x-axis
+    quat = quat_mul(quat, rot_local_z_90)  # rotate by 90 degrees around local z-axis
+
+    return quat
+
+def rot_y90(quat_xyzw, B, device):
+    quat = quat_xyzw.clone()
+    rot_local_y_90 = torch.tensor([[0.0, 0.7071, 0.0, 0.7071]]*B, device=device)  # 90 degrees around local y-axis
+    quat = quat_mul(quat, rot_local_y_90)  # rotate by 90 degrees around local y-axis
+
+    return quat
+
+
+class FrankaLEAPPickFull(FrankaLEAP):
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
-        self.scene_box_cfg = cfg["env"]["scene"]["safety_box"]
+        # hdf5 scene loading
+        hdf5_path = cfg["env"]["scene"]["hdf5_path"]
+        self.demo_loader = DemoLoader(hdf5_path, cfg["env"]["numEnvs"])
+        self.batch_idx = cfg["env"]["scene"]["batch_idx"]
+        self.batch = self.demo_loader.get_next_batch(batch_idx=self.batch_idx)
+        self.obstacle_handles = []
+        self.obstacle_configs = []
+        self.max_obstacles = 0
+        self.compartments = []
+        self.policy = cfg["policy"]
+
+        for env_idx, demo in enumerate(self.batch):
+            pcd_params = demo['states'][0][15:]
+            obstacle_config = decompose_scene_pcd_params_obs(pcd_params)
+            self.obstacle_configs.append(obstacle_config)
+            self.max_obstacles = max(len(obstacle_config[0]), self.max_obstacles)
+            self.compartments.append(demo['compartment_states'][1])
+
+        self.compartments = torch.tensor(self.compartments, device=sim_device) # (num_envs, 10), 10 = 3 (xyz dims) + 3 (xyz pos) + 4 (xyzw quat)
+
         super().__init__(
             cfg=cfg,
             rl_device=rl_device,
@@ -32,28 +70,105 @@ class FrankaLEAPPickTop(FrankaLEAP):
             force_render=force_render
         )
 
+        # TODO: clean this up, its way too messy
         if self.eef_init["enable"]:
-            dis_open_range = self.eef_init["dis_open_range"]
-            dis_open = torch.rand(self.num_envs, device=self.device) * (dis_open_range[1] - dis_open_range[0]) + dis_open_range[0]
+            if self.policy["top"]:
+                dis_open_range = self.eef_init["dis_open_range"]
+                dis_open = torch.rand(self.num_envs, device=self.device) * (dis_open_range[1] - dis_open_range[0]) + dis_open_range[0]
+                dis_side_range = self.eef_init["dis_side_range"]
 
-            eef_init_pos = self.box_pos.clone()
-            eef_init_pos[:, 2] += dis_open + self.box_dims[:, 2]
+                eef_init_pos = self.box_pos.clone()
+                eef_init_pos[:, 2] += dis_open + self.box_dims[:, 2]
 
-            eef_init_quat = self.box_quats.clone()
-            rot_local_x_180 = torch.tensor([[1.0, 0.0, 0.0, 0.0]]*self.num_envs, device=self.device)  # 180 degrees around local x-axis
-            rot_local_z_90 = torch.tensor([[0,0,0.7071,0.7071]]*self.num_envs, device=self.device)  # 90 degrees around local z-axis
-            eef_init_quat = quat_mul(eef_init_quat, rot_local_x_180)  # rotate by 180 degrees around local x-axis
-            eef_init_quat = quat_mul(eef_init_quat, rot_local_z_90)  # rotate by 90 degrees around local z-axis
+                eef_init_quat = self.box_quats.clone()
+                rot_local_x_180 = torch.tensor([[1.0, 0.0, 0.0, 0.0]]*self.num_envs, device=self.device)  # 180 degrees around local x-axis
+                rot_local_z_90 = torch.tensor([[0,0,0.7071,0.7071]]*self.num_envs, device=self.device)  # 90 degrees around local z-axis
+                eef_init_quat = quat_mul(eef_init_quat, rot_local_x_180)  # rotate by 180 degrees around local x-axis
+                eef_init_quat = quat_mul(eef_init_quat, rot_local_z_90)  # rotate by 90 degrees around local z-axis
 
-            # eef_init_quat = A2B_quaternion(eef_init_pos, self.box_pos, max_angle_deg=20)
-            # flip_idx = eef_init_pos[:, 0] < self.box_pos[:, 0]
-            # rot_local_z_180 = torch.tensor([[0.0, 0.0, 1.0, 0.0]]*sum(flip_idx), device=self.device)  # 180 degrees around local z-axis
-            # eef_init_quat[flip_idx] = quat_mul(eef_init_quat[flip_idx], rot_local_z_180)  # rotate by 180 degrees around local z-axis
+                eef_init_pos7 = torch.cat((eef_init_pos, eef_init_quat), dim=-1)  # (num_envs, 7)
 
-            eef_init_pos7 = torch.cat((eef_init_pos, eef_init_quat), dim=-1)  # (num_envs, 7)
+                # TODO: resampling mechanism here when IK failed
+                self.canonical_joint_config[:, :7] = self.get_joint_from_ee(eef_init_pos7)
 
-            # TODO: resampling mechanism here when IK failed
-            self.canonical_joint_config[:, :7] = self.get_joint_from_ee(eef_init_pos7)
+            elif self.policy["side"]:
+                dis_open_range = self.eef_init["dis_open_range"]
+                dis_open = torch.rand(self.num_envs, device=self.device) * (dis_open_range[1] - dis_open_range[0]) + dis_open_range[0]
+                # dis_side_range = self.eef_init["dis_side_range"]
+                # dis_side_y = torch.rand(self.num_envs, device=self.device) * (self.box_dims[:, 1] + 2*dis_side_range) - (self.box_dims[:, 1]/2 + dis_side_range)
+                # dis_side_z = torch.rand(self.num_envs, device=self.device) * (self.box_dims[:, 2] + 2*dis_side_range) - (self.box_dims[:, 2]/2 + dis_side_range)
+
+                eef_init_pos = self.box_pos.clone()
+                eef_init_pos[:, 0] -= dis_open + self.box_dims[:, 0] / 2
+                eef_init_pos[:, 2] += self.box_dims[:, 2] / 2
+
+                # eef_init_quat = A2B_quaternion(eef_init_pos, self.box_pos, max_angle_deg=20)
+                # rot_local_z_180 = torch.tensor([[0.0, 0.0, 1.0, 0.0]]*self.num_envs, device=self.device)  # 180 degrees around local z-axis
+                # eef_init_quat = quat_mul(eef_init_quat, rot_local_z_180)  # rotate by 180 degrees around local z-axis
+                eef_init_quat = rot_y90(self.box_quats, self.num_envs, self.device)
+
+                eef_init_pos7 = torch.cat((eef_init_pos, eef_init_quat), dim=-1)  # (num_envs, 7)
+
+                # TODO: resampling mechanism here when IK failed
+                self.canonical_joint_config[:, :7] = self.get_joint_from_ee(eef_init_pos7)
+
+        self.draw_box_lines(0, self.box_pos[0].clone(), self.box_quats[0].clone(), self.box_dims[0].clone())
+        # Reset all environments
+        self._refresh()
+        self.reset_idx(torch.arange(self.num_envs, device=self.device))
+        self.compute_observations()
+
+        # randomize progress buffer
+        self.progress_buf = torch.randint(0, self.max_episode_length, (self.num_envs,)).to(self.device)
+        self.sim_steps = 0 # keep track on the number of simulation steps
+
+    def draw_box_lines(self, env, pos_xyz, quat_xyzw, dims_xyz, color=(1.0, 0.2, 0.2)):
+        import numpy as np
+        from isaacgym import gymapi
+
+        px, py, pz = pos_xyz
+        qx, qy, qz, qw = quat_xyzw
+        sx, sy, sz = dims_xyz
+        sx -= 0.0001
+        sy -= 0.0001
+        sz -= 0.0001
+        pz += sz / 2
+
+        center = gymapi.Vec3(px, py, pz)
+        q = gymapi.Quat(qx, qy, qz, qw)
+
+        hx, hy, hz = sx * 0.5, sy * 0.5, sz * 0.5
+        corners_local = [
+            gymapi.Vec3(-hx, -hy, -hz),
+            gymapi.Vec3( hx, -hy, -hz),
+            gymapi.Vec3( hx,  hy, -hz),
+            gymapi.Vec3(-hx,  hy, -hz),
+            gymapi.Vec3(-hx, -hy,  hz),
+            gymapi.Vec3( hx, -hy,  hz),
+            gymapi.Vec3( hx,  hy,  hz),
+            gymapi.Vec3(-hx,  hy,  hz),
+        ]
+
+        corners_world = [gymapi.Quat.rotate(q, c) for c in corners_local]
+        corners_world = [gymapi.Vec3(c.x + center.x, c.y + center.y, c.z + center.z) for c in corners_world]
+
+        edges = [
+            (0,1), (1,2), (2,3), (3,0),
+            (4,5), (5,6), (6,7), (7,4),
+            (0,4), (1,5), (2,6), (3,7)
+        ]
+
+        # Collect line endpoints
+        lines = []
+        for i, j in edges:
+            lines.append(corners_world[i])
+            lines.append(corners_world[j])
+
+        # Convert to numpy
+        line_points = np.array([[p.x, p.y, p.z] for p in lines], dtype=np.float32)
+        line_colors = np.array([list(color)] * len(edges), dtype=np.float32)
+
+        self.gym.add_lines(self.viewer, self.envs[0], len(edges), line_points, line_colors)
 
     def _create_envs(self, spacing, num_per_row):
         """
@@ -63,10 +178,6 @@ class FrankaLEAPPickTop(FrankaLEAP):
         upper = gymapi.Vec3(spacing, spacing, spacing)
 
         # setup params
-        self.box_dims = []
-        self.box_pos = []
-        self.box_quats = []
-
         self.cuboid_dims = []  # xyz
         self.cuboid_pos = []
         self.cuboid_quats = []
@@ -75,22 +186,41 @@ class FrankaLEAPPickTop(FrankaLEAP):
         self.table_surface_height = torch.zeros((self.num_envs,), device=self.device)
         self.obj_pos_range = torch.zeros((self.num_envs, 4), device=self.device) # x-min, x-max, y-min, y-max
 
+        self.box_dims = self.compartments[:, :3]
+        self.box_pos = self.compartments[:, 3:6]
+        self.box_pos[:, 2] -= self.box_dims[:, 2] / 2  # box z pos is the bottom of the box, not the center
+        self.box_quats = self.compartments[:, 6:]
+
+        if self.policy["side"]:
+            # TODO: this convension miss match (shifted xy dim) between drp and dex is really akward
+            self.box_dims = self.box_dims[:, [1, 0, 2]]
+            rot_local_z_90 = torch.tensor([[0,0,0.7071,0.7071]]*self.num_envs, device=self.device)  # 90 degrees around local z-axis
+            self.box_quats = quat_mul(self.box_quats, rot_local_z_90)  # rotate by 90 degrees around local z-axis
+
+        # TODO: hard coded for now, update this later, now object is always at the center
+        self.obj_pos_range[:, 0] = self.box_pos[:, 0]
+        self.obj_pos_range[:, 1] = self.box_pos[:, 0]
+        self.obj_pos_range[:, 2] = self.box_pos[:, 1]
+        self.obj_pos_range[:, 3] = self.box_pos[:, 1]
+        self.table_surface_height = self.box_pos[:, 2]
+
         # setup robot (franka + leap)
         robot_dof_props = self._create_franka_leap()
         robot_asset = self.robot_asset
         robot_start_pose = gymapi.Transform()
         robot_start_pose.p = gymapi.Vec3(0.0, 0.0, 0.0) # make sure robot spawns at the origin, this matches the IK setting with cuRobo
         robot_start_pose.r = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
+        # robot_start_pose.r = gymapi.Quat(0.2588, 0, 0, 0.9659)
 
         # compute aggregate size
         num_robot_bodies = self.gym.get_asset_rigid_body_count(robot_asset)
         num_robot_shapes = self.gym.get_asset_rigid_shape_count(robot_asset)
-        max_agg_bodies = num_robot_bodies + 5 + 1  # 5 for box, 1 for object
-        max_agg_shapes = num_robot_shapes + 5 + 1  # 5 for box, 1 for object
+        max_agg_bodies = num_robot_bodies + self.max_obstacles + 1  # 1 for object
+        max_agg_shapes = num_robot_shapes + self.max_obstacles + 1  # 1 for object
 
         self.robots = []
         self.objects = []
-        self.env_ptrs = []
+        self.envs = []
         self._object_center_init_state = torch.zeros((self.num_envs, 3), device=self.device)
 
         # load all meshes first
@@ -118,22 +248,47 @@ class FrankaLEAPPickTop(FrankaLEAP):
             if self.aggregate_mode == 2:
                 self.gym.begin_aggregate(env_ptr, max_agg_bodies, max_agg_shapes, True)
 
-            # Create box workspace
-            self._box_wall_ids = []
-            box_info = self._create_box()
-            for wall_idx, (wall_asset, wall_start_pose) in enumerate(box_info):
-                wall_actor = self.gym.create_actor(
-                    env_ptr, wall_asset, wall_start_pose, f"box_wall{wall_idx}", i, 1, 0
-                )
-                self._box_wall_ids.append(wall_actor)
+            # create static scene from hdf5 loading
+            env_obstacles = []
+            (
+                cuboid_dims, 
+                cuboid_centers, 
+                cuboid_quats,
+                cylinder_radii, 
+                cylinder_heights,
+                cylinder_centers,
+                cylinder_quats,
+                *_
+            ) = self.obstacle_configs[i]
 
-            self.gym.set_rigid_body_color(
-                env_ptr,
-                self._box_wall_ids[0],
-                0,  # body index; 0 for single-body assets like cubes
-                gymapi.MESH_VISUAL_AND_COLLISION,
-                gymapi.Vec3(1.0, 0.0, 0.0)  # RGB in [0, 1]
-            )
+            num_cubes = len(cuboid_dims)
+            # Create obstacles
+            for j in range(self.max_obstacles):
+                if j < num_cubes:
+                    # Create obstacle with actual size and position
+                    obstacle_asset, obstacle_pose = self._create_cube(
+                        pos=cuboid_centers[j].tolist(),
+                        size=cuboid_dims[j].tolist(),
+                        quat=cuboid_quats[j].tolist()
+                    )
+                else:
+                    # Create minimal placeholder obstacles far away
+                    obstacle_asset, obstacle_pose = self._create_cube(
+                        pos=[0., 0., -100.0],
+                        size=[0.001, 0.001, 0.001],
+                        quat=[0, 0, 0, 1]
+                    )
+
+                obstacle_actor = self.gym.create_actor(
+                    env_ptr,
+                    obstacle_asset,
+                    obstacle_pose,
+                    f"obstacle_{j}",
+                    i,
+                    1,
+                    0
+                )
+                env_obstacles.append(obstacle_actor)
 
             # Create object
             self._object_id = self.gym.create_actor(
@@ -148,11 +303,19 @@ class FrankaLEAPPickTop(FrankaLEAP):
                 self.gym.end_aggregate(env_ptr)
 
             # Store the created env pointers
-            self.env_ptrs.append(env_ptr)
+            self.envs.append(env_ptr)
             self.robots.append(robot_actor)
             self.objects.append(self._object_id)
 
-            # object pcd
+            # Precompute static and object point cloud
+            static_pcd_i = torch.from_numpy(compute_scene_oracle_pcd(
+                num_obstacle_points=self.pcd_spec_dict["num_static_points"],
+                cuboid_dims=cuboid_dims,
+                cuboid_centers=cuboid_centers,
+                cuboid_quats=cuboid_quats,
+            )).to(self.device)
+            self.static_pcds.append(static_pcd_i)
+
             object_pcd_i = torch.from_numpy(compute_scene_oracle_pcd(
                 num_obstacle_points=self.pcd_spec_dict["num_object_points"],
                 mesh_position=np.array([[0.0, 0.0, 0.0]]),
@@ -164,36 +327,9 @@ class FrankaLEAPPickTop(FrankaLEAP):
             )).to(self.device)
             self.object_pcds.append(object_pcd_i)
 
-        self.cuboid_dims = np.array(self.cuboid_dims).reshape(self.num_envs, -1, 3)
-        self.cuboid_pos = np.array(self.cuboid_pos).reshape(self.num_envs, -1, 3)
-        self.cuboid_quats = np.array(self.cuboid_quats).reshape(self.num_envs, -1, 4)
-
-        for i in range(self.num_envs):
-            self.table_surface_height[i] = self.cuboid_pos[i, 0, 2] + self.cuboid_dims[i, 0, 2] / 2
-            self.obj_pos_range[i, 0] = self.cuboid_pos[i, 0, 0] - self.cuboid_dims[i, 0, 0] / 2 # x-min
-            self.obj_pos_range[i, 1] = self.cuboid_pos[i, 0, 0] + self.cuboid_dims[i, 0, 0] / 2 # x-max
-            self.obj_pos_range[i, 2] = self.cuboid_pos[i, 0, 1] - self.cuboid_dims[i, 0, 1] / 2 # y-min
-            self.obj_pos_range[i, 3] = self.cuboid_pos[i, 0, 1] + self.cuboid_dims[i, 0, 1] / 2 # y-max
-
-            # static pcd
-            static_pcd_i = torch.from_numpy(compute_scene_oracle_pcd(
-                num_obstacle_points=self.pcd_spec_dict["num_static_points"],
-                cuboid_dims=np.array(self.cuboid_dims[i]),
-                cuboid_centers=np.array(self.cuboid_pos[i]),
-                cuboid_quats=np.array(self.cuboid_quats[i]),
-            )).to(self.device)
-            self.static_pcds.append(static_pcd_i)
-
-        self.box_dims = torch.tensor(self.box_dims, device=self.device, dtype=torch.float32) # (num_envs, 3)
-        self.box_pos = torch.tensor(self.box_pos, device=self.device, dtype=torch.float32) # (num_envs, 3)
-        self.box_quats = torch.tensor(self.box_quats, device=self.device, dtype=torch.float32)
-
-        self.obj_pos_target = self.box_pos.clone()
-        self.obj_pos_target[:, 2] += (self.box_dims[:, 2] + 0.1)
-
-        self.cuboid_dims = torch.from_numpy(self.cuboid_dims).to(self.device)
-        self.cuboid_pos = torch.from_numpy(self.cuboid_pos).to(self.device)
-        self.cuboid_quats = torch.from_numpy(self.cuboid_quats).to(self.device)
+        self.cuboid_dims = torch.tensor(self.cuboid_dims, device=self.device).view(self.num_envs, -1, 3)
+        self.cuboid_pos = torch.tensor(self.cuboid_pos).view(self.num_envs, -1, 3)
+        self.cuboid_quats = torch.tensor(self.cuboid_quats).view(self.num_envs, -1, 4)
 
         self.static_pcds = torch.stack(self.static_pcds, dim=0).to(self.device).to(torch.float32) # (num_envs, num_points, 3)
         self.object_pcds = torch.stack(self.object_pcds, dim=0).to(self.device).to(torch.float32)
@@ -205,69 +341,23 @@ class FrankaLEAPPickTop(FrankaLEAP):
         self.mesh_aabb_extents = max_xyz - min_xyz
         self._object_center_init_state[:, 2] += self.mesh_aabb_extents[:, 2] / 2
 
-        # refine obj_rand_pos_range based on mesh AABB
-        self.obj_pos_range[:, 0] += (self.mesh_aabb_extents[:, 0] / 2 + self.scene_box_cfg["obj_wall_tol"])
-        self.obj_pos_range[:, 1] -= (self.mesh_aabb_extents[:, 0] / 2 + self.scene_box_cfg["obj_wall_tol"])
-        self.obj_pos_range[:, 2] += (self.mesh_aabb_extents[:, 1] / 2 + self.scene_box_cfg["obj_wall_tol"])
-        self.obj_pos_range[:, 3] -= (self.mesh_aabb_extents[:, 1] / 2 + self.scene_box_cfg["obj_wall_tol"])
-
         # Setup data
-        actor_num = 1 + 5 + 1  # robot, box, object
+        actor_num = 1 + self.max_obstacles + 1  # robot, obstacles, object
         self.init_data(actor_num=actor_num)
 
     def init_data(self, actor_num):
         super().init_data(actor_num=actor_num)
+        self.obj_pos_target = self.box_pos.clone()
+
+        if self.policy["top"]:
+            self.obj_pos_target[:, 2] += (self.box_dims[:, 2] + 0.1)
+            self.reward_settings["target_quat"] = rot_x180_z90(self.box_quats, self.num_envs, self.device)
+        elif self.policy["side"]:
+            self.obj_pos_target[:, 0] -= (self.box_dims[:, 0] / 2 + 0.1)
+            self.obj_pos_target[:, 2] += self.box_dims[:, 2] / 2
+            self.reward_settings["target_quat"] = rot_y90(self.box_quats, self.num_envs, self.device)
+
         self.reward_settings["target_pos"] = self.obj_pos_target
-
-    def _create_box(self):
-        wall_thickness = self.scene_box_cfg["wall_thickness"]
-        size_range = self.scene_box_cfg["size"]
-        size = np.random.uniform(size_range[0], size_range[1]) # inner size of the box
-
-        # for simple debugging scenario training
-        x_shift = self.scene_box_cfg["x_shift"]
-        y_shift = 0
-        z_shift = 0
-
-        self.box_dims.append(size.tolist())
-
-        pos_rand = np.random.uniform([-0.2, -0.2, -0.2], [0.2, 0.2, 0.2])
-        x_shift += pos_rand[0]
-        y_shift += pos_rand[1]
-        z_shift += pos_rand[2]
-
-        self.box_pos.append([x_shift, y_shift, z_shift])
-        self.box_quats.append([0.0, 0.0, 0.0, 1.0])
-
-        walls = [
-            # bottom wall
-            self._create_cube(
-                pos=[x_shift, y_shift, z_shift-wall_thickness/2],
-                size=[size[0]+wall_thickness*2, size[1]+wall_thickness*2, wall_thickness],
-            ),
-            # left wall
-            self._create_cube(
-                pos=[x_shift, y_shift+size[1]/2 + wall_thickness/2, z_shift+size[2]/2],
-                size=[size[0]+wall_thickness*2, wall_thickness, size[2]],
-            ),
-            # right wall
-            self._create_cube(
-                pos=[x_shift, y_shift-size[1]/2 - wall_thickness/2, z_shift+size[2]/2],
-                size=[size[0]+wall_thickness*2, wall_thickness, size[2]],
-            ),
-            # front wall
-            self._create_cube(
-                pos=[x_shift-size[0]/2 - wall_thickness/2, y_shift, z_shift+size[2]/2],
-                size=[wall_thickness, size[1], size[2]],
-            ),
-            # back wall
-            self._create_cube(
-                pos=[x_shift+size[0]/2 + wall_thickness/2, y_shift, z_shift+size[2]/2],
-                size=[wall_thickness, size[1], size[2]],
-            ),
-        ]
-
-        return walls
 
     def _update_states(self):
         super()._update_states()
@@ -282,116 +372,8 @@ class FrankaLEAPPickTop(FrankaLEAP):
             "box_dims": self.box_dims,
             "box_to_eef_rot_6d": box_to_eef_rot_6d,
             # check whether the object is lifted based on bottom board force contact info
-            "lift": ~self.box_bottom_collision,
+            "lift": torch.tensor([False]*self.num_envs, device=self.device) # TODO： ~self.box_bottom_collision,
         })
-
-    def _reset_box_state(self, env_ids):
-        if env_ids is None:
-            env_ids = torch.arange(self.num_envs, device=self.device)
-
-        num_reset = len(env_ids)
-
-        z_rot_rad_range = [-torch.pi/6, torch.pi/6]
-        rot_self = torch.rand(num_reset, device=self.device) * (z_rot_rad_range[1] - z_rot_rad_range[0]) + z_rot_rad_range[0]
-
-        self.box_quats[env_ids] = torch.stack([
-            torch.zeros_like(rot_self),
-            torch.zeros_like(rot_self),
-            torch.sin(rot_self/2),
-            torch.cos(rot_self/2)], dim=1
-        )
-
-        def rotate_about_center(points, centers, rot_rad):
-            """
-            Rotate points around centers by rot_rad on the Z axis.
-
-            Args:
-                points:  Tensor of shape (..., 2) or (..., 3)
-                centers: Tensor broadcastable to points' shape (..., 2 or 3)
-                rot_rad: Tensor/float broadcastable to shape points[..., 0].shape
-                        (e.g., scalar, (...,), or same leading dims as points)
-
-            Returns:
-                Tensor with same shape as `points`.
-            """
-            p = points - centers  # translate to origin
-
-            cos_t = torch.cos(rot_rad)
-            sin_t = torch.sin(rot_rad)
-
-            x, y = p[..., 0], p[..., 1]
-            xr = cos_t * x - sin_t * y
-            yr = sin_t * x + cos_t * y
-
-            if points.shape[-1] == 2:
-                rotated = torch.stack([xr, yr], dim=-1)
-            else:  # keep z unchanged
-                z = p[..., 2]
-                rotated = torch.stack([xr, yr, z], dim=-1)
-
-            return rotated + centers  # translate back
-
-        wall_states = self._root_state[env_ids, 1:6].clone()  # bottom wall
-        wall_thickness = self.scene_box_cfg["wall_thickness"]
-
-        wall_states[:, :, 3:7] = self.box_quats[env_ids].unsqueeze(1).repeat(1, 5, 1)
-
-        # bottom wall
-        wall_states[:, 0, :3] = self.box_pos[env_ids] + torch.tensor([0.0, 0.0, -wall_thickness/2], device=self.device)
-        # left wall
-        wall_left_pos_rel = torch.stack([
-            self.box_pos[env_ids, 0],
-            self.box_pos[env_ids, 1]+self.box_dims[env_ids, 1]/2+wall_thickness/2,
-            self.box_pos[env_ids, 2]+self.box_dims[env_ids, 2]/2,
-            ], dim=1)
-        wall_states[:, 1, :2] = rotate_about_center(wall_left_pos_rel[:, :2], self.box_pos[env_ids, :2], rot_self)
-        wall_states[:, 1, 2] = wall_left_pos_rel[:, 2]
-        # right wall
-        wall_right_pos_rel = torch.stack([
-            self.box_pos[env_ids, 0],
-            self.box_pos[env_ids, 1]-self.box_dims[env_ids, 1]/2-wall_thickness/2,
-            self.box_pos[env_ids, 2]+self.box_dims[env_ids, 2]/2,
-            ], dim=1)
-        wall_states[:, 2, :2] = rotate_about_center(wall_right_pos_rel[:, :2], self.box_pos[env_ids, :2], rot_self)
-        wall_states[:, 2, 2] = wall_right_pos_rel[:, 2]
-        # front wall
-        wall_front_pos_rel = torch.stack([
-            self.box_pos[env_ids, 0]-self.box_dims[env_ids, 0]/2-wall_thickness/2,
-            self.box_pos[env_ids, 1],
-            self.box_pos[env_ids, 2]+self.box_dims[env_ids, 2]/2,
-            ], dim=1)
-        wall_states[:, 3, :2] = rotate_about_center(wall_front_pos_rel[:, :2], self.box_pos[env_ids, :2], rot_self)
-        wall_states[:, 3, 2] = wall_front_pos_rel[:, 2]
-        # back wall
-        wall_back_pos_rel = torch.stack([
-            self.box_pos[env_ids, 0]+self.box_dims[env_ids, 0]/2+wall_thickness/2,
-            self.box_pos[env_ids, 1],
-            self.box_pos[env_ids, 2]+self.box_dims[env_ids, 2]/2,
-            ], dim=1)
-        wall_states[:, 4, :2] = rotate_about_center(wall_back_pos_rel[:, :2], self.box_pos[env_ids, :2], rot_self)
-        wall_states[:, 4, 2] = wall_back_pos_rel[:, 2]
-
-        self._root_state[env_ids, 1:6] = wall_states
-        multi_env_ids_obj_int32 = self._global_indices[env_ids][:, [1,2,3,4,5]].flatten()
-        self.gym.set_actor_root_state_tensor_indexed(
-            self.sim, gymtorch.unwrap_tensor(self._root_state),
-            gymtorch.unwrap_tensor(multi_env_ids_obj_int32), len(multi_env_ids_obj_int32),
-        )
-
-        # self.reward_settings["target_quat"] = self.box_quats
-        # z_shift = self.scene_box_cfg["z"]
-        # r_rot_ex = self.scene_box_cfg["r"]
-        # rot_in = self.scene_box_cfg["rot_in"]
-        # rot_ex = self.scene_box_cfg["rot_ex"]
-
-    def reset_idx(self, env_ids=None):
-        self._reset_box_state(env_ids)
-        super().reset_idx(env_ids)
-
-    def check_robot_collision(self):
-        super().check_robot_collision()
-        self.box_wall_collision = torch.any(self.contact_forces[:, 31:35].view(self.num_envs, -1) != 0, dim=1)
-        self.box_bottom_collision = torch.any(self.contact_forces[:, 30].view(self.num_envs, -1) != 0, dim=1)
 
     def compute_observations(self):
         self._refresh()
@@ -414,7 +396,6 @@ class FrankaLEAPPickTop(FrankaLEAP):
         obs_buf = torch.cat([self.states[ob] for ob in obs_components], dim=-1)
         states_buf = torch.cat([self.states[st] for st in states_components], dim=-1)
 
-        # TODO： convert box to a local region
         obs_buf = torch.cat([obs_buf, self.mesh_aabb_extents], dim=-1)
         states_buf = torch.cat([states_buf, self.mesh_aabb_extents], dim=-1)
 
@@ -426,10 +407,6 @@ class FrankaLEAPPickTop(FrankaLEAP):
     def compute_reward(self):
         self.reset_buf[:] = torch.where((self.progress_buf >= self.max_episode_length - 1), torch.ones_like(self.reset_buf), self.reset_buf)
         self.reset_buf[self.states['object_center_pos'][:, 2] < self.table_surface_height-0.1] = 1
-
-        if self.scene_box_cfg["colli_reset"]:
-            self.reset_buf[self.box_wall_collision] = 1
-
         reward_dict = compute_franka_leap_reward(self.states, self.reward_settings)
 
         self.rew_buf[:] = reward_dict["r_total"]
@@ -442,19 +419,19 @@ class FrankaLEAPPickTop(FrankaLEAP):
         self.extras["dis/d_eef_point_goal"] = torch.mean(reward_dict["d_eef_point_goal"]).item()
 
         # log metrics
-        lifting_5cm_per_step = self.states["lift"]
-        self.lifting_flags[lifting_5cm_per_step] = 1
-        success_5cm_per_step = (reward_dict["d_eef_point_goal"] < 0.05) & lifting_5cm_per_step
-        self.success_flags[success_5cm_per_step] = 1
+        self.lifting_5cm_per_step = self.states["lift"]
+        self.lifting_flags[self.lifting_5cm_per_step] = 1
+        self.success_5cm_per_step = (reward_dict["d_eef_point_goal"] < 0.05) & self.lifting_5cm_per_step
+        self.success_flags[self.success_5cm_per_step] = 1
 
-        self.extras["metrics/success_rate_5cm_per_step"] = torch.mean(success_5cm_per_step.float()).item()
-        self.extras["metrics/lifting_rate_5cm_per_step"] = torch.mean(lifting_5cm_per_step.float()).item()
+        self.extras["metrics/success_rate_5cm_per_step"] = torch.mean(self.success_5cm_per_step.float()).item()
+        self.extras["metrics/lifting_rate_5cm_per_step"] = torch.mean(self.lifting_5cm_per_step.float()).item()
         self.extras["metrics/success_rate_5cm_per_ep"] = torch.mean(self.success_flags).item()
         self.extras["metrics/lifting_rate_5cm_per_ep"] = torch.mean(self.lifting_flags).item()
 
     def set_viewer(self):
         super().set_viewer(
-            pos=[1.0, 0.0, 1.0],
+            pos=[-0.3, 0.0, 1.2],
             target=[0.5, 0.0, 0.1],
         )
 
@@ -538,7 +515,7 @@ def launch_test(cfg: DictConfig):
     graphics_device_id = 0
     virtual_screen_capture = False
     force_render = False
-    env = FrankaLEAPPickTop(cfg_task, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render)
+    env = FrankaLEAPPickFull(cfg_task, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render)
     env.reset()
 
     for i in tqdm(range(1000)):
