@@ -19,7 +19,7 @@ from tqdm import tqdm
 
 
 
-class FrankaLEAPPickFull(FrankaLEAP):
+class FrankaLEAPPickTopFull(FrankaLEAP):
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
         self.scene_box_cfg = cfg["env"]["scene"]["safety_box"]
         super().__init__(
@@ -54,6 +54,9 @@ class FrankaLEAPPickFull(FrankaLEAP):
             # TODO: resampling mechanism here when IK failed
             self.canonical_joint_config[:, :7] = self.get_joint_from_ee(eef_init_pos7)
 
+        for i in range(4):
+            self.draw_box_lines(i, self.box_pos[i], self.box_quats[i], self.box_dims[i])
+
     def _create_envs(self, spacing, num_per_row):
         """
         loading Franka + LEAP + a table in the environment, this is for debugging purposes only
@@ -62,6 +65,7 @@ class FrankaLEAPPickFull(FrankaLEAP):
         upper = gymapi.Vec3(spacing, spacing, spacing)
 
         # setup params
+        table_thickness = 0.05
         self.box_dims = []
         self.box_pos = []
         self.box_quats = []
@@ -85,8 +89,8 @@ class FrankaLEAPPickFull(FrankaLEAP):
         # compute aggregate size
         num_robot_bodies = self.gym.get_asset_rigid_body_count(robot_asset)
         num_robot_shapes = self.gym.get_asset_rigid_shape_count(robot_asset)
-        max_agg_bodies = num_robot_bodies + 5 + 1  # 5 for box, 1 for object
-        max_agg_shapes = num_robot_shapes + 5 + 1  # 5 for box, 1 for object
+        max_agg_bodies = num_robot_bodies + 1 + 1 # 1 for object, 1 for table
+        max_agg_shapes = num_robot_shapes + 1 + 1 # 1 for object, 1 for table
 
         self.robots = []
         self.objects = []
@@ -118,25 +122,17 @@ class FrankaLEAPPickFull(FrankaLEAP):
             if self.aggregate_mode == 2:
                 self.gym.begin_aggregate(env_ptr, max_agg_bodies, max_agg_shapes, True)
 
-            # Create box workspace
-            self._box_wall_ids = []
-            box_info = self._create_box()
-            for wall_idx, (wall_asset, wall_start_pose) in enumerate(box_info):
-                if wall_idx == 0:
-                    wall_name = "table"
-                else:
-                    wall_name = f"box_wall{wall_idx}"
-                wall_actor = self.gym.create_actor(
-                    env_ptr, wall_asset, wall_start_pose, wall_name, i, 1, 0
-                )
-                self._box_wall_ids.append(wall_actor)
+            # Create virtual box (create it but not actually loading the box)
+            _ = self._create_box()
 
-            self.gym.set_rigid_body_color(
-                env_ptr,
-                self._box_wall_ids[0],
-                0,  # body index; 0 for single-body assets like cubes
-                gymapi.MESH_VISUAL_AND_COLLISION,
-                gymapi.Vec3(1.0, 0.0, 0.0)  # RGB in [0, 1]
+            # Create table
+            # setup table
+            table_asset, table_start_pose = self._create_cube(
+                pos=[0.5, 0.0, -table_thickness/2],
+                size=[0.7, 1.2, table_thickness],
+            )
+            self.gym.create_actor(
+                env_ptr, table_asset, table_start_pose, "table", i, 1, 0
             )
 
             # Create object
@@ -216,7 +212,7 @@ class FrankaLEAPPickFull(FrankaLEAP):
         self.obj_pos_range[:, 3] -= (self.mesh_aabb_extents[:, 1] / 2 + self.scene_box_cfg["obj_wall_tol"])
 
         # Setup data
-        actor_num = 1 + 5 + 1  # robot, box, object
+        actor_num = 1 + 1 + 1 # robot, table, object
         self.init_data(actor_num=actor_num)
 
     def init_data(self, actor_num):
@@ -270,6 +266,54 @@ class FrankaLEAPPickFull(FrankaLEAP):
         ]
 
         return walls
+
+    def draw_box_lines(self, env_idx, pos_xyz, quat_xyzw, dims_xyz, color=(1.0, 0.2, 0.2)):
+        import numpy as np
+        from isaacgym import gymapi
+
+        px, py, pz = pos_xyz
+        qx, qy, qz, qw = quat_xyzw
+        sx, sy, sz = dims_xyz
+        sx -= 0.0001
+        sy -= 0.0001
+        sz -= 0.0001
+        pz += sz / 2
+
+        center = gymapi.Vec3(px, py, pz)
+        q = gymapi.Quat(qx, qy, qz, qw)
+
+        hx, hy, hz = sx * 0.5, sy * 0.5, sz * 0.5
+        corners_local = [
+            gymapi.Vec3(-hx, -hy, -hz),
+            gymapi.Vec3( hx, -hy, -hz),
+            gymapi.Vec3( hx,  hy, -hz),
+            gymapi.Vec3(-hx,  hy, -hz),
+            gymapi.Vec3(-hx, -hy,  hz),
+            gymapi.Vec3( hx, -hy,  hz),
+            gymapi.Vec3( hx,  hy,  hz),
+            gymapi.Vec3(-hx,  hy,  hz),
+        ]
+
+        corners_world = [gymapi.Quat.rotate(q, c) for c in corners_local]
+        corners_world = [gymapi.Vec3(c.x + center.x, c.y + center.y, c.z + center.z) for c in corners_world]
+
+        edges = [
+            (0,1), (1,2), (2,3), (3,0),
+            (4,5), (5,6), (6,7), (7,4),
+            (0,4), (1,5), (2,6), (3,7)
+        ]
+
+        # Collect line endpoints
+        lines = []
+        for i, j in edges:
+            lines.append(corners_world[i])
+            lines.append(corners_world[j])
+
+        # Convert to numpy
+        line_points = np.array([[p.x, p.y, p.z] for p in lines], dtype=np.float32)
+        line_colors = np.array([list(color)] * len(edges), dtype=np.float32)
+
+        self.gym.add_lines(self.viewer, self.envs[env_idx], len(edges), line_points, line_colors)
 
     def _update_states(self):
         super()._update_states()
