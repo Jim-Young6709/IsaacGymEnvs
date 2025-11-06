@@ -94,8 +94,9 @@ class FrankaLEAP(VecTask):
         self.handles = {}                       # will be dict mapping names to relevant sim handles
         self.num_dofs = None                    # Total number of DOFs per env
         self._object_state = None               # Current state of object for the current env
-        self._object_center_init_state = None          # Initial state of object for the current env
+        self._object_center_init_state = None   # Initial state of object for the current env
         self._object_id = None                  # Actor ID corresponding to object for a given env
+        self._add_on_obstacle_ids = []          # Actor ID corresponding to add on obstacles for a given env
 
         # Tensor placeholders
         self._root_state = None                 # State of root body        (n_envs, 13)
