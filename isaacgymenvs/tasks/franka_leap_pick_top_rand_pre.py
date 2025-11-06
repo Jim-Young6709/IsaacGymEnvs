@@ -8,7 +8,7 @@ import hydra
 import isaacgym
 import numpy as np
 import torch
-from isaacgym import gymapi
+from isaacgym import gymapi, gymtorch
 from isaacgym.torch_utils import *
 from isaacgymenvs.utils.pcd_utils import *
 from isaacgymenvs.utils.rotation_conversions import *
@@ -35,19 +35,20 @@ class FrankaLEAPPickTop(FrankaLEAP):
         if self.eef_init["enable"]:
             dis_open_range = self.eef_init["dis_open_range"]
             dis_open = torch.rand(self.num_envs, device=self.device) * (dis_open_range[1] - dis_open_range[0]) + dis_open_range[0]
-            dis_side_range = self.eef_init["dis_side_range"]
-            dis_side_x = torch.rand(self.num_envs, device=self.device) * (self.box_dims[:, 0] + 2*dis_side_range) - (self.box_dims[:, 0]/2 + dis_side_range)
-            dis_side_y = torch.rand(self.num_envs, device=self.device) * (self.box_dims[:, 1] + 2*dis_side_range) - (self.box_dims[:, 1]/2 + dis_side_range)
 
             eef_init_pos = self.box_pos.clone()
-            eef_init_pos[:, 0] += dis_side_x
-            eef_init_pos[:, 1] += dis_side_y
             eef_init_pos[:, 2] += dis_open + self.box_dims[:, 2]
 
-            eef_init_quat = A2B_quaternion(eef_init_pos, self.box_pos, max_angle_deg=20, right_axis="y")
-            flip_idx = eef_init_pos[:, 0] < self.box_pos[:, 0]
-            rot_local_z_180 = torch.tensor([[0.0, 0.0, 1.0, 0.0]]*sum(flip_idx), device=self.device)  # 180 degrees around local z-axis
-            eef_init_quat[flip_idx] = quat_mul(eef_init_quat[flip_idx], rot_local_z_180)  # rotate by 180 degrees around local z-axis
+            eef_init_quat = self.box_quats.clone()
+            rot_local_x_180 = torch.tensor([[1.0, 0.0, 0.0, 0.0]]*self.num_envs, device=self.device)  # 180 degrees around local x-axis
+            rot_local_z_90 = torch.tensor([[0,0,0.7071,0.7071]]*self.num_envs, device=self.device)  # 90 degrees around local z-axis
+            eef_init_quat = quat_mul(eef_init_quat, rot_local_x_180)  # rotate by 180 degrees around local x-axis
+            eef_init_quat = quat_mul(eef_init_quat, rot_local_z_90)  # rotate by 90 degrees around local z-axis
+
+            # eef_init_quat = A2B_quaternion(eef_init_pos, self.box_pos, max_angle_deg=20)
+            # flip_idx = eef_init_pos[:, 0] < self.box_pos[:, 0]
+            # rot_local_z_180 = torch.tensor([[0.0, 0.0, 1.0, 0.0]]*sum(flip_idx), device=self.device)  # 180 degrees around local z-axis
+            # eef_init_quat[flip_idx] = quat_mul(eef_init_quat[flip_idx], rot_local_z_180)  # rotate by 180 degrees around local z-axis
 
             eef_init_pos7 = torch.cat((eef_init_pos, eef_init_quat), dim=-1)  # (num_envs, 7)
 
@@ -73,7 +74,6 @@ class FrankaLEAPPickTop(FrankaLEAP):
         self.mesh_aabb_extents = None  # xyz, axis-aligned bounding box full extents
         self.table_surface_height = torch.zeros((self.num_envs,), device=self.device)
         self.obj_pos_range = torch.zeros((self.num_envs, 4), device=self.device) # x-min, x-max, y-min, y-max
-        self.obj_pos_target = torch.zeros((self.num_envs, 3), device=self.device) # x, y, z
 
         # setup robot (franka + leap)
         robot_dof_props = self._create_franka_leap()
@@ -90,7 +90,7 @@ class FrankaLEAPPickTop(FrankaLEAP):
 
         self.robots = []
         self.objects = []
-        self.envs = []
+        self.env_ptrs = []
         self._object_center_init_state = torch.zeros((self.num_envs, 3), device=self.device)
 
         # load all meshes first
@@ -122,12 +122,8 @@ class FrankaLEAPPickTop(FrankaLEAP):
             self._box_wall_ids = []
             box_info = self._create_box()
             for wall_idx, (wall_asset, wall_start_pose) in enumerate(box_info):
-                if wall_idx == 0:
-                    wall_name = "table"
-                else:
-                    wall_name = f"box_wall{wall_idx}"
                 wall_actor = self.gym.create_actor(
-                    env_ptr, wall_asset, wall_start_pose, wall_name, i, 1, 0
+                    env_ptr, wall_asset, wall_start_pose, f"box_wall{wall_idx}", i, 1, 0
                 )
                 self._box_wall_ids.append(wall_actor)
 
@@ -152,7 +148,7 @@ class FrankaLEAPPickTop(FrankaLEAP):
                 self.gym.end_aggregate(env_ptr)
 
             # Store the created env pointers
-            self.envs.append(env_ptr)
+            self.env_ptrs.append(env_ptr)
             self.robots.append(robot_actor)
             self.objects.append(self._object_id)
 
@@ -188,12 +184,12 @@ class FrankaLEAPPickTop(FrankaLEAP):
             )).to(self.device)
             self.static_pcds.append(static_pcd_i)
 
-        self.box_dims = torch.tensor(self.box_dims, device=self.device) # (num_envs, 3)
-        self.box_pos = torch.tensor(self.box_pos, device=self.device) # (num_envs, 3)
-        self.box_quats = torch.tensor(self.box_quats, device=self.device)
+        self.box_dims = torch.tensor(self.box_dims, device=self.device, dtype=torch.float32) # (num_envs, 3)
+        self.box_pos = torch.tensor(self.box_pos, device=self.device, dtype=torch.float32) # (num_envs, 3)
+        self.box_quats = torch.tensor(self.box_quats, device=self.device, dtype=torch.float32)
 
-        self.obj_pos_target[:, :2] = self.box_pos[:, :2]
-        self.obj_pos_target[:, 2] = self.box_pos[:, 2] + self.box_dims[:, 2]
+        self.obj_pos_target = self.box_pos.clone()
+        self.obj_pos_target[:, 2] += (self.box_dims[:, 2] + 0.1)
 
         self.cuboid_dims = torch.from_numpy(self.cuboid_dims).to(self.device)
         self.cuboid_pos = torch.from_numpy(self.cuboid_pos).to(self.device)
@@ -221,11 +217,7 @@ class FrankaLEAPPickTop(FrankaLEAP):
 
     def init_data(self, actor_num):
         super().init_data(actor_num=actor_num)
-        self.obj_pos_target[:, 2] += 0.2
         self.reward_settings["target_pos"] = self.obj_pos_target
-        self.reward_settings["beta_object_drag"] = to_torch(self.cfg["reward"]["exp"]["beta_object_drag"], device=self.device)
-        self.reward_settings["w_obj_drag"] = to_torch(self.cfg["reward"]["weights"]["w_obj_drag"], device=self.device)
-        self.reward_settings["w_colli"] = to_torch(self.cfg["reward"]["weights"]["w_colli"], device=self.device)
 
     def _create_box(self):
         wall_thickness = self.scene_box_cfg["wall_thickness"]
@@ -234,37 +226,43 @@ class FrankaLEAPPickTop(FrankaLEAP):
 
         # for simple debugging scenario training
         x_shift = self.scene_box_cfg["x_shift"]
-        y_shift = 0.0
-        z_shift = 0.0
+        y_shift = 0
+        z_shift = 0
 
         self.box_dims.append(size.tolist())
+
+        pos_rand = np.random.uniform([-0.2, -0.2, -0.2], [0.2, 0.2, 0.2])
+        x_shift += pos_rand[0]
+        y_shift += pos_rand[1]
+        z_shift += pos_rand[2]
+
         self.box_pos.append([x_shift, y_shift, z_shift])
         self.box_quats.append([0.0, 0.0, 0.0, 1.0])
 
         walls = [
             # bottom wall
             self._create_cube(
-                pos=[x_shift+0.0, y_shift+0.0, -wall_thickness/2+z_shift],
+                pos=[x_shift, y_shift, z_shift-wall_thickness/2],
                 size=[size[0]+wall_thickness*2, size[1]+wall_thickness*2, wall_thickness],
             ),
             # left wall
             self._create_cube(
-                pos=[x_shift+0.0, y_shift+size[1]/2 + wall_thickness/2, size[2]/2+z_shift],
+                pos=[x_shift, y_shift+size[1]/2 + wall_thickness/2, z_shift+size[2]/2],
                 size=[size[0]+wall_thickness*2, wall_thickness, size[2]],
             ),
             # right wall
             self._create_cube(
-                pos=[x_shift+0.0, y_shift-size[1]/2 - wall_thickness/2, size[2]/2+z_shift],
+                pos=[x_shift, y_shift-size[1]/2 - wall_thickness/2, z_shift+size[2]/2],
                 size=[size[0]+wall_thickness*2, wall_thickness, size[2]],
             ),
             # front wall
             self._create_cube(
-                pos=[x_shift+-size[0]/2 - wall_thickness/2, y_shift+0.0, size[2]/2+z_shift],
+                pos=[x_shift-size[0]/2 - wall_thickness/2, y_shift, z_shift+size[2]/2],
                 size=[wall_thickness, size[1], size[2]],
             ),
             # back wall
             self._create_cube(
-                pos=[x_shift+size[0]/2 + wall_thickness/2, y_shift+0.0, size[2]/2+z_shift],
+                pos=[x_shift+size[0]/2 + wall_thickness/2, y_shift, z_shift+size[2]/2],
                 size=[wall_thickness, size[1], size[2]],
             ),
         ]
@@ -283,11 +281,112 @@ class FrankaLEAPPickTop(FrankaLEAP):
             "box_to_eef_pos": self.box_pos - self._eef_state[:, :3],
             "box_dims": self.box_dims,
             "box_to_eef_rot_6d": box_to_eef_rot_6d,
-            "obj_to_box_center_xy": self._object_state[:, :2] - self.box_pos[:, :2],
             # check whether the object is lifted based on bottom board force contact info
             "lift": ~self.box_bottom_collision,
-            "collision": self.box_wall_collision & (not self.scene_box_cfg["colli_reset"]),
         })
+
+    def _reset_box_state(self, env_ids):
+        if env_ids is None:
+            env_ids = torch.arange(self.num_envs, device=self.device)
+
+        num_reset = len(env_ids)
+
+        z_rot_rad_range = [-torch.pi/6, torch.pi/6]
+        rot_self = torch.rand(num_reset, device=self.device) * (z_rot_rad_range[1] - z_rot_rad_range[0]) + z_rot_rad_range[0]
+
+        self.box_quats[env_ids] = torch.stack([
+            torch.zeros_like(rot_self),
+            torch.zeros_like(rot_self),
+            torch.sin(rot_self/2),
+            torch.cos(rot_self/2)], dim=1
+        )
+
+        def rotate_about_center(points, centers, rot_rad):
+            """
+            Rotate points around centers by rot_rad on the Z axis.
+
+            Args:
+                points:  Tensor of shape (..., 2) or (..., 3)
+                centers: Tensor broadcastable to points' shape (..., 2 or 3)
+                rot_rad: Tensor/float broadcastable to shape points[..., 0].shape
+                        (e.g., scalar, (...,), or same leading dims as points)
+
+            Returns:
+                Tensor with same shape as `points`.
+            """
+            p = points - centers  # translate to origin
+
+            cos_t = torch.cos(rot_rad)
+            sin_t = torch.sin(rot_rad)
+
+            x, y = p[..., 0], p[..., 1]
+            xr = cos_t * x - sin_t * y
+            yr = sin_t * x + cos_t * y
+
+            if points.shape[-1] == 2:
+                rotated = torch.stack([xr, yr], dim=-1)
+            else:  # keep z unchanged
+                z = p[..., 2]
+                rotated = torch.stack([xr, yr, z], dim=-1)
+
+            return rotated + centers  # translate back
+
+        wall_states = self._root_state[env_ids, 1:6].clone()  # bottom wall
+        wall_thickness = self.scene_box_cfg["wall_thickness"]
+
+        wall_states[:, :, 3:7] = self.box_quats[env_ids].unsqueeze(1).repeat(1, 5, 1)
+
+        # bottom wall
+        wall_states[:, 0, :3] = self.box_pos[env_ids] + torch.tensor([0.0, 0.0, -wall_thickness/2], device=self.device)
+        # left wall
+        wall_left_pos_rel = torch.stack([
+            self.box_pos[env_ids, 0],
+            self.box_pos[env_ids, 1]+self.box_dims[env_ids, 1]/2+wall_thickness/2,
+            self.box_pos[env_ids, 2]+self.box_dims[env_ids, 2]/2,
+            ], dim=1)
+        wall_states[:, 1, :2] = rotate_about_center(wall_left_pos_rel[:, :2], self.box_pos[env_ids, :2], rot_self)
+        wall_states[:, 1, 2] = wall_left_pos_rel[:, 2]
+        # right wall
+        wall_right_pos_rel = torch.stack([
+            self.box_pos[env_ids, 0],
+            self.box_pos[env_ids, 1]-self.box_dims[env_ids, 1]/2-wall_thickness/2,
+            self.box_pos[env_ids, 2]+self.box_dims[env_ids, 2]/2,
+            ], dim=1)
+        wall_states[:, 2, :2] = rotate_about_center(wall_right_pos_rel[:, :2], self.box_pos[env_ids, :2], rot_self)
+        wall_states[:, 2, 2] = wall_right_pos_rel[:, 2]
+        # front wall
+        wall_front_pos_rel = torch.stack([
+            self.box_pos[env_ids, 0]-self.box_dims[env_ids, 0]/2-wall_thickness/2,
+            self.box_pos[env_ids, 1],
+            self.box_pos[env_ids, 2]+self.box_dims[env_ids, 2]/2,
+            ], dim=1)
+        wall_states[:, 3, :2] = rotate_about_center(wall_front_pos_rel[:, :2], self.box_pos[env_ids, :2], rot_self)
+        wall_states[:, 3, 2] = wall_front_pos_rel[:, 2]
+        # back wall
+        wall_back_pos_rel = torch.stack([
+            self.box_pos[env_ids, 0]+self.box_dims[env_ids, 0]/2+wall_thickness/2,
+            self.box_pos[env_ids, 1],
+            self.box_pos[env_ids, 2]+self.box_dims[env_ids, 2]/2,
+            ], dim=1)
+        wall_states[:, 4, :2] = rotate_about_center(wall_back_pos_rel[:, :2], self.box_pos[env_ids, :2], rot_self)
+        wall_states[:, 4, 2] = wall_back_pos_rel[:, 2]
+
+        self._root_state[env_ids, 1:6] = wall_states
+        multi_env_ids_obj_int32 = self._global_indices[env_ids][:, [1,2,3,4,5]].flatten()
+        self.gym.set_actor_root_state_tensor_indexed(
+            self.sim, gymtorch.unwrap_tensor(self._root_state),
+            gymtorch.unwrap_tensor(multi_env_ids_obj_int32), len(multi_env_ids_obj_int32),
+        )
+
+        # self.reward_settings["target_quat"] = self.box_quats
+        # z_shift = self.scene_box_cfg["z"]
+        # r_rot_ex = self.scene_box_cfg["r"]
+        # rot_in = self.scene_box_cfg["rot_in"]
+        # rot_ex = self.scene_box_cfg["rot_ex"]
+
+    def reset_idx(self, env_ids=None):
+        self._reset_box_state(env_ids)
+        super().reset_idx(env_ids)
 
     def check_robot_collision(self):
         super().check_robot_collision()
@@ -336,27 +435,22 @@ class FrankaLEAPPickTop(FrankaLEAP):
         self.rew_buf[:] = reward_dict["r_total"]
         self.extras["sep_reward/r_hand_obj"] = torch.mean(reward_dict["r_hand_obj"]).item()
         self.extras["sep_reward/r_obj_goal"] = torch.mean(reward_dict["r_obj_goal"]).item()
-        self.extras["sep_reward/r_obj_drag"] = torch.mean(reward_dict["r_obj_drag"]).item()
         self.extras["sep_reward/r_lift"] = torch.mean(reward_dict["r_lift"]).item()
         self.extras["sep_reward/r_curl"] = torch.mean(reward_dict["r_curl"]).item()
-        self.extras["sep_reward/r_colli"] = torch.mean(reward_dict["r_colli"]).item()
-        self.extras["sep_reward/r_actionreg"] = torch.mean(reward_dict["r_actionreg"]).item()
         self.extras["dis/d_hand_obj"] = torch.mean(reward_dict["d_hand_obj"]).item()
         self.extras["dis/d_lift"] = torch.mean(reward_dict["d_lift"]).item()
         self.extras["dis/d_eef_point_goal"] = torch.mean(reward_dict["d_eef_point_goal"]).item()
-        self.extras["dis/d_obj_drag"] = torch.mean(reward_dict["d_obj_drag"]).item()
 
         # log metrics
-        self.lifting_5cm_per_step = self.states["lift"]
-        self.lifting_flags[self.lifting_5cm_per_step] = 1
-        self.success_5cm_per_step = (reward_dict["d_eef_point_goal"] < 0.05) & self.lifting_5cm_per_step
-        self.success_flags[self.success_5cm_per_step] = 1
+        lifting_5cm_per_step = self.states["lift"]
+        self.lifting_flags[lifting_5cm_per_step] = 1
+        success_5cm_per_step = (reward_dict["d_eef_point_goal"] < 0.05) & lifting_5cm_per_step
+        self.success_flags[success_5cm_per_step] = 1
 
-        self.extras["metrics/success_rate_5cm_per_step"] = torch.mean(self.success_5cm_per_step.float()).item()
-        self.extras["metrics/lifting_rate_5cm_per_step"] = torch.mean(self.lifting_5cm_per_step.float()).item()
+        self.extras["metrics/success_rate_5cm_per_step"] = torch.mean(success_5cm_per_step.float()).item()
+        self.extras["metrics/lifting_rate_5cm_per_step"] = torch.mean(lifting_5cm_per_step.float()).item()
         self.extras["metrics/success_rate_5cm_per_ep"] = torch.mean(self.success_flags).item()
         self.extras["metrics/lifting_rate_5cm_per_ep"] = torch.mean(self.lifting_flags).item()
-        self.extras["metrics/collision_rate_per_step"] = torch.mean(self.states["collision"].float()).item()
 
     def set_viewer(self):
         super().set_viewer(
@@ -401,12 +495,7 @@ def compute_franka_leap_reward(states, reward_settings):
     r_obj_goal = torch.exp(-beta_object_goal * d_eef_point_goal)
     r_obj_goal = torch.where(states["lift"], r_obj_goal, 0.0)
 
-    # R4: Drag reward
-    beta_drag = reward_settings["beta_object_drag"]
-    d_obj_drag = torch.norm(states["obj_to_box_center_xy"], dim=1)
-    r_obj_drag = torch.exp(-beta_drag * d_obj_drag)
-
-    # R5: Finger curl
+    # R4: Finger curl
     hand_dof_pos = states["q"][:, 7:] # hand joint angles
     near_object = (d_hand_obj <= reward_settings["curl_reaching_threshold"])
     finger_pos_diff = torch.sum((hand_dof_pos - reward_settings["grasp_finger_dof_pos"]) ** 2, dim=1)
@@ -415,39 +504,23 @@ def compute_franka_leap_reward(states, reward_settings):
     r_curl= torch.exp(-beta_curl * finger_pos_diff)
     r_curl = torch.where(near_object, r_curl, 0.0)
 
-    # R6: Colli Penalty
-    # import ipdb ; ipdb.set_trace()
-    r_colli = torch.where(states["collision"], 1.0, 0.0)
-
-    # R7: Velocity Regularization/Penalty
-    actionreg = states["actionreg"]
-    r_actionreg = torch.sum(actionreg**2, dim=-1)
 
     w_hand_obj = reward_settings["w_hand_obj"]
     w_obj_goal = reward_settings["w_obj_goal"]
-    w_obj_drag = reward_settings["w_obj_drag"]
     w_lift = reward_settings["w_lift"]
     w_curl = reward_settings["w_curl"]
-    w_colli = reward_settings["w_colli"]
-    w_actionreg = reward_settings["w_actionreg"]
 
-    r_total = w_hand_obj*r_hand_obj + w_obj_goal*r_obj_goal + \
-              w_obj_drag*r_obj_drag + w_lift*r_lift + w_curl*r_curl + \
-              w_colli*r_colli + w_actionreg*r_actionreg
+    r_total = w_hand_obj*r_hand_obj + w_obj_goal*r_obj_goal + w_lift*r_lift + w_curl*r_curl
 
     rewards = {
         "r_hand_obj": w_hand_obj*r_hand_obj,
         "r_lift": w_lift*r_lift,
         "r_obj_goal": w_obj_goal*r_obj_goal,
-        "r_obj_drag": w_obj_drag*r_obj_drag,
         "r_curl": w_curl*r_curl,
-        "r_colli": w_colli*r_colli,
-        "r_actionreg": w_actionreg*r_actionreg,
         "r_total": r_total,
         "d_hand_obj": d_hand_obj,
         "d_lift": object_height,
         "d_eef_point_goal": d_eef_point_goal,
-        "d_obj_drag": d_obj_drag,
     }
 
     return rewards
