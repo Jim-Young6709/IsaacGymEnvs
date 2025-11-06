@@ -132,7 +132,7 @@ class FrankaLEAPPickTopFull(FrankaLEAP):
                 self.gym.begin_aggregate(env_ptr, max_agg_bodies, max_agg_shapes, True)
 
             # Create virtual box (create it but not actually loading the box)
-            _ = self._create_box()
+            self._create_box()
 
             # Create table
             # setup table
@@ -177,12 +177,16 @@ class FrankaLEAPPickTopFull(FrankaLEAP):
         self.cuboid_pos = np.array(self.cuboid_pos).reshape(self.num_envs, -1, 3)
         self.cuboid_quats = np.array(self.cuboid_quats).reshape(self.num_envs, -1, 4)
 
+        self.box_dims = torch.tensor(self.box_dims, device=self.device) # (num_envs, 3)
+        self.box_pos = torch.tensor(self.box_pos, device=self.device) # (num_envs, 3)
+        self.box_quats = torch.tensor(self.box_quats, device=self.device)
+
         for i in range(self.num_envs):
-            self.table_surface_height[i] = self.cuboid_pos[i, 0, 2] + self.cuboid_dims[i, 0, 2] / 2
-            self.obj_pos_range[i, 0] = self.cuboid_pos[i, 0, 0] - self.cuboid_dims[i, 0, 0] / 2 # x-min
-            self.obj_pos_range[i, 1] = self.cuboid_pos[i, 0, 0] + self.cuboid_dims[i, 0, 0] / 2 # x-max
-            self.obj_pos_range[i, 2] = self.cuboid_pos[i, 0, 1] - self.cuboid_dims[i, 0, 1] / 2 # y-min
-            self.obj_pos_range[i, 3] = self.cuboid_pos[i, 0, 1] + self.cuboid_dims[i, 0, 1] / 2 # y-max
+            self.table_surface_height[i] = self.box_pos[i, 2]
+            self.obj_pos_range[i, 0] = self.box_pos[i, 0] - self.box_dims[i, 0] / 2 # x-min
+            self.obj_pos_range[i, 1] = self.box_pos[i, 0] + self.box_dims[i, 0] / 2 # x-max
+            self.obj_pos_range[i, 2] = self.box_pos[i, 1] - self.box_dims[i, 1] / 2 # y-min
+            self.obj_pos_range[i, 3] = self.box_pos[i, 1] + self.box_dims[i, 1] / 2 # y-max
 
             # static pcd
             static_pcd_i = torch.from_numpy(compute_scene_oracle_pcd(
@@ -192,10 +196,6 @@ class FrankaLEAPPickTopFull(FrankaLEAP):
                 cuboid_quats=np.array(self.cuboid_quats[i]),
             )).to(self.device)
             self.static_pcds.append(static_pcd_i)
-
-        self.box_dims = torch.tensor(self.box_dims, device=self.device) # (num_envs, 3)
-        self.box_pos = torch.tensor(self.box_pos, device=self.device) # (num_envs, 3)
-        self.box_quats = torch.tensor(self.box_quats, device=self.device)
 
         self.obj_pos_target[:, :2] = self.box_pos[:, :2]
         self.obj_pos_target[:, 2] = self.box_pos[:, 2] + self.box_dims[:, 2]
@@ -233,7 +233,6 @@ class FrankaLEAPPickTopFull(FrankaLEAP):
         self.reward_settings["w_colli"] = to_torch(self.cfg["reward"]["weights"]["w_colli"], device=self.device)
 
     def _create_box(self):
-        wall_thickness = self.scene_box_cfg["wall_thickness"]
         size_range = self.scene_box_cfg["size"]
         size = np.random.uniform(size_range[0], size_range[1]) # inner size of the box
 
@@ -247,36 +246,6 @@ class FrankaLEAPPickTopFull(FrankaLEAP):
         self.box_dims.append(size.tolist())
         self.box_pos.append([x_shift, y_shift, z_shift])
         self.box_quats.append([0.0, 0.0, 0.0, 1.0])
-
-        walls = [
-            # bottom wall
-            self._create_cube(
-                pos=[x_shift+0.0, y_shift+0.0, -wall_thickness/2+z_shift],
-                size=[size[0]+wall_thickness*2, size[1]+wall_thickness*2, wall_thickness],
-            ),
-            # left wall
-            self._create_cube(
-                pos=[x_shift+0.0, y_shift+size[1]/2 + wall_thickness/2, size[2]/2+z_shift],
-                size=[size[0]+wall_thickness*2, wall_thickness, size[2]],
-            ),
-            # right wall
-            self._create_cube(
-                pos=[x_shift+0.0, y_shift-size[1]/2 - wall_thickness/2, size[2]/2+z_shift],
-                size=[size[0]+wall_thickness*2, wall_thickness, size[2]],
-            ),
-            # front wall
-            self._create_cube(
-                pos=[x_shift+-size[0]/2 - wall_thickness/2, y_shift+0.0, size[2]/2+z_shift],
-                size=[wall_thickness, size[1], size[2]],
-            ),
-            # back wall
-            self._create_cube(
-                pos=[x_shift+size[0]/2 + wall_thickness/2, y_shift+0.0, size[2]/2+z_shift],
-                size=[wall_thickness, size[1], size[2]],
-            ),
-        ]
-
-        return walls
 
     def draw_box_lines(self, env_idx, pos_xyz, quat_xyzw, dims_xyz, color=(1.0, 0.2, 0.2)):
         import numpy as np
