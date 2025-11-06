@@ -55,7 +55,7 @@ class FrankaLEAPPickTopFull(FrankaLEAP):
             self.canonical_joint_config[:, :7] = self.get_joint_from_ee(eef_init_pos7)
 
         for i in range(4):
-            self.draw_box_lines(i, self.box_pos[i], self.box_quats[i], self.box_dims[i])
+            self.draw_box_lines(i, self.box_pos[i].clone(), self.box_quats[i].clone(), self.box_dims[i].clone())
 
     def _create_envs(self, spacing, num_per_row):
         """
@@ -329,14 +329,14 @@ class FrankaLEAPPickTopFull(FrankaLEAP):
             "box_to_eef_rot_6d": box_to_eef_rot_6d,
             "obj_to_box_center_xy": self._object_state[:, :2] - self.box_pos[:, :2],
             # check whether the object is lifted based on bottom board force contact info
-            "lift": ~self.box_bottom_collision,
-            "collision": self.box_wall_collision & (not self.scene_box_cfg["colli_reset"]),
+            "lift": ~self.table_collision,
+            "collision": self.scene_collision & (not self.scene_box_cfg["colli_reset"]),
         })
 
     def check_robot_collision(self):
         super().check_robot_collision()
-        self.box_wall_collision = torch.any(self.contact_forces[:, 31:35].view(self.num_envs, -1) != 0, dim=1)
-        self.box_bottom_collision = torch.any(self.contact_forces[:, 30].view(self.num_envs, -1) != 0, dim=1)
+        self.scene_collision = torch.tensor([False]*self.num_envs, device=self.device)
+        self.table_collision = torch.any(self.contact_forces[:, 30].view(self.num_envs, -1) != 0, dim=1)
 
     def compute_observations(self):
         self._refresh()
@@ -373,7 +373,7 @@ class FrankaLEAPPickTopFull(FrankaLEAP):
         self.reset_buf[self.states['object_center_pos'][:, 2] < self.table_surface_height-0.1] = 1
 
         if self.scene_box_cfg["colli_reset"]:
-            self.reset_buf[self.box_wall_collision] = 1
+            self.reset_buf[self.scene_collision] = 1
 
         reward_dict = compute_franka_leap_reward(self.states, self.reward_settings)
 
