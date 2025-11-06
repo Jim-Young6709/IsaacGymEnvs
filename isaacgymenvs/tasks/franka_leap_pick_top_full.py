@@ -21,7 +21,6 @@ from tqdm import tqdm
 
 class FrankaLEAPPickTopFull(FrankaLEAP):
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
-        self.scene_box_cfg = cfg["env"]["scene"]["safety_box"]
         super().__init__(
             cfg=cfg,
             rl_device=rl_device,
@@ -57,15 +56,25 @@ class FrankaLEAPPickTopFull(FrankaLEAP):
         for i in range(4):
             self.draw_box_lines(i, self.box_pos[i].clone(), self.box_quats[i].clone(), self.box_dims[i].clone())
 
+    def _init_randomized_params(self):
+        self.scene_box_cfg = self.cfg["env"]["scene"]["safety_box"]
+
+        z_shift_range = self.cfg["env"]["scene"]["z_shift_range"]
+        self.z_shift = torch.rand(self.num_envs, device=self.device) * (z_shift_range[1] - z_shift_range[0]) + z_shift_range[0]
+
+        table_thickness_range = self.cfg["env"]["scene"]["table_thickness_range"]
+        self.table_thickness = torch.rand(self.num_envs, device=self.device) * (table_thickness_range[1] - table_thickness_range[0]) + table_thickness_range[0]
+
     def _create_envs(self, spacing, num_per_row):
         """
         loading Franka + LEAP + a table in the environment, this is for debugging purposes only
         """
+        self._init_randomized_params()
+
         lower = gymapi.Vec3(-spacing, -spacing, 0.0)
         upper = gymapi.Vec3(spacing, spacing, spacing)
 
         # setup params
-        table_thickness = 0.05
         self.box_dims = []
         self.box_pos = []
         self.box_quats = []
@@ -128,8 +137,8 @@ class FrankaLEAPPickTopFull(FrankaLEAP):
             # Create table
             # setup table
             table_asset, table_start_pose = self._create_cube(
-                pos=[0.5, 0.0, -table_thickness/2],
-                size=[0.7, 1.2, table_thickness],
+                pos=[0.5, 0.0, -self.table_thickness[i].item()/2+self.z_shift[i].item()],
+                size=[0.7, 1.2, self.table_thickness[i].item()],
             )
             self.gym.create_actor(
                 env_ptr, table_asset, table_start_pose, "table", i, 1, 0
@@ -228,10 +237,12 @@ class FrankaLEAPPickTopFull(FrankaLEAP):
         size_range = self.scene_box_cfg["size"]
         size = np.random.uniform(size_range[0], size_range[1]) # inner size of the box
 
+        env_idx = len(self.box_dims)
+
         # for simple debugging scenario training
         x_shift = self.scene_box_cfg["x_shift"]
         y_shift = 0.0
-        z_shift = 0.0
+        z_shift = self.z_shift[env_idx].item()
 
         self.box_dims.append(size.tolist())
         self.box_pos.append([x_shift, y_shift, z_shift])
