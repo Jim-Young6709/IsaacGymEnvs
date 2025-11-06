@@ -234,35 +234,37 @@ class FrankaLEAPPickTop(FrankaLEAP):
 
         # for simple debugging scenario training
         x_shift = self.scene_box_cfg["x_shift"]
+        y_shift = 0.0
+        z_shift = 0.0
 
         self.box_dims.append(size.tolist())
-        self.box_pos.append([x_shift, 0.0, 0.0])
+        self.box_pos.append([x_shift, y_shift, z_shift])
         self.box_quats.append([0.0, 0.0, 0.0, 1.0])
 
         walls = [
             # bottom wall
             self._create_cube(
-                pos=[x_shift+0.0, 0.0, -wall_thickness/2],
+                pos=[x_shift+0.0, y_shift+0.0, -wall_thickness/2+z_shift],
                 size=[size[0]+wall_thickness*2, size[1]+wall_thickness*2, wall_thickness],
             ),
             # left wall
             self._create_cube(
-                pos=[x_shift+0.0, size[1]/2 + wall_thickness/2, size[2]/2],
+                pos=[x_shift+0.0, y_shift+size[1]/2 + wall_thickness/2, size[2]/2+z_shift],
                 size=[size[0]+wall_thickness*2, wall_thickness, size[2]],
             ),
             # right wall
             self._create_cube(
-                pos=[x_shift+0.0, -size[1]/2 - wall_thickness/2, size[2]/2],
+                pos=[x_shift+0.0, y_shift-size[1]/2 - wall_thickness/2, size[2]/2+z_shift],
                 size=[size[0]+wall_thickness*2, wall_thickness, size[2]],
             ),
             # front wall
             self._create_cube(
-                pos=[x_shift+-size[0]/2 - wall_thickness/2, 0.0, size[2]/2],
+                pos=[x_shift+-size[0]/2 - wall_thickness/2, y_shift+0.0, size[2]/2+z_shift],
                 size=[wall_thickness, size[1], size[2]],
             ),
             # back wall
             self._create_cube(
-                pos=[x_shift+size[0]/2 + wall_thickness/2, 0.0, size[2]/2],
+                pos=[x_shift+size[0]/2 + wall_thickness/2, y_shift+0.0, size[2]/2+z_shift],
                 size=[wall_thickness, size[1], size[2]],
             ),
         ]
@@ -272,7 +274,9 @@ class FrankaLEAPPickTop(FrankaLEAP):
     def _update_states(self):
         super()._update_states()
         eef_rot_mat = quaternion_to_matrix_ig(self._eef_state[:, 3:7])
-        box_to_eef_rot_6d = matrix_to_rotation_6d(eef_rot_mat.transpose(1, 2)) # since its eef policy, so box quat can always be [0, 0, 0, 1]
+        box_rot_mat = quaternion_to_matrix_ig(self.box_quats)
+        box_to_eef_rot_mat = torch.matmul(eef_rot_mat.transpose(1, 2), box_rot_mat)
+        box_to_eef_rot_6d = matrix_to_rotation_6d(box_to_eef_rot_mat)
 
         self.states.update({
             # Box region
@@ -284,12 +288,6 @@ class FrankaLEAPPickTop(FrankaLEAP):
             "lift": ~self.box_bottom_collision,
             "collision": self.box_wall_collision & (not self.scene_box_cfg["colli_reset"]),
         })
-
-    def _reset_box_state(self):
-        z_shift = self.scene_box_cfg["z"]
-        r_rot_ex = self.scene_box_cfg["r"]
-        rot_in = self.scene_box_cfg["rot_in"]
-        rot_ex = self.scene_box_cfg["rot_ex"]
 
     def check_robot_collision(self):
         super().check_robot_collision()

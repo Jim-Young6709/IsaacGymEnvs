@@ -26,16 +26,9 @@ env:
     dis_open_range: [0.3, 0.35]
     dis_side_range: -0.1
 
-  image_height: 224
-  image_width: 224
-  disable_eef: True
-
   numObservations: 61
   numStates: 106
   numActions: 22 # delta eef actions 6 (xyz, rpy) + normalized hand joint actions 16
-
-  hdf5_path: null # hdf5 file that contains env and trajectory info
-  batch_idx: 0 # index of the batch of envs to load from the hdf5 file
 
 policy:
   top: False
@@ -45,7 +38,7 @@ reward:
   params:
     target_pos: [0.5, 0.0, 0.3]
     target_lift_dis: 0.1
-    target_quat: [0.707, -0.707, 0.0, 0.0]
+    target_quat: [1.0, 0.0, 0.0, 0.0]
     curl_reaching_threshold: 0.15
 
   exp:
@@ -57,9 +50,11 @@ reward:
 
   weights:
     w_hand_obj: 1.0
-    w_obj_goal: 3.0
-    w_obj_drag: 1.0
+    w_obj_goal: 4.0
+    w_obj_drag: 0.0
     w_lift: 2.0
     w_curl: 0.5
     w_colli: -1.0
-    w_velreg: -0.001
+    w_actionreg: -0.001
+
+  actionreg_type: "" # "delta_joint_action", "delta_eef_action", "delta_qd"
