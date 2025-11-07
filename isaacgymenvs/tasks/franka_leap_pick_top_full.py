@@ -1,6 +1,6 @@
 """
 Franka + LEAP Hand Pick Env
-TODO:1. clean up   2. update object randomization to bias towards the cluttered corner
+TODO:1. clean up
 """
 
 import time
@@ -219,145 +219,76 @@ class FrankaLEAPPickTopFull(FrankaLEAP):
             num_y_dir_obj = self.num_corner_obstacles - num_x_dir_obj
 
             # TODO: def clean this up later, should be able to wrap into a function
-            for obs_i in range(num_x_dir_obj):
-                size_idx = np.random.randint(0, len(obstacles_size_add))
-                size = obstacles_size_add[size_idx]
-                del obstacles_size_add[size_idx]
-                type = len(size) # 1 sphere ; 2 capsule ; 3 cuboid
-                if type == 3:
-                    radius = np.sqrt((size[0]/2)**2 + (size[1]/2)**2)
-                elif type == 2:
-                    radius = size[0]
-                elif type == 1:
-                    radius = size[0]
+            def _sample_size_and_radius(obstacles_size_list):
+                size = obstacles_size_list.pop(np.random.randint(len(obstacles_size_list)))
+                type = len(size)
+                radius = np.hypot(size[0]/2, size[1]/2) if type == 3 else size[0]
+                return size, type, radius
 
-                x_pos = np.random.uniform(0, self.box_dims[i][0]/2) * x_dir_corner
-                y_pos = (self.box_dims[i][1]/2 + radius) * y_dir_corner
+            for mode, num in [
+                ("corner_x", num_x_dir_obj),
+                ("corner_y", num_y_dir_obj),
+                ("extra", self.num_extra_surrounding_obstacles),
+                ("other", self.num_other_obstacles),
+            ]:
+                for obs_i in range(num):
+                    size, type, radius = _sample_size_and_radius(obstacles_size_add)
 
-                x_pos += self.box_pos[i][0]
-                y_pos += self.box_pos[i][1]
+                    if mode == "corner_x":
+                        x_pos = np.random.uniform(0, self.box_dims[i][0]/2) * x_dir_corner
+                        y_pos = (self.box_dims[i][1]/2 + radius) * y_dir_corner
+                    elif mode == "corner_y":
+                        x_pos = (self.box_dims[i][0]/2 + radius) * x_dir_corner
+                        y_pos = np.random.uniform(0, self.box_dims[i][1]/2) * y_dir_corner
+                    elif mode == "extra":
+                        x_dir = random.choice([-1, 1])
+                        y_dir = random.choice([-1, 1])
 
-                self._create_add_on_obstacles(
-                    env_ptr=env_ptr,
-                    i=i,
-                    obs_i=obs_i,
-                    type=type,
-                    x_pos=x_pos,
-                    y_pos=y_pos,
-                    size=size,
-                )
-
-            for obs_i in range(num_y_dir_obj):
-                size_idx = np.random.randint(0, len(obstacles_size_add))
-                size = obstacles_size_add[size_idx]
-                del obstacles_size_add[size_idx]
-                type = len(size) # 1 sphere ; 2 capsule ; 3 cuboid
-                if type == 3:
-                    radius = np.sqrt((size[0]/2)**2 + (size[1]/2)**2)
-                elif type == 2:
-                    radius = size[0]
-                elif type == 1:
-                    radius = size[0]
-
-                x_pos = (self.box_dims[i][0]/2 + radius) * x_dir_corner
-                y_pos = np.random.uniform(0, self.box_dims[i][1]/2) * y_dir_corner
-
-                x_pos += self.box_pos[i][0]
-                y_pos += self.box_pos[i][1]
-
-                self._create_add_on_obstacles(
-                    env_ptr=env_ptr,
-                    i=i,
-                    obs_i=obs_i,
-                    type=type,
-                    x_pos=x_pos,
-                    y_pos=y_pos,
-                    size=size,
-                )
-
-            for obs_i in range(self.num_extra_surrounding_obstacles):
-                size_idx = np.random.randint(0, len(obstacles_size_add))
-                size = obstacles_size_add[size_idx]
-                del obstacles_size_add[size_idx]
-                type = len(size) # 1 sphere ; 2 capsule ; 3 cuboid
-                if type == 3:
-                    radius = np.sqrt((size[0]/2)**2 + (size[1]/2)**2)
-                elif type == 2:
-                    radius = size[0]
-                elif type == 1:
-                    radius = size[0]
-
-                x_dir = random.choice([-1, 1])
-                y_dir = random.choice([-1, 1])
-
-                x_or_y = random.choice([0, 1]) # 0 for x ; 1 for y
-                if x_or_y == 0:
-                    x_pos = (self.box_dims[i][0]/2 + radius) * x_dir
-                    y_pos = np.random.uniform(-self.box_dims[i][1]/2, self.box_dims[i][1]/2)
-                elif x_or_y == 1:
-                    x_pos = np.random.uniform(-self.box_dims[i][0]/2, self.box_dims[i][0]/2)
-                    y_pos = (self.box_dims[i][1]/2 + radius) * y_dir
-
-                x_pos += self.box_pos[i][0]
-                y_pos += self.box_pos[i][1]
-
-                self._create_add_on_obstacles(
-                    env_ptr=env_ptr,
-                    i=i,
-                    obs_i=obs_i,
-                    type=type,
-                    x_pos=x_pos,
-                    y_pos=y_pos,
-                    size=size,
-                )
-
-            for obs_i in range(self.num_other_obstacles):
-                size_idx = np.random.randint(0, len(obstacles_size_add))
-                size = obstacles_size_add[size_idx]
-                del obstacles_size_add[size_idx]
-                type = len(size) # 1 sphere ; 2 capsule ; 3 cuboid
-                if type == 3:
-                    radius = np.sqrt((size[0]/2)**2 + (size[1]/2)**2)
-                elif type == 2:
-                    radius = size[0]
-                elif type == 1:
-                    radius = size[0]
-
-                x_pos = np.random.uniform(self.table_pos[i][0] - self.table_size[i][0]/2,
-                                          self.table_pos[i][0] + self.table_size[i][0]/2)
-                y_pos = np.random.uniform(self.table_pos[i][1] - self.table_size[i][1]/2,
-                                          self.table_pos[i][1] + self.table_size[i][1]/2)
-
-                shift_other_obstacles = np.random.uniform(self.shift_other_obstacles_range[0],
-                                                          self.shift_other_obstacles_range[1])
-
-                x_min = self.box_pos[i][0] - self.box_dims[i][0]/2 - radius # no shift here in case the obstacle collide with robot base
-                x_max = self.box_pos[i][0] + self.box_dims[i][0]/2 + radius + shift_other_obstacles
-                y_min = self.box_pos[i][1] - self.box_dims[i][1]/2 - radius - shift_other_obstacles
-                y_max = self.box_pos[i][1] + self.box_dims[i][1]/2 + radius + shift_other_obstacles
-
-                if x_min < x_pos < x_max and y_min < y_pos < y_max:
-                    x_or_y = random.choice([0, 1]) # 0 for x ; 1 for y
-                    if x_or_y == 0:
-                        if x_pos < (x_min + x_max)/2:
-                            x_pos = x_min
+                        if random.choice([0, 1]) == 0:
+                            x_pos = (self.box_dims[i][0]/2 + radius) * x_dir
+                            y_pos = np.random.uniform(-self.box_dims[i][1]/2, self.box_dims[i][1]/2)
                         else:
-                            x_pos = x_max
-                    elif x_or_y == 1:
-                        if y_pos < (y_min + y_max)/2:
-                            y_pos = y_min
-                        else:
-                            y_pos = y_max
+                            x_pos = np.random.uniform(-self.box_dims[i][0]/2, self.box_dims[i][0]/2)
+                            y_pos = (self.box_dims[i][1]/2 + radius) * y_dir
+                    elif mode == "other":
+                        x_pos = np.random.uniform(self.table_pos[i][0] - self.table_size[i][0]/2,
+                                                self.table_pos[i][0] + self.table_size[i][0]/2) - self.box_pos[i][0]
+                        y_pos = np.random.uniform(self.table_pos[i][1] - self.table_size[i][1]/2,
+                                                self.table_pos[i][1] + self.table_size[i][1]/2) - self.box_pos[i][1]
 
-                self._create_add_on_obstacles(
-                    env_ptr=env_ptr,
-                    i=i,
-                    obs_i=obs_i,
-                    type=type,
-                    x_pos=x_pos,
-                    y_pos=y_pos,
-                    size=size,
-                )
+                        shift_other_obstacles = np.random.uniform(self.shift_other_obstacles_range[0],
+                                                                self.shift_other_obstacles_range[1])
+
+                        x_min = -self.box_dims[i][0]/2 - radius # no shift here in case the obstacle collide with robot base
+                        x_max =  self.box_dims[i][0]/2 + radius + shift_other_obstacles
+                        y_min = -self.box_dims[i][1]/2 - radius - shift_other_obstacles
+                        y_max =  self.box_dims[i][1]/2 + radius + shift_other_obstacles
+
+                        if x_min < x_pos < x_max and y_min < y_pos < y_max:
+                            x_or_y = random.choice([0, 1]) # 0 for x ; 1 for y
+                            if x_or_y == 0:
+                                if x_pos < (x_min + x_max)/2:
+                                    x_pos = x_min
+                                else:
+                                    x_pos = x_max
+                            elif x_or_y == 1:
+                                if y_pos < (y_min + y_max)/2:
+                                    y_pos = y_min
+                                else:
+                                    y_pos = y_max
+
+                    x_pos += self.box_pos[i][0]
+                    y_pos += self.box_pos[i][1]
+
+                    self._create_add_on_obstacles(
+                        env_ptr=env_ptr,
+                        i=i,
+                        obs_i=obs_i,
+                        type=type,
+                        x_pos=x_pos,
+                        y_pos=y_pos,
+                        size=size,
+                    )
 
             # Create object
             self._object_id = self.gym.create_actor(
