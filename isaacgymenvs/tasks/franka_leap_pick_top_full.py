@@ -205,8 +205,13 @@ class FrankaLEAPPickTopFull(FrankaLEAP):
 
             obstacles_size_add = cuboids_size_add.tolist() + spheres_size_add.tolist() + capsules_size_add.tolist()
 
-            x_dir = random.choice([-1, 1])
-            y_dir = random.choice([-1, 1])
+            x_dir_corner = random.choice([-1, 1])
+            y_dir_corner = random.choice([-1, 1])
+
+            self.obj_pos_range[i, 0] = (self.box_pos[i][0] + x_dir_corner*(self.box_dims[i][0]/4 - self.scene_box_cfg["obj_wall_tol"])) - self.box_dims[i][0] / 4 # x-min
+            self.obj_pos_range[i, 1] = (self.box_pos[i][0] + x_dir_corner*(self.box_dims[i][0]/4 - self.scene_box_cfg["obj_wall_tol"])) + self.box_dims[i][0] / 4 # x-max
+            self.obj_pos_range[i, 2] = (self.box_pos[i][1] + y_dir_corner*(self.box_dims[i][1]/4 - self.scene_box_cfg["obj_wall_tol"])) - self.box_dims[i][1] / 4 # y-min
+            self.obj_pos_range[i, 3] = (self.box_pos[i][1] + y_dir_corner*(self.box_dims[i][1]/4 - self.scene_box_cfg["obj_wall_tol"])) + self.box_dims[i][1] / 4 # y-max
 
             box_quater_length = self.box_dims[i][0]/2 + self.box_dims[i][1]/2
             num_x_dir_obj = round(self.num_corner_obstacles * (self.box_dims[i][0]/2 / box_quater_length))
@@ -226,8 +231,8 @@ class FrankaLEAPPickTopFull(FrankaLEAP):
                 elif type == 1:
                     radius = size[0]
 
-                x_pos = np.random.uniform(0, self.box_dims[i][0]/2) * x_dir
-                y_pos = (self.box_dims[i][1]/2 + radius) * y_dir
+                x_pos = np.random.uniform(0, self.box_dims[i][0]/2) * x_dir_corner
+                y_pos = (self.box_dims[i][1]/2 + radius) * y_dir_corner
 
                 x_pos += self.box_pos[i][0]
                 y_pos += self.box_pos[i][1]
@@ -254,8 +259,8 @@ class FrankaLEAPPickTopFull(FrankaLEAP):
                 elif type == 1:
                     radius = size[0]
 
-                x_pos = (self.box_dims[i][0]/2 + radius) * x_dir
-                y_pos = np.random.uniform(0, self.box_dims[i][1]/2) * y_dir
+                x_pos = (self.box_dims[i][0]/2 + radius) * x_dir_corner
+                y_pos = np.random.uniform(0, self.box_dims[i][1]/2) * y_dir_corner
 
                 x_pos += self.box_pos[i][0]
                 y_pos += self.box_pos[i][1]
@@ -399,11 +404,6 @@ class FrankaLEAPPickTopFull(FrankaLEAP):
         self.box_quats = torch.tensor(self.box_quats, device=self.device)
 
         for i in range(self.num_envs):
-            self.obj_pos_range[i, 0] = self.box_pos[i, 0] - self.box_dims[i, 0] / 2 # x-min
-            self.obj_pos_range[i, 1] = self.box_pos[i, 0] + self.box_dims[i, 0] / 2 # x-max
-            self.obj_pos_range[i, 2] = self.box_pos[i, 1] - self.box_dims[i, 1] / 2 # y-min
-            self.obj_pos_range[i, 3] = self.box_pos[i, 1] + self.box_dims[i, 1] / 2 # y-max
-
             # static pcd
             static_pcd_i = torch.from_numpy(compute_scene_oracle_pcd(
                 num_obstacle_points=self.pcd_spec_dict["num_static_points"],
@@ -436,10 +436,10 @@ class FrankaLEAPPickTopFull(FrankaLEAP):
         self._object_center_init_state[:, 2] += self.mesh_aabb_extents[:, 2] / 2
 
         # refine obj_rand_pos_range based on mesh AABB
-        self.obj_pos_range[:, 0] += (self.mesh_aabb_extents[:, 0] / 2 + self.scene_box_cfg["obj_wall_tol"])
-        self.obj_pos_range[:, 1] -= (self.mesh_aabb_extents[:, 0] / 2 + self.scene_box_cfg["obj_wall_tol"])
-        self.obj_pos_range[:, 2] += (self.mesh_aabb_extents[:, 1] / 2 + self.scene_box_cfg["obj_wall_tol"])
-        self.obj_pos_range[:, 3] -= (self.mesh_aabb_extents[:, 1] / 2 + self.scene_box_cfg["obj_wall_tol"])
+        self.obj_pos_range[:, 0] += self.mesh_aabb_extents[:, 0] / 2
+        self.obj_pos_range[:, 1] -= self.mesh_aabb_extents[:, 0] / 2
+        self.obj_pos_range[:, 2] += self.mesh_aabb_extents[:, 1] / 2
+        self.obj_pos_range[:, 3] -= self.mesh_aabb_extents[:, 1] / 2
 
         # Setup data
         actor_num = self.tol_add_on_obstacles + 1 + 1 + 1 # robot, table, object
