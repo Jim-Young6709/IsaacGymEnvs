@@ -56,7 +56,7 @@ class FrankaLEAPPickTopFull(FrankaLEAP):
         for i in range(4):
             self.draw_box_lines(i, self.box_pos[i].clone(), self.box_quats[i].clone(), self.box_dims[i].clone())
 
-    def _init_randomized_params(self):
+    def _init_params(self):
         self.scene_box_cfg = self.cfg["env"]["scene"]["safety_box"]
 
         z_shift_range = self.cfg["env"]["scene"]["z_shift_range"]
@@ -65,11 +65,19 @@ class FrankaLEAPPickTopFull(FrankaLEAP):
         table_thickness_range = self.cfg["env"]["scene"]["table_thickness_range"]
         self.table_thickness = torch.rand(self.num_envs, device=self.device) * (table_thickness_range[1] - table_thickness_range[0]) + table_thickness_range[0]
 
+        self.add_on_obstacles_cfg = self.cfg["env"]["scene"]["add_on_obstacles"]
+        self.num_add_on_meshes = self.add_on_obstacles_cfg["meshes"]["num"]
+        self.num_add_on_cuboids = self.add_on_obstacles_cfg["cuboids"]["num"]
+        self.num_add_on_spheres = self.add_on_obstacles_cfg["spheres"]["num"]
+
+        self.tol_add_on_obstacles = self.num_add_on_meshes + self.num_add_on_cuboids + self.num_add_on_spheres
+        self.num_surrounding_obstacles = self.cfg["env"]["scene"]["safety_box"]["surrounding_obstacles"]
+
     def _create_envs(self, spacing, num_per_row):
         """
         loading Franka + LEAP + a table in the environment, this is for debugging purposes only
         """
-        self._init_randomized_params()
+        self._init_params()
 
         lower = gymapi.Vec3(-spacing, -spacing, 0.0)
         upper = gymapi.Vec3(spacing, spacing, spacing)
@@ -82,6 +90,9 @@ class FrankaLEAPPickTopFull(FrankaLEAP):
         self.cuboid_dims = []  # xyz
         self.cuboid_pos = []
         self.cuboid_quats = []
+
+        self.sphere_radii = []
+        self.sphere_pos = []
 
         self.mesh_aabb_extents = None  # xyz, axis-aligned bounding box full extents
         self.table_surface_height = torch.zeros((self.num_envs,), device=self.device)
@@ -98,16 +109,18 @@ class FrankaLEAPPickTopFull(FrankaLEAP):
         # compute aggregate size
         num_robot_bodies = self.gym.get_asset_rigid_body_count(robot_asset)
         num_robot_shapes = self.gym.get_asset_rigid_shape_count(robot_asset)
-        max_agg_bodies = num_robot_bodies + 1 + 1 # 1 for object, 1 for table
-        max_agg_shapes = num_robot_shapes + 1 + 1 # 1 for object, 1 for table
+        max_agg_bodies = num_robot_bodies + self.tol_add_on_obstacles + 1 + 1 # 1 for object, 1 for table
+        max_agg_shapes = num_robot_shapes + self.tol_add_on_obstacles + 1 + 1 # 1 for object, 1 for table
 
         self.robots = []
         self.objects = []
+        self.add_on_obstacles = []
         self.envs = []
         self._object_center_init_state = torch.zeros((self.num_envs, 3), device=self.device)
 
         # load all meshes first
         all_meshes_list = self.create_all_meshes()
+        all_meshes_list_fix_base = self.create_all_meshes(fix_base_link=True)
 
         # Create environments
         for i in tqdm(range(self.num_envs), desc="Creating Envs"):
@@ -144,6 +157,50 @@ class FrankaLEAPPickTopFull(FrankaLEAP):
                 env_ptr, table_asset, table_start_pose, "table", i, 1, 0
             )
 
+            # setup add on obstacles
+            box_height_limit = self.box_dims[i][-1]
+            # add on meshes
+            for obs_i in range(self.num_add_on_meshes):
+                mesh_idx = torch.randint(low=0, high=len(all_meshes_list_fix_base), size=())
+                object_asset_add, object_start_pose_add, object_scale_add, object_id_add, mesh_id_add = all_meshes_list_fix_base[mesh_idx]
+                object_id_add = self.gym.create_actor(
+                    env_ptr, object_asset_add, object_start_pose_add, f"add_on_mesh{obs_i}", i, 1, 0
+                )
+                self._add_on_obstacle_ids.append(object_id_add)
+
+            # add on cuboids
+            cuboids_xy_range = self.add_on_obstacles_cfg["cuboids"]["size_xy"]
+            cuboids_size_range = cuboids_xy_range.copy()
+            cuboids_size_range[0].append(self.add_on_obstacles_cfg["cuboids"]["size_z_min"])
+            cuboids_size_range[1].append(box_height_limit)
+            for obs_i in range(self.num_add_on_cuboids):
+                cuboid_size_add = np.random.uniform(cuboids_size_range[0], cuboids_size_range[1])
+                cuboid_pos_add = [0, 0, 2.0]
+
+                cuboid_asset_add, cuboid_start_pose_add = self._create_cube(
+                    pos=cuboid_pos_add,
+                    size=cuboid_size_add,
+                )
+
+                self.gym.create_actor(
+                    env_ptr, cuboid_asset_add, cuboid_start_pose_add, f"add_on_cuboid{obs_i}", i, 1, 0
+                )
+
+            # add on spheres
+            spheres_r_range = [self.add_on_obstacles_cfg["spheres"]["r_min"], box_height_limit / 2]
+            for obs_i in range(self.num_add_on_spheres):
+                sphere_r_add = np.random.uniform(spheres_r_range[0], spheres_r_range[1])
+                sphere_pos_add = [0, 0, -2.0]
+
+                sphere_asset_add, sphere_start_pose_add = self._create_sphere(
+                    pos=sphere_pos_add,
+                    size=sphere_r_add,
+                )
+
+                self.gym.create_actor(
+                    env_ptr, sphere_asset_add, sphere_start_pose_add, f"add_on_sphere{obs_i}", i, 1, 0
+                )
+
             # Create object
             self._object_id = self.gym.create_actor(
                 env_ptr, object_asset, object_start_pose, "object", i, 2, 0
@@ -160,6 +217,7 @@ class FrankaLEAPPickTopFull(FrankaLEAP):
             self.envs.append(env_ptr)
             self.robots.append(robot_actor)
             self.objects.append(self._object_id)
+            self.add_on_obstacles.append(self._add_on_obstacle_ids)
 
             # object pcd
             object_pcd_i = torch.from_numpy(compute_scene_oracle_pcd(
@@ -176,6 +234,9 @@ class FrankaLEAPPickTopFull(FrankaLEAP):
         self.cuboid_dims = np.array(self.cuboid_dims).reshape(self.num_envs, -1, 3)
         self.cuboid_pos = np.array(self.cuboid_pos).reshape(self.num_envs, -1, 3)
         self.cuboid_quats = np.array(self.cuboid_quats).reshape(self.num_envs, -1, 4)
+
+        self.sphere_radii = np.array(self.sphere_radii).reshape(self.num_envs, -1)
+        self.sphere_pos = np.array(self.sphere_pos).reshape(self.num_envs, -1, 3)
 
         self.box_dims = torch.tensor(self.box_dims, device=self.device) # (num_envs, 3)
         self.box_pos = torch.tensor(self.box_pos, device=self.device) # (num_envs, 3)
@@ -194,6 +255,8 @@ class FrankaLEAPPickTopFull(FrankaLEAP):
                 cuboid_dims=np.array(self.cuboid_dims[i]),
                 cuboid_centers=np.array(self.cuboid_pos[i]),
                 cuboid_quats=np.array(self.cuboid_quats[i]),
+                sphere_centers=np.array(self.sphere_pos[i]),
+                sphere_radii=np.array(self.sphere_radii[i]),
             )).to(self.device)
             self.static_pcds.append(static_pcd_i)
 
@@ -203,6 +266,9 @@ class FrankaLEAPPickTopFull(FrankaLEAP):
         self.cuboid_dims = torch.from_numpy(self.cuboid_dims).to(self.device)
         self.cuboid_pos = torch.from_numpy(self.cuboid_pos).to(self.device)
         self.cuboid_quats = torch.from_numpy(self.cuboid_quats).to(self.device)
+
+        self.sphere_radii = torch.from_numpy(self.sphere_radii).to(self.device)
+        self.sphere_pos = torch.from_numpy(self.sphere_pos).to(self.device)
 
         self.static_pcds = torch.stack(self.static_pcds, dim=0).to(self.device).to(torch.float32) # (num_envs, num_points, 3)
         self.object_pcds = torch.stack(self.object_pcds, dim=0).to(self.device).to(torch.float32)
@@ -221,7 +287,7 @@ class FrankaLEAPPickTopFull(FrankaLEAP):
         self.obj_pos_range[:, 3] -= (self.mesh_aabb_extents[:, 1] / 2 + self.scene_box_cfg["obj_wall_tol"])
 
         # Setup data
-        actor_num = 1 + 1 + 1 # robot, table, object
+        actor_num = self.tol_add_on_obstacles + 1 + 1 + 1 # robot, table, object
         self.init_data(actor_num=actor_num)
 
     def init_data(self, actor_num):

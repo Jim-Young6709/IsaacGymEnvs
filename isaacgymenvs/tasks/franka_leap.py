@@ -431,6 +431,7 @@ class FrankaLEAP(VecTask):
         start_pose = gymapi.Transform()
         start_pose.p = gymapi.Vec3(*pos)
         self.sphere_radii.append(size)
+        self.sphere_pos.append(pos)
         return asset, start_pose
 
     def _create_capsule(self, pos, size):

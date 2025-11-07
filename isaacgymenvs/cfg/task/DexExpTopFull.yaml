@@ -11,6 +11,18 @@ env:
     table_thickness_range: [0.01, 0.1]
     z_shift_range: [-0.3, 0.3]
 
+    add_on_obstacles:
+      meshes:
+        num: 4
+      cuboids:
+        num: 4
+        size_xy: [[0.05, 0.05], [0.1, 0.1]]
+        size_z_min: 0.1
+      spheres:
+        num: 4
+        r_min: 0.1
+      capsules: 0 # currently don't have this supported in pcd utils
+
     safety_box:
       wall_thickness: 0.01
       size: [[0.25, 0.25, 0.15], [0.5, 0.5, 0.25]] # x, y, z
@@ -21,6 +33,7 @@ env:
       rot_ex: [-1.5, 1.5] # radians
       obj_wall_tol: 0.03
       colli_reset: False
+      surrounding_obstacles: 8
 
   eef_init:
     enable: True
