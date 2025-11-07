@@ -120,7 +120,8 @@ class FrankaLEAPPickTopFull(FrankaLEAP):
 
         # load all meshes first
         all_meshes_list = self.create_all_meshes()
-        all_meshes_list_fix_base = self.create_all_meshes(fix_base_link=True)
+        if self.num_add_on_meshes > 0:
+            all_meshes_list_fix_base = self.create_all_meshes(fix_base_link=True)
 
         # Create environments
         for i in tqdm(range(self.num_envs), desc="Creating Envs"):
