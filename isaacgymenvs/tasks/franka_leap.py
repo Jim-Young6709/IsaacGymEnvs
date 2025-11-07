@@ -440,7 +440,7 @@ class FrankaLEAP(VecTask):
             position (np.ndarray): (3,) xyz position of the capsule center
             size (np.ndarray): (2,) radius and length of the capsule
                 radius (float): radius of the sphere
-                length (float): length of the capsule
+                length (float): semi-length of the cylindrical part
         Returns:
             asset (gymapi.Asset): asset handle of the capsule
             start_pose (gymapi.Transform): start pose of the capsule
@@ -454,6 +454,7 @@ class FrankaLEAP(VecTask):
         start_pose.p = gymapi.Vec3(*pos)
         start_pose.r = gymapi.Quat(*[0.0, -0.707, 0.0, 0.707])  # quat in xyzw order
         self.capsule_dims.append(size)
+        self.capsule_pos.append(pos)
         return asset, start_pose
 
     def _create_mesh_urdf(self, mesh_path, scale=[1.0, 1.0, 1.0], mass=0.5):

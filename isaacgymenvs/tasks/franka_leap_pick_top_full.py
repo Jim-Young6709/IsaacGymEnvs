@@ -66,11 +66,11 @@ class FrankaLEAPPickTopFull(FrankaLEAP):
         self.table_thickness = torch.rand(self.num_envs, device=self.device) * (table_thickness_range[1] - table_thickness_range[0]) + table_thickness_range[0]
 
         self.add_on_obstacles_cfg = self.cfg["env"]["scene"]["add_on_obstacles"]
-        self.num_add_on_meshes = self.add_on_obstacles_cfg["meshes"]["num"]
         self.num_add_on_cuboids = self.add_on_obstacles_cfg["cuboids"]["num"]
         self.num_add_on_spheres = self.add_on_obstacles_cfg["spheres"]["num"]
+        self.num_add_on_capsules = self.add_on_obstacles_cfg["capsules"]["num"]
 
-        self.tol_add_on_obstacles = self.num_add_on_meshes + self.num_add_on_cuboids + self.num_add_on_spheres
+        self.tol_add_on_obstacles = self.num_add_on_cuboids + self.num_add_on_spheres + self.num_add_on_capsules
         self.num_surrounding_obstacles = self.cfg["env"]["scene"]["safety_box"]["surrounding_obstacles"]
 
     def _create_envs(self, spacing, num_per_row):
@@ -93,6 +93,9 @@ class FrankaLEAPPickTopFull(FrankaLEAP):
 
         self.sphere_radii = []
         self.sphere_pos = []
+
+        self.capsule_dims = []
+        self.capsule_pos = []
 
         self.mesh_aabb_extents = None  # xyz, axis-aligned bounding box full extents
         self.table_surface_height = torch.zeros((self.num_envs,), device=self.device)
@@ -120,8 +123,6 @@ class FrankaLEAPPickTopFull(FrankaLEAP):
 
         # load all meshes first
         all_meshes_list = self.create_all_meshes()
-        if self.num_add_on_meshes > 0:
-            all_meshes_list_fix_base = self.create_all_meshes(fix_base_link=True)
 
         # Create environments
         for i in tqdm(range(self.num_envs), desc="Creating Envs"):
@@ -160,14 +161,6 @@ class FrankaLEAPPickTopFull(FrankaLEAP):
 
             # setup add on obstacles
             box_height_limit = self.box_dims[i][-1]
-            # add on meshes
-            for obs_i in range(self.num_add_on_meshes):
-                mesh_idx = torch.randint(low=0, high=len(all_meshes_list_fix_base), size=())
-                object_asset_add, object_start_pose_add, object_scale_add, object_id_add, mesh_id_add = all_meshes_list_fix_base[mesh_idx]
-                object_id_add = self.gym.create_actor(
-                    env_ptr, object_asset_add, object_start_pose_add, f"add_on_mesh{obs_i}", i, 1, 0
-                )
-                self._add_on_obstacle_ids.append(object_id_add)
 
             # add on cuboids
             cuboids_xy_range = self.add_on_obstacles_cfg["cuboids"]["size_xy"]
@@ -176,7 +169,7 @@ class FrankaLEAPPickTopFull(FrankaLEAP):
             cuboids_size_range[1].append(box_height_limit)
             for obs_i in range(self.num_add_on_cuboids):
                 cuboid_size_add = np.random.uniform(cuboids_size_range[0], cuboids_size_range[1])
-                cuboid_pos_add = [0, 0, 2.0]
+                cuboid_pos_add = [0.1*obs_i, 0, 2.0]
 
                 cuboid_asset_add, cuboid_start_pose_add = self._create_cube(
                     pos=cuboid_pos_add,
@@ -191,7 +184,7 @@ class FrankaLEAPPickTopFull(FrankaLEAP):
             spheres_r_range = [self.add_on_obstacles_cfg["spheres"]["r_min"], box_height_limit / 2]
             for obs_i in range(self.num_add_on_spheres):
                 sphere_r_add = np.random.uniform(spheres_r_range[0], spheres_r_range[1])
-                sphere_pos_add = [0, 0, -2.0]
+                sphere_pos_add = [0.1*obs_i, 0, 2.5]
 
                 sphere_asset_add, sphere_start_pose_add = self._create_sphere(
                     pos=sphere_pos_add,
@@ -200,6 +193,27 @@ class FrankaLEAPPickTopFull(FrankaLEAP):
 
                 self.gym.create_actor(
                     env_ptr, sphere_asset_add, sphere_start_pose_add, f"add_on_sphere{obs_i}", i, 1, 0
+                )
+
+            # add on capsules (not fully implemented yet)
+            capsules_r_min = self.add_on_obstacles_cfg["capsules"]["r_min"]
+            capsules_l_min = self.add_on_obstacles_cfg["capsules"]["l_min"]
+            additional_capsules_semilength = box_height_limit / 2 - capsules_r_min - capsules_l_min
+            for obs_i in range(self.num_add_on_capsules):
+                alpha = np.random.uniform(0.0, 1.0)
+                capsules_r_max = capsules_r_min + additional_capsules_semilength * alpha
+                capsules_l_max = capsules_l_min + additional_capsules_semilength * (1.0 - alpha)
+                capsules_size_range = [[capsules_r_min, capsules_l_min], [capsules_r_max, capsules_l_max]]
+                capsule_size_add = np.random.uniform(capsules_size_range[0], capsules_size_range[1])
+                capsule_pos_add = [0.1*obs_i, 0, 3.0]
+
+                capsule_asset_add, capsule_start_pose_add = self._create_capsule(
+                    pos=capsule_pos_add,
+                    size=capsule_size_add,
+                )
+
+                self.gym.create_actor(
+                    env_ptr, capsule_asset_add, capsule_start_pose_add, f"add_on_capsule{obs_i}", i, 1, 0
                 )
 
             # Create object
