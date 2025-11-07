@@ -13,14 +13,14 @@ env:
 
     add_on_obstacles:
       cuboids:
-        num: 4
+        num: 5
         size_xy: [[0.05, 0.05], [0.1, 0.1]]
         size_z_min: 0.1
       spheres:
-        num: 4
+        num: 5
         r_min: 0.05
       capsules:
-        num: 4 # currently don't have this supported in pcd utils
+        num: 5 # currently don't have this supported in pcd utils
         r_min: 0.025
         l_min: 0.025 # this is semi-length of the cylindrical part
 
@@ -34,7 +34,9 @@ env:
       rot_ex: [-1.5, 1.5] # radians
       obj_wall_tol: 0.03
       colli_reset: False
-      surrounding_obstacles: 8
+      corner_obstacles_range: [4, 6] # low & high inclusive
+      extra_surrounding_obstacles_range: [4, 6] # low & high inclusive
+      shift_other_obstacles_range: [0.1, 0.2]
 
   eef_init:
     enable: True

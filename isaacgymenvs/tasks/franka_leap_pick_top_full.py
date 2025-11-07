@@ -1,5 +1,6 @@
 """
 Franka + LEAP Hand Pick Env
+TODO:1. clean up   2. update object randomization to bias towards the cluttered corner
 """
 
 import time
@@ -71,7 +72,12 @@ class FrankaLEAPPickTopFull(FrankaLEAP):
         self.num_add_on_capsules = self.add_on_obstacles_cfg["capsules"]["num"]
 
         self.tol_add_on_obstacles = self.num_add_on_cuboids + self.num_add_on_spheres + self.num_add_on_capsules
-        self.num_surrounding_obstacles = self.cfg["env"]["scene"]["safety_box"]["surrounding_obstacles"]
+        num_corner_obstacles_range = self.cfg["env"]["scene"]["safety_box"]["corner_obstacles_range"]
+        self.num_corner_obstacles = np.random.randint(num_corner_obstacles_range[0], num_corner_obstacles_range[1]+1)
+        num_extra_surrounding_obstacles_range = self.cfg["env"]["scene"]["safety_box"]["extra_surrounding_obstacles_range"]
+        self.num_extra_surrounding_obstacles = np.random.randint(num_extra_surrounding_obstacles_range[0], num_extra_surrounding_obstacles_range[1]+1)
+        self.num_other_obstacles = self.tol_add_on_obstacles - self.num_corner_obstacles - self.num_extra_surrounding_obstacles
+        self.shift_other_obstacles_range = self.cfg["env"]["scene"]["safety_box"]["shift_other_obstacles_range"]
 
     def _create_envs(self, spacing, num_per_row):
         """
@@ -83,6 +89,9 @@ class FrankaLEAPPickTopFull(FrankaLEAP):
         upper = gymapi.Vec3(spacing, spacing, spacing)
 
         # setup params
+        self.table_pos = []
+        self.table_size = []
+
         self.box_dims = []
         self.box_pos = []
         self.box_quats = []
@@ -148,72 +157,201 @@ class FrankaLEAPPickTopFull(FrankaLEAP):
 
             # Create virtual box (create it but not actually loading the box)
             self._create_box()
+            self.table_surface_height[i] = self.box_pos[i][2]
 
             # Create table
             # setup table
+            table_pos = [0.5, 0.0, -self.table_thickness[i].item()/2+self.z_shift[i].item()]
+            table_size = [0.7, 1.2, self.table_thickness[i].item()]
+            self.table_pos.append(table_pos)
+            self.table_size.append(table_size)
+
             table_asset, table_start_pose = self._create_cube(
-                pos=[0.5, 0.0, -self.table_thickness[i].item()/2+self.z_shift[i].item()],
-                size=[0.7, 1.2, self.table_thickness[i].item()],
+                pos=table_pos,
+                size=table_size,
             )
             self.gym.create_actor(
                 env_ptr, table_asset, table_start_pose, "table", i, 1, 0
             )
 
-            # setup add on obstacles
-            box_height_limit = self.box_dims[i][-1]
+            ### setup add on obstacles
+            box_height_limit = self.box_dims[i][2]
 
-            # add on cuboids
+            ## get obstacle size params
+            # cuboids
             cuboids_xy_range = self.add_on_obstacles_cfg["cuboids"]["size_xy"]
             cuboids_size_range = cuboids_xy_range.copy()
             cuboids_size_range[0].append(self.add_on_obstacles_cfg["cuboids"]["size_z_min"])
             cuboids_size_range[1].append(box_height_limit)
-            for obs_i in range(self.num_add_on_cuboids):
-                cuboid_size_add = np.random.uniform(cuboids_size_range[0], cuboids_size_range[1])
-                cuboid_pos_add = [0.1*obs_i, 0, 2.0]
+            cuboids_size_add = np.random.uniform(cuboids_size_range[0], cuboids_size_range[1], size=(self.num_add_on_cuboids, 3))
 
-                cuboid_asset_add, cuboid_start_pose_add = self._create_cube(
-                    pos=cuboid_pos_add,
-                    size=cuboid_size_add,
-                )
-
-                self.gym.create_actor(
-                    env_ptr, cuboid_asset_add, cuboid_start_pose_add, f"add_on_cuboid{obs_i}", i, 1, 0
-                )
-
-            # add on spheres
+            # spheres
             spheres_r_range = [self.add_on_obstacles_cfg["spheres"]["r_min"], box_height_limit / 2]
-            for obs_i in range(self.num_add_on_spheres):
-                sphere_r_add = np.random.uniform(spheres_r_range[0], spheres_r_range[1])
-                sphere_pos_add = [0.1*obs_i, 0, 2.5]
+            spheres_size_add = np.random.uniform(spheres_r_range[0], spheres_r_range[1], size=(self.num_add_on_spheres, 1))
 
-                sphere_asset_add, sphere_start_pose_add = self._create_sphere(
-                    pos=sphere_pos_add,
-                    size=sphere_r_add,
-                )
-
-                self.gym.create_actor(
-                    env_ptr, sphere_asset_add, sphere_start_pose_add, f"add_on_sphere{obs_i}", i, 1, 0
-                )
-
-            # add on capsules (not fully implemented yet)
+            # capsules
             capsules_r_min = self.add_on_obstacles_cfg["capsules"]["r_min"]
             capsules_l_min = self.add_on_obstacles_cfg["capsules"]["l_min"]
             additional_capsules_semilength = box_height_limit / 2 - capsules_r_min - capsules_l_min
+            capsules_size_add = []
             for obs_i in range(self.num_add_on_capsules):
                 alpha = np.random.uniform(0.0, 1.0)
                 capsules_r_max = capsules_r_min + additional_capsules_semilength * alpha
                 capsules_l_max = capsules_l_min + additional_capsules_semilength * (1.0 - alpha)
                 capsules_size_range = [[capsules_r_min, capsules_l_min], [capsules_r_max, capsules_l_max]]
                 capsule_size_add = np.random.uniform(capsules_size_range[0], capsules_size_range[1])
-                capsule_pos_add = [0.1*obs_i, 0, 3.0]
+                capsules_size_add.append(capsule_size_add)
+            capsules_size_add = np.array(capsules_size_add)
 
-                capsule_asset_add, capsule_start_pose_add = self._create_capsule(
-                    pos=capsule_pos_add,
-                    size=capsule_size_add,
+            obstacles_size_add = cuboids_size_add.tolist() + spheres_size_add.tolist() + capsules_size_add.tolist()
+
+            x_dir = random.choice([-1, 1])
+            y_dir = random.choice([-1, 1])
+
+            box_quater_length = self.box_dims[i][0]/2 + self.box_dims[i][1]/2
+            num_x_dir_obj = round(self.num_corner_obstacles * (self.box_dims[i][0]/2 / box_quater_length))
+            num_x_dir_obj= max(1, min(num_x_dir_obj, self.num_corner_obstacles-1))
+            num_y_dir_obj = self.num_corner_obstacles - num_x_dir_obj
+
+            # TODO: def clean this up later, should be able to wrap into a function
+            for obs_i in range(num_x_dir_obj):
+                size_idx = np.random.randint(0, len(obstacles_size_add))
+                size = obstacles_size_add[size_idx]
+                del obstacles_size_add[size_idx]
+                type = len(size) # 1 sphere ; 2 capsule ; 3 cuboid
+                if type == 3:
+                    radius = np.sqrt((size[0]/2)**2 + (size[1]/2)**2)
+                elif type == 2:
+                    radius = size[0]
+                elif type == 1:
+                    radius = size[0]
+
+                x_pos = np.random.uniform(0, self.box_dims[i][0]/2) * x_dir
+                y_pos = (self.box_dims[i][1]/2 + radius) * y_dir
+
+                x_pos += self.box_pos[i][0]
+                y_pos += self.box_pos[i][1]
+
+                self._create_add_on_obstacles(
+                    env_ptr=env_ptr,
+                    i=i,
+                    obs_i=obs_i,
+                    type=type,
+                    x_pos=x_pos,
+                    y_pos=y_pos,
+                    size=size,
                 )
 
-                self.gym.create_actor(
-                    env_ptr, capsule_asset_add, capsule_start_pose_add, f"add_on_capsule{obs_i}", i, 1, 0
+            for obs_i in range(num_y_dir_obj):
+                size_idx = np.random.randint(0, len(obstacles_size_add))
+                size = obstacles_size_add[size_idx]
+                del obstacles_size_add[size_idx]
+                type = len(size) # 1 sphere ; 2 capsule ; 3 cuboid
+                if type == 3:
+                    radius = np.sqrt((size[0]/2)**2 + (size[1]/2)**2)
+                elif type == 2:
+                    radius = size[0]
+                elif type == 1:
+                    radius = size[0]
+
+                x_pos = (self.box_dims[i][0]/2 + radius) * x_dir
+                y_pos = np.random.uniform(0, self.box_dims[i][1]/2) * y_dir
+
+                x_pos += self.box_pos[i][0]
+                y_pos += self.box_pos[i][1]
+
+                self._create_add_on_obstacles(
+                    env_ptr=env_ptr,
+                    i=i,
+                    obs_i=obs_i,
+                    type=type,
+                    x_pos=x_pos,
+                    y_pos=y_pos,
+                    size=size,
+                )
+
+            for obs_i in range(self.num_extra_surrounding_obstacles):
+                size_idx = np.random.randint(0, len(obstacles_size_add))
+                size = obstacles_size_add[size_idx]
+                del obstacles_size_add[size_idx]
+                type = len(size) # 1 sphere ; 2 capsule ; 3 cuboid
+                if type == 3:
+                    radius = np.sqrt((size[0]/2)**2 + (size[1]/2)**2)
+                elif type == 2:
+                    radius = size[0]
+                elif type == 1:
+                    radius = size[0]
+
+                x_dir = random.choice([-1, 1])
+                y_dir = random.choice([-1, 1])
+
+                x_or_y = random.choice([0, 1]) # 0 for x ; 1 for y
+                if x_or_y == 0:
+                    x_pos = (self.box_dims[i][0]/2 + radius) * x_dir
+                    y_pos = np.random.uniform(-self.box_dims[i][1]/2, self.box_dims[i][1]/2)
+                elif x_or_y == 1:
+                    x_pos = np.random.uniform(-self.box_dims[i][0]/2, self.box_dims[i][0]/2)
+                    y_pos = (self.box_dims[i][1]/2 + radius) * y_dir
+
+                x_pos += self.box_pos[i][0]
+                y_pos += self.box_pos[i][1]
+
+                self._create_add_on_obstacles(
+                    env_ptr=env_ptr,
+                    i=i,
+                    obs_i=obs_i,
+                    type=type,
+                    x_pos=x_pos,
+                    y_pos=y_pos,
+                    size=size,
+                )
+
+            for obs_i in range(self.num_other_obstacles):
+                size_idx = np.random.randint(0, len(obstacles_size_add))
+                size = obstacles_size_add[size_idx]
+                del obstacles_size_add[size_idx]
+                type = len(size) # 1 sphere ; 2 capsule ; 3 cuboid
+                if type == 3:
+                    radius = np.sqrt((size[0]/2)**2 + (size[1]/2)**2)
+                elif type == 2:
+                    radius = size[0]
+                elif type == 1:
+                    radius = size[0]
+
+                x_pos = np.random.uniform(self.table_pos[i][0] - self.table_size[i][0]/2,
+                                          self.table_pos[i][0] + self.table_size[i][0]/2)
+                y_pos = np.random.uniform(self.table_pos[i][1] - self.table_size[i][1]/2,
+                                          self.table_pos[i][1] + self.table_size[i][1]/2)
+
+                shift_other_obstacles = np.random.uniform(self.shift_other_obstacles_range[0],
+                                                          self.shift_other_obstacles_range[1])
+
+                x_min = self.box_pos[i][0] - self.box_dims[i][0]/2 - radius # no shift here in case the obstacle collide with robot base
+                x_max = self.box_pos[i][0] + self.box_dims[i][0]/2 + radius + shift_other_obstacles
+                y_min = self.box_pos[i][1] - self.box_dims[i][1]/2 - radius - shift_other_obstacles
+                y_max = self.box_pos[i][1] + self.box_dims[i][1]/2 + radius + shift_other_obstacles
+
+                if x_min < x_pos < x_max and y_min < y_pos < y_max:
+                    x_or_y = random.choice([0, 1]) # 0 for x ; 1 for y
+                    if x_or_y == 0:
+                        if x_pos < (x_min + x_max)/2:
+                            x_pos = x_min
+                        else:
+                            x_pos = x_max
+                    elif x_or_y == 1:
+                        if y_pos < (y_min + y_max)/2:
+                            y_pos = y_min
+                        else:
+                            y_pos = y_max
+
+                self._create_add_on_obstacles(
+                    env_ptr=env_ptr,
+                    i=i,
+                    obs_i=obs_i,
+                    type=type,
+                    x_pos=x_pos,
+                    y_pos=y_pos,
+                    size=size,
                 )
 
             # Create object
@@ -253,12 +391,14 @@ class FrankaLEAPPickTopFull(FrankaLEAP):
         self.sphere_radii = np.array(self.sphere_radii).reshape(self.num_envs, -1)
         self.sphere_pos = np.array(self.sphere_pos).reshape(self.num_envs, -1, 3)
 
+        self.table_pos = torch.tensor(self.table_pos, device=self.device)
+        self.table_size = torch.tensor(self.table_size, device=self.device)
+
         self.box_dims = torch.tensor(self.box_dims, device=self.device) # (num_envs, 3)
         self.box_pos = torch.tensor(self.box_pos, device=self.device) # (num_envs, 3)
         self.box_quats = torch.tensor(self.box_quats, device=self.device)
 
         for i in range(self.num_envs):
-            self.table_surface_height[i] = self.box_pos[i, 2]
             self.obj_pos_range[i, 0] = self.box_pos[i, 0] - self.box_dims[i, 0] / 2 # x-min
             self.obj_pos_range[i, 1] = self.box_pos[i, 0] + self.box_dims[i, 0] / 2 # x-max
             self.obj_pos_range[i, 2] = self.box_pos[i, 1] - self.box_dims[i, 1] / 2 # y-min
@@ -304,6 +444,32 @@ class FrankaLEAPPickTopFull(FrankaLEAP):
         # Setup data
         actor_num = self.tol_add_on_obstacles + 1 + 1 + 1 # robot, table, object
         self.init_data(actor_num=actor_num)
+
+    def _create_add_on_obstacles(self, env_ptr, i, obs_i, type, x_pos, y_pos, size):
+        if type == 3: # cuboid
+            pos = [x_pos, y_pos, size[2]/2+self.table_surface_height[i].item()]
+            asset, start_pose  = self._create_cube(
+                pos=pos,
+                size=size,
+            )
+
+        if type == 2: # capsule
+            pos = [x_pos, y_pos, size[0]+size[1]+self.table_surface_height[i].item()]
+            asset, start_pose = self._create_capsule(
+                pos=pos,
+                size=size,
+            )
+
+        if type == 1: # sphere
+            pos = [x_pos, y_pos, size[0]+self.table_surface_height[i].item()]
+            asset, start_pose = self._create_sphere(
+                pos=pos,
+                size=size[0],
+            )
+
+        self.gym.create_actor(
+            env_ptr, asset, start_pose, f"add_on_obstacle{obs_i}", i, 1, 0
+        )
 
     def init_data(self, actor_num):
         super().init_data(actor_num=actor_num)

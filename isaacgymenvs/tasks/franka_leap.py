@@ -418,7 +418,7 @@ class FrankaLEAP(VecTask):
         """
         Args:
             position (np.ndarray): (3,) xyz position of the sphere center
-            size (float): radius of the sphere
+            size (np.ndarray): (1, ) radius of the sphere, note this should have a dim of 1
         Returns:
             asset (gymapi.Asset): asset handle of the sphere
             start_pose (gymapi.Transform): start pose of the sphere
