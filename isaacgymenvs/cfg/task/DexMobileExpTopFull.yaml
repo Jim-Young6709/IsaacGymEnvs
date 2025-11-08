@@ -1,0 +1,76 @@
+# Top-down box grasping config for Franka+LEAP environment
+
+defaults:
+  - LEAPExpBase
+
+name: FrankaLEAPMobilePickTopFull
+
+# if given, will override the device setting in gym. 
+env:
+  asset:
+    assetFileNameFranka: "urdf/glorbot/glorbot.urdf"
+
+  scene:
+    table_thickness_range: [0.01, 0.1]
+    z_shift_range: [0.3, 0.6]
+
+    add_on_obstacles:
+      cuboids:
+        num: 5
+        size_xy: [[0.05, 0.05], [0.1, 0.1]]
+        size_z_min: 0.1
+      spheres:
+        num: 5
+        r_min: 0.05
+      capsules:
+        num: 5 # currently don't have this supported in pcd utils
+        r_min: 0.025
+        l_min: 0.025 # this is semi-length of the cylindrical part
+
+    safety_box:
+      wall_thickness: 0.01
+      size: [[0.25, 0.25, 0.15], [0.5, 0.5, 0.25]] # x, y, z
+      x_shift: 0.5
+      z: [-0.2, 0.5]
+      r: [0.2, 0.4] # rot_ex radius
+      rot_in: [-0.4, 0.4] # radians
+      rot_ex: [-1.5, 1.5] # radians
+      obj_wall_tol: 0.03
+      colli_reset: False
+      corner_obstacles_range: [4, 6] # low & high inclusive
+      extra_surrounding_obstacles_range: [4, 6] # low & high inclusive
+      shift_other_obstacles_range: [0.1, 0.2]
+
+  eef_init:
+    enable: True
+    dis_open_range: [0.3, 0.35]
+    dis_side_range: -0.1
+
+  numObservations: 61
+  numStates: 106
+  numActions: 22 # delta eef actions 6 (xyz, rpy) + normalized hand joint actions 16
+
+reward:
+  params:
+    target_pos: [0.5, 0.0, 0.3]
+    target_lift_dis: 0.1
+    target_quat: [1.0, 0.0, 0.0, 0.0]
+    curl_reaching_threshold: 0.15
+
+  exp:
+    beta_hand_object: 5.0
+    beta_object_goal: 5.0
+    beta_object_drag: 10.0
+    beta_lift: 0.0 # set this to 0 to use a 0-1 lift reward
+    beta_curl: 0.05
+
+  weights:
+    w_hand_obj: 1.0
+    w_obj_goal: 4.0
+    w_obj_drag: 0.0
+    w_lift: 2.0
+    w_curl: 0.5
+    w_colli: -1.0
+    w_actionreg: -0.001
+
+  actionreg_type: "" # "delta_joint_action", "delta_eef_action", "delta_qd"
