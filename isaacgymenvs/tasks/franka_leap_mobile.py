@@ -39,6 +39,22 @@ import random
 from scipy.spatial.transform import Rotation as R
 from curobo.types.math import Pose
 
+from fabrics_sim.fabrics.glorbot_fabric import GlorbotFabric
+from fabrics_sim.integrator.integrators import DisplacementIntegrator
+from fabrics_sim.worlds.world_mesh_model import WorldMeshesModel
+from fabrics_sim.utils.utils import initialize_warp
+
+FABRIC_DEFAULT_JTS = {
+    'base': [0.0, 0.0, 0.0],
+    'franka': [0.0, -0.25 * np.pi, 0.0, -0.75 * np.pi, 0.0, 0.5 * np.pi, 0.0],
+    'leap': [0.0]*16,
+    'arx': [0.0, 0.785, 0.785, 0.0, 0.0, 0.0],
+}
+
+FABRIC_DEFAULT_JTS['full'] = FABRIC_DEFAULT_JTS['base'] + \
+                             FABRIC_DEFAULT_JTS['franka'] + \
+                             FABRIC_DEFAULT_JTS['leap'] + \
+                             FABRIC_DEFAULT_JTS['arx']
 
 
 class FrankaLEAPMobile(VecTask):
@@ -52,6 +68,7 @@ class FrankaLEAPMobile(VecTask):
         self.aggregate_mode = self.cfg["env"]["aggregateMode"]
         self.mesh_args = self.cfg["env"]["mesh"]
         self.eef_init = self.cfg["env"]["eef_init"]
+        self.enable_fabric = self.cfg['fabric']['enable']
         self.video_logging = self.cfg["env"]["video_logging"]
         self.video_dir = os.path.join('videos', self.cfg["name"] + '_{date:%d-%H-%M-%S}'.format(date=datetime.now()))
         os.makedirs(self.video_dir, exist_ok=True)
@@ -135,6 +152,17 @@ class FrankaLEAPMobile(VecTask):
         self.static_scene_pcd_t0 = None
         self.object_pcd_t0 = None
 
+        # init fabric
+        if self.enable_fabric:
+            self.obstacle_count = 0
+            self.max_objects_per_env = 20 # its like allocating a buffer? need to check inside create env and update
+            self.fabrics_world_dict = dict()
+
+            # Set GPU device
+            device_int = 0
+            # Set the warp cache directory based on device int
+            initialize_warp(str(device_int))
+
     def _post_init_buffers(self):
         if not hasattr(self, 'canonical_joint_config'):
             self.canonical_joint_config = torch.tensor(
@@ -145,7 +173,7 @@ class FrankaLEAPMobile(VecTask):
                      1.57,  0.0, -0.3,  0.3,
                      0.5,  0.0,  0.5,  0.5,
                      0.5,  0.0,  0.5,  0.5,] + \
-                    [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+                    [0.0, 0.785, 0.785, 0.0, 0.0, 0.0]
                 ] * self.num_envs
             ).to(self.device)
         self.ik_regularization_config = self.canonical_joint_config[:, :10]
@@ -263,9 +291,9 @@ class FrankaLEAPMobile(VecTask):
         self.robot_asset = robot_asset
 
         # currently only support joint position control
-        robot_dof_stiffness = to_torch([800.0]*3 + [1000.0]*7 + [800.0]*16 + [800.0]*6, dtype=torch.float, device=self.device)
-        robot_dof_damping = to_torch([40.0]*3 + [50.0]*7 + [40.0]*16 + [40.0]*6, dtype=torch.float, device=self.device)
-
+        robot_dof_stiffness = to_torch([800.0*10]*3 + [1000.0]*7 + [800.0]*16 + [800.0]*6, dtype=torch.float, device=self.device)
+        robot_dof_damping = to_torch([40.0*10]*3 + [50.0]*7 + [40.0]*16 + [40.0]*6, dtype=torch.float, device=self.device)
+        
         self.num_robot_bodies = self.gym.get_asset_rigid_body_count(robot_asset)
         self.num_robot_dofs = self.gym.get_asset_dof_count(robot_asset)
 
@@ -298,6 +326,28 @@ class FrankaLEAPMobile(VecTask):
 
         self._robot_effort_limits = to_torch(self._robot_effort_limits, device=self.device)
         return robot_dof_props
+
+    def _init_fabric(self):
+        self.fabrics_world_model = WorldMeshesModel(
+            batch_size=self.num_envs,
+            max_objects_per_env=self.max_objects_per_env,
+            device=self.device,
+            world_dict=self.fabrics_world_dict,
+        )
+        self.fabrics_object_ids, self.fabrics_object_indicator = self.fabrics_world_model.get_object_ids()
+
+        # Create franka fabric
+        self.franka_fabric = GlorbotFabric(self.num_envs, self.device)
+
+        # Create integrator for the fabric dynamics.
+        self.franka_integrator = DisplacementIntegrator(self.franka_fabric)
+
+        cspace_dim = 3 + 7 + 16 + 6
+        self.fabric_q = torch.zeros((self.num_envs, cspace_dim), dtype=torch.float, device=self.device)
+        self.fabric_qd = torch.zeros((self.num_envs, cspace_dim), dtype=torch.float, device=self.device)
+        self.fabric_qdd = torch.zeros((self.num_envs, cspace_dim), dtype=torch.float, device=self.device)
+
+        self.default_joint_pos = torch.tensor(FABRIC_DEFAULT_JTS['full'], device=self.device, dtype=torch.float32).expand(self.num_envs, cspace_dim)
 
     def init_data(self, actor_num):
         # Setup sim handles
@@ -425,7 +475,7 @@ class FrankaLEAPMobile(VecTask):
         """
         Args:
             position (np.ndarray): (3,) xyz position of the sphere center
-            size (np.ndarray): (1, ) radius of the sphere, note this should have a dim of 1
+            size (float): radius of the sphere, scalar value
         Returns:
             asset (gymapi.Asset): asset handle of the sphere
             start_pose (gymapi.Transform): start pose of the sphere
@@ -615,6 +665,89 @@ class FrankaLEAPMobile(VecTask):
             meshes.append((asset, start_pose, scale, asset_obj_id, asset_mesh_id))
 
         return meshes
+
+    def _create_fabric_cube(self, pos, size, quat, env_id):
+        """
+        Args:
+            pos  (list): (3,) xyz position of the cube center
+            size (list): (3,) length along xyz direction of the cube
+            quat (list): (4,) [x, y, z, w]
+            env_id (int): environment index
+        """
+        self.obstacle_count += 1
+
+        transform = list(pos) + list(quat)
+        self.fabrics_world_dict[f"cube_{self.obstacle_count}"] = {
+            "env_index": env_id,
+            "type": "box",
+            "scaling": " ".join(map(str, size)),
+            "transform": " ".join(map(str, transform)),
+        }
+        return
+
+    def _create_fabric_cylinder(self, pos, size, quat, env_id):
+        """
+        Args:
+            pos  (list): (3,) xyz position of the cube center
+            size (list): (2,) radius and height of the cylinder
+            quat (list): (4,) [x, y, z, w]
+            env_id (int): environment index
+        """
+        self.obstacle_count += 1
+
+        transform = list(pos) + list(quat)
+        self.fabrics_world_dict[f"cylinder_{self.obstacle_count}"] = {
+            "env_index": env_id,
+            "type": "cylinder",
+            "scaling": " ".join(map(str, [2*size[0], 2*size[0], size[1]])), # default is 0.5 for radius and 1 for height
+            "transform": " ".join(map(str, transform)),
+        }
+        return
+
+    def _create_fabric_sphere(self, pos, radius, quat, env_id):
+        """
+        Args:
+            pos  (list): (3,) xyz position of the cube center
+            radius (float): (scalar) radius of the sphere
+            quat (list): (4,) [x, y, z, w]
+            env_id (int): environment index
+        """
+        self.obstacle_count += 1
+
+        transform = list(pos) + list(quat)
+        self.fabrics_world_dict[f"sphere_{self.obstacle_count}"] = {
+            "env_index": env_id,
+            "type": "sphere", # cylinder
+            "scaling": " ".join(map(str, [radius, radius, radius])),
+            "transform": " ".join(map(str, transform)),
+        }
+        return
+
+    def compute_fabric_action(self, eef_target):
+        cspace_target = self.default_joint_pos[:, 3:]
+
+        self.fabric_q[:] = self.states['q'][:].clone()
+        self.fabric_qd[:] = self.states['qd'][:].clone()
+
+        self.franka_fabric.set_features(
+            eef_target,
+            cspace_target,
+            self.fabric_q.detach(),
+            self.fabric_qd.detach(),
+            self.fabrics_object_ids,
+            self.fabrics_object_indicator,
+        )
+
+        timestep = 1/60.
+        for i in range(1):
+            self.fabric_q, self.fabric_qd, self.fabric_qdd = self.franka_integrator.step(
+                self.fabric_q.detach(), self.fabric_qd.detach(), timestep
+            )
+
+        # abs_fabric_actions = torch.clone(self.fabric_q[:, 0:7]).contiguous() \
+        #     + 1.0*50/1000 * (self.fabric_qd[:, 0:7])
+
+        return self.fabric_q.clone()
 
     def _refresh(self):
         self._qd_prev = self._qd.clone()
@@ -936,6 +1069,13 @@ class FrankaLEAPMobile(VecTask):
             len(multi_env_ids_int32),
         )
 
+        if self.enable_fabric:
+            self.fabric_q[env_ids, :] = torch.clone(joint_state)
+            self.fabric_qd[env_ids, :] = torch.zeros_like(joint_state)
+            if joint_vel is not None:
+                self.fabric_qd[env_ids, :] = torch.clone(joint_vel)
+            self.fabric_qdd[env_ids, :] = torch.zeros_like(joint_state)
+
     def _reset_object_state(self, env_ids):
         if env_ids is None:
             env_ids = torch.arange(self.num_envs, device=self.device)
@@ -1189,6 +1329,12 @@ class FrankaLEAPMobile(VecTask):
         )
 
         self.set_robot_joint_state(reset_joint_config, env_ids=env_ids)
+
+        if self.enable_fabric:
+            self.fabric_q[env_ids, :] = torch.clone(reset_joint_config)
+            self.fabric_qd[env_ids, :] = torch.zeros_like(reset_joint_config)
+            self.fabric_qdd[env_ids, :] = torch.zeros_like(reset_joint_config)
+
         self.success_flags[env_ids] = 0
         self.lifting_flags[env_ids] = 0
         self.progress_buf[env_ids] = 0
@@ -1223,14 +1369,20 @@ class FrankaLEAPMobile(VecTask):
                 rot_actions_quat, self.states['eef_quat'] # xyzw format
             )
 
-            delta_arm_joint_actions_unnormalized = eef_ctrl.compute_dof_pos_delta(
-                arm_dof_pos=self.states['q'][:, :10],
-                current_eef_pos=self.states['eef_pos'],
-                current_eef_quat=self.states['eef_quat'],
-                jacobian=self._j_eef,
-                ctrl_target_eef_pos=ctrl_target_eef_pos,
-                ctrl_target_eef_quat=ctrl_target_eef_quat,
-            )
+            if self.enable_fabric:
+                eef_target = torch.cat((ctrl_target_eef_pos, ctrl_target_eef_quat), dim=-1)
+                abs_full_joint_actions_unnormalized = self.compute_fabric_action(eef_target)
+                delta_full_joint_actions_unnormalized = abs_full_joint_actions_unnormalized - self.states['q']
+                delta_arm_joint_actions_unnormalized = delta_full_joint_actions_unnormalized[:, :10]
+            else:
+                delta_arm_joint_actions_unnormalized = eef_ctrl.compute_dof_pos_delta(
+                    arm_dof_pos=self.states['q'][:, :10],
+                    current_eef_pos=self.states['eef_pos'],
+                    current_eef_quat=self.states['eef_quat'],
+                    jacobian=self._j_eef,
+                    ctrl_target_eef_pos=ctrl_target_eef_pos,
+                    ctrl_target_eef_quat=ctrl_target_eef_quat,
+                )
 
             hand_actions = actions[:, 6:] * self.action_scale["hand"] * self.dt
             delta_hand_joint_actions_unnormalized = self.unnormalize_robot_joints(hand_actions, robot="hand", delta=True)
@@ -1240,7 +1392,7 @@ class FrankaLEAPMobile(VecTask):
             delta_arm_joint_actions_unnormalized = self.unnormalize_robot_joints(arm_actions, robot="arm", delta=True)
             delta_hand_joint_actions_unnormalized = self.unnormalize_robot_joints(hand_actions, robot="hand", delta=True)
 
-        self.delta_joint_actions[:, :10] = delta_arm_joint_actions_unnormalized
+        self.delta_joint_actions[:, :10] = delta_arm_joint_actions_unnormalized[:, :10]
         self.delta_joint_actions[:, 10:26] = delta_hand_joint_actions_unnormalized
 
         self.abs_actions[:] = self.states['q'] + self.delta_joint_actions # need to really make sure states['q'] is always up to date
