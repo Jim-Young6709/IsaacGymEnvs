@@ -50,6 +50,9 @@ env:
   numStates: 106
   numActions: 22 # delta eef actions 6 (xyz, rpy) + normalized hand joint actions 16
 
+fabric:
+  enable: True
+
 reward:
   params:
     target_pos: [0.5, 0.0, 0.3]

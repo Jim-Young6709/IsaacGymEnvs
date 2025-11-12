@@ -54,8 +54,9 @@ class FrankaLEAPMobilePickTopFull(FrankaLEAPMobile):
             # TODO: resampling mechanism here when IK failed
             # self.canonical_joint_config[:, 3:10] = self.get_joint_from_ee(eef_init_pos7)
 
-        for i in range(4):
-            self.draw_box_lines(i, self.box_pos[i].clone(), self.box_quats[i].clone(), self.box_dims[i].clone())
+        if not self.headless:
+            for i in range(self.num_envs):
+                self.draw_box_lines(i, self.box_pos[i].clone(), self.box_quats[i].clone(), self.box_dims[i].clone())
 
     def _init_params(self):
         self.scene_box_cfg = self.cfg["env"]["scene"]["safety_box"]
@@ -170,6 +171,17 @@ class FrankaLEAPMobilePickTopFull(FrankaLEAPMobile):
                 pos=table_pos,
                 size=table_size,
             )
+
+            if self.enable_fabric:
+                self._create_fabric_cube(
+                    pos=table_pos,
+                    size=table_size,
+                    quat=[0, 0, 0, 1],
+                    env_id=i,
+                )
+
+            self.objects_per_env = 1
+
             self.gym.create_actor(
                 env_ptr, table_asset, table_start_pose, "table", i, 1, 0
             )
@@ -215,11 +227,16 @@ class FrankaLEAPMobilePickTopFull(FrankaLEAPMobile):
 
             box_quater_length = self.box_dims[i][0]/2 + self.box_dims[i][1]/2
             num_x_dir_obj = round(self.num_corner_obstacles * (self.box_dims[i][0]/2 / box_quater_length))
-            num_x_dir_obj= max(1, min(num_x_dir_obj, self.num_corner_obstacles-1))
+            num_x_dir_obj = max(1, min(num_x_dir_obj, self.num_corner_obstacles-1))
             num_y_dir_obj = self.num_corner_obstacles - num_x_dir_obj
 
-            # TODO: def clean this up later, should be able to wrap into a function
             def _sample_size_and_radius(obstacles_size_list):
+                """
+                Returns:
+                    size  (list): size of the obstacle, depends on type, (3,) for cuboid, (2,) for capsule, (1,) for sphere
+                    type  (int): type of the obstacle, 3-cuboid, 2-capsule, 1-sphere
+                    radius (float): 'radius' of the obstacle, for collision checking (against the safety region)
+                """
                 size = obstacles_size_list.pop(np.random.randint(len(obstacles_size_list)))
                 type = len(size)
                 radius = np.hypot(size[0]/2, size[1]/2) if type == 3 else size[0]
@@ -280,6 +297,10 @@ class FrankaLEAPMobilePickTopFull(FrankaLEAPMobile):
                     x_pos += self.box_pos[i][0]
                     y_pos += self.box_pos[i][1]
 
+                    # randomly rotate obstacles around their z axis
+                    theta = np.random.uniform(0, 2 * np.pi)
+                    quat_z_rand = [0, 0, np.sin(theta/2), np.cos(theta/2)]  # xyzw
+
                     self._create_add_on_obstacles(
                         env_ptr=env_ptr,
                         i=i,
@@ -288,7 +309,14 @@ class FrankaLEAPMobilePickTopFull(FrankaLEAPMobile):
                         x_pos=x_pos,
                         y_pos=y_pos,
                         size=size,
+                        quat=quat_z_rand,
                     )
+
+                    self.objects_per_env += 1
+
+            # update max_objects_per_envs
+            if self.enable_fabric and self.objects_per_env > self.max_objects_per_env:
+                self.max_objects_per_env = self.objects_per_env
 
             # Create object
             self._object_id = self.gym.create_actor(
@@ -376,13 +404,24 @@ class FrankaLEAPMobilePickTopFull(FrankaLEAPMobile):
         actor_num = self.tol_add_on_obstacles + 1 + 1 + 1 # robot, table, object
         self.init_data(actor_num=actor_num)
 
-    def _create_add_on_obstacles(self, env_ptr, i, obs_i, type, x_pos, y_pos, size):
+        if self.enable_fabric:
+            self._init_fabric()
+
+    def _create_add_on_obstacles(self, env_ptr, i, obs_i, type, x_pos, y_pos, size, quat):
         if type == 3: # cuboid
             pos = [x_pos, y_pos, size[2]/2+self.table_surface_height[i].item()]
             asset, start_pose  = self._create_cube(
                 pos=pos,
                 size=size,
+                quat=quat, # xyzw
             )
+            if self.enable_fabric:
+                self._create_fabric_cube(
+                    pos=pos,
+                    size=size,
+                    quat=quat,
+                    env_id=i,
+                )
 
         if type == 2: # capsule
             pos = [x_pos, y_pos, size[0]+size[1]+self.table_surface_height[i].item()]
@@ -390,6 +429,13 @@ class FrankaLEAPMobilePickTopFull(FrankaLEAPMobile):
                 pos=pos,
                 size=size,
             )
+            if self.enable_fabric:
+                self._create_fabric_cylinder(
+                    pos=pos,
+                    size=[size[0], 2*(size[0]+size[1])],
+                    quat=[0, 0, 0, 1],
+                    env_id=i,
+                )
 
         if type == 1: # sphere
             pos = [x_pos, y_pos, size[0]+self.table_surface_height[i].item()]
@@ -397,6 +443,13 @@ class FrankaLEAPMobilePickTopFull(FrankaLEAPMobile):
                 pos=pos,
                 size=size[0],
             )
+            if self.enable_fabric:
+                self._create_fabric_sphere(
+                    pos=pos,
+                    radius=size[0],
+                    quat=[0, 0, 0, 1],
+                    env_id=i,
+                )
 
         self.gym.create_actor(
             env_ptr, asset, start_pose, f"add_on_obstacle{obs_i}", i, 1, 0
