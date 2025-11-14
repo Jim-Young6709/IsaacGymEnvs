@@ -9,6 +9,11 @@ Franka + LEAP Hand Env
  'finger_joint_9', 'finger_joint_8', 'finger_joint_10', 'finger_joint_11',
  'x5_joint1', 'x5_joint2', 'x5_joint3', 'x5_joint4', 'x5_joint5', 'x5_joint6',
 
+TODO:
+1. setup fabric open loop + local policy distillation
+2. tune obstacle rand for the mobile base
+3. tune switching part
+
 """
 
 import os
@@ -165,19 +170,22 @@ class FrankaLEAPMobile(VecTask):
 
     def _post_init_buffers(self):
         if not hasattr(self, 'canonical_joint_config'):
-            self.canonical_joint_config = torch.tensor(
+            base_init_range = torch.tensor(self.cfg['env']['robot_init']['base_init_range'], device=self.device)
+            base_init_pose = torch.rand((self.num_envs, 3), device=self.device) * (base_init_range[1] - base_init_range[0]) + base_init_range[0]
+            self.canonical_joint_config = torch.tensor( # TODO: add a bit randomization to mobile base init
                 [
-                    [-0.2, 0.0, 0.0] + \
+                    [0.0, 0.0, 0.0] + \
                     [0, 0, 0, -3*torch.pi/4, 0, 3*torch.pi/4, 0] + \
-                    [0.5,  0.0,  0.5,  0.5,
-                     1.57,  0.0, -0.3,  0.3,
-                     0.5,  0.0,  0.5,  0.5,
-                     0.5,  0.0,  0.5,  0.5,] + \
+                    [0.0,  0.0,  0.0,  0.0,
+                     0.0,  0.0, -0.0,  0.0,
+                     0.0,  0.0,  0.0,  0.0,
+                     0.0,  0.0,  0.0,  0.0,] + \
                     [0.0, 0.785, 0.785, 0.0, 0.0, 0.0]
                 ] * self.num_envs
             ).to(self.device)
-        self.ik_regularization_config = self.canonical_joint_config[:, :10]
+            self.canonical_joint_config[:, :3] = base_init_pose
 
+        self.ik_regularization_config = self.canonical_joint_config[:, :10]
         self.delta_joint_actions = torch.zeros((self.num_envs, self.num_robot_dofs), device=self.device, dtype=torch.float) # Current delta actions to be deployed
         self.delta_eef_actions = torch.zeros((self.num_envs, self.num_robot_dofs-1), device=self.device, dtype=torch.float) # Current delta actions to be deployed at the end effector
         self.success_flags = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device) # 1 if success condition has been achieved at any step, 0 otherwise
@@ -348,6 +356,15 @@ class FrankaLEAPMobile(VecTask):
         self.fabric_qdd = torch.zeros((self.num_envs, cspace_dim), dtype=torch.float, device=self.device)
 
         self.default_joint_pos = torch.tensor(FABRIC_DEFAULT_JTS['full'], device=self.device, dtype=torch.float32).expand(self.num_envs, cspace_dim)
+        self.fabric_switch_enable = torch.ones((self.num_envs,), dtype=torch.bool, device=self.device) # 0 -- disable ; 1 -- enable
+        self.switch_pos_offset = torch.tensor(self.cfg['env']['robot_init']['switch_pos_offset'], device=self.device)
+        self.switch_tol = self.cfg['env']['robot_init']['switch_tol']
+        # TODO: shall I init this here? box is not defined in this class
+        self.switching_target_pos = self.box_pos.clone()
+        self.switching_target_pos[:, 2] += self.box_dims[:, 2]
+        self.switching_target_pos += self.switch_pos_offset
+        rot_local_x_180 = torch.tensor([[1.0, 0.0, 0.0, 0.0]]*self.num_envs, device=self.device)  # 180 degrees around local x-axis
+        self.switching_target_quat = quat_mul(self.box_quats.clone(), rot_local_x_180) # default hand orientation is facing up, so need to rotate 180
 
     def init_data(self, actor_num):
         # Setup sim handles
@@ -726,8 +743,8 @@ class FrankaLEAPMobile(VecTask):
     def compute_fabric_action(self, eef_target):
         cspace_target = self.default_joint_pos[:, 3:]
 
-        self.fabric_q[:] = self.states['q'][:].clone()
-        self.fabric_qd[:] = self.states['qd'][:].clone()
+        # self.fabric_q[:] = self.states['q'][:].clone()
+        # self.fabric_qd[:] = self.states['qd'][:].clone()
 
         self.franka_fabric.set_features(
             eef_target,
@@ -790,6 +807,15 @@ class FrankaLEAPMobile(VecTask):
             curent_eef_pos7=self._eef_state[:, :7],
             target_eef_pos7=torch.cat([self.reward_settings["target_pos"], self.reward_settings["target_quat"]], dim=-1)
         )
+
+        # update fabric switching state
+        if self.enable_fabric:
+            switching_matching_err = self._get_eef_point_matching_err(
+                curent_eef_pos7=self._eef_state[:, :7],
+                target_eef_pos7=torch.cat([self.switching_target_pos, self.switching_target_quat], dim=-1)
+            )
+            self.fabric_switch_enable[switching_matching_err < self.switch_tol] = False
+            self.fabric_switch_enable[self.progress_buf == 0] = True
 
         # update point clouds
         object_pcds_world = transform_pcds_to_world(self.object_pcds, self._object_state[:, :7])
@@ -1370,19 +1396,20 @@ class FrankaLEAPMobile(VecTask):
             )
 
             if self.enable_fabric:
-                eef_target = torch.cat((ctrl_target_eef_pos, ctrl_target_eef_quat), dim=-1)
-                abs_full_joint_actions_unnormalized = self.compute_fabric_action(eef_target)
-                delta_full_joint_actions_unnormalized = abs_full_joint_actions_unnormalized - self.states['q']
-                delta_arm_joint_actions_unnormalized = delta_full_joint_actions_unnormalized[:, :10]
-            else:
-                delta_arm_joint_actions_unnormalized = eef_ctrl.compute_dof_pos_delta(
-                    arm_dof_pos=self.states['q'][:, :10],
-                    current_eef_pos=self.states['eef_pos'],
-                    current_eef_quat=self.states['eef_quat'],
-                    jacobian=self._j_eef,
-                    ctrl_target_eef_pos=ctrl_target_eef_pos,
-                    ctrl_target_eef_quat=ctrl_target_eef_quat,
-                )
+                fabric_target_eef_pos = self.switching_target_pos
+                fabric_target_eef_quat = self.switching_target_quat
+                fabric_eef_target = torch.cat((fabric_target_eef_pos, fabric_target_eef_quat), dim=-1)
+                abs_full_joint_actions_fabric = self.compute_fabric_action(fabric_eef_target)
+
+            delta_arm_joint_actions_unnormalized = torch.zeros((self.num_envs, 10), device=self.device)
+            delta_arm_joint_actions_unnormalized[:, 3:10] = eef_ctrl.compute_dof_pos_delta(
+                arm_dof_pos=self.states['q'][:, 3:10],
+                current_eef_pos=self.states['eef_pos'],
+                current_eef_quat=self.states['eef_quat'],
+                jacobian=self._j_eef[:, :, 3:10],
+                ctrl_target_eef_pos=ctrl_target_eef_pos,
+                ctrl_target_eef_quat=ctrl_target_eef_quat,
+            )
 
             hand_actions = actions[:, 6:] * self.action_scale["hand"] * self.dt
             delta_hand_joint_actions_unnormalized = self.unnormalize_robot_joints(hand_actions, robot="hand", delta=True)
@@ -1399,6 +1426,10 @@ class FrankaLEAPMobile(VecTask):
         self.abs_actions[:] = tensor_clamp(
             self.abs_actions, self.robot_dof_lower_limits, self.robot_dof_upper_limits
         )
+
+        if self.enable_fabric:
+            self.abs_actions[self.fabric_switch_enable] = abs_full_joint_actions_fabric[self.fabric_switch_enable].clone()
+
         self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(self.abs_actions))
 
     def post_physics_step(self):

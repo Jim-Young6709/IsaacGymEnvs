@@ -80,6 +80,17 @@ class FrankaLEAPMobilePickTopFull(FrankaLEAPMobile):
         self.num_other_obstacles = self.tol_add_on_obstacles - self.num_corner_obstacles - self.num_extra_surrounding_obstacles
         self.shift_other_obstacles_range = self.cfg["env"]["scene"]["safety_box"]["shift_other_obstacles_range"]
 
+        # mobile obstacles
+        self.mobile_obstacles_cfg = self.cfg["env"]["scene"]["mobile_obstacles"]
+        self.num_mobile_cuboids = self.mobile_obstacles_cfg["cuboids"]["num"]
+        self.mobile_cuboids_size_range = self.mobile_obstacles_cfg["cuboids"]["size_range"]
+        self.num_mobile_capsules = self.mobile_obstacles_cfg["capsules"]["num"]
+        self.mobile_capsules_size_range = self.mobile_obstacles_cfg["capsules"]["size_range"]
+
+        self.tol_mobile_obstacles = self.num_mobile_cuboids + self.num_mobile_capsules
+        self.mobile_x_offset_range = self.mobile_obstacles_cfg["x_offset_range"]
+        self.mobile_y_offset_range = self.mobile_obstacles_cfg["y_offset_range"]
+
     def _create_envs(self, spacing, num_per_row):
         """
         loading Franka + LEAP + a table in the environment, this is for debugging purposes only
@@ -122,8 +133,8 @@ class FrankaLEAPMobilePickTopFull(FrankaLEAPMobile):
         # compute aggregate size
         num_robot_bodies = self.gym.get_asset_rigid_body_count(robot_asset)
         num_robot_shapes = self.gym.get_asset_rigid_shape_count(robot_asset)
-        max_agg_bodies = num_robot_bodies + self.tol_add_on_obstacles + 1 + 1 # 1 for object, 1 for table
-        max_agg_shapes = num_robot_shapes + self.tol_add_on_obstacles + 1 + 1 # 1 for object, 1 for table
+        max_agg_bodies = num_robot_bodies + self.tol_add_on_obstacles + self.tol_mobile_obstacles + 1 + 1 # 1 for object, 1 for table
+        max_agg_shapes = num_robot_shapes + self.tol_add_on_obstacles + self.tol_mobile_obstacles + 1 + 1 # 1 for object, 1 for table
 
         self.robots = []
         self.objects = []
@@ -180,7 +191,59 @@ class FrankaLEAPMobilePickTopFull(FrankaLEAPMobile):
                     env_id=i,
                 )
 
-            self.objects_per_env = 1
+            # create mobile obstacles
+            for mob_i in range(self.num_mobile_cuboids):
+                theta = np.random.uniform(0, 2 * np.pi)
+                quat_z_rand = [0, 0, np.sin(theta/2), np.cos(theta/2)]  # xyzw
+                size = np.random.uniform(*self.mobile_cuboids_size_range)
+                x_pos = self.box_pos[i][0] - self.box_dims[i][0]/2 + np.random.uniform(*self.mobile_x_offset_range)
+                y_pos = (self.box_pos[i][1] + self.box_dims[i][1]/2 + np.random.uniform(*self.mobile_y_offset_range)) * random.choice([-1, 1])
+                z_pos = size[2]/2
+
+                mobile_obs_asset, mobile_obs_start_pose = self._create_cube(
+                    pos=[x_pos, y_pos, z_pos],
+                    size=size,
+                    quat=quat_z_rand, # xyzw
+                )
+
+                if self.enable_fabric:
+                    self._create_fabric_cube(
+                        pos=[x_pos, y_pos, z_pos],
+                        size=size,
+                        quat=quat_z_rand,
+                        env_id=i,
+                    )
+
+                self.gym.create_actor(
+                    env_ptr, mobile_obs_asset, mobile_obs_start_pose, f"mobile_cuboids{mob_i}", i, 1, 0
+                )
+
+            for mob_i in range(self.num_mobile_capsules):
+                size = np.random.uniform(*self.mobile_capsules_size_range)
+                cap_r = size[0]
+                cap_l = size[1]/2 - size[0]
+                x_pos = self.box_pos[i][0] - self.box_dims[i][0]/2 + np.random.uniform(*self.mobile_x_offset_range)
+                y_pos = (self.box_pos[i][1] + self.box_dims[i][1]/2 + np.random.uniform(*self.mobile_y_offset_range)) * random.choice([-1, 1])
+                z_pos = size[1]/2
+
+                mobile_obs_asset, mobile_obs_start_pose = self._create_capsule(
+                    pos=[x_pos, y_pos, z_pos],
+                    size=[cap_r, cap_l],
+                )
+
+                if self.enable_fabric:
+                    self._create_fabric_cylinder(
+                        pos=[x_pos, y_pos, z_pos],
+                        size=size,
+                        quat=[0, 0, 0, 1],
+                        env_id=i,
+                    )
+
+                self.gym.create_actor(
+                    env_ptr, mobile_obs_asset, mobile_obs_start_pose, f"mobile_capsules{mob_i}", i, 1, 0
+                )
+
+            self.objects_per_env = 1 + self.tol_mobile_obstacles
 
             self.gym.create_actor(
                 env_ptr, table_asset, table_start_pose, "table", i, 1, 0
@@ -401,7 +464,7 @@ class FrankaLEAPMobilePickTopFull(FrankaLEAPMobile):
         self.obj_pos_range[:, 3] -= self.mesh_aabb_extents[:, 1] / 2
 
         # Setup data
-        actor_num = self.tol_add_on_obstacles + 1 + 1 + 1 # robot, table, object
+        actor_num = self.tol_add_on_obstacles + self.tol_mobile_obstacles + 1 + 1 + 1 # robot, table, object
         self.init_data(actor_num=actor_num)
 
         if self.enable_fabric:
@@ -720,7 +783,7 @@ def launch_test(cfg: DictConfig):
     graphics_device_id = 0
     virtual_screen_capture = False
     force_render = False
-    env = FrankaLEAPPickTop(cfg_task, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render)
+    env = FrankaLEAPMobilePickTopFull(cfg_task, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render)
     env.reset()
 
     for i in tqdm(range(1000)):
