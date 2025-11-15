@@ -12,7 +12,7 @@ env:
 
   asset:
     assetRoot: "../../assets"
-    assetFileNameFranka: "urdf/franka_cmd/franka_cmd_left.urdf"
+    assetFileNameFranka: "franka_cmd/franka_cmd_left.urdf"
 
   resetNoiseScale:
     hand: 0.2

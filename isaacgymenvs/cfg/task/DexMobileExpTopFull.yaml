@@ -9,7 +9,7 @@ name: FrankaLEAPMobilePickTopFull
 env:
   episodeLength: 1000
   asset:
-    assetFileNameFranka: "urdf/glorbot/glorbot.urdf"
+    assetFileNameFranka: "glorbot/glorbot.urdf"
 
   scene:
     table_thickness_range: [0.01, 0.1]
@@ -54,8 +54,8 @@ env:
 
   robot_init:
     base_init_range: [[-1.5, -0.5, -1.5], [-0.8, 0.5, 1.5]] # x, y, yaw
-    switch_pos_offset: [0.0, 0.0, 0.3]
-    switch_tol: 0.2
+    switch_pos_offset: [0.0, 0.0, 0.0]
+    switch_tol: 0.3
 
   eef_init:
     enable: True
