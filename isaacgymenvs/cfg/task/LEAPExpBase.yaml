@@ -29,7 +29,7 @@ env:
 
   asset:
     assetRoot: "../../assets"
-    assetFileNameFranka: "franka_hand/robots/franka_leap_right.urdf"
+    assetFileNameFranka: "franka_hand/franka_leap.urdf"
 
   mesh:
     mesh_dir: "./meshes_100"
