@@ -353,7 +353,7 @@ class FrankaLeapSampler:
         self.hand_links = [l for l in self.links if ("panda" not in l.name)]
 
         meshes = [
-            trimesh.load(Path(urdf_path).parent.parent / l.visuals[0].geometry.mesh.filename, force="mesh")
+            trimesh.load(Path(urdf_path).parent / l.visuals[0].geometry.mesh.filename, force="mesh")
             for l in self.links
         ]
         areas = np.array([m.bounding_box_oriented.area for m in meshes])
