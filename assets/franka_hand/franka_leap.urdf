@@ -190,7 +190,7 @@
 	<joint name="panda_hand_joint" type="fixed" dont_collapse="true">
     <parent link="panda_link7"/>
     <child link="palm_center"/>
-    <origin rpy="0 0 1.57079632679" xyz="0 0 0.115"/>
+    <origin rpy="0 0 0" xyz="0 0 0.115"/>
 	</joint>
 
   <!-- Virtual palm center link -->
@@ -199,7 +199,7 @@
   <joint name="palm_center_joint" type="fixed" dont_collapse="true">
     <parent link="palm_center"/>
     <child link="palm_lower"/>
-    <origin rpy="3.14159 0 -1.5707" xyz="-0.03 -0.065 0"/>
+    <origin rpy="3.14159 0 0" xyz="0.065 -0.035 0"/>
   </joint>
 
   <link name="palm_lower">
