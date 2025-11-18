@@ -721,33 +721,33 @@
 		<joint_properties friction="0.0"/>
 	</joint>
 
-  <link name="realtip_1">
+  <link name="index_tip_head">
   </link>
   <joint name="tip_joint_1" type="fixed">
     <origin xyz="0.0 -0.05 0.015" rpy="0 0 0" />
     <parent link="fingertip_1" />
-    <child link="realtip_1" />
+    <child link="index_tip_head" />
   </joint>
-  <link name="realtip_2">
+  <link name="middle_tip_head">
   </link>
   <joint name="tip_joint_2" type="fixed">
     <origin xyz="0.0 -0.05 0.015" rpy="0 0 0" />
     <parent link="fingertip_2" />
-    <child link="realtip_2" />
+    <child link="middle_tip_head" />
   </joint>
-  <link name="realtip_3">
+  <link name="ring_tip_head">
   </link>
   <joint name="tip_joint_3" type="fixed">
     <origin xyz="0.0 -0.05 0.015" rpy="0 0 0" />
     <parent link="fingertip_3" />
-    <child link="realtip_3" />
+    <child link="ring_tip_head" />
   </joint>
-  <link name="realtip_4">
+  <link name="thumb_tip_head">
   </link>
   <joint name="tip_joint_4" type="fixed">
     <origin xyz="0.0 -0.06 -0.015" rpy="0 0 0" />
     <parent link="fingertip_4" />
-    <child link="realtip_4" />
+    <child link="thumb_tip_head" />
   </joint>
 
 </robot>

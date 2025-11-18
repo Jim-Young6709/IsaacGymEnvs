@@ -299,10 +299,10 @@ class FrankaLEAP(VecTask):
         self.handles = {
             # FrankaLEAP
             "hand": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "palm_center"),
-            "finger1_tip": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "realtip_1"),
-            "finger2_tip": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "realtip_2"),
-            "finger3_tip": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "realtip_3"),
-            "finger4_tip": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "realtip_4"),
+            "finger1_tip": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "index_tip_head"),
+            "finger2_tip": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "middle_tip_head"),
+            "finger3_tip": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "ring_tip_head"),
+            "finger4_tip": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "thumb_tip_head"),
         }
 
         # Get total DOFs
