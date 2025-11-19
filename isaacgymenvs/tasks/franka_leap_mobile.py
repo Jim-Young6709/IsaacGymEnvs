@@ -44,22 +44,11 @@ import random
 from scipy.spatial.transform import Rotation as R
 from curobo.types.math import Pose
 
-from fabrics_sim.fabrics.glorbot_fabric import GlorbotFabric
+from fabrics_sim.fabrics.glorbot_vision_fabric import GlorbotVisionFabric
 from fabrics_sim.integrator.integrators import DisplacementIntegrator
 from fabrics_sim.worlds.world_mesh_model import WorldMeshesModel
 from fabrics_sim.utils.utils import initialize_warp
 
-FABRIC_DEFAULT_JTS = {
-    'base': [0.0, 0.0, 0.0],
-    'franka': [0.0, -0.25 * np.pi, 0.0, -0.75 * np.pi, 0.0, 0.5 * np.pi, 0.0],
-    'leap': [0.0]*16,
-    'arx': [0.0, 0.785, 0.785, 0.0, 0.0, 0.0],
-}
-
-FABRIC_DEFAULT_JTS['full'] = FABRIC_DEFAULT_JTS['base'] + \
-                             FABRIC_DEFAULT_JTS['franka'] + \
-                             FABRIC_DEFAULT_JTS['leap'] + \
-                             FABRIC_DEFAULT_JTS['arx']
 
 
 class FrankaLEAPMobile(VecTask):
@@ -148,6 +137,7 @@ class FrankaLEAPMobile(VecTask):
         self._robot_effort_limits = None        # Actuator effort limits for the robot (franka 7 + leap 4*4)
         self._global_indices = None             # Unique indices corresponding to all envs in flattened array
 
+        self._q_prev = None                     # Previous joint positions (n_envs, n_dof)
         self._qd_prev = None                    # Previous joint velocities (n_envs, n_dof)
 
         # pcd
@@ -172,14 +162,14 @@ class FrankaLEAPMobile(VecTask):
         if not hasattr(self, 'canonical_joint_config'):
             base_init_range = torch.tensor(self.cfg['env']['robot_init']['base_init_range'], device=self.device)
             base_init_pose = torch.rand((self.num_envs, 3), device=self.device) * (base_init_range[1] - base_init_range[0]) + base_init_range[0]
-            self.canonical_joint_config = torch.tensor( # TODO: add a bit randomization to mobile base init
+            self.canonical_joint_config = torch.tensor(
                 [
                     [0.0, 0.0, 0.0] + \
-                    [0, 0, 0, -3*torch.pi/4, 0, 3*torch.pi/4, 0] + \
-                    [0.0,  0.0,  0.0,  0.0,
-                     0.0,  0.0, -0.0,  0.0,
-                     0.0,  0.0,  0.0,  0.0,
-                     0.0,  0.0,  0.0,  0.0,] + \
+                    [0.0, -0.25 * np.pi, 0.0, -0.75 * np.pi, 0.0, 0.5 * np.pi, 0.0] + \
+                    [0.5,  0.0,  0.5,  0.5,
+                     1.57, 0.0, -0.3,  0.3,
+                     0.5,  0.0,  0.5,  0.5,
+                     0.5,  0.0,  0.5,  0.5,] + \
                     [0.0, 0.785, 0.785, 0.0, 0.0, 0.0]
                 ] * self.num_envs
             ).to(self.device)
@@ -299,8 +289,8 @@ class FrankaLEAPMobile(VecTask):
         self.robot_asset = robot_asset
 
         # currently only support joint position control
-        robot_dof_stiffness = to_torch([800.0*10]*3 + [1000.0]*7 + [800.0]*16 + [800.0]*6, dtype=torch.float, device=self.device)
-        robot_dof_damping = to_torch([40.0*10]*3 + [50.0]*7 + [40.0]*16 + [40.0]*6, dtype=torch.float, device=self.device)
+        robot_dof_stiffness = to_torch([800.0*100]*2 + [800.0*10] + [1000.0]*7 + [800.0]*16 + [800.0]*6, dtype=torch.float, device=self.device)
+        robot_dof_damping = to_torch([40.0*100]*2 + [40.0*10] + [50.0]*7 + [40.0]*16 + [40.0]*6, dtype=torch.float, device=self.device)
         
         self.num_robot_bodies = self.gym.get_asset_rigid_body_count(robot_asset)
         self.num_robot_dofs = self.gym.get_asset_dof_count(robot_asset)
@@ -345,17 +335,16 @@ class FrankaLEAPMobile(VecTask):
         self.fabrics_object_ids, self.fabrics_object_indicator = self.fabrics_world_model.get_object_ids()
 
         # Create franka fabric
-        self.franka_fabric = GlorbotFabric(self.num_envs, self.device)
+        self.franka_fabric = GlorbotVisionFabric(self.num_envs, self.device)
 
         # Create integrator for the fabric dynamics.
         self.franka_integrator = DisplacementIntegrator(self.franka_fabric)
 
-        cspace_dim = 3 + 7 + 16 + 6
+        cspace_dim = 3 + 7 + 6
         self.fabric_q = torch.zeros((self.num_envs, cspace_dim), dtype=torch.float, device=self.device)
         self.fabric_qd = torch.zeros((self.num_envs, cspace_dim), dtype=torch.float, device=self.device)
         self.fabric_qdd = torch.zeros((self.num_envs, cspace_dim), dtype=torch.float, device=self.device)
 
-        self.default_joint_pos = torch.tensor(FABRIC_DEFAULT_JTS['full'], device=self.device, dtype=torch.float32).expand(self.num_envs, cspace_dim)
         self.fabric_switch_enable = torch.ones((self.num_envs,), dtype=torch.bool, device=self.device) # 0 -- disable ; 1 -- enable
         self.switch_pos_offset = torch.tensor(self.cfg['env']['robot_init']['switch_pos_offset'], device=self.device)
         self.switch_tol = self.cfg['env']['robot_init']['switch_tol']
@@ -373,10 +362,10 @@ class FrankaLEAPMobile(VecTask):
         self.handles = {
             # FrankaLEAP
             "hand": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "palm_center"),
-            "finger1_tip": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "realtip_1"),
-            "finger2_tip": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "realtip_2"),
-            "finger3_tip": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "realtip_3"),
-            "finger4_tip": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "realtip_4"),
+            "finger1_tip": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "index_tip_head"),
+            "finger2_tip": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "middle_tip_head"),
+            "finger3_tip": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "ring_tip_head"),
+            "finger4_tip": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "thumb_tip_head"),
         }
 
         # Get total DOFs
@@ -741,32 +730,41 @@ class FrankaLEAPMobile(VecTask):
         return
 
     def compute_fabric_action(self, eef_target):
-        cspace_target = self.default_joint_pos[:, 3:]
+        # timestep: ideally 1/60 but something as low as 1/20 may work. The larger the dt, the more
+        # unstable fabric may become.
+        # speed_scalar: Anything over 3.5 seems to make the fabric unstable. 
+        # Acceleration Limits in the Yaml: for the first 3 joints (base), can tune
+        # Go into GlorbotVisionFabric class. In the set_features function, tune parameters that 
+        # determine how close the base gets to the table.
+        # damping_radius in forcing_base_position_attractor determines how close the base tends to stop in front
+        # of the target (||base_center - ee_target[0:2]||^2)
 
-        # self.fabric_q[:] = self.states['q'][:].clone()
-        # self.fabric_qd[:] = self.states['qd'][:].clone()
+        timestep = 1/30. # 1/60.
+
+        self.fabric_q[:, :10] = self.states['q'][:, :10].clone()
+        self.fabric_q[:, 10:] = self.states['q'][:, 26:].clone()
+
+        qd_delta = (self.states['q'] - self.states['q_prev']) / timestep
+        self.fabric_qd[:, :10] = qd_delta[:, :10].clone()
+        self.fabric_qd[:, 10:] = qd_delta[:, 26:].clone()
 
         self.franka_fabric.set_features(
             eef_target,
-            cspace_target,
+            torch.tensor([[0.5, 0., 1.2]]*self.num_envs, device=self.device),
             self.fabric_q.detach(),
             self.fabric_qd.detach(),
             self.fabrics_object_ids,
             self.fabrics_object_indicator,
         )
 
-        timestep = 1/60.
-        for i in range(1):
-            self.fabric_q, self.fabric_qd, self.fabric_qdd = self.franka_integrator.step(
-                self.fabric_q.detach(), self.fabric_qd.detach(), timestep
-            )
+        self.fabric_q, self.fabric_qd, self.fabric_qdd = self.franka_integrator.step(
+            self.fabric_q.detach(), self.fabric_qd.detach(), timestep, speed_scalar=3.0,
+        )
 
-        # abs_fabric_actions = torch.clone(self.fabric_q[:, 0:7]).contiguous() \
-        #     + 1.0*50/1000 * (self.fabric_qd[:, 0:7])
-
-        return self.fabric_q.clone()
+        return self.fabric_q
 
     def _refresh(self):
+        self._q_prev = self._q.clone()
         self._qd_prev = self._qd.clone()
 
         self.gym.refresh_actor_root_state_tensor(self.sim)
@@ -842,6 +840,7 @@ class FrankaLEAPMobile(VecTask):
             # Robot
             "base": self._q[:, :3],
             "q": self._q[:, :],
+            "q_prev": self._q_prev,
             "q_hand": self._q[:, 10:26],
             "qd": self._qd[:, :],
             "eef_pos": self._eef_state[:, :3],
@@ -1096,11 +1095,13 @@ class FrankaLEAPMobile(VecTask):
         )
 
         if self.enable_fabric:
-            self.fabric_q[env_ids, :] = torch.clone(joint_state)
-            self.fabric_qd[env_ids, :] = torch.zeros_like(joint_state)
+            self.fabric_q[env_ids, :10] = joint_state[:, :10]
+            self.fabric_q[env_ids, 10:] = joint_state[:, 26:]
+            self.fabric_qd[env_ids, :] = torch.zeros_like(self.fabric_q[env_ids])
             if joint_vel is not None:
-                self.fabric_qd[env_ids, :] = torch.clone(joint_vel)
-            self.fabric_qdd[env_ids, :] = torch.zeros_like(joint_state)
+                self.fabric_qd[env_ids, :10] = joint_vel[:, :10]
+                self.fabric_qd[env_ids, 10:] = joint_vel[:, 26:]
+            self.fabric_qdd[env_ids, :] = torch.zeros_like(self.fabric_q[env_ids])
 
     def _reset_object_state(self, env_ids):
         if env_ids is None:
@@ -1357,9 +1358,10 @@ class FrankaLEAPMobile(VecTask):
         self.set_robot_joint_state(reset_joint_config, env_ids=env_ids)
 
         if self.enable_fabric:
-            self.fabric_q[env_ids, :] = torch.clone(reset_joint_config)
-            self.fabric_qd[env_ids, :] = torch.zeros_like(reset_joint_config)
-            self.fabric_qdd[env_ids, :] = torch.zeros_like(reset_joint_config)
+            self.fabric_q[env_ids, :10] = reset_joint_config[:, :10]
+            self.fabric_q[env_ids, 10:] = reset_joint_config[:, 26:]
+            self.fabric_qd[env_ids, :] = torch.zeros_like(self.fabric_q[env_ids])
+            self.fabric_qdd[env_ids, :] = torch.zeros_like(self.fabric_q[env_ids])
 
         self.success_flags[env_ids] = 0
         self.lifting_flags[env_ids] = 0
@@ -1428,7 +1430,9 @@ class FrankaLEAPMobile(VecTask):
         )
 
         if self.enable_fabric:
-            self.abs_actions[self.fabric_switch_enable] = abs_full_joint_actions_fabric[self.fabric_switch_enable].clone()
+            self.abs_actions[self.fabric_switch_enable, :10] = abs_full_joint_actions_fabric[self.fabric_switch_enable, :10]
+            self.abs_actions[self.fabric_switch_enable, 10:26] = self.canonical_joint_config[self.fabric_switch_enable, 10:26]
+            self.abs_actions[self.fabric_switch_enable, 26:] = abs_full_joint_actions_fabric[self.fabric_switch_enable, 10:]
 
         self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(self.abs_actions))
 
