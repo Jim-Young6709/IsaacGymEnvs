@@ -12,7 +12,7 @@ git clone https://github.com/NVlabs/curobo.git
 pip install -e curobo/ --no-build-isolation
 
 # pointnet++
-git clone -b drp git@github.com:Jim-Young6709/pointnet2_ops.git
+git clone -b dex git@github.com:Jim-Young6709/pointnet2_ops.git
 pip install -e pointnet2_ops/ --no-build-isolation
 
 # Isaac Dependencies
