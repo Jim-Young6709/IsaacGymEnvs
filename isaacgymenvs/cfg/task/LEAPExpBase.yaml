@@ -24,7 +24,7 @@ env:
     hand: 0.5
     arm: 0.2 # joint angle
 
-  grasp_guide_idx: 1
+  grasp_guide_idx: 0
 
   controlType: joint_position  # options are {joint_position, osc}
   controlFrequencyInv: 1
