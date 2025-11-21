@@ -469,32 +469,17 @@ def launch_test(cfg: DictConfig):
     env.reset()
 
     for i in tqdm(range(1000)):
-        t1 = time.time()
         env.reset_idx()
-        # env.set_robot_joint_state(env.canonical_joint_config)
-        # env.set_robot_joint_state(env.canonical_grasp_config)
+        env.set_robot_joint_state(env.canonical_joint_config)
         env.step_sim_multi(1, False)
         env.compute_observations()
 
-        # test fk, ik # need to set eef to panda_link7, otherwise will have offset
-        ee_pos = env.get_ee_from_joint(env.states['q'][:, :7])
-        fk_pos_err = torch.any((ee_pos[:, :3] - env.states['eef_pos']) > 1e-4)
-        fk_ori_err1 = (ee_pos[:, 3:] - env.states['eef_quat']) > 1e-4
-        fk_ori_err2 = (ee_pos[:, 3:] + env.states['eef_quat']) > 1e-4
-        fk_ori_err = torch.any(fk_ori_err1 & fk_ori_err2)
-        print(f"FK pos error: {fk_pos_err}, FK ori error: {fk_ori_err}")
-
-        q_config = env.get_joint_from_ee(ee_pos)
-        ee_pos_resolve = env.get_ee_from_joint(q_config)
-        ik_pos_err = torch.any((ee_pos_resolve[:, :3] - env.states['eef_pos']) > 1e-4)
-        ik_quat_err1 = (ee_pos_resolve[:, 3:] - env.states['eef_quat']) > 1e-4
-        ik_quat_err2 = (ee_pos_resolve[:, 3:] + env.states['eef_quat']) > 1e-4
-        ik_quat_err = torch.any(ik_quat_err1 & ik_quat_err2)
-        print(f"IK pos error: {ik_pos_err}, IK ori error: {ik_quat_err}")
+        import ipdb ; ipdb.set_trace()
+        env.set_robot_joint_state(env.canonical_grasp_config)
+        env.step_sim_multi(1, False)
+        env.compute_observations()
 
         import ipdb ; ipdb.set_trace()
-        t2 = time.time()
-        print(f"Reset time: {t2 - t1}")
         env.render()
 
 
