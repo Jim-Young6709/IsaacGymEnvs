@@ -128,13 +128,25 @@ class FrankaLEAP(VecTask):
 
     def _post_init_buffers(self):
         if not hasattr(self, 'canonical_joint_config'):
+            hand_default_1 = [
+                0.5,  0.0,  0.5,  0.5,
+                1.57,  0.0, -0.3,  0.3,
+                0.5,  0.0,  0.5,  0.5,
+                0.5,  0.0,  0.5,  0.5,
+            ]
+            hand_default_2 = [
+                0.7, -0.2,  0.7,  0.7,
+                0.8,   1.57, 0.77,  0.9,
+                0.65,  0.0,  0.65,  0.65,
+                0.7,  0.2,  0.7,  0.7,
+            ]
+
+            self.hand_default = ([hand_default_1] + [hand_default_2])[self.cfg['env']['grasp_guide_idx']]
+
             self.canonical_joint_config = torch.tensor(
                 [
                     [0, 0, 0, -3*torch.pi/4, 0, 3*torch.pi/4, 0] + \
-                    [0.5,  0.0,  0.5,  0.5,
-                     1.57,  0.0, -0.3,  0.3,
-                     0.5,  0.0,  0.5,  0.5,
-                     0.5,  0.0,  0.5,  0.5,]
+                    self.hand_default
                 ] * self.num_envs
             ).to(self.device)
         self.ik_regularization_config = self.canonical_joint_config[:, :7]
@@ -349,21 +361,22 @@ class FrankaLEAP(VecTask):
         target_quat = target_quat / (target_quat_norm + 1e-10)
 
         # finger indexing: 0-3:index ; 4-7:thumb ; 8-11:middle ; 12-15:ring
-        # v0
-        # self.grasp_finger_dof_pos = torch.tensor([
-        #     1.0176, -0.8376,  0.9564,  0.9632,
-        #     1.5700,  0.0000,  0.3100,  1.2880,
-        #     1.0176,  0.0000,  0.9564,  0.9632,
-        #     1.0176,  0.8376,  0.9564,  0.9632
-        # ], device=self.device)
-
-        # v1
-        self.grasp_finger_dof_pos = torch.tensor([
+        grasp_default_1 = [
             0.65,  0.0,  0.65,  0.65,
             1.57,  0.0,  0.10,  0.40,
             0.65,  0.0,  0.65,  0.65,
             0.65,  0.0,  0.65,  0.65,
-        ], device=self.device)
+        ]
+        grasp_default_2 = [
+            0.95, -0.2,  0.95,  0.95,
+            1.0,   1.57, 1.0,   1.14,
+            0.9,  0.0,  0.9,  0.9,
+            0.95,  0.2,  0.95,  0.95,
+        ]
+
+        self.grasp_default = ([grasp_default_1] + [grasp_default_2])[self.cfg['env']['grasp_guide_idx']]
+
+        self.grasp_finger_dof_pos = torch.tensor(self.grasp_default, device=self.device)
 
         # for visualization purposes
         self.canonical_grasp_config = torch.tensor(
