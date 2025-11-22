@@ -128,18 +128,18 @@ class FrankaCMD(VecTask):
     def _post_init_buffers(self):
         if not hasattr(self, 'canonical_joint_config'):
             hand_default_1 = [
-                0.5,  0.8, 0.5,
+                0.5,  0.9, 0.0,
                 0.5,  0.75, 0.75,
                 0.85,  0.85,
                -0.25, 0.9, 0.9,
                -0.5,  1.0, 1.0,
             ]
             hand_default_2 = [
-                0.6, 0.4, 0.4,
-                0, 0.75, 0.75,
-                0.75, 0.75,
-                0.0, 0.75, 0.75,
-                0.0, 0.75, 0.75,
+                0.5,  0.7, 0.0,
+                0.5,  0.75, 0.75,
+                0.85,  0.85,
+               -0.25, 0.9, 0.9,
+               -0.5,  1.0, 1.0,
             ]
 
             self.hand_default = ([hand_default_1] + [hand_default_2])[self.cfg['env']['grasp_guide_idx']]
@@ -331,19 +331,19 @@ class FrankaCMD(VecTask):
 
         # finger indexing: 0-2:thumb ; 3-5:index ; 6-8:middle ; 9-11:ring
         grasp_default_1 = [
-            0.5,  1.3, 0.7,
+            1.0,  0.9, 0.0,
             0.5,  0.9, 0.9,
             1.0,  1.0,
            -0.25, 1.1, 1.1,
            -0.5,  1.5, 1.5,
         ]
         grasp_default_2 = [
-            1.0,  0.8, 0.5,
+            1.0,  0.7, 0.0,
             0.5,  0.9, 0.9,
             1.0,  1.0,
            -0.25, 1.1, 1.1,
-           -0.5,  1.2, 1.2,
-        ],
+           -0.5,  1.5, 1.5,
+        ]
 
         self.grasp_default = ([grasp_default_1] + [grasp_default_2])[self.cfg['env']['grasp_guide_idx']]
 
