@@ -18,7 +18,7 @@ class ViserVisualizer:
         self.server = viser.ViserServer()
         self.server.gui.configure_theme(control_width="medium")  # small | medium | large
         # Visualize world frame
-        self.server.scene.add_frame("/WorldAxes", show_axes=True, axes_length=0.3, axes_radius=0.02, visible=True,)
+        self.server.scene.add_frame("/WorldAxes", show_axes=True, axes_length=0.15, axes_radius=0.01, visible=True,)
 
         # Get the robot base frame (taking in fused state information)
         self.robot_base_frame = self.server.scene.add_frame("/robot", show_axes=False)
@@ -62,7 +62,7 @@ class ViserVisualizer:
             name="/rendered_points",
             points=np.zeros((0, 3), dtype=np.float16),
             colors=(79, 195, 247),
-            point_size=0.01/4,
+            point_size=0.01/3,
             precision="float16",
             visible=True,
         )
@@ -70,7 +70,7 @@ class ViserVisualizer:
             name="/full_points",
             points=np.zeros((0, 3), dtype=np.float16),
             colors=(100, 100, 100),
-            point_size=0.01/3,
+            point_size=0.01/4,
             precision="float16",
             visible=True,
         )
