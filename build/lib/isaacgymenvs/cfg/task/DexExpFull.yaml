@@ -1,0 +1,66 @@
+# TODO (Jim): cleanup
+
+defaults:
+  - LEAPExpBase
+
+name: FrankaLEAPPickFull
+
+# if given, will override the device setting in gym. 
+env:
+  scene:
+    safety_box:
+      wall_thickness: 0.01
+      size: [[0.3, 0.3, 0.15], [0.4, 0.4, 0.2]] # x, y, z
+      z: [-0.2, 0.5]
+      r: [0.2, 0.4] # rot_ex radius
+      rot_in: [-0.4, 0.4] # radians
+      rot_ex: [-1.5, 1.5] # radians
+      obj_wall_tol: 0.03
+      colli_reset: False
+    # if use hdf5 loading
+    hdf5_path: "./static_scenes/2box100.hdf5"
+    batch_idx: 0
+
+  eef_init:
+    enable: True
+    limit_abad: False
+    dis_open_range: [0.15, 0.2]
+    dis_side_range: -0.1
+
+  image_height: 224
+  image_width: 224
+  disable_eef: True
+
+  numObservations: 61
+  numStates: 106
+  numActions: 22 # delta eef actions 6 (xyz, rpy) + normalized hand joint actions 16
+
+  hdf5_path: null # hdf5 file that contains env and trajectory info
+  batch_idx: 0 # index of the batch of envs to load from the hdf5 file
+
+policy:
+  top: False
+  side: False
+
+reward:
+  params:
+    target_pos: [0.5, 0.0, 0.3]
+    target_lift_dis: 0.1
+    target_quat: [0.707, -0.707, 0.0, 0.0]
+    curl_reaching_threshold: 0.15
+
+  exp:
+    beta_hand_object: 5.0
+    beta_object_goal: 5.0
+    beta_object_drag: 10.0
+    beta_lift: 0.0 # set this to 0 to use a 0-1 lift reward
+    beta_curl: 0.05
+
+  weights:
+    w_hand_obj: 1.0
+    w_obj_goal: 3.0
+    w_obj_drag: 1.0
+    w_lift: 2.0
+    w_curl: 0.5
+    w_colli: -1.0
+    w_velreg: -0.001

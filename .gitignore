@@ -38,3 +38,4 @@ dagger_ckpts/
 /isaacgymenvs/tests
 /isaacgymenvs/ref
 *.zip
+/build
