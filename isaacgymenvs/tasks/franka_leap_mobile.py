@@ -898,7 +898,6 @@ class FrankaLEAPMobile(VecTask):
         # only render the selected environment
         env_id = self.viser_visualizer.env_id
         self.viser_visualizer.set_joint_positions(
-            # TODO: remember to flip the joint ordering for the hand
             self.states['q'][env_id].cpu().numpy(),
         )
         pcd_full = self.combined_pcds[env_id:env_id+1] # (1, N, 3)
