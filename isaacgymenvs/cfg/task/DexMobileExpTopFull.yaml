@@ -54,7 +54,7 @@ env:
 
   robot_init:
     base_init_range: [[-1.5, -0.5, -1.5], [-0.8, 0.5, 1.5]] # x, y, yaw
-    switch_pos_offset: [0.0, 0.0, 0.0]
+    switch_pos_offset: [0.0, 0.0, 0.1]
     switch_tol: 0.3
 
   eef_init:

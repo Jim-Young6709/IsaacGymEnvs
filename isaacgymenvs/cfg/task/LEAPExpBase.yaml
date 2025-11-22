@@ -53,6 +53,8 @@ env:
     envs: 4
     freq: 10000 # record video every 10k sim steps
 
+  enable_viser: False
+
   # set to True if use camera sensors in the environment
   enableCameraSensors: ${task.env.video_logging.capture}
 
