@@ -248,7 +248,8 @@ class FrankaLEAPMobile(VecTask):
 
         full_robot_asset_path = os.path.join(asset_root, robot_asset_file)
         self.viser_visualizer = ViserVisualizer(
-            urdf_path=full_robot_asset_path
+            urdf_path=full_robot_asset_path,
+            num_envs=self.num_envs,
         )
 
     def create_sim(self):
@@ -894,19 +895,17 @@ class FrankaLEAPMobile(VecTask):
         })
 
     def _update_viser_visualizer(self):
-        # update robot joint position
-        env_id = 0
+        # only render the selected environment
+        env_id = self.viser_visualizer.env_id
         self.viser_visualizer.set_joint_positions(
             # TODO: remember to flip the joint ordering for the hand
             self.states['q'][env_id].cpu().numpy(),
         )
-
         pcd_full = self.combined_pcds[env_id:env_id+1] # (1, N, 3)
         self.viser_visualizer.update_point_cloud(
             point_cloud_type="full_points", 
             point_cloud=pcd_full[0].cpu().numpy()
         )
-
         # get robot joint position for fabric
         current_joint_pos_fabric = torch.zeros_like(self.fabric_q, device=self.device)
         current_joint_pos_fabric[:, :10] = self.states['q'][:, :10].clone()
