@@ -56,21 +56,13 @@ class ViserVisualizer:
         )
         self._cfg_thread.start()
 
-        # ------------------------- storage for scene obstacle handles -------------------------
-        self.scene_handles = {
-            "box": {},
-            "mesh": {},
-            "sphere": {},
-            "cyl": {},
-        }
-
         # ---------------------- predefined point clouds ----------------------
         self._point_cloud_handle = dict()
         self._point_cloud_handle["rendered_points"] = self.server.scene.add_point_cloud(
             name="/rendered_points",
             points=np.zeros((0, 3), dtype=np.float16),
             colors=(79, 195, 247),
-            point_size=0.01/2,
+            point_size=0.01/4,
             precision="float16",
             visible=True,
         )
