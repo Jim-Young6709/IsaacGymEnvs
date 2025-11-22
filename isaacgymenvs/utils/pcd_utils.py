@@ -347,11 +347,11 @@ def visualize_pcd(points):
 class FrankaLeapSampler:
     def __init__(self, urdf_path, device, num_points=4096):
         self.device = device
+        print(urdf_path)
         self.robot = TorchURDF.load(urdf_path, lazy_load_meshes=True, device=device)
         # Load meshes for all links with visuals
         self.links = [l for l in self.robot.links if len(l.visuals)]
         self.hand_links = [l for l in self.links if ("panda" not in l.name)]
-
         meshes = [
             trimesh.load(Path(urdf_path).parent / l.visuals[0].geometry.mesh.filename, force="mesh")
             for l in self.links
@@ -395,3 +395,117 @@ class FrankaLeapSampler:
         idx = np.random.choice(pc.shape[1], num_points, replace=False)
         return pc[:, idx, :]
 
+
+
+
+
+class GlorbotSampler:
+    def __init__(self, urdf_path, device, num_points=4096):
+        self.device = device
+        print(urdf_path)
+
+        # Load URDF with torch-aware kinematics
+        self.robot = TorchURDF.load(urdf_path, lazy_load_meshes=True, device=device)
+
+        mesh_links = []
+        mesh_geoms = []  # trimesh.Trimesh objects
+
+        for l in self.robot.links:
+            if not l.visuals:
+                continue
+
+            # We'll only use the first visual per link, same as before
+            geom = l.visuals[0].geometry
+
+            # ---- Case 1: mesh geometry ----
+            mesh = getattr(geom, "mesh", None)
+            if mesh is not None and getattr(mesh, "filename", None) is not None:
+                mesh_path = Path(urdf_path).parent / mesh.filename
+                tm = trimesh.load(mesh_path, force="mesh")
+                mesh_links.append(l)
+                mesh_geoms.append(tm)
+                continue
+
+            # ---- Case 2: box primitive ----
+            box = getattr(geom, "box", None)
+            # In urchin, box.size should be [sx, sy, sz] (the full extents)
+            if box is not None and getattr(box, "size", None) is not None:
+                size = np.asarray(box.size, dtype=float)  # (3,)
+                # trimesh expects extents = full side lengths, which matches URDF's <box size="x y z">
+                tm = trimesh.creation.box(extents=size)
+                mesh_links.append(l)
+                mesh_geoms.append(tm)
+                continue
+
+            # If it's neither mesh nor box (e.g., cylinder/sphere/image) we just skip it for now.
+            # Optional: print a warning if you want to see what you're skipping.
+            # print(f"[FrankaLeapSampler] Skipping unsupported visual on link: {l.name}")
+
+        if len(mesh_links) == 0:
+            raise RuntimeError(
+                "No mesh or box-based visuals found in URDF for FrankaLeapSampler."
+            )
+
+        # Store only links we actually built geometry for
+        self.links = mesh_links
+        # Keep your hand-only filter logic
+        self.hand_links = [l for l in self.links if ("panda" not in l.name)]
+
+        # Compute areas and allocate point counts
+        # Using actual mesh surface area rather than bounding box; more accurate
+        areas = np.array([m.area for m in mesh_geoms])
+        areas_sum = areas.sum()
+        if areas_sum <= 0:
+            raise RuntimeError("Total mesh area is zero; cannot sample robot surface.")
+        n_pts = np.round(num_points * areas / areas_sum).astype(int)
+        # Fix any rounding mismatch so total points == num_points
+        n_pts[0] += num_points - n_pts.sum()
+
+        # Sample point clouds in geometry frame for each link
+        self.points = {}
+        for link, mesh_obj, n in zip(self.links, mesh_geoms, n_pts):
+            if n <= 0:
+                continue
+            # trimesh.sample_surface returns (points, face_indices)
+            pts = trimesh.sample.sample_surface(mesh_obj, int(n))[0]
+            self.points[link.name] = torch.as_tensor(
+                pts, device=device, dtype=torch.float32
+            ).unsqueeze(0)  # (1, Ni, 3)
+
+    def sample(self, joint_angles, joint_mapping_list=None, num_points=None, hand_only=False):
+        """
+        joint_angles: (B, 23) joint config
+        joint_mapping_list: list[int], optional mapping to torch_urdf ordering
+        hand_only: if True, only sample from hand_links
+        returns: (B, num_points, 3) world-frame pointcloud
+        """
+        if joint_angles.ndim == 1:
+            joint_angles = joint_angles.unsqueeze(0)
+
+        if joint_mapping_list is not None:
+            joint_angles = joint_angles[:, joint_mapping_list]
+
+        # dict[Geometry] -> (B,4,4), geometry frame in world
+        fk = self.robot.visual_geometry_fk_batch(joint_angles)
+
+        pcs = []
+        link_set = self.hand_links if hand_only else self.links
+        B = joint_angles.shape[0]
+
+        for l in link_set:
+            # We only used the first visual to build the mesh/box
+            geom = l.visuals[0].geometry
+            T = fk[geom]  # (B, 4, 4)
+
+            # (1, Ni, 3) -> (B, Ni, 3)
+            pc = self.points[l.name].repeat(B, 1, 1)
+            pcs.append(transform_pointcloud(pc, T))
+
+        pc = torch.cat(pcs, dim=1)  # (B, totalN, 3)
+
+        if num_points is None:
+            return pc
+
+        # Uniform subsample in index space
+        idx = np.random.choice(pc.shape[1], num_points, replace=False)
+        return pc[:, idx, :]

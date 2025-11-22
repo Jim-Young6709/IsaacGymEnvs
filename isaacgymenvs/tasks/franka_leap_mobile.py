@@ -37,7 +37,7 @@ from isaacgymenvs.tasks.base.vec_task import VecTask
 import isaacgymenvs.utils.eef_ctrl as eef_ctrl
 from isaacgymenvs.utils.reformat import omegaconf_to_dict
 from isaacgymenvs.utils.rotation_conversions import quaternion_to_matrix_ig, matrix_to_rotation_6d, sample_spherical_shell, A2B_quaternion
-from isaacgymenvs.utils.pcd_utils import transform_pcds_to_world, FrankaLeapSampler
+from isaacgymenvs.utils.pcd_utils import transform_pcds_to_world, FrankaLeapSampler, GlorbotSampler
 from isaacgymenvs.utils.viser_visualizer import ViserVisualizer
 from isaacgymenvs.utils.simulate_depth_cam import simulate_depth_cam_render_from_pose
 from omegaconf import DictConfig
@@ -101,7 +101,7 @@ class FrankaLEAPMobile(VecTask):
         self.enable_viser = self.cfg['env']['enable_viser'] and (not self.headless)
         if self.enable_viser:
             self._init_viser_visualizer()
-        # self._build_joint_mapping()
+        self._build_joint_mapping()
 
         # Reset all environments
         self._refresh() # TODO: what is this for?
@@ -275,17 +275,18 @@ class FrankaLEAPMobile(VecTask):
     def _create_franka_leap(self):
         asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../assets")
         robot_asset_file = "urdf/franka_hand/robots/franka_leap_right.urdf"
+        # robot_asset_file = "franka_hand/franka_leap.urdf"
 
         if "asset" in self.cfg["env"]:
             asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), self.cfg["env"]["asset"].get("assetRoot", asset_root))
             robot_asset_file = self.cfg["env"]["asset"].get("assetFileNameFranka", robot_asset_file)
 
         full_robot_asset_path = os.path.join(asset_root, robot_asset_file)
-        # self.robot_pcd_sampler = FrankaLeapSampler(
-        #     urdf_path=full_robot_asset_path,
-        #     device=self.device,
-        #     num_points=self.pcd_spec_dict["num_robot_points"],
-        # )
+        self.robot_pcd_sampler = GlorbotSampler(
+            urdf_path=full_robot_asset_path,
+            device=self.device,
+            num_points=self.pcd_spec_dict["num_robot_points"],
+        )
 
         # load FrankaLEAP asset
         asset_options = gymapi.AssetOptions()
@@ -900,7 +901,12 @@ class FrankaLEAPMobile(VecTask):
         self.viser_visualizer.set_joint_positions(
             self.states['q'][env_id].cpu().numpy(),
         )
-        pcd_full = self.combined_pcds[env_id:env_id+1] # (1, N, 3)
+        # (1, N, 3)
+        pcd_full_scene = self.combined_pcds[env_id:env_id+1] 
+        # (1, M, 3)
+        robot_pcd_t = self.robot_pcd_sampler.sample(self.states['q'][env_id:env_id+1], self.torchurdf_to_isaac_idx)
+        pcd_full = torch.cat([pcd_full_scene, robot_pcd_t], dim=1)
+
         self.viser_visualizer.update_point_cloud(
             point_cloud_type="full_points", 
             point_cloud=pcd_full[0].cpu().numpy()

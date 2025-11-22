@@ -368,31 +368,68 @@ class TorchURDF(URDF):
         node = tree.getroot()
         return TorchURDF._from_xml(node, path, lazy_load_meshes, device)
 
+    # @classmethod
+    # def _parse_simple_elements(cls, node, path, lazy_load_meshes, device):
+    #     """Parse all elements in the _ELEMENTS array from the children of
+    #     this node.
+    #     Parameters
+    #     ----------
+    #     node : :class:`lxml.etree.Element`
+    #         The node to parse children for.
+    #     path : str
+    #         The string path where the XML file is located (used for resolving
+    #         the location of mesh or image files).
+    #     Returns
+    #     -------
+    #     kwargs : dict
+    #         Map from element names to the :class:`URDFType` subclass (or list,
+    #         if ``multiple`` was set) created for that element.
+    #     """
+    #     kwargs = {}
+    #     for a in cls._ELEMENTS:
+    #         t, r, m = cls._ELEMENTS[a]
+    #         if not m:
+    #             v = node.find(t._TAG)
+    #             if r or v is not None:
+    #                 if issubclass(t, URDFTypeWithMesh):
+    #                     v = t._from_xml(v, path, lazy_load_meshes)
+    #                 else:
+    #                     v = t._from_xml(v, path)
+    #         else:
+    #             vs = node.findall(t._TAG)
+    #             if len(vs) == 0 and r:
+    #                 raise ValueError(
+    #                     "Missing required subelement(s) of type {} when "
+    #                     "parsing an object of type {}".format(t.__name__, cls.__name__)
+    #                 )
+    #             if issubclass(t, URDFTypeWithMesh):
+    #                 v = [t._from_xml(n, path, lazy_load_meshes, device) for n in vs]
+    #             else:
+    #                 v = [t._from_xml(n, path, device) for n in vs]
+    #         kwargs[a] = v
+    #     return kwargs
+
     @classmethod
     def _parse_simple_elements(cls, node, path, lazy_load_meshes, device):
         """Parse all elements in the _ELEMENTS array from the children of
         this node.
-        Parameters
-        ----------
-        node : :class:`lxml.etree.Element`
-            The node to parse children for.
-        path : str
-            The string path where the XML file is located (used for resolving
-            the location of mesh or image files).
-        Returns
-        -------
-        kwargs : dict
-            Map from element names to the :class:`URDFType` subclass (or list,
-            if ``multiple`` was set) created for that element.
         """
         kwargs = {}
         for a in cls._ELEMENTS:
             t, r, m = cls._ELEMENTS[a]
+
             if not m:
                 v = node.find(t._TAG)
                 if r or v is not None:
-                    if issubclass(t, URDFTypeWithMesh):
+                    # Custom torch-aware types
+                    if t is TorchLink:
+                        v = t._from_xml(v, path, lazy_load_meshes, device)
+                    elif t is TorchJoint:
+                        v = t._from_xml(v, path, device)
+                    # Standard urchin types with meshes
+                    elif issubclass(t, URDFTypeWithMesh):
                         v = t._from_xml(v, path, lazy_load_meshes)
+                    # Standard urchin types without meshes
                     else:
                         v = t._from_xml(v, path)
             else:
@@ -402,14 +439,21 @@ class TorchURDF(URDF):
                         "Missing required subelement(s) of type {} when "
                         "parsing an object of type {}".format(t.__name__, cls.__name__)
                     )
-                if issubclass(t, URDFTypeWithMesh):
+
+                if t is TorchLink:
                     v = [t._from_xml(n, path, lazy_load_meshes, device) for n in vs]
-                else:
+                elif t is TorchJoint:
                     v = [t._from_xml(n, path, device) for n in vs]
+                elif issubclass(t, URDFTypeWithMesh):
+                    v = [t._from_xml(n, path, lazy_load_meshes) for n in vs]
+                else:
+                    # Material, Transmission, etc. — no device arg
+                    v = [t._from_xml(n, path) for n in vs]
+
             kwargs[a] = v
+
         return kwargs
-
-
+    
     @classmethod
     def _parse(cls, node, path, lazy_load_meshes, device):
         """Parse all elements and attributes in the _ELEMENTS and _ATTRIBS
