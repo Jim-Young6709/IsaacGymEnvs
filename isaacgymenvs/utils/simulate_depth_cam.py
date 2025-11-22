@@ -19,17 +19,16 @@ INTEL_455 = {
 # ---------- camera position & view direction sampling ----------
 def sample_cameras(
     B: int,
-    cam_target_pos: torch.Tensor,
-    cam_pos_rand=[[-0.3, -0.2, 0.2], [0.3, -0.6, 0.9]],
-    # cam_pos_rand=[[0.0, -0.4, 0.4], [0.0, -0.4, 0.4]],
-    cam_target_xyz_rand=0.1,
+    gaze_target_pos: torch.Tensor,
+    gaze_target_xyz_rand: float,
+    cam_pos_rand: List[List[float]],
     device=None,
     dtype=None
 ):
     cam_pos_range = torch.tensor(cam_pos_rand, device=device, dtype=dtype)
     cam_pos = torch.rand((B, 3), device=device) * (cam_pos_range[1] - cam_pos_range[0]) + cam_pos_range[0]
     rand1 = (torch.rand((B, 3), device=device, dtype=dtype) - 0.5) * 2.0 # uniform rand [-1, 1)
-    cam_target_pos_rand = cam_target_pos + rand1 * cam_target_xyz_rand
+    cam_target_pos_rand = gaze_target_pos + rand1 * gaze_target_xyz_rand
     dirs = cam_target_pos_rand - cam_pos
     dirs /= torch.norm(dirs, dim=-1, keepdim=True).clamp_min(1e-12)
 
@@ -331,13 +330,23 @@ def subsample_to_M_rowloop(
 
 # fully integrated single function wrapper
 def simulate_depth_cam_render(
-    pcd: torch.Tensor, cam_target_pos: torch.Tensor, num_points: int,
-    inflate_px: int = 2, jitter_std_m: float = 0.004
+    pcd: torch.Tensor, gaze_target_pos: torch.Tensor, num_points: int,
+    inflate_px: int = 2, jitter_std_m: float = 0.004,
+    gaze_target_xyz_rand: float = 0.1,
+    cam_pos_rand=[[-0.3, -0.2, 0.2], [0.3, -0.6, 0.9]],
 ):
     batch_size = pcd.shape[0]
     device = pcd.device
 
-    cam_pos, view_dirs = sample_cameras(batch_size, cam_target_pos=cam_target_pos, device=device, dtype=pcd.dtype)
+    cam_pos, view_dirs = sample_cameras(
+        B=batch_size,
+        gaze_target_pos=gaze_target_pos,
+        gaze_target_xyz_rand=gaze_target_xyz_rand,
+        cam_pos_rand=cam_pos_rand,
+        device=device,
+        dtype=pcd.dtype
+    )
+
     depth, pcd_world, valid = render_points_to_world_grid(
         pcd, # (B, N, 3)
         view_dirs, # (B, 3), normalized view direction vector

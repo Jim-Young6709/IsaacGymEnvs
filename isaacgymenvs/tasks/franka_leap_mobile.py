@@ -38,6 +38,8 @@ import isaacgymenvs.utils.eef_ctrl as eef_ctrl
 from isaacgymenvs.utils.reformat import omegaconf_to_dict
 from isaacgymenvs.utils.rotation_conversions import quaternion_to_matrix_ig, matrix_to_rotation_6d, sample_spherical_shell, A2B_quaternion
 from isaacgymenvs.utils.pcd_utils import transform_pcds_to_world, FrankaLeapSampler
+from isaacgymenvs.utils.viser_visualizer import ViserVisualizer
+from isaacgymenvs.utils.simulate_depth_cam import simulate_depth_cam_render
 from omegaconf import DictConfig
 from tqdm import tqdm
 import random
@@ -96,6 +98,9 @@ class FrankaLEAPMobile(VecTask):
         )
 
         self._post_init_buffers()
+        self.enable_viser = self.cfg['env']['enable_viser'] and (not self.headless)
+        if self.enable_viser:
+            self._init_viser_visualizer()
         # self._build_joint_mapping()
 
         # Reset all environments
@@ -236,6 +241,15 @@ class FrankaLEAPMobile(VecTask):
             grad_iters=None
         )
         self.ik_solver = IKSolver(ik_config)
+
+    def _init_viser_visualizer(self):
+        asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), self.cfg["env"]["asset"].get("assetRoot"))
+        robot_asset_file = self.cfg["env"]["asset"].get("assetFileNameFranka")
+
+        full_robot_asset_path = os.path.join(asset_root, robot_asset_file)
+        self.viser_visualizer = ViserVisualizer(
+            urdf_path=full_robot_asset_path
+        )
 
     def create_sim(self):
         self.sim_params.up_axis = gymapi.UP_AXIS_Z
@@ -748,9 +762,11 @@ class FrankaLEAPMobile(VecTask):
         self.fabric_qd[:, :10] = qd_delta[:, :10].clone()
         self.fabric_qd[:, 10:] = qd_delta[:, 26:].clone()
 
+        gaze_target = self.states['object_center_pos'].clone()
+
         self.franka_fabric.set_features(
             eef_target,
-            torch.tensor([[0.5, 0., 1.2]]*self.num_envs, device=self.device),
+            gaze_target,
             self.fabric_q.detach(),
             self.fabric_qd.detach(),
             self.fabrics_object_ids,
@@ -777,6 +793,8 @@ class FrankaLEAPMobile(VecTask):
         # Refresh states
         self.check_robot_collision()
         self._update_states()
+        if self.enable_viser:
+            self._update_viser_visualizer()
 
     def _update_states(self):
         # update arm eef state
@@ -874,6 +892,34 @@ class FrankaLEAPMobile(VecTask):
             # recorded actions
             "actionreg": actionreg,
         })
+
+    def _update_viser_visualizer(self):
+        # update robot joint position
+        env_id = 0
+        self.viser_visualizer.set_joint_positions(
+            # TODO: remember to flip the joint ordering for the hand
+            self.states['q'][env_id].cpu().numpy(),
+        )
+
+        pcd_full = self.combined_pcds[env_id:env_id+1] # (1, N, 3)
+        self.viser_visualizer.update_point_cloud(
+            point_cloud_type="full_points", 
+            point_cloud=pcd_full[0].cpu().numpy()
+        )
+
+        gaze_target = self.states['object_center_pos'][env_id:env_id+1].clone()
+        cam_pos = [-0.3, 0., 0.5]
+        sim_depth_pcd, logs = simulate_depth_cam_render(
+            pcd=pcd_full,
+            gaze_target_pos=gaze_target,
+            num_points=4096,
+            gaze_target_xyz_rand=0,
+            cam_pos_rand=[cam_pos, cam_pos],
+        )
+        self.viser_visualizer.update_point_cloud(
+            point_cloud_type="rendered_points",
+            point_cloud=sim_depth_pcd[0].cpu().numpy()
+        )
 
     def _get_eef_point_matching_err(self, curent_eef_pos7: torch.Tensor, target_eef_pos7: torch.Tensor):
         """
@@ -1432,7 +1478,7 @@ class FrankaLEAPMobile(VecTask):
         if self.enable_fabric:
             self.abs_actions[self.fabric_switch_enable, :10] = abs_full_joint_actions_fabric[self.fabric_switch_enable, :10]
             self.abs_actions[self.fabric_switch_enable, 10:26] = self.canonical_joint_config[self.fabric_switch_enable, 10:26]
-            self.abs_actions[self.fabric_switch_enable, 26:] = abs_full_joint_actions_fabric[self.fabric_switch_enable, 10:]
+            self.abs_actions[:, 26:] = abs_full_joint_actions_fabric[:, 10:]
 
         self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(self.abs_actions))
 
