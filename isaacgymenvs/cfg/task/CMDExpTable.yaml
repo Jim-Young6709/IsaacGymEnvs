@@ -8,7 +8,7 @@ name: FrankaCMDPickTable
 # if given, will override the device setting in gym. 
 env:
   actionScale:
-    hand: 3.0
+    hand: 12.0
 
   asset:
     assetRoot: "../../assets"
