@@ -77,8 +77,8 @@ class ViserVisualizer:
         self._point_cloud_handle["full_points"] = self.server.scene.add_point_cloud(
             name="/full_points",
             points=np.zeros((0, 3), dtype=np.float16),
-            colors=(190, 190, 190),
-            point_size=0.01/2,
+            colors=(100, 100, 100),
+            point_size=0.01/3,
             precision="float16",
             visible=True,
         )
@@ -97,6 +97,47 @@ class ViserVisualizer:
         def _on_env_id_update(event):
             # event.value will already be clamped to [0, num_envs-1]
             self.env_id = int(self._env_id_handle.value)
+        
+        # ---------------------- env_id ----------------------
+        self.isaac_to_viser_idx = [
+            0,  # base_x_joint
+            1,  # base_y_joint
+            2,  # base_rotation_joint
+            3,  # panda_joint1
+            4,  # panda_joint2
+            5,  # panda_joint3
+            6,  # panda_joint4
+            7,  # panda_joint5
+            8,  # panda_joint6
+            9,  # panda_joint7
+
+            11, # finger_joint_0  (Isaac has 1 then 0)
+            10, # finger_joint_1
+            12, # finger_joint_2
+            13, # finger_joint_3
+
+            19, # finger_joint_4
+            18, # finger_joint_5
+            20, # finger_joint_6
+            21, # finger_joint_7
+
+            23, # finger_joint_8
+            22, # finger_joint_9
+            24, # finger_joint_10
+            25, # finger_joint_11
+
+            14, # finger_joint_12
+            15, # finger_joint_13
+            16, # finger_joint_14
+            17, # finger_joint_15
+
+            26, # x5_joint1
+            27, # x5_joint2
+            28, # x5_joint3
+            29, # x5_joint4
+            30, # x5_joint5
+            31, # x5_joint6
+        ]
 
 
     
@@ -140,6 +181,8 @@ class ViserVisualizer:
         # self._urdf_vis.update_cfg(self._q)
 
     def set_joint_positions(self, q):
+        # q is assumed to be in the same ordering as Isaac Gym
+        q = q[self.isaac_to_viser_idx]
         if q.shape != self._q.shape:
             raise ValueError(f"Expected q shape {self._q.shape}, got {q.shape}.")
         q = np.asarray(q, dtype=float)
