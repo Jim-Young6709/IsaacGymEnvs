@@ -1,0 +1,3 @@
+"""
+Model module for Dex.
+""" 
