@@ -39,7 +39,7 @@ from isaacgymenvs.utils.reformat import omegaconf_to_dict
 from isaacgymenvs.utils.rotation_conversions import quaternion_to_matrix_ig, matrix_to_rotation_6d, sample_spherical_shell, A2B_quaternion
 from isaacgymenvs.utils.pcd_utils import transform_pcds_to_world, FrankaLeapSampler
 from isaacgymenvs.utils.viser_visualizer import ViserVisualizer
-from isaacgymenvs.utils.simulate_depth_cam import simulate_depth_cam_render, simulate_depth_cam_render_from_pose
+from isaacgymenvs.utils.simulate_depth_cam import simulate_depth_cam_render_from_pose
 from omegaconf import DictConfig
 from tqdm import tqdm
 import random
