@@ -82,6 +82,7 @@ dagger:
 
   load_ckpt_path: null
 
+# TODO: are these args still actively in use? or its just DRP stuff
 normalize_state: True
 normalize_action: True
 action_space: "relative" # "absolute", "delta", "relative"
