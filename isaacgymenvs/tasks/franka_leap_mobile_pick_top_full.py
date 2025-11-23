@@ -61,7 +61,12 @@ class FrankaLEAPMobilePickTopFull(FrankaLEAPMobile):
     def _init_params(self):
         self.scene_box_cfg = self.cfg["env"]["scene"]["safety_box"]
 
-        z_shift_range = self.cfg["env"]["scene"]["z_shift_range"]
+        # safety box
+        x_shift_range = self.scene_box_cfg["x_shift_range"]
+        y_shift_range = self.scene_box_cfg["y_shift_range"]
+        z_shift_range = self.cfg["env"]["scene"]["z_shift_range"] # this shifts the table height, not just the safety box
+        self.x_shift = torch.rand(self.num_envs, device=self.device) * (x_shift_range[1] - x_shift_range[0]) + x_shift_range[0]
+        self.y_shift = torch.rand(self.num_envs, device=self.device) * (y_shift_range[1] - y_shift_range[0]) + y_shift_range[0]
         self.z_shift = torch.rand(self.num_envs, device=self.device) * (z_shift_range[1] - z_shift_range[0]) + z_shift_range[0]
 
         table_thickness_range = self.cfg["env"]["scene"]["table_thickness_range"]
@@ -197,7 +202,7 @@ class FrankaLEAPMobilePickTopFull(FrankaLEAPMobile):
                 quat_z_rand = [0, 0, np.sin(theta/2), np.cos(theta/2)]  # xyzw
                 size = np.random.uniform(*self.mobile_cuboids_size_range)
                 x_pos = self.box_pos[i][0] - self.box_dims[i][0]/2 + np.random.uniform(*self.mobile_x_offset_range)
-                y_pos = (self.box_pos[i][1] + self.box_dims[i][1]/2 + np.random.uniform(*self.mobile_y_offset_range)) * random.choice([-1, 1])
+                y_pos = self.box_pos[i][1] + (self.box_dims[i][1]/2 + np.random.uniform(*self.mobile_y_offset_range)) * random.choice([-1, 1])
                 z_pos = size[2]/2
 
                 mobile_obs_asset, mobile_obs_start_pose = self._create_cube(
@@ -223,7 +228,7 @@ class FrankaLEAPMobilePickTopFull(FrankaLEAPMobile):
                 cap_r = size[0]
                 cap_l = size[1]/2 - size[0]
                 x_pos = self.box_pos[i][0] - self.box_dims[i][0]/2 + np.random.uniform(*self.mobile_x_offset_range)
-                y_pos = (self.box_pos[i][1] + self.box_dims[i][1]/2 + np.random.uniform(*self.mobile_y_offset_range)) * random.choice([-1, 1])
+                y_pos = self.box_pos[i][1] + (self.box_dims[i][1]/2 + np.random.uniform(*self.mobile_y_offset_range)) * random.choice([-1, 1])
                 z_pos = size[1]/2
 
                 mobile_obs_asset, mobile_obs_start_pose = self._create_capsule(
@@ -533,8 +538,8 @@ class FrankaLEAPMobilePickTopFull(FrankaLEAPMobile):
         env_idx = len(self.box_dims)
 
         # for simple debugging scenario training
-        x_shift = self.scene_box_cfg["x_shift"]
-        y_shift = 0.0
+        x_shift = self.x_shift[env_idx].item()
+        y_shift = self.y_shift[env_idx].item()
         z_shift = self.z_shift[env_idx].item()
 
         self.box_dims.append(size.tolist())
