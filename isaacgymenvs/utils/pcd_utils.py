@@ -496,6 +496,7 @@ class GlorbotSampler:
 
         # Store only links we actually built geometry for
         self.links = mesh_links
+        self.hand_links = [l for l in self.links if (l.name in self.leap_hand_links)]
 
         # Compute areas and allocate point counts
         areas = np.array([m.area for m in mesh_geoms])
@@ -534,7 +535,7 @@ class GlorbotSampler:
         pcs = []
         B = joint_angles.shape[0]
 
-        link_set = self.leap_hand_links if hand_only else self.links
+        link_set = self.hand_links if hand_only else self.links
         for l in link_set:
             # We only used the first visual to build the mesh/primitive
             geom = l.visuals[0].geometry

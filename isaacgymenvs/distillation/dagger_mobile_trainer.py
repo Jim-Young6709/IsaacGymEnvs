@@ -231,7 +231,6 @@ class DaggerMobile:
                 obs[key] = pcd_eef_frame
 
         obs_student = OrderedDict()
-        obs_student["q_hand"] = obs["q_hand"]
 
         if "static_scene_pcd_t0" in self.pcd_encoders_keys:
             obs_student["static_scene_pcd_t0"] = obs["static_scene_pcd_t0"]
@@ -332,8 +331,8 @@ class DaggerMobile:
             teacher_actions = torch.clamp(teacher_actions, -self.env.clip_actions, self.env.clip_actions)
 
             # student obs, q_hand, rel_pcd
-            q_robot = self.env.states['q'] # (num_envs, 23)
-            q_hand = self.env.states['q_hand'] # (num_envs, 16)
+            q_robot = self.env.states['q'] # (num_envs, 32)
+
             if self.env.sim_steps == 0:
                 self.env.abs_actions[:] = q_robot.clone()
 
@@ -349,12 +348,18 @@ class DaggerMobile:
                 ("full_scene_pcd_t", full_scene_pcd_t),
                 ("robot_pcd_t", robot_pcd_t),
                 ("hand_pcd_t", hand_pcd_t),
-                ("q_hand", q_hand),
             ])
             obs_input = self.preprocess_inputs(obs_dict)
 
+            q_arm_manip = self.env.states['q'][:, 3:10] # (num_envs, 7)
+            q_arm_vision = self.env.states['q'][:, 26:] # (num_envs, 6)
+            q_hand = self.env.states['q'][:, 10:26] # (num_envs, 16)
+
+            obs_input["q_arm_manip"] = q_arm_manip
+            obs_input["q_arm_vision"] = q_arm_vision
+            obs_input["q_hand"] = q_hand
             if "q_hand_ctrl_delta" in self.state_encoders_keys:
-                obs_input["q_hand_ctrl_delta"] = q_hand - self.env.abs_actions[:, 7:]
+                obs_input["q_hand_ctrl_delta"] = q_hand - self.env.abs_actions[:, 10:26]
 
             with torch.no_grad():
                 student_model = self.student_model.module if self.multi_gpu else self.student_model
