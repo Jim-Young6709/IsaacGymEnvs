@@ -198,6 +198,49 @@ class DaggerMobile:
         if self.normalize_input and 'running_mean_std' in weights:
             model.running_mean_std.load_state_dict(weights["running_mean_std"])
 
+    def save_checkpoint(self, episode, success_rate_ep=None, top_k=3): # TODO
+        checkpoint = {
+            "episode": episode,
+            "model_state_dict": self.student_model.state_dict(),
+            "optimizer_state_dict": self.optimizer.state_dict(),
+            "success_rate_ep": success_rate_ep,
+            "batch_idx": self.batch_idx,
+            "total_steps": self.total_steps,
+        }
+        if self.scheduler is not None:
+            checkpoint["scheduler_state_dict"] = self.scheduler.state_dict()
+        if self.use_wandb:
+            checkpoint["wandb_id"] = wandb.run.id
+            checkpoint["wandb_name"] = wandb.run.name
+            checkpoint["wandb_project"] = wandb.run.project
+        torch.save(checkpoint, self.save_dir / "latest.pt")
+        if episode % self.save_freq == 0:
+            torch.save(checkpoint, self.save_dir / f"episode_{episode:06d}.pt")
+        
+        checkpoint_files = sorted([f for f in os.listdir(self.save_dir) if f.startswith("episode_")])
+        if len(checkpoint_files) > top_k:
+            for old_checkpoint in checkpoint_files[:-top_k]:
+                os.remove(os.path.join(self.save_dir, old_checkpoint))
+        
+        best_path = os.path.join(self.save_dir, "best.pt")
+        if not os.path.exists(best_path) or success_rate_ep > torch.load(best_path, weights_only=True)["success_rate_ep"]:
+            torch.save(checkpoint, best_path)
+
+    def load_checkpoint(self, checkpoint_path):
+        checkpoint = torch.load(checkpoint_path, map_location=self.device)
+        self.student_model.load_state_dict(checkpoint["model_state_dict"])
+        self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+        if self.scheduler is not None and "scheduler_state_dict" in checkpoint:
+            self.scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+        self.episode = (checkpoint["episode"] + 1) % self.total_episodes
+        self.total_steps = checkpoint["total_steps"]
+        self.batch_idx = checkpoint["batch_idx"]
+        if "wandb_id" in checkpoint:
+            self.wandb_id = checkpoint["wandb_id"]
+            self.wandb_name = checkpoint["wandb_name"]
+            self.wandb_project = checkpoint["wandb_project"]
+        return checkpoint["success_rate_ep"]
+
     def preprocess_inputs(self, obs):
         # eef states
         eef_pos = self.env.states['eef_pos'] # (num_envs, 3)
@@ -258,49 +301,6 @@ class DaggerMobile:
 
         return obs_student
 
-    def save_checkpoint(self, episode, success_rate_ep=None, top_k=3): # TODO
-        checkpoint = {
-            "episode": episode,
-            "model_state_dict": self.student_model.state_dict(),
-            "optimizer_state_dict": self.optimizer.state_dict(),
-            "success_rate_ep": success_rate_ep,
-            "batch_idx": self.batch_idx,
-            "total_steps": self.total_steps,
-        }
-        if self.scheduler is not None:
-            checkpoint["scheduler_state_dict"] = self.scheduler.state_dict()
-        if self.use_wandb:
-            checkpoint["wandb_id"] = wandb.run.id
-            checkpoint["wandb_name"] = wandb.run.name
-            checkpoint["wandb_project"] = wandb.run.project
-        torch.save(checkpoint, self.save_dir / "latest.pt")
-        if episode % self.save_freq == 0:
-            torch.save(checkpoint, self.save_dir / f"episode_{episode:06d}.pt")
-        
-        checkpoint_files = sorted([f for f in os.listdir(self.save_dir) if f.startswith("episode_")])
-        if len(checkpoint_files) > top_k:
-            for old_checkpoint in checkpoint_files[:-top_k]:
-                os.remove(os.path.join(self.save_dir, old_checkpoint))
-        
-        best_path = os.path.join(self.save_dir, "best.pt")
-        if not os.path.exists(best_path) or success_rate_ep > torch.load(best_path, weights_only=True)["success_rate_ep"]:
-            torch.save(checkpoint, best_path)
-
-    def load_checkpoint(self, checkpoint_path):
-        checkpoint = torch.load(checkpoint_path, map_location=self.device)
-        self.student_model.load_state_dict(checkpoint["model_state_dict"])
-        self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-        if self.scheduler is not None and "scheduler_state_dict" in checkpoint:
-            self.scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
-        self.episode = (checkpoint["episode"] + 1) % self.total_episodes
-        self.total_steps = checkpoint["total_steps"]
-        self.batch_idx = checkpoint["batch_idx"]
-        if "wandb_id" in checkpoint:
-            self.wandb_id = checkpoint["wandb_id"]
-            self.wandb_name = checkpoint["wandb_name"]
-            self.wandb_project = checkpoint["wandb_project"]
-        return checkpoint["success_rate_ep"]
-
     def train_episode(self):
         self.env.reset() # TODO: necessary?
         count_reaching = torch.zeros(self.env.num_envs, device=self.device).int()
@@ -336,9 +336,9 @@ class DaggerMobile:
             if self.env.sim_steps == 0:
                 self.env.abs_actions[:] = q_robot.clone()
 
-            static_scene_pcd_t0 = self.env.static_scene_pcd_t0
+            static_scene_pcd_t0 = self.env.static_scene_pcd_t0 # scene pcd doesn't include object
             object_pcd_t0 = self.env.object_pcd_t0
-            full_scene_pcd_t = self.env.combined_pcds
+            full_scene_pcd_t = self.env.combined_pcds # scene pcd + object pcd
             robot_pcd_t = self.env.robot_pcd_sampler.sample(q_robot, self.env.torchurdf_to_isaac_idx)
             hand_pcd_t = self.env.robot_pcd_sampler.sample(q_robot, self.env.torchurdf_to_isaac_idx, hand_only=True)
 
