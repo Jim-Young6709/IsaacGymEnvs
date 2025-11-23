@@ -939,20 +939,23 @@ class FrankaLEAPMobile(VecTask):
 
     def normalize_robot_joints(self, joint_angles: torch.Tensor, robot: bool, delta: bool = False) -> torch.Tensor:
         """
-        Normalize joint angles to be within the joint limits.
+        Normalize joint angles to be within [-1, 1].
         Args:
             joint_angles (torch.Tensor): (num_envs, num_robot_dofs)
         Returns:
             joint_angles (torch.Tensor): (num_envs, num_robot_dofs)
         """
-        if robot=="arm":
+        if robot=="franka":
             assert joint_angles.shape[-1] == 7
             lower_limits, upper_limits = self.get_joint_limits_franka()
-        elif robot=="hand":
+        elif robot=="leap":
             assert joint_angles.shape[-1] == 16
             lower_limits, upper_limits = self.get_joint_limits_leap()
+        elif robot=="arx":
+            assert joint_angles.shape[-1] == 6
+            lower_limits, upper_limits = self.get_joint_limits_arx()
         else:
-            raise ValueError("robot must be either 'arm' or 'hand'")
+            raise ValueError("robot must be in ['franka', 'leap', 'arx']")
 
         franka_limit_range = upper_limits - lower_limits
 
@@ -974,14 +977,17 @@ class FrankaLEAPMobile(VecTask):
         Returns:
             joint_angles (torch.Tensor): (num_envs, num_robot_dofs)
         """
-        if robot=="arm":
+        if robot=="franka":
             assert joint_angles.shape[-1] == 7
             lower_limits, upper_limits = self.get_joint_limits_franka()
-        elif robot=="hand":
+        elif robot=="leap":
             assert joint_angles.shape[-1] == 16
             lower_limits, upper_limits = self.get_joint_limits_leap()
+        elif robot=="arx":
+            assert joint_angles.shape[-1] == 6
+            lower_limits, upper_limits = self.get_joint_limits_arx()
         else:
-            raise ValueError("robot must be either 'arm' or 'hand'")
+            raise ValueError("robot must be in ['franka', 'leap', 'arx']")
 
         franka_limit_range = upper_limits - lower_limits
 
@@ -1144,7 +1150,7 @@ class FrankaLEAPMobile(VecTask):
 
     def get_joint_limits_franka(self):
         """
-        Get the joint limits of the Franka arm. Franka (7) + LEAP (4*4), 23 DOF in total
+        Get the joint limits of the ARX hand. Base (3) + Franka (7) + LEAP (4*4) + ARX (6), 32 DOF in total
 
         Returns:
             lower_limits (torch.Tensor): (7,)
@@ -1156,7 +1162,7 @@ class FrankaLEAPMobile(VecTask):
 
     def get_joint_limits_leap(self):
         """
-        Get the joint limits of the LEAP hand. Franka (7) + LEAP (4*4), 23 DOF in total
+        Get the joint limits of the ARX hand. Base (3) + Franka (7) + LEAP (4*4) + ARX (6), 32 DOF in total
 
         Returns:
             lower_limits (torch.Tensor): (16,)
@@ -1164,6 +1170,18 @@ class FrankaLEAPMobile(VecTask):
         """
         lower_limits = self.robot_dof_lower_limits[10:26]
         upper_limits = self.robot_dof_upper_limits[10:26]
+        return lower_limits, upper_limits
+
+    def get_joint_limits_arx(self):
+        """
+        Get the joint limits of the ARX hand. Base (3) + Franka (7) + LEAP (4*4) + ARX (6), 32 DOF in total
+
+        Returns:
+            lower_limits (torch.Tensor): (6,)
+            upper_limits (torch.Tensor): (6,)
+        """
+        lower_limits = self.robot_dof_lower_limits[26:]
+        upper_limits = self.robot_dof_upper_limits[26:]
         return lower_limits, upper_limits
 
     # sim basics
@@ -1212,12 +1230,12 @@ class FrankaLEAPMobile(VecTask):
             )
 
             hand_actions = actions[:, 6:] * self.action_scale["hand"] * self.dt
-            delta_hand_joint_actions_unnormalized = self.unnormalize_robot_joints(hand_actions, robot="hand", delta=True)
+            delta_hand_joint_actions_unnormalized = self.unnormalize_robot_joints(hand_actions, robot="leap", delta=True)
         else:
             arm_actions = actions[:, 3:10] * self.action_scale["arm"] * self.dt
             hand_actions = actions[:, 10:26] * self.action_scale["hand"] * self.dt
-            delta_arm_joint_actions_unnormalized = self.unnormalize_robot_joints(arm_actions, robot="arm", delta=True)
-            delta_hand_joint_actions_unnormalized = self.unnormalize_robot_joints(hand_actions, robot="hand", delta=True)
+            delta_arm_joint_actions_unnormalized = self.unnormalize_robot_joints(arm_actions, robot="franka", delta=True)
+            delta_hand_joint_actions_unnormalized = self.unnormalize_robot_joints(hand_actions, robot="leap", delta=True)
 
         self.delta_joint_actions[:, :10] = delta_arm_joint_actions_unnormalized[:, :10]
         self.delta_joint_actions[:, 10:26] = delta_hand_joint_actions_unnormalized
@@ -1264,7 +1282,7 @@ class FrankaLEAPMobile(VecTask):
         reset_noise[:, 3:10] *= self.reset_noise_scale["arm"]
 
         if self.reset_noise_scale["hand"] is None:
-            reset_noise[:, 10:26] = self.unnormalize_robot_joints(reset_noise[:, 10:26], robot="hand", delta=False)
+            reset_noise[:, 10:26] = self.unnormalize_robot_joints(reset_noise[:, 10:26], robot="leap", delta=False)
             reset_noise[:, 10:26] -= self.canonical_joint_config[env_ids, 10:26]
         else:
             reset_noise[:, 10:26] *= self.reset_noise_scale["hand"]
