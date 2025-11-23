@@ -242,16 +242,6 @@ class FrankaLEAPMobile(VecTask):
         )
         self.ik_solver = IKSolver(ik_config)
 
-    def _init_viser_visualizer(self):
-        asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), self.cfg["env"]["asset"].get("assetRoot"))
-        robot_asset_file = self.cfg["env"]["asset"].get("assetFileNameFranka")
-
-        full_robot_asset_path = os.path.join(asset_root, robot_asset_file)
-        self.viser_visualizer = ViserVisualizer(
-            urdf_path=full_robot_asset_path,
-            num_envs=self.num_envs,
-        )
-
     def create_sim(self):
         self.sim_params.up_axis = gymapi.UP_AXIS_Z
         self.sim_params.gravity.x = 0
@@ -895,38 +885,6 @@ class FrankaLEAPMobile(VecTask):
             "actionreg": actionreg,
         })
 
-    def _update_viser_visualizer(self):
-        # only render the selected environment
-        env_id = self.viser_visualizer.env_id
-        self.viser_visualizer.set_joint_positions(
-            self.states['q'][env_id].cpu().numpy(),
-        )
-        # (1, N, 3)
-        pcd_full_scene = self.combined_pcds[env_id:env_id+1] 
-        # (1, M, 3)
-        robot_pcd_t = self.robot_pcd_sampler.sample(self.states['q'][env_id:env_id+1], self.torchurdf_to_isaac_idx)
-        pcd_full = torch.cat([pcd_full_scene, robot_pcd_t], dim=1)
-
-        self.viser_visualizer.update_point_cloud(
-            point_cloud_type="full_points", 
-            point_cloud=pcd_full[0].cpu().numpy()
-        )
-        # get robot joint position for fabric
-        current_joint_pos_fabric = torch.zeros_like(self.fabric_q, device=self.device)
-        current_joint_pos_fabric[:, :10] = self.states['q'][:, :10].clone()
-        current_joint_pos_fabric[:, 10:] = self.states['q'][:, 26:].clone()
-        # (1, 7)
-        current_camera_pose = self.franka_fabric.forward_kinematics(["camera_link"], current_joint_pos_fabric)[env_id:env_id+1, 0]
-        sim_depth_pcd, logs = simulate_depth_cam_render_from_pose(
-            pcd=pcd_full,
-            camera_pose=current_camera_pose,
-            num_points=4096,
-        )
-        self.viser_visualizer.update_point_cloud(
-            point_cloud_type="rendered_points",
-            point_cloud=sim_depth_pcd[0].cpu().numpy()
-        )
-
     def _get_eef_point_matching_err(self, curent_eef_pos7: torch.Tensor, target_eef_pos7: torch.Tensor):
         """
         Get the point matching error between current end effector position 
@@ -1208,6 +1166,129 @@ class FrankaLEAPMobile(VecTask):
         upper_limits = self.robot_dof_upper_limits[10:26]
         return lower_limits, upper_limits
 
+    # sim basics
+    def pre_physics_step(self, actions):
+        """
+        Args:
+            actions (torch.Tensor): normalized delta joint angles (num_selected_envs, 7+4*4)
+        """
+        if self.eef_actions:
+            self.delta_eef_actions = actions.clone()
+            pos_actions = actions[:, 0:3] * self.action_scale["eef_pos"] * self.dt
+            ctrl_target_eef_pos = self.states['eef_pos'] + pos_actions
+
+            # Interpret actions as target rot (axis-angle) displacements
+            rot_actions = actions[:, 3:6] * self.action_scale["eef_rot"] * self.dt
+            angle = torch.norm(rot_actions, p=2, dim=-1)
+            axis = rot_actions / angle.unsqueeze(-1)
+            rot_actions_quat = quat_from_angle_axis(angle, axis)
+
+            # clamp tiny rotations to avoid numerical issues
+            rot_actions_quat = torch.where(
+                angle.unsqueeze(-1).repeat(1, 4) > 1.0e-6,
+                rot_actions_quat,
+                torch.tensor([0.0, 0.0, 0.0, 1.0], device=self.device).repeat(
+                    self.num_envs, 1
+                ),
+            )
+            ctrl_target_eef_quat = quat_mul(
+                rot_actions_quat, self.states['eef_quat'] # xyzw format
+            )
+
+            if self.enable_fabric:
+                fabric_target_eef_pos = self.switching_target_pos
+                fabric_target_eef_quat = self.switching_target_quat
+                fabric_eef_target = torch.cat((fabric_target_eef_pos, fabric_target_eef_quat), dim=-1)
+                abs_full_joint_actions_fabric = self.compute_fabric_action(fabric_eef_target)
+
+            delta_arm_joint_actions_unnormalized = torch.zeros((self.num_envs, 10), device=self.device)
+            delta_arm_joint_actions_unnormalized[:, 3:10] = eef_ctrl.compute_dof_pos_delta(
+                arm_dof_pos=self.states['q'][:, 3:10],
+                current_eef_pos=self.states['eef_pos'],
+                current_eef_quat=self.states['eef_quat'],
+                jacobian=self._j_eef[:, :, 3:10],
+                ctrl_target_eef_pos=ctrl_target_eef_pos,
+                ctrl_target_eef_quat=ctrl_target_eef_quat,
+            )
+
+            hand_actions = actions[:, 6:] * self.action_scale["hand"] * self.dt
+            delta_hand_joint_actions_unnormalized = self.unnormalize_robot_joints(hand_actions, robot="hand", delta=True)
+        else:
+            arm_actions = actions[:, 3:10] * self.action_scale["arm"] * self.dt
+            hand_actions = actions[:, 10:26] * self.action_scale["hand"] * self.dt
+            delta_arm_joint_actions_unnormalized = self.unnormalize_robot_joints(arm_actions, robot="arm", delta=True)
+            delta_hand_joint_actions_unnormalized = self.unnormalize_robot_joints(hand_actions, robot="hand", delta=True)
+
+        self.delta_joint_actions[:, :10] = delta_arm_joint_actions_unnormalized[:, :10]
+        self.delta_joint_actions[:, 10:26] = delta_hand_joint_actions_unnormalized
+
+        self.abs_actions[:] = self.states['q'] + self.delta_joint_actions # need to really make sure states['q'] is always up to date
+        self.abs_actions[:] = tensor_clamp(
+            self.abs_actions, self.robot_dof_lower_limits, self.robot_dof_upper_limits
+        )
+
+        if self.enable_fabric:
+            self.abs_actions[self.fabric_switch_enable, :10] = abs_full_joint_actions_fabric[self.fabric_switch_enable, :10]
+            self.abs_actions[self.fabric_switch_enable, 10:26] = self.canonical_joint_config[self.fabric_switch_enable, 10:26]
+            self.abs_actions[:, 26:] = abs_full_joint_actions_fabric[:, 10:]
+
+        self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(self.abs_actions))
+
+    def post_physics_step(self):
+        self.progress_buf += 1
+
+        env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
+        if len(env_ids) > 0:
+            self.reset_idx(env_ids)
+
+        self.compute_observations()
+        self.compute_reward()
+
+        # video logging
+        if self.video_logging["capture"]:
+            self.video_logger()
+        self.sim_steps += 1
+
+    def reset_idx(self, env_ids=None):
+        # Domain randomization, can happen only at reset time since it can reset actor positions on GPU
+        if self.randomize:
+            self.apply_randomizations(self.randomization_params)
+
+        if env_ids is None:
+            env_ids = torch.arange(self.num_envs, device=self.device)
+
+        self._reset_object_state(env_ids) # reset object state
+
+        reset_noise = torch.rand((len(env_ids), 32), device=self.device) # [0, 1]
+        reset_noise = 2.0 * (reset_noise - 0.5) # [-1, 1]
+        reset_noise[:, 3:10] *= self.reset_noise_scale["arm"]
+
+        if self.reset_noise_scale["hand"] is None:
+            reset_noise[:, 10:26] = self.unnormalize_robot_joints(reset_noise[:, 10:26], robot="hand", delta=False)
+            reset_noise[:, 10:26] -= self.canonical_joint_config[env_ids, 10:26]
+        else:
+            reset_noise[:, 10:26] *= self.reset_noise_scale["hand"]
+
+        # TODO: fix later, also add base noise scale
+        reset_joint_config = tensor_clamp(
+            self.canonical_joint_config[env_ids] + 0*reset_noise,
+            self.robot_dof_lower_limits,
+            self.robot_dof_upper_limits,
+        )
+
+        self.set_robot_joint_state(reset_joint_config, env_ids=env_ids)
+
+        if self.enable_fabric:
+            self.fabric_q[env_ids, :10] = reset_joint_config[:, :10]
+            self.fabric_q[env_ids, 10:] = reset_joint_config[:, 26:]
+            self.fabric_qd[env_ids, :] = torch.zeros_like(self.fabric_q[env_ids])
+            self.fabric_qdd[env_ids, :] = torch.zeros_like(self.fabric_q[env_ids])
+
+        self.success_flags[env_ids] = 0
+        self.lifting_flags[env_ids] = 0
+        self.progress_buf[env_ids] = 0
+        self.reset_buf[env_ids] = 0
+
     # visualization
     def set_viewer(self, pos=[1.5, 0.0, 0.7], target=[0.5, 0.0, 0.1]):
         """
@@ -1380,128 +1461,47 @@ class FrankaLEAPMobile(VecTask):
                 colors_flat     # flat list of RGB triples
             )
 
-    def reset_idx(self, env_ids=None):
-        # Domain randomization, can happen only at reset time since it can reset actor positions on GPU
-        if self.randomize:
-            self.apply_randomizations(self.randomization_params)
+    def _init_viser_visualizer(self):
+        asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), self.cfg["env"]["asset"].get("assetRoot"))
+        robot_asset_file = self.cfg["env"]["asset"].get("assetFileNameFranka")
 
-        if env_ids is None:
-            env_ids = torch.arange(self.num_envs, device=self.device)
-
-        self._reset_object_state(env_ids) # reset object state
-
-        reset_noise = torch.rand((len(env_ids), 32), device=self.device) # [0, 1]
-        reset_noise = 2.0 * (reset_noise - 0.5) # [-1, 1]
-        reset_noise[:, 3:10] *= self.reset_noise_scale["arm"]
-
-        if self.reset_noise_scale["hand"] is None:
-            reset_noise[:, 10:26] = self.unnormalize_robot_joints(reset_noise[:, 10:26], robot="hand", delta=False)
-            reset_noise[:, 10:26] -= self.canonical_joint_config[env_ids, 10:26]
-        else:
-            reset_noise[:, 10:26] *= self.reset_noise_scale["hand"]
-
-        # TODO: fix later, also add base noise scale
-        reset_joint_config = tensor_clamp(
-            self.canonical_joint_config[env_ids] + 0*reset_noise,
-            self.robot_dof_lower_limits,
-            self.robot_dof_upper_limits,
+        full_robot_asset_path = os.path.join(asset_root, robot_asset_file)
+        self.viser_visualizer = ViserVisualizer(
+            urdf_path=full_robot_asset_path,
+            num_envs=self.num_envs,
         )
 
-        self.set_robot_joint_state(reset_joint_config, env_ids=env_ids)
-
-        if self.enable_fabric:
-            self.fabric_q[env_ids, :10] = reset_joint_config[:, :10]
-            self.fabric_q[env_ids, 10:] = reset_joint_config[:, 26:]
-            self.fabric_qd[env_ids, :] = torch.zeros_like(self.fabric_q[env_ids])
-            self.fabric_qdd[env_ids, :] = torch.zeros_like(self.fabric_q[env_ids])
-
-        self.success_flags[env_ids] = 0
-        self.lifting_flags[env_ids] = 0
-        self.progress_buf[env_ids] = 0
-        self.reset_buf[env_ids] = 0
-
-    # for debugging purposes only, so this scripts on its own can run
-    def pre_physics_step(self, actions):
-        """
-        Args:
-            actions (torch.Tensor): normalized delta joint angles (num_selected_envs, 7+4*4)
-        """
-        if self.eef_actions:
-            self.delta_eef_actions = actions.clone()
-            pos_actions = actions[:, 0:3] * self.action_scale["eef_pos"] * self.dt
-            ctrl_target_eef_pos = self.states['eef_pos'] + pos_actions
-
-            # Interpret actions as target rot (axis-angle) displacements
-            rot_actions = actions[:, 3:6] * self.action_scale["eef_rot"] * self.dt
-            angle = torch.norm(rot_actions, p=2, dim=-1)
-            axis = rot_actions / angle.unsqueeze(-1)
-            rot_actions_quat = quat_from_angle_axis(angle, axis)
-
-            # clamp tiny rotations to avoid numerical issues
-            rot_actions_quat = torch.where(
-                angle.unsqueeze(-1).repeat(1, 4) > 1.0e-6,
-                rot_actions_quat,
-                torch.tensor([0.0, 0.0, 0.0, 1.0], device=self.device).repeat(
-                    self.num_envs, 1
-                ),
-            )
-            ctrl_target_eef_quat = quat_mul(
-                rot_actions_quat, self.states['eef_quat'] # xyzw format
-            )
-
-            if self.enable_fabric:
-                fabric_target_eef_pos = self.switching_target_pos
-                fabric_target_eef_quat = self.switching_target_quat
-                fabric_eef_target = torch.cat((fabric_target_eef_pos, fabric_target_eef_quat), dim=-1)
-                abs_full_joint_actions_fabric = self.compute_fabric_action(fabric_eef_target)
-
-            delta_arm_joint_actions_unnormalized = torch.zeros((self.num_envs, 10), device=self.device)
-            delta_arm_joint_actions_unnormalized[:, 3:10] = eef_ctrl.compute_dof_pos_delta(
-                arm_dof_pos=self.states['q'][:, 3:10],
-                current_eef_pos=self.states['eef_pos'],
-                current_eef_quat=self.states['eef_quat'],
-                jacobian=self._j_eef[:, :, 3:10],
-                ctrl_target_eef_pos=ctrl_target_eef_pos,
-                ctrl_target_eef_quat=ctrl_target_eef_quat,
-            )
-
-            hand_actions = actions[:, 6:] * self.action_scale["hand"] * self.dt
-            delta_hand_joint_actions_unnormalized = self.unnormalize_robot_joints(hand_actions, robot="hand", delta=True)
-        else:
-            arm_actions = actions[:, 3:10] * self.action_scale["arm"] * self.dt
-            hand_actions = actions[:, 10:26] * self.action_scale["hand"] * self.dt
-            delta_arm_joint_actions_unnormalized = self.unnormalize_robot_joints(arm_actions, robot="arm", delta=True)
-            delta_hand_joint_actions_unnormalized = self.unnormalize_robot_joints(hand_actions, robot="hand", delta=True)
-
-        self.delta_joint_actions[:, :10] = delta_arm_joint_actions_unnormalized[:, :10]
-        self.delta_joint_actions[:, 10:26] = delta_hand_joint_actions_unnormalized
-
-        self.abs_actions[:] = self.states['q'] + self.delta_joint_actions # need to really make sure states['q'] is always up to date
-        self.abs_actions[:] = tensor_clamp(
-            self.abs_actions, self.robot_dof_lower_limits, self.robot_dof_upper_limits
+    def _update_viser_visualizer(self):
+        # only render the selected environment
+        env_id = self.viser_visualizer.env_id
+        self.viser_visualizer.set_joint_positions(
+            self.states['q'][env_id].cpu().numpy(),
         )
+        # (1, N, 3)
+        pcd_full_scene = self.combined_pcds[env_id:env_id+1] 
+        # (1, M, 3)
+        robot_pcd_t = self.robot_pcd_sampler.sample(self.states['q'][env_id:env_id+1], self.torchurdf_to_isaac_idx)
+        pcd_full = torch.cat([pcd_full_scene, robot_pcd_t], dim=1)
 
-        if self.enable_fabric:
-            self.abs_actions[self.fabric_switch_enable, :10] = abs_full_joint_actions_fabric[self.fabric_switch_enable, :10]
-            self.abs_actions[self.fabric_switch_enable, 10:26] = self.canonical_joint_config[self.fabric_switch_enable, 10:26]
-            self.abs_actions[:, 26:] = abs_full_joint_actions_fabric[:, 10:]
-
-        self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(self.abs_actions))
-
-    def post_physics_step(self):
-        self.progress_buf += 1
-
-        env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
-        if len(env_ids) > 0:
-            self.reset_idx(env_ids)
-
-        self.compute_observations()
-        self.compute_reward()
-
-        # video logging
-        if self.video_logging["capture"]:
-            self.video_logger()
-        self.sim_steps += 1
+        self.viser_visualizer.update_point_cloud(
+            point_cloud_type="full_points", 
+            point_cloud=pcd_full[0].cpu().numpy()
+        )
+        # get robot joint position for fabric
+        current_joint_pos_fabric = torch.zeros_like(self.fabric_q, device=self.device)
+        current_joint_pos_fabric[:, :10] = self.states['q'][:, :10].clone()
+        current_joint_pos_fabric[:, 10:] = self.states['q'][:, 26:].clone()
+        # (1, 7)
+        current_camera_pose = self.franka_fabric.forward_kinematics(["camera_link"], current_joint_pos_fabric)[env_id:env_id+1, 0]
+        sim_depth_pcd, logs = simulate_depth_cam_render_from_pose(
+            pcd=pcd_full,
+            camera_pose=current_camera_pose,
+            num_points=4096,
+        )
+        self.viser_visualizer.update_point_cloud(
+            point_cloud_type="rendered_points",
+            point_cloud=sim_depth_pcd[0].cpu().numpy()
+        )
 
     @abstractmethod
     def _create_envs(self, spacing, num_per_row):
