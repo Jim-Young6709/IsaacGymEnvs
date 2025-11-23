@@ -335,14 +335,14 @@ class FrankaCMD(VecTask):
             0.5,  0.9, 0.9,
             1.0,  1.0,
            -0.25, 1.1, 1.1,
-           -0.5,  1.5, 1.5,
+           -0.5,  1.2, 1.2,
         ]
         grasp_default_2 = [
             1.0,  0.7, 0.0,
             0.5,  0.9, 0.9,
             1.0,  1.0,
            -0.25, 1.1, 1.1,
-           -0.5,  1.5, 1.5,
+           -0.5,  1.2, 1.2,
         ]
 
         self.grasp_default = ([grasp_default_1] + [grasp_default_2])[self.cfg['env']['grasp_guide_idx']]
