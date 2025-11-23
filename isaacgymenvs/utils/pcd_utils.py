@@ -516,7 +516,7 @@ class GlorbotSampler:
                 pts, device=device, dtype=torch.float32
             ).unsqueeze(0)  # (1, Ni, 3)
 
-    def sample(self, joint_angles, joint_mapping_list=None, num_points=None):
+    def sample(self, joint_angles, joint_mapping_list=None, num_points=None, hand_only=False):
         """
         joint_angles: (B, 23) joint config
         joint_mapping_list: list[int], optional mapping to torch_urdf ordering
@@ -534,7 +534,8 @@ class GlorbotSampler:
         pcs = []
         B = joint_angles.shape[0]
 
-        for l in self.links:
+        link_set = self.leap_hand_links if hand_only else self.links
+        for l in link_set:
             # We only used the first visual to build the mesh/primitive
             geom = l.visuals[0].geometry
             T = fk[geom]  # (B, 4, 4)
