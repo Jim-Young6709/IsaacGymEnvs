@@ -22,10 +22,12 @@ pcd_encoders_cfg:
   static_scene_pcd_t0:
     type: "pointnet"  # Options: ["mlp", "pointnet"]
     num_output_tokens: 48  # Number of tokens for scene point cloud
+    num_points: 1024
     use_pcd: true
   object_pcd_t0:
     type: "pointnet"  # Options: ["mlp", "pointnet"]
     num_output_tokens: 16  # Number of tokens for robot point cloud
+    num_points: 256
     use_pcd: true
   # full_scene_pcd_t0:
   #   type: "pointnet"  # Options: ["mlp", "pointnet"]
@@ -42,6 +44,7 @@ pcd_encoders_cfg:
   full_pcd_t:
     type: "pointnet"  # Options: ["mlp", "pointnet"]
     num_output_tokens: 64 # Number of tokens for target point cloud
+    num_points: 1024
     use_pcd: true
 
   # # robot pcd obs
