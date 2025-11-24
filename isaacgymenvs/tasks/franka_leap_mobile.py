@@ -190,7 +190,14 @@ class FrankaLEAPMobile(VecTask):
 
         self.static_scene_pcd_t0 = self.static_pcds.clone()
 
+        # for distillation purposes
+        self.distillation_mode = False
         self.abs_actions = torch.zeros(self.num_envs, 32, device=self.device)
+        self.teacher_actions_converted = torch.zeros(self.num_envs, 32, device=self.device)
+        # student policy actions space (should get overridden in the distillation class)
+        self.delta_franka_action = True
+        self.delta_leap_action = True
+        self.delta_arx_action = True
 
     def _build_joint_mapping(self):
         env_ptr = self.envs[0]
@@ -1196,7 +1203,7 @@ class FrankaLEAPMobile(VecTask):
         return lower_limits, upper_limits
 
     # sim basics
-    def pre_physics_step(self, actions):
+    def _pre_physics_step_teacher(self, actions):
         """
         Args:
             actions (torch.Tensor): normalized delta joint angles (num_selected_envs, 7+4*4)
@@ -1251,15 +1258,79 @@ class FrankaLEAPMobile(VecTask):
         self.delta_joint_actions[:, :10] = delta_arm_joint_actions_unnormalized[:, :10]
         self.delta_joint_actions[:, 10:26] = delta_hand_joint_actions_unnormalized
 
-        self.abs_actions[:] = self.states['q'] + self.delta_joint_actions # need to really make sure states['q'] is always up to date
-        self.abs_actions[:] = tensor_clamp(
-            self.abs_actions, self.robot_dof_lower_limits, self.robot_dof_upper_limits
+        teacher_actions_abs = self.states['q'] + self.delta_joint_actions # need to really make sure states['q'] is always up to date
+        teacher_actions_abs = tensor_clamp(
+            teacher_actions_abs, self.robot_dof_lower_limits, self.robot_dof_upper_limits
         )
 
         if self.enable_fabric:
-            self.abs_actions[self.fabric_switch_enable, :10] = abs_full_joint_actions_fabric[self.fabric_switch_enable, :10]
-            self.abs_actions[self.fabric_switch_enable, 10:26] = self.canonical_joint_config[self.fabric_switch_enable, 10:26]
-            self.abs_actions[:, 26:] = abs_full_joint_actions_fabric[:, 10:]
+            teacher_actions_abs[self.fabric_switch_enable, :10] = abs_full_joint_actions_fabric[self.fabric_switch_enable, :10]
+            teacher_actions_abs[self.fabric_switch_enable, 10:26] = self.canonical_joint_config[self.fabric_switch_enable, 10:26]
+            teacher_actions_abs[:, 26:] = abs_full_joint_actions_fabric[:, 10:]
+
+        if self.distillation_mode:
+            # get teacher actions for student to regress on
+            delta_actions = teacher_actions_abs - self.states['q']
+
+            base_actions_abs_vel = delta_actions[:, :3] / self.dt # numerical difference for joint velocity
+
+            if self.delta_franka_action:
+                franka_actions_normalized = self.normalize_robot_joints(delta_actions[:, 3:10], robot="franka", delta=True)
+            else:
+                franka_actions_normalized = self.normalize_robot_joints(teacher_actions_abs[:, 3:10], robot="franka", delta=False)
+
+            if self.delta_leap_action:
+                leap_actions_normalized = self.normalize_robot_joints(delta_actions[:, 10:26], robot="leap", delta=True)
+            else:
+                leap_actions_normalized = self.normalize_robot_joints(teacher_actions_abs[:, 10:26], robot="leap", delta=False)
+
+            if self.delta_arx_action:
+                arx_actions_normalized = self.normalize_robot_joints(delta_actions[:, 26:], robot="arx", delta=True)
+            else:
+                arx_actions_normalized = self.normalize_robot_joints(teacher_actions_abs[:, 26:], robot="arx", delta=False)
+
+            self.teacher_actions_converted[:, :3] = base_actions_abs_vel
+            self.teacher_actions_converted[:, 3:10] = franka_actions_normalized
+            self.teacher_actions_converted[:, 10:26] = leap_actions_normalized
+            self.teacher_actions_converted[:, 26:] = arx_actions_normalized
+
+        return teacher_actions_abs
+
+    def _pre_physics_step_student(self, actions):
+        """
+        Args:
+            actions (torch.Tensor): student actions (num_selected_envs, 3+7+4*4+6)
+        """
+        student_actions_abs = actions.clone()
+        student_actions_abs[:, :3] = actions[:, :3] * self.dt + self.states['q'][:, :3]  # base abs action
+
+        if self.delta_franka_action:
+            student_actions_abs[:, 3:10] = self.unnormalize_robot_joints(actions[:, 3:10], robot="franka", delta=True) + self.states['q'][:, 3:10]
+        else:
+            student_actions_abs[:, 3:10] = self.unnormalize_robot_joints(actions[:, 3:10], robot="franka", delta=False)
+
+        if self.delta_leap_action:
+            student_actions_abs[:, 10:26] = self.unnormalize_robot_joints(actions[:, 10:26], robot="leap", delta=True) + self.states['q'][:, 10:26]
+        else:
+            student_actions_abs[:, 10:26] = self.unnormalize_robot_joints(actions[:, 10:26], robot="leap", delta=False)
+
+        if self.delta_arx_action:
+            student_actions_abs[:, 26:] = self.unnormalize_robot_joints(actions[:, 26:], robot="arx", delta=True) + self.states['q'][:, 26:]
+        else:
+            student_actions_abs[:, 26:] = self.unnormalize_robot_joints(actions[:, 26:], robot="arx", delta=False)
+
+        return student_actions_abs
+
+    def pre_physics_step(self, actions):
+        """
+        Args:
+            actions (torch.Tensor): if teacher action: normalized delta joint angles (num_selected_envs, 7+4*4)
+                                    if student action: (num_selected_envs, 3+7+4*4+6)
+        """
+        if self.distillation_mode:
+            self.abs_actions[:] = self._pre_physics_step_student(actions)
+        else:
+            self.abs_actions[:] = self._pre_physics_step_teacher(actions)
 
         self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(self.abs_actions))
 
