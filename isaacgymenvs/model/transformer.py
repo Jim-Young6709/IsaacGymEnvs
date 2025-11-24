@@ -248,6 +248,7 @@ class PCDTransformer(BaseModel):
         # but now just calls forward with the target
         return self.forward(obs, target)
     
+    # Note this function is outdated, maybe update this later, coordinate with the inference scripts
     def get_action(self, obs):
         self.eval()
         current_angles = obs["current_angles"].clone()
