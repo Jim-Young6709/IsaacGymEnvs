@@ -1697,7 +1697,7 @@
         <parent link="x5_base_link"/>
         <child link="link1"/>
         <axis xyz="0 0 1"/>
-        <limit lower="-10" upper="10" effort="100" velocity="1000"/>
+        <limit lower="-3.14" upper="2.618" effort="100" velocity="1000"/>
     </joint>
     <link name="link2">
         <inertial>
