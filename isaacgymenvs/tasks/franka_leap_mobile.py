@@ -949,11 +949,11 @@ class FrankaLEAPMobile(VecTask):
         # TODO: figure out arm & hand collision
         self.gym.refresh_net_contact_force_tensor(self.sim)
         self.scene_collision = torch.where(
-            torch.norm(torch.sum(self.contact_forces[:, :30, :], dim=1), dim=1) > 1.0, 1.0, 0.0
-        )  # the first 30 elements belong to franka + leap
+            torch.norm(torch.sum(self.contact_forces[:, :58, :], dim=1), dim=1) > 1.0, 1.0, 0.0
+        )  # the first 58 elements belong to base + franka + leap + arx
         self.collision = torch.where(
-            torch.sum(torch.norm(self.contact_forces[:, :30, :], dim=2), dim=1) > 1.0, 1.0, 0.0
-        )  # the first 30 elements belong to franka + leap, this includes self collision
+            torch.sum(torch.norm(self.contact_forces[:, :58, :], dim=2), dim=1) > 1.0, 1.0, 0.0
+        )  # the first 58 elements belong to base + franka + leap + arx, this includes self collision
 
     def normalize_robot_joints(self, joint_angles: torch.Tensor, robot: bool, delta: bool = False) -> torch.Tensor:
         """

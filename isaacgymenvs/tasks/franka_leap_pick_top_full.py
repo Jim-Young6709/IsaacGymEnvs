@@ -493,7 +493,7 @@ class FrankaLEAPPickTopFull(FrankaLEAP):
 
     def check_robot_collision(self):
         super().check_robot_collision()
-        self.scene_collision = torch.tensor([False]*self.num_envs, device=self.device)
+        self.scene_collision = torch.any(self.contact_forces[:, 31:-1].view(self.num_envs, -1) != 0, dim=1)
         self.table_collision = torch.any(self.contact_forces[:, 30].view(self.num_envs, -1) != 0, dim=1)
 
     def compute_observations(self):
