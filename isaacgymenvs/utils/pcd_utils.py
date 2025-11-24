@@ -288,6 +288,18 @@ def shuffle_pcd(pcd: torch.Tensor) -> torch.Tensor:
     return pcd[batch_idx, idx]  # (B, N, 3)
 
 
+def downsample_pcd_batched(pcd: torch.Tensor, num_points: int) -> torch.Tensor:
+    """
+    pcd: (B, N, 3) point cloud tensor
+    num_points:   target number of points
+    returns: (B, num_points, 3)
+    """
+    B, N, _ = pcd.shape
+    M = num_points
+    idx = torch.rand(B, N, device=pcd.device).argsort(dim=1)[:, :M]  # (B, M)
+    return torch.gather(pcd, 1, idx.unsqueeze(-1).expand(-1, -1, 3))
+
+
 def crop_local_pcd(pcd: torch.Tensor, local_range: torch.float, num_local_points: torch.int):
     """
     Crop the point cloud to a local region around the origin with 0 padding.
