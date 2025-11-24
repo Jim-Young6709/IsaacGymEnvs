@@ -8,7 +8,7 @@ from hydra.utils import instantiate
 from tqdm import tqdm
 from collections import OrderedDict
 from isaacgymenvs.utils.rotation_conversions import quaternion_to_matrix_ig
-from isaacgymenvs.utils.pcd_utils import crop_local_pcd, visualize_pcd
+from isaacgymenvs.utils.pcd_utils import downsample_pcd_batched, crop_local_pcd, visualize_pcd
 from isaacgymenvs.utils.training_utils import *
 from isaacgymenvs.utils.simulate_depth_cam import simulate_depth_cam_render
 
@@ -90,6 +90,12 @@ class DaggerMobile:
                 )
             return envs
         self.env = create_isaacgym_env()
+
+        # env cfg overrides
+        self.env.distillation_mode = True
+        self.env.delta_franka_action = self.cfg.action_space.delta_franka_action
+        self.env.delta_leap_action = self.cfg.action_space.delta_leap_action
+        self.env.delta_arx_action = self.cfg.action_space.delta_arx_action
 
         # load teacher
         self.value_size = 1 # not sure why, but seems most cases its 1
@@ -274,31 +280,33 @@ class DaggerMobile:
 
         obs_student = OrderedDict()
 
-        if "static_scene_pcd_t0" in self.pcd_encoders_keys:
-            obs_student["static_scene_pcd_t0"] = obs["static_scene_pcd_t0"]
-        if "object_pcd_t0" in self.pcd_encoders_keys:
-            obs_student["object_pcd_t0"] = obs["object_pcd_t0"]
         if "full_scene_pcd_t0" in self.pcd_encoders_keys:
-            obs_student["full_scene_pcd_t0"] = torch.cat([obs["static_scene_pcd_t0"], obs["object_pcd_t0"]], dim=1)
+            obs["full_scene_pcd_t0"] = torch.cat([obs["static_scene_pcd_t0"], obs["object_pcd_t0"]], dim=1)
 
-        if "robot_pcd_t" in self.pcd_encoders_keys:
-            obs_student["robot_pcd_t"] = obs["robot_pcd_t"]
-        if "hand_pcd_t" in self.pcd_encoders_keys:
-            obs_student["hand_pcd_t"] = obs["hand_pcd_t"]
+        for key in self.pcd_encoders_keys:
+            if key in ["static_scene_pcd_t0", "object_pcd_t0", "full_scene_pcd_t0", "full_scene_pcd_t", "robot_pcd_t", "hand_pcd_t"]:
+                num_points_key = self.cfg.model.pcd_encoders_cfg[key]["num_points"]
+                obs_student[key] = downsample_pcd_batched(obs[key], num_points_key)
 
-        if "full_scene_pcd_t" in self.pcd_encoders_keys:
-            obs_student["full_scene_pcd_t"] = obs["full_scene_pcd_t"]
         if "full_pcd_t" in self.pcd_encoders_keys:
-            obs_student["full_pcd_t"] = obs["full_pcd_t"]
+            num_points_full_pcd_t = self.cfg.model.pcd_encoders_cfg["full_pcd_t"]["num_points"]
+            if self.env.pcd_spec_dict['simulate_depth_cam']:
+                full_pcd_t = obs["full_pcd_t"][:, :num_points_full_pcd_t]
+                # replace nan values as 0s
+                full_pcd_t_zero_padding = torch.nan_to_num(full_pcd_t, nan=0.0)
+                obs_student["full_pcd_t"] = full_pcd_t_zero_padding
+            else:
+                obs_student["full_pcd_t"] = downsample_pcd_batched(obs["full_pcd_t"], num_points_full_pcd_t)
 
-        if "local_pcd_t" in self.pcd_encoders_keys:
-            obs_student["local_pcd_t"], crop_logs = crop_local_pcd(obs['full_pcd_t'], self.local_pcd_range, self.num_local_points) # (num_envs, num_local_points, 3)
-            if self.use_wandb:
-                wandb.log(crop_logs, step=self.total_steps)
-        elif "local_scene_pcd_t" in self.pcd_encoders_keys:
-            obs_student["local_scene_pcd_t"], crop_logs = crop_local_pcd(obs["full_scene_pcd_t"], self.local_pcd_range, self.num_local_points)
-            if self.use_wandb:
-                wandb.log(crop_logs, step=self.total_steps)
+        # TODO: maybe update this to a cylindrical local crop
+        # if "local_pcd_t" in self.pcd_encoders_keys:
+        #     obs_student["local_pcd_t"], crop_logs = crop_local_pcd(obs['full_pcd_t'], self.local_pcd_range, self.num_local_points) # (num_envs, num_local_points, 3)
+        #     if self.use_wandb:
+        #         wandb.log(crop_logs, step=self.total_steps)
+        # elif "local_scene_pcd_t" in self.pcd_encoders_keys:
+        #     obs_student["local_scene_pcd_t"], crop_logs = crop_local_pcd(obs["full_scene_pcd_t"], self.local_pcd_range, self.num_local_points)
+        #     if self.use_wandb:
+        #         wandb.log(crop_logs, step=self.total_steps)
 
         return obs_student
 
@@ -330,12 +338,14 @@ class DaggerMobile:
             else:
                 teacher_actions = action
             teacher_actions = torch.clamp(teacher_actions, -self.env.clip_actions, self.env.clip_actions)
+            self.env._pre_physics_step_teacher(teacher_actions)
+            teacher_actions = self.env.teacher_actions_converted.clone()
 
             # student obs, q_hand, rel_pcd
-            q_robot = self.env.states['q'] # (num_envs, 32)
+            q_robot = self.env.states['q'].clone() # (num_envs, 32)
 
             if self.env.sim_steps == 0:
-                self.env.abs_actions[:] = q_robot.clone()
+                self.env.abs_actions[:] = q_robot
 
             static_scene_pcd_t0 = self.env.static_scene_pcd_t0 # scene pcd doesn't include object
             object_pcd_t0 = self.env.object_pcd_t0
@@ -356,9 +366,9 @@ class DaggerMobile:
             q_arm_vision = self.env.states['q'][:, 26:] # (num_envs, 6)
             q_hand = self.env.states['q'][:, 10:26] # (num_envs, 16)
 
-            obs_input["q_arm_manip"] = q_arm_manip
-            obs_input["q_arm_vision"] = q_arm_vision
-            obs_input["q_hand"] = q_hand
+            obs_input["q_arm_manip"] = self.env.normalize_robot_joints(q_arm_manip, robot="franka", delta=False)
+            obs_input["q_arm_vision"] = self.env.normalize_robot_joints(q_arm_vision, robot="arx", delta=False)
+            obs_input["q_hand"] = self.env.normalize_robot_joints(q_hand, robot="leap", delta=False)
             if "q_hand_ctrl_delta" in self.state_encoders_keys:
                 obs_input["q_hand_ctrl_delta"] = q_hand - self.env.abs_actions[:, 10:26]
 
@@ -381,7 +391,7 @@ class DaggerMobile:
                 reset_ids = torch.where(reached_reset_flags)[0]
                 self.env.reset_buf[reset_ids] = 1
                 count_reaching[reached_reset_flags] = 0
-            
+
             self.student_model.train()
             n_batches = self.env.num_envs // self.batch_size # now this is 1
             indices = torch.randperm(self.env.num_envs, device=self.device)
@@ -398,16 +408,16 @@ class DaggerMobile:
                 self.optimizer.step()
                 total_loss += loss.item()
             total_loss /= n_batches
-            
+
             if self.scheduler is not None:
                 self.scheduler.step()
-                
+
             if self.use_wandb:
                 wandb.log({
                     "train/loss": total_loss,
                     "train/lr": self.optimizer.param_groups[0]["lr"]
                 }, step=self.total_steps)
-                
+
             self.total_steps += 1
 
         return total_loss
