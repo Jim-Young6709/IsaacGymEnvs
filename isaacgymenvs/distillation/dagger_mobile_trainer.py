@@ -175,7 +175,6 @@ class DaggerMobile:
             success_rate_ep = self.load_checkpoint(load_checkpoint_path)
             colorprint(f"Resumed training from {load_checkpoint_path}: steps={self.total_steps}, success_rate_ep={success_rate_ep}", color="magenta")
 
-
     # TODO: teacher loading utils, shall I just simply merge them?
     def load_param_dict(self, cfg_path) -> Dict:
         base_dir = os.path.dirname(__file__)
@@ -243,10 +242,10 @@ class DaggerMobile:
 
     def preprocess_inputs(self, obs):
         # eef states
-        eef_pos = self.env.states['eef_pos'] # (num_envs, 3)
-        eef_quat = self.env.states['eef_quat'] # (num_envs, 4)
-        eef_rot_mat = quaternion_to_matrix_ig(eef_quat)
-        rot_global2eef = eef_rot_mat.transpose(1, 2) # (num_envs, 3, 3)
+        franka_base_pos = self.env.states['franka_base_pose7'][:, :3] # (num_envs, 3)
+        franka_base_quat = self.env.states['franka_base_pose7'][:, 3:] # (num_envs, 4)
+        franka_base_rot_mat = quaternion_to_matrix_ig(franka_base_quat)
+        rot_global2base = franka_base_rot_mat.transpose(1, 2) # (num_envs, 3, 3)
 
         obs['full_pcd_t'] = torch.cat([obs["full_scene_pcd_t"], obs["robot_pcd_t"]], dim=1)
 
@@ -266,11 +265,11 @@ class DaggerMobile:
 
             obs['full_pcd_t'] = sim_depth_pcd
 
-        # convert all pcd to eef frame
+        # convert all pcd to franka base frame
         for key in obs.keys():
             if "pcd" in key:
-                pcd_shifted = obs[key] - eef_pos.unsqueeze(1) # (num_envs, N, 3)
-                pcd_eef_frame = torch.bmm(pcd_shifted, rot_global2eef) # (num_envs, N, 3), bmm is like matmul but specifically made for batches of 2D matrices, faster than matmul
+                pcd_shifted = obs[key] - franka_base_pos.unsqueeze(1) # (num_envs, N, 3)
+                pcd_eef_frame = torch.bmm(pcd_shifted, rot_global2base) # (num_envs, N, 3), bmm is like matmul but specifically made for batches of 2D matrices, faster than matmul
                 obs[key] = pcd_eef_frame
 
         obs_student = OrderedDict()
@@ -289,6 +288,8 @@ class DaggerMobile:
 
         if "full_scene_pcd_t" in self.pcd_encoders_keys:
             obs_student["full_scene_pcd_t"] = obs["full_scene_pcd_t"]
+        if "full_pcd_t" in self.pcd_encoders_keys:
+            obs_student["full_pcd_t"] = obs["full_pcd_t"]
 
         if "local_pcd_t" in self.pcd_encoders_keys:
             obs_student["local_pcd_t"], crop_logs = crop_local_pcd(obs['full_pcd_t'], self.local_pcd_range, self.num_local_points) # (num_envs, num_local_points, 3)

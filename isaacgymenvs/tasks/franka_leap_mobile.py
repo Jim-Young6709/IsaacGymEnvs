@@ -847,6 +847,12 @@ class FrankaLEAPMobile(VecTask):
         else:
             actionreg = torch.zeros_like(self._qd)
 
+        # update camera pose and franka base pose
+        current_joint_pos_fabric = torch.zeros_like(self.fabric_q, device=self.device)
+        current_joint_pos_fabric[:, :10] = self._q[:, :10].clone()
+        current_joint_pos_fabric[:, 10:] = self._q[:, 26:].clone()
+        glorbot_fk = self.franka_fabric.forward_kinematics(["camera_link", "panda_link0"], current_joint_pos_fabric) # (num_envs, num_links, xyz+xyzw)
+
         # update states
         self.states.update({
             # Robot
@@ -863,6 +869,9 @@ class FrankaLEAPMobile(VecTask):
             "eef_finger2_pos": self._eef_finger2_state[:, :3],
             "eef_finger3_pos": self._eef_finger3_state[:, :3],
             "eef_finger4_pos": self._eef_finger4_state[:, :3],
+
+            "camera_pose7": glorbot_fk[:, 0, :],  # camera_link, xyz + xyzw
+            "franka_base_pose7": glorbot_fk[:, 1, :],  # panda_link0, xyz + xyzw
 
             # Fingertip positions relative to hand base (palm_center)
             "eef_finger1_pos_relative": self._eef_finger1_state[:, :3] - self._eef_state[:, :3],
@@ -1507,12 +1516,8 @@ class FrankaLEAPMobile(VecTask):
             point_cloud_type="full_points", 
             point_cloud=pcd_full[0].cpu().numpy()
         )
-        # get robot joint position for fabric
-        current_joint_pos_fabric = torch.zeros_like(self.fabric_q, device=self.device)
-        current_joint_pos_fabric[:, :10] = self.states['q'][:, :10].clone()
-        current_joint_pos_fabric[:, 10:] = self.states['q'][:, 26:].clone()
         # (1, 7)
-        current_camera_pose = self.franka_fabric.forward_kinematics(["camera_link"], current_joint_pos_fabric)[env_id:env_id+1, 0]
+        current_camera_pose = self.states["camera_pose7"][env_id:env_id+1]
         sim_depth_pcd, logs = simulate_depth_cam_render_from_pose(
             pcd=pcd_full,
             camera_pose=current_camera_pose,
