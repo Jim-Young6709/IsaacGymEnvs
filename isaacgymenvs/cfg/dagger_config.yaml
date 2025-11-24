@@ -86,9 +86,9 @@ dagger:
 normalize_state: True
 normalize_action: True
 action_space:
-  delta_franka_action: True
-  delta_leap_action: True
-  delta_arx_action: True
+  delta_franka_action: False
+  delta_leap_action: False
+  delta_arx_action: False
 chunk_size: 1
 
 
