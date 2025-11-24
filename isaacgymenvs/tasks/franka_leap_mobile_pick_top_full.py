@@ -295,7 +295,9 @@ class FrankaLEAPMobilePickTopFull(FrankaLEAPMobile):
 
             box_quater_length = self.box_dims[i][0]/2 + self.box_dims[i][1]/2
             num_x_dir_obj = round(self.num_corner_obstacles * (self.box_dims[i][0]/2 / box_quater_length))
-            num_x_dir_obj = max(1, min(num_x_dir_obj, self.num_corner_obstacles-1))
+            num_x_dir_obj = max(0, min(num_x_dir_obj, self.num_corner_obstacles-1))
+            if num_x_dir_obj == 0 and self.num_corner_obstacles > 1:
+                num_x_dir_obj = 1
             num_y_dir_obj = self.num_corner_obstacles - num_x_dir_obj
 
             def _sample_size_and_radius(obstacles_size_list):
