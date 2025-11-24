@@ -167,6 +167,8 @@ class FrankaLEAPMobile(VecTask):
         if not hasattr(self, 'canonical_joint_config'):
             base_init_range = torch.tensor(self.cfg['env']['robot_init']['base_init_range'], device=self.device)
             base_init_pose = torch.rand((self.num_envs, 3), device=self.device) * (base_init_range[1] - base_init_range[0]) + base_init_range[0]
+            base_init_pose[:, 1] += self.box_pos[:, 1]
+
             self.canonical_joint_config = torch.tensor(
                 [
                     [0.0, 0.0, 0.0] + \
