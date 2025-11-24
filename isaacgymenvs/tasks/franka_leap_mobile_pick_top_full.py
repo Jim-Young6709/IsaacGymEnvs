@@ -115,7 +115,7 @@ class FrankaLEAPMobilePickTopFull(FrankaLEAPMobile):
 
         self.cuboid_dims = []  # xyz
         self.cuboid_pos = []
-        self.cuboid_quats = []
+        self.cuboid_quats = [] # xyzw
 
         self.sphere_radii = []
         self.sphere_pos = []
@@ -423,6 +423,15 @@ class FrankaLEAPMobilePickTopFull(FrankaLEAPMobile):
         self.sphere_radii = np.array(self.sphere_radii).reshape(self.num_envs, -1)
         self.sphere_pos = np.array(self.sphere_pos).reshape(self.num_envs, -1, 3)
 
+        self.capsule_dims = np.array(self.capsule_dims).reshape(self.num_envs, -1, 2)
+        self.capsule_pos = np.array(self.capsule_pos).reshape(self.num_envs, -1, 3)
+
+        # TODO: currently don't have capsule supported in pcd utils so use cylinder instead, maybe fix this later, or maybe this doesn't matter much?
+        self.cylinder_radii = self.capsule_dims[:, :, 0]
+        self.cylinder_heights = (self.capsule_dims[:, :, 0] + self.capsule_dims[:, :, 1]) * 2
+        self.cylinder_pos = self.capsule_pos
+        self.cylinder_quat = np.array([[0.0, 0.0, 0.0, 1.0]] * self.capsule_pos.shape[0] * self.capsule_pos.shape[1]).reshape(self.num_envs, -1, 4)
+
         self.table_pos = torch.tensor(self.table_pos, device=self.device)
         self.table_size = torch.tensor(self.table_size, device=self.device)
 
@@ -437,6 +446,10 @@ class FrankaLEAPMobilePickTopFull(FrankaLEAPMobile):
                 cuboid_dims=np.array(self.cuboid_dims[i]),
                 cuboid_centers=np.array(self.cuboid_pos[i]),
                 cuboid_quats=np.array(self.cuboid_quats[i]),
+                cylinder_radii=np.array(self.cylinder_radii[i]),
+                cylinder_heights=np.array(self.cylinder_heights[i]),
+                cylinder_centers=np.array(self.cylinder_pos[i]),
+                cylinder_quats=np.array(self.cylinder_quat[i]),
                 sphere_centers=np.array(self.sphere_pos[i]),
                 sphere_radii=np.array(self.sphere_radii[i]),
             )).to(self.device)
