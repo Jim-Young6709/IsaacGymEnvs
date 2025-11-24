@@ -1272,7 +1272,7 @@ class FrankaLEAPMobile(VecTask):
             # get teacher actions for student to regress on
             delta_actions = teacher_actions_abs - self.states['q']
 
-            base_actions_abs_vel = delta_actions[:, :3] / self.dt # numerical difference for joint velocity
+            base_actions_abs_vel = delta_actions[:, :3] # numerical difference for joint velocity
 
             if self.delta_franka_action:
                 franka_actions_normalized = self.normalize_robot_joints(delta_actions[:, 3:10], robot="franka", delta=True)
@@ -1302,7 +1302,7 @@ class FrankaLEAPMobile(VecTask):
             actions (torch.Tensor): student actions (num_selected_envs, 3+7+4*4+6)
         """
         student_actions_abs = actions.clone()
-        student_actions_abs[:, :3] = actions[:, :3] * self.dt + self.states['q'][:, :3]  # base abs action
+        student_actions_abs[:, :3] = actions[:, :3] + self.states['q'][:, :3]  # base abs action
 
         if self.delta_franka_action:
             student_actions_abs[:, 3:10] = self.unnormalize_robot_joints(actions[:, 3:10], robot="franka", delta=True) + self.states['q'][:, 3:10]
