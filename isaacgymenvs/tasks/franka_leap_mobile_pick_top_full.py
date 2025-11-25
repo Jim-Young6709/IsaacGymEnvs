@@ -196,6 +196,10 @@ class FrankaLEAPMobilePickTopFull(FrankaLEAPMobile):
                     env_id=i,
                 )
 
+            self.gym.create_actor(
+                env_ptr, table_asset, table_start_pose, "table", i, 1, 0
+            )
+
             # create mobile obstacles
             for mob_i in range(self.num_mobile_cuboids):
                 theta = np.random.uniform(0, 2 * np.pi)
@@ -249,10 +253,6 @@ class FrankaLEAPMobilePickTopFull(FrankaLEAPMobile):
                 )
 
             self.objects_per_env = 1 + self.tol_mobile_obstacles
-
-            self.gym.create_actor(
-                env_ptr, table_asset, table_start_pose, "table", i, 1, 0
-            )
 
             ### setup add on obstacles
             box_height_limit = self.box_dims[i][2]
