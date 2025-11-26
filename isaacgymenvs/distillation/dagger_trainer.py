@@ -175,7 +175,6 @@ class Dagger:
             success_rate_ep = self.load_checkpoint(load_checkpoint_path)
             colorprint(f"Resumed training from {load_checkpoint_path}: steps={self.total_steps}, success_rate_ep={success_rate_ep}", color="magenta")
 
-
     # TODO: teacher loading utils, shall I just simply merge them?
     def load_param_dict(self, cfg_path) -> Dict:
         base_dir = os.path.dirname(__file__)
