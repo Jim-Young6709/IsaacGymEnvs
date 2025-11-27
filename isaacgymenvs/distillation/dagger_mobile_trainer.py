@@ -260,6 +260,7 @@ class DaggerMobile:
                                   self.env.pcd_spec_dict['num_robot_points'] + \
                                   self.env.pcd_spec_dict['num_object_points']
 
+            # TODO: update this
             sim_depth_pcd, logs = simulate_depth_cam_render(
                 obs['full_pcd_t'],
                 self.env._object_center_init_state,
