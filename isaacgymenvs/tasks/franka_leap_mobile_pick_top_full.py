@@ -698,7 +698,7 @@ class FrankaLEAPMobilePickTopFull(FrankaLEAPMobile):
 
     def set_viewer(self):
         super().set_viewer(
-            pos=[1.5, 0.0, 1.0],
+            pos=[2.0, 0.0, 1.2],
             target=[0.3, 0.0, 0.7],
         )
 
