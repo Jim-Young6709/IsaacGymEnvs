@@ -825,14 +825,20 @@ class FrankaLEAPMobile(VecTask):
             target_eef_pos7=torch.cat([self.reward_settings["target_pos"], self.reward_settings["target_quat"]], dim=-1)
         )
 
-        # update fabric switching state
         if self.enable_fabric:
+            # update fabric switching state
             switching_matching_err = self._get_eef_point_matching_err(
                 curent_eef_pos7=self._eef_state[:, :7],
                 target_eef_pos7=torch.cat([self.switching_target_pos, self.switching_target_quat], dim=-1)
             )
             self.fabric_switch_enable[switching_matching_err < self.switch_tol] = False
             self.fabric_switch_enable[self.progress_buf == 0] = True
+
+            # update camera pose and franka base pose
+            current_joint_pos_fabric = torch.zeros_like(self.fabric_q, device=self.device)
+            current_joint_pos_fabric[:, :10] = self._q[:, :10].clone()
+            current_joint_pos_fabric[:, 10:] = self._q[:, 26:].clone()
+            glorbot_fk = self.franka_fabric.forward_kinematics(["camera_link", "panda_link0"], current_joint_pos_fabric) # (num_envs, num_links, xyz+xyzw)
 
         # update point clouds
         object_pcds_world = transform_pcds_to_world(self.object_pcds, self._object_state[:, :7])
@@ -854,12 +860,6 @@ class FrankaLEAPMobile(VecTask):
         else:
             actionreg = torch.zeros_like(self._qd)
 
-        # update camera pose and franka base pose
-        current_joint_pos_fabric = torch.zeros_like(self.fabric_q, device=self.device)
-        current_joint_pos_fabric[:, :10] = self._q[:, :10].clone()
-        current_joint_pos_fabric[:, 10:] = self._q[:, 26:].clone()
-        glorbot_fk = self.franka_fabric.forward_kinematics(["camera_link", "panda_link0"], current_joint_pos_fabric) # (num_envs, num_links, xyz+xyzw)
-
         # update states
         self.states.update({
             # Robot
@@ -876,9 +876,6 @@ class FrankaLEAPMobile(VecTask):
             "eef_finger2_pos": self._eef_finger2_state[:, :3],
             "eef_finger3_pos": self._eef_finger3_state[:, :3],
             "eef_finger4_pos": self._eef_finger4_state[:, :3],
-
-            "camera_pose7": glorbot_fk[:, 0, :],  # camera_link, xyz + xyzw
-            "franka_base_pose7": glorbot_fk[:, 1, :],  # panda_link0, xyz + xyzw
 
             # Fingertip positions relative to hand base (palm_center)
             "eef_finger1_pos_relative": self._eef_finger1_state[:, :3] - self._eef_state[:, :3],
@@ -902,6 +899,12 @@ class FrankaLEAPMobile(VecTask):
             # recorded actions
             "actionreg": actionreg,
         })
+
+        if self.enable_fabric:
+            self.states.update({
+                "camera_pose7": glorbot_fk[:, 0, :],  # camera_link, xyz + xyzw
+                "franka_base_pose7": glorbot_fk[:, 1, :],  # panda_link0, xyz + xyzw
+            })
 
     def _get_eef_point_matching_err(self, curent_eef_pos7: torch.Tensor, target_eef_pos7: torch.Tensor):
         """
@@ -1272,20 +1275,20 @@ class FrankaLEAPMobile(VecTask):
             # get teacher actions for student to regress on
             delta_actions = teacher_actions_abs - self.states['q']
 
-            base_actions_abs_vel = delta_actions[:, :3] # numerical difference for joint velocity
+            base_actions_abs_vel = delta_actions[:, :3] / self.dt # numerical difference for joint velocity
 
             if self.delta_franka_action:
-                franka_actions_normalized = self.normalize_robot_joints(delta_actions[:, 3:10], robot="franka", delta=True)
+                franka_actions_normalized = self.normalize_robot_joints(delta_actions[:, 3:10], robot="franka", delta=True) * 100
             else:
                 franka_actions_normalized = self.normalize_robot_joints(teacher_actions_abs[:, 3:10], robot="franka", delta=False)
 
             if self.delta_leap_action:
-                leap_actions_normalized = self.normalize_robot_joints(delta_actions[:, 10:26], robot="leap", delta=True)
+                leap_actions_normalized = self.normalize_robot_joints(delta_actions[:, 10:26], robot="leap", delta=True) / self.action_scale["hand"] / self.dt
             else:
                 leap_actions_normalized = self.normalize_robot_joints(teacher_actions_abs[:, 10:26], robot="leap", delta=False)
 
             if self.delta_arx_action:
-                arx_actions_normalized = self.normalize_robot_joints(delta_actions[:, 26:], robot="arx", delta=True)
+                arx_actions_normalized = self.normalize_robot_joints(delta_actions[:, 26:], robot="arx", delta=True) * 100
             else:
                 arx_actions_normalized = self.normalize_robot_joints(teacher_actions_abs[:, 26:], robot="arx", delta=False)
 
@@ -1302,22 +1305,22 @@ class FrankaLEAPMobile(VecTask):
             actions (torch.Tensor): student actions (num_selected_envs, 3+7+4*4+6)
         """
         student_actions_abs = actions.clone()
-        student_actions_abs[:, :3] = actions[:, :3] + self.states['q'][:, :3]  # base abs action
+        student_actions_abs[:, :3] = actions[:, :3] * self.dt + self.states['q'][:, :3]  # base abs action
 
         if self.delta_franka_action:
-            student_actions_abs[:, 3:10] = self.unnormalize_robot_joints(actions[:, 3:10], robot="franka", delta=True) + self.states['q'][:, 3:10]
+            student_actions_abs[:, 3:10] = self.unnormalize_robot_joints(student_actions_abs[:, 3:10], robot="franka", delta=True) / 100 + self.states['q'][:, 3:10]
         else:
-            student_actions_abs[:, 3:10] = self.unnormalize_robot_joints(actions[:, 3:10], robot="franka", delta=False)
+            student_actions_abs[:, 3:10] = self.unnormalize_robot_joints(student_actions_abs[:, 3:10], robot="franka", delta=False)
 
         if self.delta_leap_action:
-            student_actions_abs[:, 10:26] = self.unnormalize_robot_joints(actions[:, 10:26], robot="leap", delta=True) + self.states['q'][:, 10:26]
+            student_actions_abs[:, 10:26] = self.unnormalize_robot_joints(student_actions_abs[:, 10:26], robot="leap", delta=True) * self.action_scale["hand"] * self.dt + self.states['q'][:, 10:26]
         else:
-            student_actions_abs[:, 10:26] = self.unnormalize_robot_joints(actions[:, 10:26], robot="leap", delta=False)
+            student_actions_abs[:, 10:26] = self.unnormalize_robot_joints(student_actions_abs[:, 10:26], robot="leap", delta=False)
 
         if self.delta_arx_action:
-            student_actions_abs[:, 26:] = self.unnormalize_robot_joints(actions[:, 26:], robot="arx", delta=True) + self.states['q'][:, 26:]
+            student_actions_abs[:, 26:] = self.unnormalize_robot_joints(student_actions_abs[:, 26:], robot="arx", delta=True) / 100 + self.states['q'][:, 26:]
         else:
-            student_actions_abs[:, 26:] = self.unnormalize_robot_joints(actions[:, 26:], robot="arx", delta=False)
+            student_actions_abs[:, 26:] = self.unnormalize_robot_joints(student_actions_abs[:, 26:], robot="arx", delta=False)
 
         return student_actions_abs
 
