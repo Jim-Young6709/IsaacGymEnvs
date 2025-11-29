@@ -143,20 +143,19 @@ def get_pose_error(current_eef_pos,
     return pos_error, axis_angle_error
 
 
-def _get_delta_dof_pos(delta_pose, ik_method, jacobian, device):
+
+def _get_delta_dof_pos(delta_pose, ik_method, jacobian, device, k_val=1.0):
     """Get delta Franka DOF position from delta pose using specified IK method."""
     # References:
     # 1) https://www.cs.cmu.edu/~15464-s13/lectures/lecture6/iksurvey.pdf
     # 2) https://ethz.ch/content/dam/ethz/special-interest/mavt/robotics-n-intelligent-systems/rsl-dam/documents/RobotDynamics2018/RD_HS2018script.pdf (p. 47)
 
     if ik_method == 'pinv':  # Jacobian pseudoinverse
-        k_val = 1.0
         jacobian_pinv = torch.linalg.pinv(jacobian)
         delta_dof_pos = k_val * jacobian_pinv @ delta_pose.unsqueeze(-1)
         delta_dof_pos = delta_dof_pos.squeeze(-1)
 
     elif ik_method == 'trans':  # Jacobian transpose
-        k_val = 1.0
         jacobian_T = torch.transpose(jacobian, dim0=1, dim1=2)
         delta_dof_pos = k_val * jacobian_T @ delta_pose.unsqueeze(-1)
         delta_dof_pos = delta_dof_pos.squeeze(-1)
@@ -166,10 +165,9 @@ def _get_delta_dof_pos(delta_pose, ik_method, jacobian, device):
         jacobian_T = torch.transpose(jacobian, dim0=1, dim1=2)
         lambda_matrix = (lambda_val ** 2) * torch.eye(n=jacobian.shape[1], device=device)
         delta_dof_pos = jacobian_T @ torch.inverse(jacobian @ jacobian_T + lambda_matrix) @ delta_pose.unsqueeze(-1)
-        delta_dof_pos = delta_dof_pos.squeeze(-1)
+        delta_dof_pos = k_val * delta_dof_pos.squeeze(-1)
 
     elif ik_method == 'svd':  # adaptive SVD
-        k_val = 1.0
         U, S, Vh = torch.linalg.svd(jacobian)
         S_inv = 1. / S
         min_singular_value = 1.0e-5
