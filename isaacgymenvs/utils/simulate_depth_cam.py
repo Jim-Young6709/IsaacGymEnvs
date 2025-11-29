@@ -692,6 +692,18 @@ def simulate_depth_cam_render_from_pose(
     jitter_std_m: float = 0.004,
     cam_spec_dict: dict = INTEL_435,
 ):
+    """
+    Args:
+        pcd (torch.Tensor): _description_
+        camera_pose (torch.Tensor): (B,7): [x,y,z,qx,qy,qz,qw], camera->world, +X forward
+        num_points (int): _description_
+        inflate_px (int, optional): _description_. Defaults to 2.
+        jitter_std_m (float, optional): _description_. Defaults to 0.004.
+        cam_spec_dict (dict, optional): Current options are INTEL_435 and INTEL_455.
+
+    Returns:
+        _type_: _description_
+    """
     batch_size = pcd.shape[0]
     device = pcd.device
 
