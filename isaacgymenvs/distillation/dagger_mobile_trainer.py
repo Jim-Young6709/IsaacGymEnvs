@@ -10,7 +10,7 @@ from collections import OrderedDict
 from isaacgymenvs.utils.rotation_conversions import quaternion_to_matrix_ig
 from isaacgymenvs.utils.pcd_utils import downsample_pcd_batched, crop_local_pcd, visualize_pcd
 from isaacgymenvs.utils.training_utils import *
-from isaacgymenvs.utils.simulate_depth_cam import simulate_depth_cam_render
+from isaacgymenvs.utils.simulate_depth_cam import simulate_depth_cam_render_from_pose
 
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -255,16 +255,17 @@ class DaggerMobile:
 
         obs['full_pcd_t'] = torch.cat([obs["full_scene_pcd_t"], obs["robot_pcd_t"]], dim=1)
 
+        # env_id = self.env.viser_visualizer.env_id
         if self.env.pcd_spec_dict['simulate_depth_cam']:
             num_full_pcd_points = self.env.pcd_spec_dict['num_static_points'] + \
                                   self.env.pcd_spec_dict['num_robot_points'] + \
                                   self.env.pcd_spec_dict['num_object_points']
 
-            # TODO: update this
-            sim_depth_pcd, logs = simulate_depth_cam_render(
-                obs['full_pcd_t'],
-                self.env._object_center_init_state,
-                num_full_pcd_points,
+            camera_pose7 = self.env.states['camera_pose7'].clone() # (num_envs, 7)
+            sim_depth_pcd, logs = simulate_depth_cam_render_from_pose(
+                pcd=obs['full_pcd_t'],
+                camera_pose=camera_pose7,
+                num_points=num_full_pcd_points,
             )
 
             if self.use_wandb:
@@ -272,12 +273,48 @@ class DaggerMobile:
 
             obs['full_pcd_t'] = sim_depth_pcd
 
+        # self.env.viser_visualizer.update_point_cloud(
+        #     point_cloud_type="rendered_points",
+        #     point_cloud=obs['full_pcd_t'][env_id].cpu().numpy()
+        # )
+        # self.env.viser_visualizer.update_point_cloud(
+        #     point_cloud_type="hand_pcd_t",
+        #     point_cloud=obs["hand_pcd_t"][env_id].cpu().numpy()
+        # )
+        # self.env.viser_visualizer.update_point_cloud(
+        #     point_cloud_type="seg_static_obsacles_t0",
+        #     point_cloud=obs["static_scene_pcd_t0"][env_id].cpu().numpy()
+        # )
+        # self.env.viser_visualizer.update_point_cloud(
+        #     point_cloud_type="seg_static_object_t0",
+        #     point_cloud=obs["object_pcd_t0"][env_id].cpu().numpy()
+        # )
+
         # convert all pcd to franka base frame
         for key in obs.keys():
             if "pcd" in key:
                 pcd_shifted = obs[key] - franka_base_pos.unsqueeze(1) # (num_envs, N, 3)
                 pcd_eef_frame = torch.bmm(pcd_shifted, rot_global2base) # (num_envs, N, 3), bmm is like matmul but specifically made for batches of 2D matrices, faster than matmul
                 obs[key] = pcd_eef_frame
+
+        # self.env.viser_visualizer.update_point_cloud(
+        #     point_cloud_type="rendered_points",
+        #     point_cloud=obs['full_pcd_t'][env_id].cpu().numpy()
+        # )
+        # self.env.viser_visualizer.update_point_cloud(
+        #     point_cloud_type="hand_pcd_t",
+        #     point_cloud=obs["hand_pcd_t"][env_id].cpu().numpy()
+        # )
+        # self.env.viser_visualizer.update_point_cloud(
+        #     point_cloud_type="seg_static_obsacles_t0",
+        #     point_cloud=obs["static_scene_pcd_t0"][env_id].cpu().numpy()
+        # )
+        # self.env.viser_visualizer.update_point_cloud(
+        #     point_cloud_type="seg_static_object_t0",
+        #     point_cloud=obs["object_pcd_t0"][env_id].cpu().numpy()
+        # )
+        # self.env.viser_visualizer.wheel_odom_frame.position = franka_base_pos[env_id].cpu().numpy()
+        # self.env.viser_visualizer.wheel_odom_frame.wxyz = franka_base_quat[env_id, [3, 0, 1, 2]].cpu().numpy()
 
         obs_student = OrderedDict()
 

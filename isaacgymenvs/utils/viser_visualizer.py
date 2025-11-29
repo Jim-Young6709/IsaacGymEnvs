@@ -106,6 +106,7 @@ class ViserVisualizer:
             precision="float16",
             visible=True,
         )
+        self.wheel_odom_frame = self.server.scene.add_frame("/wheel_odom", show_axes=True, axes_length=0.2, axes_radius=0.01, visible=True)
 
         # ---------------------- env_id ----------------------
         self.env_id = 0
