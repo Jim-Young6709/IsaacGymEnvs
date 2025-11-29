@@ -844,13 +844,6 @@ class FrankaLEAPMobile(VecTask):
         object_pcds_world = transform_pcds_to_world(self.object_pcds, self._object_state[:, :7])
         self.combined_pcds[:, -self.pcd_spec_dict["num_object_points"]:] = object_pcds_world
 
-        # update initial frame pcd
-        if self.object_pcd_t0 is None:
-            self.object_pcd_t0 = object_pcds_world.clone()
-        else:
-            init_flag = (self.progress_buf == 0)
-            self.object_pcd_t0[init_flag] = object_pcds_world[init_flag].clone()
-
         if self.cfg["reward"]["actionreg_type"] == "delta_joint_action":
             actionreg = self.delta_joint_actions
         elif self.cfg["reward"]["actionreg_type"] == "delta_eef_action":
@@ -1168,6 +1161,12 @@ class FrankaLEAPMobile(VecTask):
             self.sim, gymtorch.unwrap_tensor(self._root_state),
             gymtorch.unwrap_tensor(multi_env_ids_obj_int32), len(multi_env_ids_obj_int32),
         )
+
+        # update initial frame pcd
+        object_pcds_world = transform_pcds_to_world(self.object_pcds, self._object_state[:, :7])
+        if self.object_pcd_t0 is None:
+            self.object_pcd_t0 = object_pcds_world.clone()
+        self.object_pcd_t0[env_ids] = object_pcds_world[env_ids].clone()
 
     def get_joint_limits_franka(self):
         """
@@ -1601,6 +1600,15 @@ class FrankaLEAPMobile(VecTask):
             point_cloud_type="rendered_points",
             point_cloud=sim_depth_pcd[0].cpu().numpy()
         )
+        self.viser_visualizer.update_point_cloud(
+            point_cloud_type="obj_point_t",
+            point_cloud=self.states['object_pos'][env_id].reshape(1, 3).cpu().numpy()
+        )
+        if self.object_pcd_t0 is not None:
+            self.viser_visualizer.update_point_cloud(
+                point_cloud_type="seg_static_object_t0",
+                point_cloud=self.object_pcd_t0[env_id].cpu().numpy()
+            )
 
     @abstractmethod
     def _create_envs(self, spacing, num_per_row):
