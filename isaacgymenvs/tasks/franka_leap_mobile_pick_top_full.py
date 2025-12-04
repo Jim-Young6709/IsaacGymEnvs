@@ -96,6 +96,13 @@ class FrankaLEAPMobilePickTopFull(FrankaLEAPMobile):
         self.mobile_x_offset_range = self.mobile_obstacles_cfg["x_offset_range"]
         self.mobile_y_offset_range = self.mobile_obstacles_cfg["y_offset_range"]
 
+    def _setup_fabric_switching_target(self):
+        self.switching_target_pos = self.box_pos.clone()
+        self.switching_target_pos[:, 2] += self.box_dims[:, 2]
+        self.switching_target_pos += self.switch_pos_offset
+        rot_local_x_180 = torch.tensor([[1.0, 0.0, 0.0, 0.0]]*self.num_envs, device=self.device)  # 180 degrees around local x-axis
+        self.switching_target_quat = quat_mul(self.box_quats.clone(), rot_local_x_180) # default hand orientation is facing up, so need to rotate 180
+
     def _create_envs(self, spacing, num_per_row):
         """
         loading Franka + LEAP + a table in the environment, this is for debugging purposes only

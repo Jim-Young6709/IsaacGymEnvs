@@ -363,12 +363,12 @@ class FrankaLEAPMobile(VecTask):
         self.fabric_switch_enable = torch.ones((self.num_envs,), dtype=torch.bool, device=self.device) # 0 -- disable ; 1 -- enable
         self.switch_pos_offset = torch.tensor(self.cfg['env']['robot_init']['switch_pos_offset'], device=self.device)
         self.switch_tol = self.cfg['env']['robot_init']['switch_tol']
-        # TODO: shall I init this here? box is not defined in this class
-        self.switching_target_pos = self.box_pos.clone()
-        self.switching_target_pos[:, 2] += self.box_dims[:, 2]
-        self.switching_target_pos += self.switch_pos_offset
-        rot_local_x_180 = torch.tensor([[1.0, 0.0, 0.0, 0.0]]*self.num_envs, device=self.device)  # 180 degrees around local x-axis
-        self.switching_target_quat = quat_mul(self.box_quats.clone(), rot_local_x_180) # default hand orientation is facing up, so need to rotate 180
+
+        self._setup_fabric_switching_target()
+
+    @abstractmethod
+    def _setup_fabric_switching_target(self):
+        pass
 
     def init_data(self, actor_num):
         # Setup sim handles
