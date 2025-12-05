@@ -110,7 +110,7 @@ class ViserVisualizer:
             name="/local_point_t",
             points=np.zeros((0, 3), dtype=np.float16),
             colors=(255, 0, 0),
-            point_size=0.01,
+            point_size=0.01/4,
             precision="float16",
             visible=True,
         )

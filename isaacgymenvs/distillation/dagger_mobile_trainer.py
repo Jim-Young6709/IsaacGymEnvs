@@ -337,14 +337,19 @@ class DaggerMobile:
                 obs_student["full_pcd_t"] = downsample_pcd_batched(obs["full_pcd_t"], num_points_full_pcd_t)
 
         # TODO: maybe update this to a cylindrical local crop
-        # if "local_pcd_t" in self.pcd_encoders_keys:
-        #     obs_student["local_pcd_t"], crop_logs = crop_local_pcd(obs['full_pcd_t'], self.local_pcd_range, self.num_local_points) # (num_envs, num_local_points, 3)
-        #     if self.use_wandb:
-        #         wandb.log(crop_logs, step=self.total_steps)
-        # elif "local_scene_pcd_t" in self.pcd_encoders_keys:
-        #     obs_student["local_scene_pcd_t"], crop_logs = crop_local_pcd(obs["full_scene_pcd_t"], self.local_pcd_range, self.num_local_points)
-        #     if self.use_wandb:
-        #         wandb.log(crop_logs, step=self.total_steps)
+        if "local_pcd_t" in self.pcd_encoders_keys:
+            obs_student["local_pcd_t"], crop_logs = crop_local_pcd(obs['full_pcd_t'], self.local_pcd_range, self.num_local_points, is_cylindrical=True) # (num_envs, num_local_points, 3)
+            if self.use_wandb:
+                wandb.log(crop_logs, step=self.total_steps)
+        elif "local_scene_pcd_t" in self.pcd_encoders_keys:
+            obs_student["local_scene_pcd_t"], crop_logs = crop_local_pcd(obs["full_scene_pcd_t"], self.local_pcd_range, self.num_local_points, is_cylindrical=True)
+            if self.use_wandb:
+                wandb.log(crop_logs, step=self.total_steps)
+
+        # self.env.viser_visualizer.update_point_cloud(
+        #     point_cloud_type="local_point_t",
+        #     point_cloud=obs_student['local_pcd_t'][env_id].cpu().numpy()
+        # )
 
         return obs_student
 
