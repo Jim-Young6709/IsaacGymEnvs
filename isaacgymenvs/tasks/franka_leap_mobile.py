@@ -167,7 +167,7 @@ class FrankaLEAPMobile(VecTask):
         if not hasattr(self, 'canonical_joint_config'):
             base_init_range = torch.tensor(self.cfg['env']['robot_init']['base_init_range'], device=self.device)
             base_init_pose = torch.rand((self.num_envs, 3), device=self.device) * (base_init_range[1] - base_init_range[0]) + base_init_range[0]
-            base_init_pose[:, 1] += self.box_pos[:, 1]
+            base_init_pose[:, 1] += getattr(self, "box_pos", torch.zeros_like(base_init_pose))[:, 1]
 
             self.canonical_joint_config = torch.tensor(
                 [
@@ -368,7 +368,8 @@ class FrankaLEAPMobile(VecTask):
 
     @abstractmethod
     def _setup_fabric_switching_target(self):
-        pass
+        self.switching_target_pos = ...
+        self.switching_target_quat = ...
 
     def init_data(self, actor_num):
         # Setup sim handles
