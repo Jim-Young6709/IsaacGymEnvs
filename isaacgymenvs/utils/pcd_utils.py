@@ -300,7 +300,12 @@ def downsample_pcd_batched(pcd: torch.Tensor, num_points: int) -> torch.Tensor:
     return torch.gather(pcd, 1, idx.unsqueeze(-1).expand(-1, -1, 3))
 
 
-def crop_local_pcd(pcd: torch.Tensor, local_range: torch.float, num_local_points: torch.int):
+def crop_local_pcd(
+    pcd: torch.Tensor,
+    local_range: torch.float,
+    num_local_points: torch.int,
+    is_cylindrical: bool = False,
+):
     """
     Crop the point cloud to a local region around the origin with 0 padding.
     Args:
@@ -312,7 +317,10 @@ def crop_local_pcd(pcd: torch.Tensor, local_range: torch.float, num_local_points
 
     # get local pcd
     masked_pcds = shuffle_pcd(pcd)
-    dist = torch.norm(masked_pcds, dim=-1)
+    if is_cylindrical:
+        dist = torch.norm(masked_pcds[..., :2], dim=-1)
+    else:
+        dist = torch.norm(masked_pcds, dim=-1)
     mask = dist < local_range # nan < X always returns false, so if there are nan values in pcd input, it get automatically filtered out
     masked_pcds[~mask] = float("nan")
 

@@ -106,6 +106,14 @@ class ViserVisualizer:
             precision="float16",
             visible=True,
         )
+        self._point_cloud_handle["local_point_t"] = self.server.scene.add_point_cloud(
+            name="/local_point_t",
+            points=np.zeros((0, 3), dtype=np.float16),
+            colors=(255, 0, 0),
+            point_size=0.01,
+            precision="float16",
+            visible=True,
+        )
         self.wheel_odom_frame = self.server.scene.add_frame("/wheel_odom", show_axes=True, axes_length=0.2, axes_radius=0.01, visible=True)
 
         # ---------------------- env_id ----------------------
