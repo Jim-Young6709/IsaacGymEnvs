@@ -1352,6 +1352,56 @@ class FrankaLEAPMobile(VecTask):
             self.video_logger()
         self.sim_steps += 1
 
+    def step(self, actions: torch.Tensor):
+        """Step the physics of the environment.
+
+        Args:
+            actions: actions to apply
+        Returns:
+            Observations, rewards, resets, info
+            Observations are dict of observations (currently only one member called 'obs')
+        """
+
+        # randomize actions
+        if self.dr_randomizations.get('actions', None):
+            actions[~self.fabric_switch_enable][:, :26] = self.dr_randomizations['actions']['noise_lambda'](actions)[~self.fabric_switch_enable][:, :26]
+
+        action_tensor = torch.clamp(actions, -self.clip_actions, self.clip_actions)
+        # apply actions
+        self.pre_physics_step(action_tensor)
+
+        # step physics and render each frame
+        for i in range(self.control_freq_inv):
+            if self.force_render:
+                self.render()
+            self.gym.simulate(self.sim)
+
+        # to fix!
+        if self.device == 'cpu':
+            self.gym.fetch_results(self.sim, True)
+
+        # compute observations, rewards, resets, ...
+        self.post_physics_step()
+
+        self.control_steps += 1
+
+        # fill time out buffer: set to 1 if we reached the max episode length AND the reset buffer is 1. Timeout == 1 makes sense only if the reset buffer is 1.
+        self.timeout_buf = (self.progress_buf >= self.max_episode_length - 1) & (self.reset_buf != 0)
+
+        # randomize observations
+        if self.dr_randomizations.get('observations', None):
+            self.obs_buf = self.dr_randomizations['observations']['noise_lambda'](self.obs_buf)
+
+        self.extras["time_outs"] = self.timeout_buf.to(self.rl_device)
+
+        self.obs_dict["obs"] = torch.clamp(self.obs_buf, -self.clip_obs, self.clip_obs).to(self.rl_device)
+
+        # asymmetric actor-critic
+        if self.num_states > 0:
+            self.obs_dict["states"] = self.get_state()
+
+        return self.obs_dict, self.rew_buf.to(self.rl_device), self.reset_buf.to(self.rl_device), self.extras
+
     def reset_idx(self, env_ids=None):
         # Domain randomization, can happen only at reset time since it can reset actor positions on GPU
         if self.randomize:

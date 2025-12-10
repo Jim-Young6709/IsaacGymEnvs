@@ -1,16 +1,12 @@
 # Top-down box grasping config for Franka+LEAP environment
 
 defaults:
-  - LEAPExpBase
+  - DexMobileExpBase
 
 name: FrankaLEAPMobilePickTable
 
 # if given, will override the device setting in gym. 
 env:
-  episodeLength: 1000
-  asset:
-    assetFileNameFranka: "glorbot/glorbot.urdf"
-
   scene:
     table_thickness_range: [0.01, 0.1]
     z_shift_range: [0.1, 0.6]

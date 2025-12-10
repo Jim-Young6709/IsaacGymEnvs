@@ -1,0 +1,23 @@
+# Base config for MobileBase+Franka+LEAP environment
+
+defaults:
+  - LEAPExpBase
+
+# if given, will override the device setting in gym. 
+env:
+  episodeLength: 1000
+  asset:
+    assetFileNameFranka: "glorbot/glorbot.urdf"
+
+
+# Domain Randomization, decrease dr range for franka, otherwise current fabric tuning might not work
+task:
+  randomization_params:
+    actor_params:
+      franka:
+        # color: True
+        dof_properties:
+          damping:
+            range: [0.8, 1.2]
+          stiffness:
+            range: [0.8, 1.2]
