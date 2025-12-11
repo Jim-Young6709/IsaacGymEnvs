@@ -234,7 +234,7 @@ class WBCPolicyTransformer:
             ("q_arm_manip", q_arm_manip_b),
             ("q_arm_vision", q_arm_vision_b),
             ("q_hand", q_hand_b),
-            ("q_hand_ctrl_delta", (q_hand_b - self.abs_hand_actions)*2) # *2 helps with sim-to-real
+            ("q_hand_ctrl_delta", (q_hand.unsqueeze(0).to(self.device) - self.abs_hand_actions)*2) # *2 helps with sim-to-real
         ])
         # inference policy
         step_action, obs_dict = self.inference_policy(obs_dict)
