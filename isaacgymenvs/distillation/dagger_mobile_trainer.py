@@ -484,8 +484,8 @@ class DaggerMobile:
                 wandb.log({
                     "train/loss": total_loss,
                     "train/lr": self.optimizer.param_groups[0]["lr"],
-                    "train/mem_allocated_GB": mem_allocated_GB,
-                    "train/mem_reserved_GB": mem_reserved_GB,
+                    "mem/allocated_GB": mem_allocated_GB,
+                    "mem/reserved_GB": mem_reserved_GB,
                 }, step=self.total_steps)
 
             self.total_steps += 1
