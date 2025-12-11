@@ -477,10 +477,15 @@ class DaggerMobile:
             if self.scheduler is not None:
                 self.scheduler.step()
 
+            mem_allocated_GB = torch.cuda.memory_allocated() / 1024**3
+            mem_reserved_GB = torch.cuda.memory_reserved() / 1024**3
+
             if self.use_wandb:
                 wandb.log({
                     "train/loss": total_loss,
-                    "train/lr": self.optimizer.param_groups[0]["lr"]
+                    "train/lr": self.optimizer.param_groups[0]["lr"],
+                    "train/mem_allocated_GB": mem_allocated_GB,
+                    "train/mem_reserved_GB": mem_reserved_GB,
                 }, step=self.total_steps)
 
             self.total_steps += 1
