@@ -152,20 +152,6 @@ class DaggerMobile:
         self.save_freq = self.cfg.dagger.save_freq
         os.makedirs(self.save_dir, exist_ok=True)
 
-        if self.use_wandb and (not self.multi_gpu or self.global_rank == 0):
-            wandb.init(
-                project=self.wandb_project,
-                name=self.wandb_name,
-                id=self.wandb_id,
-                resume="must" if self.wandb_id else None,
-                config={
-                    "batch_size": self.batch_size,
-                    "num_episodes": self.total_episodes,
-                    "learning_rate": self.learning_rate,
-                    "weight_decay": self.weight_decay,
-                }
-            )
-
         if self.multi_gpu:            
             self.use_wandb = (self.cfg.wandb_activate and self.global_rank == 0)
 
@@ -182,6 +168,20 @@ class DaggerMobile:
         if load_checkpoint_path is not None:
             success_rate_ep = self.load_checkpoint(load_checkpoint_path)
             colorprint(f"Resumed training from {load_checkpoint_path}: steps={self.total_steps}, success_rate_ep={success_rate_ep}", color="magenta")
+
+        if self.use_wandb:
+            wandb.init(
+                project=self.wandb_project,
+                name=self.wandb_name,
+                id=self.wandb_id,
+                resume="must" if self.wandb_id else None,
+                config={
+                    "batch_size": self.batch_size,
+                    "num_episodes": self.total_episodes,
+                    "learning_rate": self.learning_rate,
+                    "weight_decay": self.weight_decay,
+                }
+            )
 
     # TODO: teacher loading utils, shall I just simply merge them?
     def load_param_dict(self, cfg_path) -> Dict:
