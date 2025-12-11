@@ -12,7 +12,7 @@ chunk_size: ${chunk_size}  # Number of action tokens to output
 normalize_state: ${normalize_state}
 normalize_action: ${normalize_action}
 action_std: 1 # provide action_std for relative or delta action space
-action_space: ${action_space}
+action_space: ${action_space} # TODO: clean up later, no longer used
 action_dim: ${task.env.numActions}  # Dimension of action space
 
 # Point cloud encoder parameters
