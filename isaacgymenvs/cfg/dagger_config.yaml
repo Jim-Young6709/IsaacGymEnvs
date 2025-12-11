@@ -69,6 +69,11 @@ dagger:
   save_freq: 1
   eval_freq: 1
 
+  teacher_forcing:
+    enable: False
+    warmup_episodes: 10
+    scheduling_episodes: 10 # after warmup episodes, linearly decay teacher forcing envs to 0 over these many episodes
+
   learning_rate: 0.001
   weight_decay: 0.01
   max_grad_norm: 1.0

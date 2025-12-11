@@ -55,6 +55,7 @@ class DaggerMobile:
         self.max_grad_norm = cfg.dagger.max_grad_norm
         self.local_pcd_range = cfg.dagger.local_pcd_range
         self.reaching_reset_threshold = cfg.dagger.reaching_reset_threshold
+        self.teacher_forcing_cfg = cfg.dagger.teacher_forcing
         self.chunk_size = cfg.chunk_size
         self.device = cfg['sim_device']
         self.seed = cfg.seed
@@ -358,6 +359,17 @@ class DaggerMobile:
         self.env.reset() # TODO: necessary?
         count_reaching = torch.zeros(self.env.num_envs, device=self.device).int()
 
+        # get teacher forcing envs
+        teacher_forcing_prop = 0.0
+        if self.teacher_forcing_cfg.enable:
+            if self.episode < self.teacher_forcing_cfg.warmup_episodes:
+                teacher_forcing_prop = 1.0
+            elif self.episode < self.teacher_forcing_cfg.warmup_episodes + self.teacher_forcing_cfg.scheduling_episodes:
+                teacher_forcing_prop = 1.0 - (self.episode - self.teacher_forcing_cfg.warmup_episodes) / self.teacher_forcing_cfg.scheduling_episodes
+        num_teacher_forcing_envs = int(teacher_forcing_prop * self.env.num_envs)
+        teacher_forcing_env_idx = np.random.choice(self.env.num_envs, size=num_teacher_forcing_envs, replace=False)
+        print(teacher_forcing_env_idx)
+
         for _ in tqdm(range(self.steps_per_episode), desc=f"Training {self.episode+1}/{self.total_episodes}", \
             ncols=None, dynamic_ncols=True, disable=(self.multi_gpu and self.global_rank != 0) ):
 
@@ -426,8 +438,10 @@ class DaggerMobile:
                 teacher_actions_buffer.append(teacher_actions)
 
                 student_actions = student_actions_chunk[:, action_idx, :]
+                step_actions = student_actions
+                step_actions[teacher_forcing_env_idx] = teacher_actions[teacher_forcing_env_idx]
                 # step with student actions
-                step_actions = torch.clamp(student_actions, -self.env.clip_actions, self.env.clip_actions)
+                step_actions = torch.clamp(step_actions, -self.env.clip_actions, self.env.clip_actions)
                 self.env.step(step_actions)
 
                 # count continuous reaching success

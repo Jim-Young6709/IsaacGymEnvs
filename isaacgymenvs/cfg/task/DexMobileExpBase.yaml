@@ -9,6 +9,12 @@ env:
   asset:
     assetFileNameFranka: "glorbot/glorbot.urdf"
 
+pcd_spec:
+  num_static_points: 10240
+  num_robot_points: 10240
+  num_object_points: 5120
+  simulate_depth_cam: True
+
 
 # Domain Randomization, decrease dr range for franka, otherwise current fabric tuning might not work
 task:
