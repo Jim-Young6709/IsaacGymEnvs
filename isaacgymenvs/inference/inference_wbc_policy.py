@@ -18,7 +18,7 @@ TRANSFORMER_CONFIGS = {
     "action_scale": {
         "franka": 0.01,
         "arx": 0.01,
-        "hand": 0.5,
+        "hand": 0.05,
     },
     "action_space": {
         "delta_franka_action": True,
