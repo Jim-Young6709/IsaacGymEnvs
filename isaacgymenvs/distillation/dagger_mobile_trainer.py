@@ -402,7 +402,7 @@ class DaggerMobile:
             obs_input_a0["q_arm_vision"] = self.env.normalize_robot_joints(q_arm_vision, robot="arx", delta=False)
             obs_input_a0["q_hand"] = self.env.normalize_robot_joints(q_hand, robot="leap", delta=False)
             if "q_hand_ctrl_delta" in self.state_encoders_keys:
-                obs_input_a0["q_hand_ctrl_delta"] = q_hand - self.env.abs_actions[:, 10:26]
+                obs_input_a0["q_hand_ctrl_delta"] = q_hand - self.env.abs_actions[:, 10:26] # TODO: small bug here? this should be normalized
 
             with torch.no_grad():
                 student_model = self.student_model.module if self.multi_gpu else self.student_model
