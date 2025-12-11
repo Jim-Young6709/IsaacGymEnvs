@@ -368,6 +368,7 @@ class DaggerMobile:
                 teacher_forcing_prop = 1.0 - (self.episode - self.teacher_forcing_cfg.warmup_episodes) / self.teacher_forcing_cfg.scheduling_episodes
         num_teacher_forcing_envs = int(teacher_forcing_prop * self.env.num_envs)
         teacher_forcing_env_idx = np.random.choice(self.env.num_envs, size=num_teacher_forcing_envs, replace=False)
+        self.teacher_forcing_prop = teacher_forcing_prop # for logging purposes
 
         for _ in tqdm(range(self.steps_per_episode), desc=f"Training {self.episode+1}/{self.total_episodes}", \
             ncols=None, dynamic_ncols=True, disable=(self.multi_gpu and self.global_rank != 0) ):
@@ -502,6 +503,7 @@ class DaggerMobile:
                 metrics["train/loss_episode"] = train_loss
                 metrics["time/episode_time"] = episode_time
                 metrics["episode"] = self.episode
+                metrics["train/teacher_forcing_prop"] = self.teacher_forcing_prop
                 metrics.update(self.env.extras)
                 if self.use_wandb:
                     wandb.log(metrics, step=self.total_steps)
