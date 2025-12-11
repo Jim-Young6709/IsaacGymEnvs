@@ -50,11 +50,12 @@ class DaggerMobile:
 
         self.cfg = cfg
         self.total_episodes = cfg.dagger.total_episodes
-        self.steps_per_episode = cfg.dagger.steps_per_episode
+        self.steps_per_episode = int(cfg.dagger.steps_per_episode / cfg.chunk_size)
         self.warmup_episodes = cfg.dagger.warmup_episodes
         self.max_grad_norm = cfg.dagger.max_grad_norm
         self.local_pcd_range = cfg.dagger.local_pcd_range
         self.reaching_reset_threshold = cfg.dagger.reaching_reset_threshold
+        self.chunk_size = cfg.chunk_size
         self.device = cfg['sim_device']
         self.seed = cfg.seed
         self.exp_name = cfg.experiment
@@ -360,31 +361,7 @@ class DaggerMobile:
         for _ in tqdm(range(self.steps_per_episode), desc=f"Training {self.episode+1}/{self.total_episodes}", \
             ncols=None, dynamic_ncols=True, disable=(self.multi_gpu and self.global_rank != 0) ):
 
-            # get teacher action
-            teacher_obs = self.env.obs_buf.clone()
-            batch_dict = {
-                "is_train": False,
-                "obs": teacher_obs,
-                "prev_actions": None,
-            }
-
-            is_deterministic = True
-
-            with torch.no_grad():
-                res_dict = self.teacher_model(batch_dict)
-
-            mu = res_dict['mus']
-            action = res_dict['actions']
-            self.states = res_dict['rnn_states']
-            if is_deterministic:
-                teacher_actions = mu
-            else:
-                teacher_actions = action
-            teacher_actions = torch.clamp(teacher_actions, -self.env.clip_actions, self.env.clip_actions)
-            self.env._pre_physics_step_teacher(teacher_actions)
-            teacher_actions = self.env.teacher_actions_converted.clone()
-
-            # student obs, q_hand, rel_pcd
+            # get obs t_a0 for student, q_hand, rel_pcd
             q_robot = self.env.states['q'].clone() # (num_envs, 32)
 
             if self.env.sim_steps == 0:
@@ -396,39 +373,70 @@ class DaggerMobile:
             robot_pcd_t = self.env.robot_pcd_sampler.sample(q_robot, self.env.torchurdf_to_isaac_idx)
             hand_pcd_t = self.env.robot_pcd_sampler.sample(q_robot, self.env.torchurdf_to_isaac_idx, hand_only=True)
 
-            obs_dict = OrderedDict([
+            obs_dict_a0 = OrderedDict([
                 ("static_scene_pcd_t0", static_scene_pcd_t0),
                 ("object_pcd_t0", object_pcd_t0),
                 ("full_scene_pcd_t", full_scene_pcd_t),
                 ("robot_pcd_t", robot_pcd_t),
                 ("hand_pcd_t", hand_pcd_t),
             ])
-            obs_input = self.preprocess_inputs(obs_dict)
+            obs_input_a0 = self.preprocess_inputs(obs_dict_a0)
 
-            q_arm_manip = self.env.states['q'][:, 3:10] # (num_envs, 7)
-            q_arm_vision = self.env.states['q'][:, 26:] # (num_envs, 6)
-            q_hand = self.env.states['q'][:, 10:26] # (num_envs, 16)
+            q_arm_manip = self.env.states['q'][:, 3:10].clone() # (num_envs, 7)
+            q_arm_vision = self.env.states['q'][:, 26:].clone() # (num_envs, 6)
+            q_hand = self.env.states['q'][:, 10:26].clone() # (num_envs, 16)
 
-            obs_input["q_arm_manip"] = self.env.normalize_robot_joints(q_arm_manip, robot="franka", delta=False)
-            obs_input["q_arm_vision"] = self.env.normalize_robot_joints(q_arm_vision, robot="arx", delta=False)
-            obs_input["q_hand"] = self.env.normalize_robot_joints(q_hand, robot="leap", delta=False)
+            obs_input_a0["q_arm_manip"] = self.env.normalize_robot_joints(q_arm_manip, robot="franka", delta=False)
+            obs_input_a0["q_arm_vision"] = self.env.normalize_robot_joints(q_arm_vision, robot="arx", delta=False)
+            obs_input_a0["q_hand"] = self.env.normalize_robot_joints(q_hand, robot="leap", delta=False)
             if "q_hand_ctrl_delta" in self.state_encoders_keys:
-                obs_input["q_hand_ctrl_delta"] = q_hand - self.env.abs_actions[:, 10:26]
+                obs_input_a0["q_hand_ctrl_delta"] = q_hand - self.env.abs_actions[:, 10:26]
 
             with torch.no_grad():
                 student_model = self.student_model.module if self.multi_gpu else self.student_model
                 student_model.eval()
-                student_actions_chunk = student_model(obs_input)
+                student_actions_chunk = student_model(obs_input_a0)
 
-            student_actions = student_actions_chunk[:, 0, :] # NOTE: supervise student model on first step, there might be a way to still do ACT
+            teacher_actions_buffer = []
 
-            # step with student actions
-            step_actions = torch.clamp(student_actions, -self.env.clip_actions, self.env.clip_actions)
-            self.env.step(step_actions)
+            for action_idx in range(self.chunk_size):
+                # get teacher action
+                teacher_obs = self.env.obs_buf.clone()
+                batch_dict = {
+                    "is_train": False,
+                    "obs": teacher_obs,
+                    "prev_actions": None,
+                }
 
-            # reset envs to start config if reached
-            count_reaching += self.env.success_5cm_per_step
-            count_reaching *= self.env.success_5cm_per_step
+                is_deterministic = True
+
+                with torch.no_grad():
+                    res_dict = self.teacher_model(batch_dict)
+
+                mu = res_dict['mus']
+                action = res_dict['actions']
+                self.states = res_dict['rnn_states']
+                if is_deterministic:
+                    teacher_actions = mu
+                else:
+                    teacher_actions = action
+                teacher_actions = torch.clamp(teacher_actions, -self.env.clip_actions, self.env.clip_actions)
+                self.env._pre_physics_step_teacher(teacher_actions)
+                teacher_actions = self.env.teacher_actions_converted.clone()
+                teacher_actions_buffer.append(teacher_actions)
+
+                student_actions = student_actions_chunk[:, action_idx, :]
+                # step with student actions
+                step_actions = torch.clamp(student_actions, -self.env.clip_actions, self.env.clip_actions)
+                self.env.step(step_actions)
+
+                # count continuous reaching success
+                count_reaching += self.env.success_5cm_per_step
+                count_reaching *= self.env.success_5cm_per_step
+
+            teacher_actions_buffer = torch.stack(teacher_actions_buffer, dim=1) # (num_envs, chunk_size, action_dim)
+
+            # early reset: reset envs to start config if reached (and stay reached for a while)
             if (count_reaching >= self.reaching_reset_threshold).any():
                 reached_reset_flags = (count_reaching >= self.reaching_reset_threshold)
                 reset_ids = torch.where(reached_reset_flags)[0]
@@ -441,8 +449,8 @@ class DaggerMobile:
             total_loss = 0
             for i in range(n_batches):
                 batch_indices = indices[i * self.batch_size:(i + 1) * self.batch_size]
-                batch_obs = {k: v[batch_indices] for k, v in obs_input.items()}
-                batch_actions = teacher_actions[batch_indices]
+                batch_obs = {k: v[batch_indices] for k, v in obs_input_a0.items()}
+                batch_actions = teacher_actions_buffer[batch_indices]
                 # NOTE: supervise student model on first step
                 loss = self.student_model.forward(batch_obs, batch_actions, action_chunk_idx=0)
                 self.optimizer.zero_grad()
