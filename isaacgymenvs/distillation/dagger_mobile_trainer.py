@@ -183,7 +183,7 @@ class DaggerMobile:
                 }
             )
 
-    # TODO: teacher loading utils, shall I just simply merge them?
+    # teacher loading utils
     def load_param_dict(self, cfg_path) -> Dict:
         base_dir = os.path.dirname(__file__)
         full_path = os.path.join(base_dir, cfg_path)
@@ -205,7 +205,7 @@ class DaggerMobile:
         if self.normalize_input and 'running_mean_std' in weights:
             model.running_mean_std.load_state_dict(weights["running_mean_std"])
 
-    def save_checkpoint(self, episode, success_rate_ep=None, top_k=3): # TODO
+    def save_checkpoint(self, episode, success_rate_ep=None, top_k=3):
         checkpoint = {
             "episode": episode,
             "model_state_dict": self.student_model.state_dict(),
@@ -338,7 +338,6 @@ class DaggerMobile:
             else:
                 obs_student["full_pcd_t"] = downsample_pcd_batched(obs["full_pcd_t"], num_points_full_pcd_t)
 
-        # TODO: maybe update this to a cylindrical local crop
         if "local_pcd_t" in self.pcd_encoders_keys:
             obs_student["local_pcd_t"], crop_logs = crop_local_pcd(obs['full_pcd_t'], self.local_pcd_range, self.num_local_points, is_cylindrical=True) # (num_envs, num_local_points, 3)
             if self.use_wandb:
@@ -402,7 +401,7 @@ class DaggerMobile:
             obs_input_a0["q_arm_vision"] = self.env.normalize_robot_joints(q_arm_vision, robot="arx", delta=False)
             obs_input_a0["q_hand"] = self.env.normalize_robot_joints(q_hand, robot="leap", delta=False)
             if "q_hand_ctrl_delta" in self.state_encoders_keys:
-                obs_input_a0["q_hand_ctrl_delta"] = q_hand - self.env.abs_actions[:, 10:26] # TODO: small bug here? this should be normalized
+                obs_input_a0["q_hand_ctrl_delta"] = self.env.normalize_robot_joints(q_hand - self.env.abs_actions[:, 10:26], robot="leap", delta=True)
 
             with torch.no_grad():
                 student_model = self.student_model.module if self.multi_gpu else self.student_model
@@ -477,8 +476,8 @@ class DaggerMobile:
             if self.scheduler is not None:
                 self.scheduler.step()
 
-            mem_allocated_GB = torch.cuda.memory_allocated() / 1024**3
-            mem_reserved_GB = torch.cuda.memory_reserved() / 1024**3
+            mem_allocated_GB = float(torch.cuda.memory_allocated() / 1024**3)
+            mem_reserved_GB = float(torch.cuda.memory_reserved() / 1024**3)
 
             if self.use_wandb:
                 wandb.log({

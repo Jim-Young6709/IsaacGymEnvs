@@ -82,7 +82,7 @@ class WBCPolicyTransformer:
         self.leap_dof_upper_limits = self.robot_dof_upper_limits[10:26]
         self.arx_dof_lower_limits = self.robot_dof_lower_limits[26:32]
         self.arx_dof_upper_limits = self.robot_dof_upper_limits[26:32]
-        self.abs_hand_actions = torch.zeros(1, 16, device=self.device)
+        self.abs_hand_actions = torch.zeros(16, device=self.device)
         self.steps = 0
 
     def generate_random_inputs(self):
@@ -226,6 +226,9 @@ class WBCPolicyTransformer:
         # (1, N, 3)
         full_pcd_frankabase_frame_t_b = full_pcd_frankabase_frame_t.unsqueeze(0).to(self.device)
         q_hand_b = self.normalize_robot_joints(q_hand.unsqueeze(0).to(self.device), robot="leap", delta=False) # (1, 16)
+        q_hand_ctrl_delta_b = self.normalize_robot_joints(
+            (q_hand.to(self.device) - self.abs_hand_actions), robot="leap", delta=True
+        )
         q_arm_manip_b = self.normalize_robot_joints(q_arm_manip.unsqueeze(0).to(self.device), robot="franka", delta=False) # (1, 7)
         q_arm_vision_b = self.normalize_robot_joints(q_arm_vision.unsqueeze(0).to(self.device), robot="arx", delta=False) # (1, 7)
 
@@ -234,7 +237,7 @@ class WBCPolicyTransformer:
             ("q_arm_manip", q_arm_manip_b),
             ("q_arm_vision", q_arm_vision_b),
             ("q_hand", q_hand_b),
-            ("q_hand_ctrl_delta", (q_hand.unsqueeze(0).to(self.device) - self.abs_hand_actions)*2) # *2 helps with sim-to-real
+            ("q_hand_ctrl_delta", q_hand_ctrl_delta_b*2) # *2 helps with sim-to-real
         ])
         # inference policy
         step_action, obs_dict = self.inference_policy(obs_dict)
@@ -262,7 +265,7 @@ class WBCPolicyTransformer:
         actions_abs = tensor_clamp(
             actions_abs, self.robot_dof_lower_limits, self.robot_dof_upper_limits
         )
-        self.abs_hand_actions[0, :] = actions_abs[10:26]
+        self.abs_hand_actions[:] = actions_abs[10:26]
 
         return actions_abs.cpu().numpy(), obs_dict
 
