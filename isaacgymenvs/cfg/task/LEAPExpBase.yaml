@@ -108,7 +108,7 @@ pcd_spec:
   num_static_points: 1024
   num_robot_points: 1024
   num_object_points: 512
-  num_local_points: 512
+  num_local_points: 512 # TODO: clean up later
   simulate_depth_cam: False
 
 
