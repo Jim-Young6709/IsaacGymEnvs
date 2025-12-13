@@ -744,6 +744,8 @@ class FrankaLEAPMobile(VecTask):
                     sphere_radii.append(_sphere_radius)
                     sphere_pos.append(_sphere_pos)
 
+        table_pos = self.table_pos.cpu().numpy()
+        table_size = self.table_size.cpu().numpy()
         table_extend = self.distractor_settings["params"]["table_extend"]
         max_z_height = self.distractor_settings["params"]["free_space_distractor_max_height"]
         for i in range(self.num_envs):
@@ -761,16 +763,16 @@ class FrankaLEAPMobile(VecTask):
             sphere_pos = []
 
             # ground plane
-            cuboid_dims.append([2.0, 2.0, 0.001])
+            cuboid_dims.append([3.0, 3.0, 0.001])
             cuboid_pos.append([0.0, 0.0, -0.0005])
             cuboid_quats.append([0.0, 0.0, 0.0, 1.0])
 
             # adding distractor pos range when: side/under/behind the table
-            table_x_min = self.table_pos[i][0] - self.table_size[i][0] / 2
-            table_x_max = self.table_pos[i][0] + self.table_size[i][0] / 2
-            table_y_min = self.table_pos[i][1] - self.table_size[i][1] / 2
-            table_y_max = self.table_pos[i][1] + self.table_size[i][1] / 2
-            table_z_min = self.table_pos[i][2] - self.table_size[i][2] / 2
+            table_x_min = table_pos[i][0] - table_size[i][0] / 2
+            table_x_max = table_pos[i][0] + table_size[i][0] / 2
+            table_y_min = table_pos[i][1] - table_size[i][1] / 2
+            table_y_max = table_pos[i][1] + table_size[i][1] / 2
+            table_z_min = table_pos[i][2] - table_size[i][2] / 2
 
             distractor_pos_range_list = [
                 [ # side 1
@@ -798,15 +800,15 @@ class FrankaLEAPMobile(VecTask):
             # get distractor pcd
             distractor_pcd_i = torch.from_numpy(compute_scene_oracle_pcd(
                 num_obstacle_points=self.pcd_spec_dict["num_distractor_points"],
-                cuboid_dims=np.array(cuboid_dims[i]),
-                cuboid_centers=np.array(cuboid_pos[i]),
-                cuboid_quats=np.array(cuboid_quats[i]),
-                cylinder_radii=np.array(cylinder_radii[i]),
-                cylinder_heights=np.array(cylinder_heights[i]),
-                cylinder_centers=np.array(cylinder_pos[i]),
-                cylinder_quats=np.array(cylinder_quats[i]),
-                sphere_centers=np.array(sphere_pos[i]),
-                sphere_radii=np.array(sphere_radii[i]),
+                cuboid_dims=np.array(cuboid_dims),
+                cuboid_centers=np.array(cuboid_pos),
+                cuboid_quats=np.array(cuboid_quats),
+                cylinder_radii=np.array(cylinder_radii),
+                cylinder_heights=np.array(cylinder_heights),
+                cylinder_centers=np.array(cylinder_pos),
+                cylinder_quats=np.array(cylinder_quats),
+                sphere_centers=np.array(sphere_pos),
+                sphere_radii=np.array(sphere_radii),
             )).to(self.device)
             self.distractor_pcds.append(distractor_pcd_i)
 
@@ -1798,6 +1800,11 @@ class FrankaLEAPMobile(VecTask):
             self.viser_visualizer.update_point_cloud(
                 point_cloud_type="seg_static_object_t0",
                 point_cloud=self.object_pcd_t0[env_id].cpu().numpy()
+            )
+        if self.distractor_settings["enable"]:
+            self.viser_visualizer.update_point_cloud(
+                point_cloud_type="seg_distractor_t0",
+                point_cloud=self.distractor_pcds[env_id].cpu().numpy()
             )
 
     @abstractmethod
