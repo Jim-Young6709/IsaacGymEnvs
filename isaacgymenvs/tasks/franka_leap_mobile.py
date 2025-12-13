@@ -976,7 +976,8 @@ class FrankaLEAPMobile(VecTask):
 
         # update point clouds
         object_pcds_world = transform_pcds_to_world(self.object_pcds, self._object_state[:, :7])
-        self.combined_pcds[:, -self.pcd_spec_dict["num_object_points"]:] = object_pcds_world
+        self.combined_pcds[:, self.pcd_spec_dict["num_static_points"]: \
+            self.pcd_spec_dict["num_static_points"]+self.pcd_spec_dict["num_object_points"]] = object_pcds_world
 
         if self.cfg["reward"]["actionreg_type"] == "delta_joint_action":
             actionreg = self.delta_joint_actions

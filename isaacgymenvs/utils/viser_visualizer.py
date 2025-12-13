@@ -77,7 +77,7 @@ class ViserVisualizer:
         self._point_cloud_handle["seg_distractor_t0"] = self.server.scene.add_point_cloud(
             name="/seg_distractor_t0",
             points=np.zeros((0, 3), dtype=np.float16),
-            colors=(100, 255, 100),
+            colors=(0, 150, 0),
             point_size=0.01/4,
             precision="float16",
             visible=True,
