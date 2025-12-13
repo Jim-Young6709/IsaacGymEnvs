@@ -92,6 +92,7 @@ class DaggerMobile:
                 )
             return envs
         self.env = create_isaacgym_env()
+        self.env.reset() # Is called only once when environment starts to provide the first observations as place holder. Doesn't calculate the actual observations.
 
         # env cfg overrides
         self.env.distillation_mode = True
@@ -355,7 +356,6 @@ class DaggerMobile:
         return obs_student
 
     def train_episode(self):
-        self.env.reset() # TODO: necessary?
         count_reaching = torch.zeros(self.env.num_envs, device=self.device).int()
 
         # get teacher forcing envs
