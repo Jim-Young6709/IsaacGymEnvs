@@ -37,7 +37,7 @@ from isaacgymenvs.tasks.base.vec_task import VecTask
 import isaacgymenvs.utils.eef_ctrl as eef_ctrl
 from isaacgymenvs.utils.reformat import omegaconf_to_dict
 from isaacgymenvs.utils.rotation_conversions import quaternion_to_matrix_ig, matrix_to_rotation_6d, se2_transform
-from isaacgymenvs.utils.pcd_utils import transform_pcds_to_world, FrankaLeapSampler, GlorbotSampler
+from isaacgymenvs.utils.pcd_utils import transform_pcds_to_world, compute_scene_oracle_pcd, FrankaLeapSampler, GlorbotSampler
 from isaacgymenvs.utils.viser_visualizer import ViserVisualizer
 from isaacgymenvs.utils.simulate_depth_cam import simulate_depth_cam_render_from_pose
 from omegaconf import DictConfig
@@ -686,6 +686,131 @@ class FrankaLEAPMobile(VecTask):
             meshes.append((asset, start_pose, scale, asset_obj_id, asset_mesh_id))
 
         return meshes
+
+    def _create_distractor_pcd(self):
+        """
+        create distractor objects under/behind/side the table to approximate real world setting
+        since the robot will never interact with these objects, we only create pcd for them rather than actually spawning them in sim
+        """
+
+        def _sample_random_distractors(pos_range):
+            """
+            sample random distractor objects within the given pos region
+
+            Args:
+                pos_range: List[[x_min, y_min, z_min], [x_max, y_max, z_max]], note this is the boundary range not the object center pos range
+            """
+            _params = self.distractor_settings["params"]
+            if np.random.uniform(0.0, 1.0) < _params["skip_prob"]:
+                return
+
+            _num_range = _params["num_distractors_per_region_range"]
+            _cuboid_size_range = _params["cuboid_size_range"]
+            _cylinder_size_range = _params["cylinder_size_range"]
+            _sphere_size_range = _params["sphere_size_range"]
+            _pos_range = np.array(pos_range)
+
+            _num = np.random.randint(_num_range[0], _num_range[1]+1)
+            for _ in range(_num):
+                _type = random.choice([0, 1, 2])
+                if _type == 0: # cuboid
+                    _cuboid_dim = np.random.uniform(_cuboid_size_range[0], _cuboid_size_range[1])
+                    _pos_range[0] += _cuboid_dim / 2
+                    _pos_range[1] -= _cuboid_dim / 2
+                    _cuboid_pos = np.random.uniform(_pos_range[0], _pos_range[1])
+                    _cuboid_quat = np.array([0.0, 0.0, 0.0, 1.0])
+                    cuboid_dims.append(_cuboid_dim)
+                    cuboid_pos.append(_cuboid_pos)
+                    cuboid_quats.append(_cuboid_quat)
+                elif _type == 1: # cylinder
+                    _cylinder_dim = np.random.uniform(_cylinder_size_range[0], _cylinder_size_range[1])
+                    _cylinder_radius = _cylinder_dim[0]
+                    _cylinder_height = _cylinder_dim[1]
+                    _pos_range_offset = np.array([_cylinder_radius, _cylinder_radius, _cylinder_height / 2])
+                    _pos_range[0] += _pos_range_offset
+                    _pos_range[1] -= _pos_range_offset
+                    _cylinder_pos = np.random.uniform(_pos_range[0], _pos_range[1])
+                    _cylinder_quat = np.array([0.0, 0.0, 0.0, 1.0])
+                    cylinder_radii.append(_cylinder_radius)
+                    cylinder_heights.append(_cylinder_height)
+                    cylinder_pos.append(_cylinder_pos)
+                    cylinder_quats.append(_cylinder_quat)
+                elif _type == 2: # sphere
+                    _sphere_dim = np.random.uniform(_sphere_size_range[0], _sphere_size_range[1])
+                    _sphere_radius = _sphere_dim
+                    _pos_range[0] += _sphere_radius
+                    _pos_range[1] -= _sphere_radius
+                    _sphere_pos = np.random.uniform(_pos_range[0], _pos_range[1])
+                    sphere_radii.append(_sphere_radius)
+                    sphere_pos.append(_sphere_pos)
+
+        table_extend = self.distractor_settings["params"]["table_extend"]
+        max_z_height = self.distractor_settings["params"]["free_space_distractor_max_height"]
+        for i in range(self.num_envs):
+            # init lists
+            cuboid_dims = []  # xyz
+            cuboid_pos = []
+            cuboid_quats = [] # xyzw
+
+            cylinder_radii = []
+            cylinder_heights = []
+            cylinder_pos = []
+            cylinder_quats = []
+
+            sphere_radii = []
+            sphere_pos = []
+
+            # ground plane
+            cuboid_dims.append([2.0, 2.0, 0.001])
+            cuboid_pos.append([0.0, 0.0, -0.0005])
+            cuboid_quats.append([0.0, 0.0, 0.0, 1.0])
+
+            # adding distractor pos range when: side/under/behind the table
+            table_x_min = self.table_pos[i][0] - self.table_size[i][0] / 2
+            table_x_max = self.table_pos[i][0] + self.table_size[i][0] / 2
+            table_y_min = self.table_pos[i][1] - self.table_size[i][1] / 2
+            table_y_max = self.table_pos[i][1] + self.table_size[i][1] / 2
+            table_z_min = self.table_pos[i][2] - self.table_size[i][2] / 2
+
+            distractor_pos_range_list = [
+                [ # side 1
+                    [table_x_min, table_y_min, 0.0],
+                    [table_x_max + table_extend, table_y_min - table_extend, max_z_height],
+                ],
+                [ # side 2
+                    [table_x_min, table_y_max, 0.0],
+                    [table_x_max + table_extend, table_y_max + table_extend, max_z_height],
+                ],
+                [ # behind
+                    [table_x_max, table_y_max, 0.0],
+                    [table_x_max + table_extend, table_y_max, max_z_height],
+                ],
+                [ # under
+                    [table_x_min, table_y_max, 0.0],
+                    [table_x_max, table_y_max, table_z_min],
+                ],
+            ]
+
+            # under the table
+            for subregion_distractor_pos_range in distractor_pos_range_list:
+                _sample_random_distractors(subregion_distractor_pos_range)
+
+            # get distractor pcd
+            distractor_pcd_i = torch.from_numpy(compute_scene_oracle_pcd(
+                num_obstacle_points=self.pcd_spec_dict["num_distractor_points"],
+                cuboid_dims=np.array(cuboid_dims[i]),
+                cuboid_centers=np.array(cuboid_pos[i]),
+                cuboid_quats=np.array(cuboid_quats[i]),
+                cylinder_radii=np.array(cylinder_radii[i]),
+                cylinder_heights=np.array(cylinder_heights[i]),
+                cylinder_centers=np.array(cylinder_pos[i]),
+                cylinder_quats=np.array(cylinder_quats[i]),
+                sphere_centers=np.array(sphere_pos[i]),
+                sphere_radii=np.array(sphere_radii[i]),
+            )).to(self.device)
+            self.distractor_pcds.append(distractor_pcd_i)
+
+        self.distractor_pcds = torch.stack(self.distractor_pcds, dim=0).to(self.device).to(torch.float32) # (num_envs, num_distractor_points, 3)
 
     # fabric utils
     def _create_fabric_cube(self, pos, size, quat, env_id):
@@ -1677,6 +1802,8 @@ class FrankaLEAPMobile(VecTask):
 
     @abstractmethod
     def _create_envs(self, spacing, num_per_row):
+        self.table_pos = ...
+        self.table_size = ...
         self.table_surface_height = ...
         self.mesh_aabb_extents = ...
         self.obj_pos_range = ...

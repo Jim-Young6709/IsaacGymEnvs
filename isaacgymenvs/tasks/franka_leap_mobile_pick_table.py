@@ -202,6 +202,9 @@ class FrankaLEAPMobilePickTable(FrankaLEAPMobile):
         self.static_pcds = torch.stack(self.static_pcds, dim=0).to(self.device).to(torch.float32) # (num_envs, num_points, 3)
         self.object_pcds = torch.stack(self.object_pcds, dim=0).to(self.device).to(torch.float32)
         self.combined_pcds = torch.cat([self.static_pcds, self.object_pcds], dim=1).to(self.device) # (num_envs, num_static_points + num_object_points, 3)
+        if self.distractor_settings["enable"]:
+            self._create_distractor_pcd()
+            self.combined_pcds = torch.cat([self.combined_pcds, self.distractor_pcds], dim=1).to(self.device) # (num_envs, num_static_points + num_object_points + num_distractor_points, 3)
 
         # get mesh AABB (axis-aligned bounding box) extents
         min_xyz = self.object_pcds.min(axis=1).values
@@ -215,14 +218,6 @@ class FrankaLEAPMobilePickTable(FrankaLEAPMobile):
 
         if self.enable_fabric:
             self._init_fabric()
-
-    def _create_distractor_pcd(self):
-        """
-        create distractor objects under/behind/side the table to approximate real world setting
-        since the robot will never interact with these objects, we only create pcd for them rather than actually spawning them in sim
-        """
-
-        pass
 
     def init_data(self, actor_num):
         super().init_data(actor_num=actor_num)
