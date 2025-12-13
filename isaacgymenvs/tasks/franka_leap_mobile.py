@@ -36,7 +36,7 @@ from isaacgym.torch_utils import to_torch, tensor_clamp, quat_from_angle_axis, q
 from isaacgymenvs.tasks.base.vec_task import VecTask
 import isaacgymenvs.utils.eef_ctrl as eef_ctrl
 from isaacgymenvs.utils.reformat import omegaconf_to_dict
-from isaacgymenvs.utils.rotation_conversions import quaternion_to_matrix_ig, matrix_to_rotation_6d, sample_spherical_shell, A2B_quaternion
+from isaacgymenvs.utils.rotation_conversions import quaternion_to_matrix_ig, matrix_to_rotation_6d, se2_transform
 from isaacgymenvs.utils.pcd_utils import transform_pcds_to_world, FrankaLeapSampler, GlorbotSampler
 from isaacgymenvs.utils.viser_visualizer import ViserVisualizer
 from isaacgymenvs.utils.simulate_depth_cam import simulate_depth_cam_render_from_pose
@@ -1275,7 +1275,9 @@ class FrankaLEAPMobile(VecTask):
             # get teacher actions for student to regress on
             delta_actions = teacher_actions_abs - self.states['q']
 
-            base_actions_abs_vel = delta_actions[:, :3] / self.dt # numerical difference for joint velocity
+            base_delta_actions_worldframe = delta_actions[:, :3]
+            base_delta_actions_baseframe = se2_transform(base_delta_actions_worldframe, -self.states['q'][:, 2])
+            base_actions_vel_baseframe = base_delta_actions_baseframe / self.dt # numerical difference for joint velocity
 
             if self.delta_franka_action:
                 franka_actions_normalized = self.normalize_robot_joints(delta_actions[:, 3:10], robot="franka", delta=True) * 100
@@ -1292,7 +1294,7 @@ class FrankaLEAPMobile(VecTask):
             else:
                 arx_actions_normalized = self.normalize_robot_joints(teacher_actions_abs[:, 26:], robot="arx", delta=False)
 
-            self.teacher_actions_converted[:, :3] = base_actions_abs_vel
+            self.teacher_actions_converted[:, :3] = base_actions_vel_baseframe
             self.teacher_actions_converted[:, 3:10] = franka_actions_normalized
             self.teacher_actions_converted[:, 10:26] = leap_actions_normalized
             self.teacher_actions_converted[:, 26:] = arx_actions_normalized
@@ -1305,7 +1307,12 @@ class FrankaLEAPMobile(VecTask):
             actions (torch.Tensor): student actions (num_selected_envs, 3+7+4*4+6)
         """
         student_actions_abs = actions.clone()
-        student_actions_abs[:, :3] = actions[:, :3] * self.dt + self.states['q'][:, :3]  # base abs action
+
+        # base abs action
+        base_pos_worldframe = self.states['q'][:, :3]
+        base_action_baseframe = actions[:, :3] * self.dt
+        base_action_worldframe = se2_transform(base_action_baseframe, base_pos_worldframe[:, 2])
+        student_actions_abs[:, :3] = base_action_worldframe + base_pos_worldframe  # base abs action
 
         if self.delta_franka_action:
             student_actions_abs[:, 3:10] = self.unnormalize_robot_joints(student_actions_abs[:, 3:10], robot="franka", delta=True) / 100 + self.states['q'][:, 3:10]

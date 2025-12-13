@@ -179,3 +179,23 @@ def A2B_quaternion(posA: torch.Tensor, posB: torch.Tensor, max_angle_deg=5.0, ri
         quat = quat_mul(rand_quat, quat)
 
     return quat
+
+def se2_transform(delta_action, theta_B2A):
+    """
+    se2 transform
+
+    Args:
+        delta_action: (B, 3) dx, dy, dtheta; delta action in frame B
+        theta: (B,) current yaw angle of frame B in frame A
+    """
+    dx = delta_action[..., 0]
+    dy = delta_action[..., 1]
+    dtheta = delta_action[..., 2]
+
+    c = torch.cos(theta_B2A)
+    s = torch.sin(theta_B2A)
+
+    dx_A = c * dx - s * dy
+    dy_A = s * dx + c * dy
+
+    return torch.stack((dx_A, dy_A, dtheta), dim=-1)
