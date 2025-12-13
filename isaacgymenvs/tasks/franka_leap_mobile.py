@@ -54,6 +54,7 @@ from fabrics_sim.utils.utils import initialize_warp
 
 
 class FrankaLEAPMobile(VecTask):
+    # class inits
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
         self.cfg = cfg
         self.device = sim_device
@@ -368,11 +369,6 @@ class FrankaLEAPMobile(VecTask):
 
         self._setup_fabric_switching_target()
 
-    @abstractmethod
-    def _setup_fabric_switching_target(self):
-        self.switching_target_pos = ...
-        self.switching_target_quat = ...
-
     def init_data(self, actor_num):
         # Setup sim handles
         env_ptr = self.envs[0]
@@ -472,6 +468,7 @@ class FrankaLEAPMobile(VecTask):
             "w_actionreg": to_torch(self.cfg["reward"]["weights"]["w_actionreg"], device=self.device),
         }
 
+    # object spawning utils
     def _create_cube(self, pos, size, quat=[0, 0, 0, 1]):
         """
         Args:
@@ -690,6 +687,7 @@ class FrankaLEAPMobile(VecTask):
 
         return meshes
 
+    # fabric utils
     def _create_fabric_cube(self, pos, size, quat, env_id):
         """
         Args:
@@ -783,6 +781,12 @@ class FrankaLEAPMobile(VecTask):
 
         return self.fabric_q
 
+    @abstractmethod
+    def _setup_fabric_switching_target(self):
+        self.switching_target_pos = ...
+        self.switching_target_quat = ...
+
+    # sim state update
     def _refresh(self):
         self._q_prev = self._q.clone()
         self._qd_prev = self._qd.clone()
@@ -954,6 +958,7 @@ class FrankaLEAPMobile(VecTask):
             torch.sum(torch.norm(self.contact_forces[:, :58, :], dim=2), dim=1) > 1.0, 1.0, 0.0
         )  # the first 58 elements belong to base + franka + leap + arx, this includes self collision
 
+    # robot kinematics related
     def normalize_robot_joints(self, joint_angles: torch.Tensor, robot: bool, delta: bool = False) -> torch.Tensor:
         """
         Normalize joint angles to be within [-1, 1].
@@ -1136,41 +1141,6 @@ class FrankaLEAPMobile(VecTask):
                 self.fabric_qd[env_ids, 10:] = joint_vel[:, 26:]
             self.fabric_qdd[env_ids, :] = torch.zeros_like(self.fabric_q[env_ids])
 
-    def _reset_object_state(self, env_ids):
-        if env_ids is None:
-            env_ids = torch.arange(self.num_envs, device=self.device)
-
-        # Initialize buffer to hold sampled values
-        num_resets = len(env_ids)
-        sampled_object_state = torch.zeros(num_resets, 13, device=self.device)
-
-        # Sampling is "centered" around middle of table
-        reset_pos = torch.zeros(num_resets, 3, device=self.device)
-        reset_pos[:, :2] = torch.rand(num_resets, 2, device=self.device) * (self.obj_pos_range[env_ids][:, [1,3]] - self.obj_pos_range[env_ids][:, [0,2]]) + self.obj_pos_range[env_ids][:, [0,2]]
-        reset_pos[:, 2] = self.table_surface_height[env_ids]
-
-        sampled_object_state[:, 6] = 1.0
-        # theta = torch.rand(num_resets, device=self.device) * 2 * torch.pi  # random angle [0, 2π)
-        # # quat = [0.0, 0.0, torch.sin(theta/2), torch.cos(theta/2)]
-        # sampled_object_state[:, 5] = torch.sin(theta/2)
-        # sampled_object_state[:, 6] = torch.cos(theta/2)
-        sampled_object_state[:, :3] = reset_pos
-        self._object_state[env_ids] = sampled_object_state
-        self._object_center_init_state[env_ids] = reset_pos
-        self._object_center_init_state[env_ids, 2] += self.mesh_aabb_extents[env_ids, 2] / 2
-
-        multi_env_ids_obj_int32 = self._global_indices[env_ids, self._object_id].flatten()
-        self.gym.set_actor_root_state_tensor_indexed(
-            self.sim, gymtorch.unwrap_tensor(self._root_state),
-            gymtorch.unwrap_tensor(multi_env_ids_obj_int32), len(multi_env_ids_obj_int32),
-        )
-
-        # update initial frame pcd
-        object_pcds_world = transform_pcds_to_world(self.object_pcds, self._object_state[:, :7])
-        if self.object_pcd_t0 is None:
-            self.object_pcd_t0 = object_pcds_world.clone()
-        self.object_pcd_t0[env_ids] = object_pcds_world[env_ids].clone()
-
     def get_joint_limits_franka(self):
         """
         Get the joint limits of the ARX hand. Base (3) + Franka (7) + LEAP (4*4) + ARX (6), 32 DOF in total
@@ -1332,6 +1302,41 @@ class FrankaLEAPMobile(VecTask):
             student_actions_abs[:, 26:] = self.unnormalize_robot_joints(student_actions_abs[:, 26:], robot="arx", delta=False)
 
         return student_actions_abs
+
+    def _reset_object_state(self, env_ids):
+        if env_ids is None:
+            env_ids = torch.arange(self.num_envs, device=self.device)
+
+        # Initialize buffer to hold sampled values
+        num_resets = len(env_ids)
+        sampled_object_state = torch.zeros(num_resets, 13, device=self.device)
+
+        # Sampling is "centered" around middle of table
+        reset_pos = torch.zeros(num_resets, 3, device=self.device)
+        reset_pos[:, :2] = torch.rand(num_resets, 2, device=self.device) * (self.obj_pos_range[env_ids][:, [1,3]] - self.obj_pos_range[env_ids][:, [0,2]]) + self.obj_pos_range[env_ids][:, [0,2]]
+        reset_pos[:, 2] = self.table_surface_height[env_ids]
+
+        sampled_object_state[:, 6] = 1.0
+        # theta = torch.rand(num_resets, device=self.device) * 2 * torch.pi  # random angle [0, 2π)
+        # # quat = [0.0, 0.0, torch.sin(theta/2), torch.cos(theta/2)]
+        # sampled_object_state[:, 5] = torch.sin(theta/2)
+        # sampled_object_state[:, 6] = torch.cos(theta/2)
+        sampled_object_state[:, :3] = reset_pos
+        self._object_state[env_ids] = sampled_object_state
+        self._object_center_init_state[env_ids] = reset_pos
+        self._object_center_init_state[env_ids, 2] += self.mesh_aabb_extents[env_ids, 2] / 2
+
+        multi_env_ids_obj_int32 = self._global_indices[env_ids, self._object_id].flatten()
+        self.gym.set_actor_root_state_tensor_indexed(
+            self.sim, gymtorch.unwrap_tensor(self._root_state),
+            gymtorch.unwrap_tensor(multi_env_ids_obj_int32), len(multi_env_ids_obj_int32),
+        )
+
+        # update initial frame pcd
+        object_pcds_world = transform_pcds_to_world(self.object_pcds, self._object_state[:, :7])
+        if self.object_pcd_t0 is None:
+            self.object_pcd_t0 = object_pcds_world.clone()
+        self.object_pcd_t0[env_ids] = object_pcds_world[env_ids].clone()
 
     def pre_physics_step(self, actions):
         """
