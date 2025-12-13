@@ -233,6 +233,12 @@ class FrankaLEAPPickTable(FrankaLEAP):
         self.extras["metrics/success_rate_5cm_per_ep"] = torch.mean(self.success_flags).item()
         self.extras["metrics/lifting_rate_5cm_per_ep"] = torch.mean(self.lifting_flags).item()
 
+        # log memory usage TODO: debug utils, cleanup later
+        mem_allocated_GB = float(torch.cuda.memory_allocated() / 1024**3)
+        mem_reserved_GB = float(torch.cuda.memory_reserved() / 1024**3)
+        self.extras["mem/allocated_GB"] = mem_allocated_GB
+        self.extras["mem/reserved_GB"] = mem_reserved_GB
+
 @torch.jit.script
 def compute_franka_leap_reward(states, reward_settings):
     # type: (Dict[str, Tensor], Dict[str, Tensor]) -> Dict[str, Tensor]
