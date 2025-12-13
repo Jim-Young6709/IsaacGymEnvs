@@ -35,6 +35,7 @@ meshes*
 static_scenes/
 ckpts/
 dagger_ckpts/
+dagger_ckpts_archive/
 /isaacgymenvs/tests
 /isaacgymenvs/ref
 *.zip
