@@ -216,6 +216,14 @@ class FrankaLEAPMobilePickTable(FrankaLEAPMobile):
         if self.enable_fabric:
             self._init_fabric()
 
+    def _create_distractor_pcd(self):
+        """
+        create distractor objects under/behind/side the table to approximate real world setting
+        since the robot will never interact with these objects, we only create pcd for them rather than actually spawning them in sim
+        """
+
+        pass
+
     def init_data(self, actor_num):
         super().init_data(actor_num=actor_num)
         self.reward_settings["target_pos"] = self.obj_pos_target
