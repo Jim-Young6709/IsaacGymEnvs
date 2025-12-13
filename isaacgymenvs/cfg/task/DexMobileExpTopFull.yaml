@@ -9,7 +9,7 @@ name: FrankaLEAPMobilePickTopFull
 env:
   scene:
     table_thickness_range: [0.01, 0.1]
-    z_shift_range: [0.1, 0.6]
+    z_shift_range: [0.01, 0.6]
 
     add_on_obstacles:
       cuboids:

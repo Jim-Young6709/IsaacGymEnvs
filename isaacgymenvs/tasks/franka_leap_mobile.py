@@ -147,6 +147,7 @@ class FrankaLEAPMobile(VecTask):
 
         # pcd
         self.static_pcds = []
+        self.distractor_pcds = []
         self.object_pcds = []
         self.combined_pcds = []
         self.static_scene_pcd_t0 = None
