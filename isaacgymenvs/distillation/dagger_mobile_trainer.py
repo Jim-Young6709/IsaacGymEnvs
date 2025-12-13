@@ -441,6 +441,18 @@ class DaggerMobile:
                 step_actions[teacher_forcing_env_idx] = teacher_actions[teacher_forcing_env_idx]
                 # step with student actions
                 step_actions = torch.clamp(step_actions, -self.env.clip_actions, self.env.clip_actions)
+
+                self.env.progress_buf -= 1 # to avoid automatic resets during the chunk steps, only update progress_buf at the end of the chunk
+                if action_idx == self.chunk_size - 1:
+                    self.env.progress_buf += self.chunk_size
+
+                    # early reset: reset envs to start config if reached (and stay reached for a while)
+                    if (count_reaching >= self.reaching_reset_threshold).any():
+                        reached_reset_flags = (count_reaching >= self.reaching_reset_threshold)
+                        reset_ids = torch.where(reached_reset_flags)[0]
+                        self.env.reset_buf[reset_ids] = 1
+                        count_reaching[reached_reset_flags] = 0
+
                 self.env.step(step_actions)
 
                 # count continuous reaching success
@@ -448,13 +460,6 @@ class DaggerMobile:
                 count_reaching *= self.env.success_5cm_per_step
 
             teacher_actions_buffer = torch.stack(teacher_actions_buffer, dim=1) # (num_envs, chunk_size, action_dim)
-
-            # early reset: reset envs to start config if reached (and stay reached for a while)
-            if (count_reaching >= self.reaching_reset_threshold).any():
-                reached_reset_flags = (count_reaching >= self.reaching_reset_threshold)
-                reset_ids = torch.where(reached_reset_flags)[0]
-                self.env.reset_buf[reset_ids] = 1
-                count_reaching[reached_reset_flags] = 0
 
             self.student_model.train()
             n_batches = self.env.num_envs // self.batch_size # now this is 1
