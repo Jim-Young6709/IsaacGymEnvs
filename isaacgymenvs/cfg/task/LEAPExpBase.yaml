@@ -41,6 +41,9 @@ env:
     xyz_range: [[0.35, -0.2, 0.2], [0.55, 0.2, 0.25]] # xy is center position, z is BOTTOM height
     scale_range: [0.1, 0.1]
 
+  distractor_settings:
+    enable: False
+
   eef_init:
     enable: False
     limit_abad: False
