@@ -384,6 +384,7 @@ class DaggerMobile:
             robot_pcd_t = self.env.robot_pcd_sampler.sample(q_robot, self.env.torchurdf_to_isaac_idx)
             hand_pcd_t = self.env.robot_pcd_sampler.sample(q_robot, self.env.torchurdf_to_isaac_idx, hand_only=True)
 
+            # prepare pcd inputs
             obs_dict_a0 = OrderedDict([
                 ("static_scene_pcd_t0", static_scene_pcd_t0),
                 ("object_pcd_t0", object_pcd_t0),
@@ -393,6 +394,7 @@ class DaggerMobile:
             ])
             obs_input_a0 = self.preprocess_inputs(obs_dict_a0)
 
+            # prepare state inputs
             q_arm_manip = self.env.states['q'][:, 3:10].clone() # (num_envs, 7)
             q_arm_vision = self.env.states['q'][:, 26:].clone() # (num_envs, 6)
             q_hand = self.env.states['q'][:, 10:26].clone() # (num_envs, 16)
@@ -402,6 +404,8 @@ class DaggerMobile:
             obs_input_a0["q_hand"] = self.env.normalize_robot_joints(q_hand, robot="leap", delta=False)
             if "q_hand_ctrl_delta" in self.state_encoders_keys:
                 obs_input_a0["q_hand_ctrl_delta"] = self.env.normalize_robot_joints(q_hand - self.env.abs_actions[:, 10:26], robot="leap", delta=True)
+            if "objxyz_t0" in self.state_encoders_keys:
+                obs_input_a0["objxyz_t0"] = self.env._object_center_init_state.clone()
 
             with torch.no_grad():
                 student_model = self.student_model.module if self.multi_gpu else self.student_model
