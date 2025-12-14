@@ -700,6 +700,9 @@ class FrankaLEAPMobile(VecTask):
             Args:
                 pos_range: List[[x_min, y_min, z_min], [x_max, y_max, z_max]], note this is the boundary range not the object center pos range
             """
+            if pos_range[1][2] <= 0:
+                return
+
             _params = self.distractor_settings["params"]
             if np.random.uniform(0.0, 1.0) < _params["skip_prob"]:
                 return
