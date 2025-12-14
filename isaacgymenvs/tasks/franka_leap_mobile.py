@@ -704,7 +704,17 @@ class FrankaLEAPMobile(VecTask):
                 return
 
             _params = self.distractor_settings["params"]
-            if np.random.uniform(0.0, 1.0) < _params["skip_prob"]:
+            rand01 = np.random.uniform(0.0, 1.0)
+            if rand01 < _params["skip_prob"]:
+                return
+            elif rand01 < (_params["skip_prob"] + _params["full_prob"]):
+                _pos_range = np.array(pos_range)
+                _cuboid_dim = _pos_range[1] - _pos_range[0]
+                _cuboid_pos = (_pos_range[0] + _pos_range[1]) / 2
+                _cuboid_quat = np.array([0.0, 0.0, 0.0, 1.0])
+                cuboid_dims.append(_cuboid_dim)
+                cuboid_pos.append(_cuboid_pos)
+                cuboid_quats.append(_cuboid_quat)
                 return
 
             _num_range = _params["num_distractors_per_region_range"]
@@ -714,7 +724,7 @@ class FrankaLEAPMobile(VecTask):
 
             _num = np.random.randint(_num_range[0], _num_range[1]+1)
             for _ in range(_num):
-                _type = random.choice([0, 0, 1, 1, 2]) # biased sampling towards cuboid and cylinder; sphere would be either too small or to big
+                _type = random.choice([0, 0, 0, 1, 1, 2]) # biased sampling
                 _pos_range = np.array(pos_range)
                 height_limit = _pos_range[1][2] - _pos_range[0][2]
                 if _type == 0: # cuboid

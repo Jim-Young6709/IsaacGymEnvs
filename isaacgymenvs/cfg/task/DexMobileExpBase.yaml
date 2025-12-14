@@ -13,7 +13,7 @@ pcd_spec:
   num_static_points: 10240
   num_robot_points: 10240
   num_object_points: 5120
-  num_distractor_points: 10240
+  num_distractor_points: 20480
   simulate_depth_cam: True
 
 

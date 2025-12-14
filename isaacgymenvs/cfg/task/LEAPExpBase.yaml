@@ -44,13 +44,14 @@ env:
   distractor_settings:
     enable: False
     params:
-      skip_prob: 0.5 # probability to skip adding distractors for a local region (under/side/behind the table)
+      skip_prob: 0.3 # probability to skip adding distractors for a local region (under/side/behind the table)
+      full_prob: 0.2 # probability to spawn a single large box that fully occupies the local distractor region
       table_extend: 0.5 # extended dims along table edges for distractors at the side/back
       free_space_distractor_max_height: 1.0 # max z_height for distractors in free space, note this is not the actual height
-      num_distractors_per_region_range: [1, 3] # low & high inclusive
-      cuboid_size_range: [[0.1, 0.1, 0.4], [0.3, 0.3, 0.6]]
-      cylinder_size_range: [[0.1, 0.4], [0.15, 0.6]] # radius & height of the cylinder
-      sphere_size_range: [0.1, 0.15]
+      num_distractors_per_region_range: [1, 4] # low & high inclusive
+      cuboid_size_range: [[0.1, 0.1, 0.4], [0.4, 0.4, 0.8]]
+      cylinder_size_range: [[0.1, 0.4], [0.2, 0.8]] # radius & height of the cylinder
+      sphere_size_range: [0.1, 0.2]
 
   eef_init:
     enable: False
@@ -119,7 +120,7 @@ pcd_spec:
   num_static_points: 1024
   num_robot_points: 1024
   num_object_points: 512
-  num_distractor_points: 1024
+  num_distractor_points: 2048
   num_local_points: 512 # TODO: clean up later
   simulate_depth_cam: False
 
