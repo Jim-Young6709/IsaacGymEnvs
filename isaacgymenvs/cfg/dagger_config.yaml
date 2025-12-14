@@ -82,7 +82,7 @@ dagger:
   device: ${rl_device}
 
   reaching_reset_threshold: 100
-  local_pcd_range: 0.3 # range (in meters) for cropping local point cloud
+  local_pcd_range: 1.5 # range (in meters) for cropping local point cloud
 
   load_ckpt_path: null
 

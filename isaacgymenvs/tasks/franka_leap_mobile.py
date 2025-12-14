@@ -708,13 +708,16 @@ class FrankaLEAPMobile(VecTask):
             _cuboid_size_range = _params["cuboid_size_range"]
             _cylinder_size_range = _params["cylinder_size_range"]
             _sphere_size_range = _params["sphere_size_range"]
-            _pos_range = np.array(pos_range)
 
             _num = np.random.randint(_num_range[0], _num_range[1]+1)
             for _ in range(_num):
-                _type = random.choice([0, 1, 2])
+                _type = random.choice([0, 0, 1, 1, 2]) # biased sampling towards cuboid and cylinder; sphere would be either too small or to big
+                _pos_range = np.array(pos_range)
+                height_limit = _pos_range[1][2] - _pos_range[0][2]
                 if _type == 0: # cuboid
                     _cuboid_dim = np.random.uniform(_cuboid_size_range[0], _cuboid_size_range[1])
+                    if _cuboid_dim[2] > height_limit:
+                        _cuboid_dim[2] = height_limit
                     _pos_range[0] += _cuboid_dim / 2
                     _pos_range[1] -= _cuboid_dim / 2
                     _cuboid_pos = np.random.uniform(_pos_range[0], _pos_range[1])
@@ -726,6 +729,8 @@ class FrankaLEAPMobile(VecTask):
                     _cylinder_dim = np.random.uniform(_cylinder_size_range[0], _cylinder_size_range[1])
                     _cylinder_radius = _cylinder_dim[0]
                     _cylinder_height = _cylinder_dim[1]
+                    if _cylinder_height > height_limit:
+                        _cylinder_height = height_limit
                     _pos_range_offset = np.array([_cylinder_radius, _cylinder_radius, _cylinder_height / 2])
                     _pos_range[0] += _pos_range_offset
                     _pos_range[1] -= _pos_range_offset
@@ -738,6 +743,8 @@ class FrankaLEAPMobile(VecTask):
                 elif _type == 2: # sphere
                     _sphere_dim = np.random.uniform(_sphere_size_range[0], _sphere_size_range[1])
                     _sphere_radius = _sphere_dim
+                    if _sphere_radius > height_limit / 2:
+                        _sphere_radius = height_limit / 2
                     _pos_range[0] += _sphere_radius
                     _pos_range[1] -= _sphere_radius
                     _sphere_pos = np.random.uniform(_pos_range[0], _pos_range[1])
@@ -763,7 +770,7 @@ class FrankaLEAPMobile(VecTask):
             sphere_pos = []
 
             # ground plane
-            cuboid_dims.append([3.0, 3.0, 0.001])
+            cuboid_dims.append([2.0, 3.0, 0.001])
             cuboid_pos.append([0.0, 0.0, -0.0005])
             cuboid_quats.append([0.0, 0.0, 0.0, 1.0])
 
@@ -776,20 +783,20 @@ class FrankaLEAPMobile(VecTask):
 
             distractor_pos_range_list = [
                 [ # side 1
-                    [table_x_min, table_y_min, 0.0],
-                    [table_x_max + table_extend, table_y_min - table_extend, max_z_height],
+                    [table_x_min, table_y_min - table_extend, 0.0],
+                    [table_x_max + table_extend, table_y_min, max_z_height],
                 ],
                 [ # side 2
                     [table_x_min, table_y_max, 0.0],
                     [table_x_max + table_extend, table_y_max + table_extend, max_z_height],
                 ],
                 [ # behind
-                    [table_x_max, table_y_max, 0.0],
+                    [table_x_max, table_y_min, 0.0],
                     [table_x_max + table_extend, table_y_max, max_z_height],
                 ],
                 [ # under
-                    [table_x_min, table_y_max, 0.0],
-                    [table_x_max, table_y_max, table_z_min],
+                    [table_x_min, table_y_min, 0.0],
+                    [table_x_min + table_extend, table_y_max, table_z_min], # bias towards the front part of the table
                 ],
             ]
 
