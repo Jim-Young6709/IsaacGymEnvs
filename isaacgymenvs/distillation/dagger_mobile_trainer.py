@@ -297,8 +297,8 @@ class DaggerMobile:
         for key in obs.keys():
             if "pcd" in key:
                 pcd_shifted = obs[key] - franka_base_pos.unsqueeze(1) # (num_envs, N, 3)
-                pcd_eef_frame = torch.bmm(pcd_shifted, rot_global2base) # (num_envs, N, 3), bmm is like matmul but specifically made for batches of 2D matrices, faster than matmul
-                obs[key] = pcd_eef_frame
+                pcd_base_frame = torch.bmm(pcd_shifted, rot_global2base) # (num_envs, N, 3), bmm is like matmul but specifically made for batches of 2D matrices, faster than matmul
+                obs[key] = pcd_base_frame
 
         # self.env.viser_visualizer.update_point_cloud(
         #     point_cloud_type="rendered_points",
@@ -406,6 +406,15 @@ class DaggerMobile:
                 obs_input_a0["q_hand_ctrl_delta"] = self.env.normalize_robot_joints(q_hand - self.env.abs_actions[:, 10:26], robot="leap", delta=True)
             if "objxyz_t0" in self.state_encoders_keys:
                 obs_input_a0["objxyz_t0"] = self.env._object_center_init_state.clone()
+
+                franka_base_pos = self.env.states['franka_base_pose7'][:, :3] # (num_envs, 3)
+                franka_base_quat = self.env.states['franka_base_pose7'][:, 3:] # (num_envs, 4)
+                franka_base_rot_mat = quaternion_to_matrix_ig(franka_base_quat)
+                rot_global2base = franka_base_rot_mat.transpose(1, 2) # (num_envs, 3, 3)
+
+                point_shifted = (obs_input_a0["objxyz_t0"] - franka_base_pos).unsqueeze(1) # (num_envs, 1, 3)
+                point_base_frame = torch.bmm(point_shifted, rot_global2base) # (num_envs, N, 3), bmm is like matmul but specifically made for batches of 2D matrices (input has to be 3D), faster than matmul
+                obs_input_a0["objxyz_t0"] = point_base_frame[:, 0, :] # (num_envs, 3)
 
             with torch.no_grad():
                 student_model = self.student_model.module if self.multi_gpu else self.student_model
