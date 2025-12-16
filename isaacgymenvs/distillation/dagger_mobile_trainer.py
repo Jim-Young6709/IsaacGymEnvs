@@ -258,7 +258,6 @@ class DaggerMobile:
 
         obs['full_pcd_t'] = torch.cat([obs["full_scene_pcd_t"], obs["robot_pcd_t"]], dim=1)
 
-        # env_id = self.env.viser_visualizer.env_id
         if self.env.pcd_spec_dict['simulate_depth_cam']:
             num_full_pcd_points = self.env.pcd_spec_dict['num_static_points'] + \
                                   self.env.pcd_spec_dict['num_robot_points'] + \
@@ -276,6 +275,8 @@ class DaggerMobile:
 
             obs['full_pcd_t'] = sim_depth_pcd
 
+        # Viser debug utils
+        # env_id = self.env.viser_visualizer.env_id
         # self.env.viser_visualizer.update_point_cloud(
         #     point_cloud_type="rendered_points",
         #     point_cloud=obs['full_pcd_t'][env_id].cpu().numpy()
@@ -300,6 +301,8 @@ class DaggerMobile:
                 pcd_base_frame = torch.bmm(pcd_shifted, rot_global2base) # (num_envs, N, 3), bmm is like matmul but specifically made for batches of 2D matrices, faster than matmul
                 obs[key] = pcd_base_frame
 
+        # Viser debug utils
+        # env_id = self.env.viser_visualizer.env_id
         # self.env.viser_visualizer.update_point_cloud(
         #     point_cloud_type="rendered_points",
         #     point_cloud=obs['full_pcd_t'][env_id].cpu().numpy()
@@ -348,6 +351,7 @@ class DaggerMobile:
             if self.use_wandb:
                 wandb.log(crop_logs, step=self.total_steps)
 
+        # Viser debug utils
         # self.env.viser_visualizer.update_point_cloud(
         #     point_cloud_type="local_point_t",
         #     point_cloud=obs_student['local_pcd_t'][env_id].cpu().numpy()
@@ -415,6 +419,13 @@ class DaggerMobile:
                 point_shifted = (obs_input_a0["objxyz_t0"] - franka_base_pos).unsqueeze(1) # (num_envs, 1, 3)
                 point_base_frame = torch.bmm(point_shifted, rot_global2base) # (num_envs, N, 3), bmm is like matmul but specifically made for batches of 2D matrices (input has to be 3D), faster than matmul
                 obs_input_a0["objxyz_t0"] = point_base_frame[:, 0, :] # (num_envs, 3)
+
+            # Viser debug utils
+            # env_id = self.env.viser_visualizer.env_id
+            # self.env.viser_visualizer.update_point_cloud(
+            #     point_cloud_type="obj_point_t",
+            #     point_cloud=obs_input_a0["objxyz_t0"][env_id].reshape(1, 3).cpu().numpy()
+            # )
 
             with torch.no_grad():
                 student_model = self.student_model.module if self.multi_gpu else self.student_model
