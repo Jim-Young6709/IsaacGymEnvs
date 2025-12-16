@@ -194,9 +194,10 @@ class WBCPolicyTransformer:
         Returns:
             step_actions (torch.Tensor): (action_dim)
         """
-        obs_dict["full_pcd_t"], _ = crop_local_pcd(
+        obs_dict["local_pcd_t"], _ = crop_local_pcd(
             obs_dict['full_pcd_frankabase_frame_t'], self.local_pcd_range, self.num_local_points, is_cylindrical=True,
         )
+        obs_dict["full_pcd_t"] = obs_dict["local_pcd_t"]
 
         with torch.no_grad():
             self.model.eval()
@@ -228,7 +229,7 @@ class WBCPolicyTransformer:
         q_hand_b = self.normalize_robot_joints(q_hand.unsqueeze(0).to(self.device), robot="leap", delta=False) # (1, 16)
         q_hand_ctrl_delta_b = self.normalize_robot_joints(
             (q_hand.to(self.device) - self.abs_hand_actions), robot="leap", delta=True
-        )
+        ).unsqueeze(0).to(self.device)
         q_arm_manip_b = self.normalize_robot_joints(q_arm_manip.unsqueeze(0).to(self.device), robot="franka", delta=False) # (1, 7)
         q_arm_vision_b = self.normalize_robot_joints(q_arm_vision.unsqueeze(0).to(self.device), robot="arx", delta=False) # (1, 7)
 
@@ -267,7 +268,13 @@ class WBCPolicyTransformer:
         )
         self.abs_hand_actions[:] = actions_abs[10:26]
 
-        return actions_abs.cpu().numpy(), obs_dict
+        actions_abs_cpu = actions_abs.cpu().numpy()
+
+        base_vel_robot = actions_abs_cpu[0:3]
+        franka_joint_pos = actions_abs_cpu[3:10]
+        leap_joint_pos = actions_abs_cpu[10:26]
+        arx_joint_pos = actions_abs_cpu[26:32]
+        return base_vel_robot, franka_joint_pos, leap_joint_pos, arx_joint_pos, obs_dict
 
 
 
