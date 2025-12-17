@@ -197,7 +197,6 @@ class WBCPolicyTransformer:
         obs_dict["local_pcd_t"], _ = crop_local_pcd(
             obs_dict['full_pcd_frankabase_frame_t'], self.local_pcd_range, self.num_local_points, is_cylindrical=True,
         )
-        obs_dict["full_pcd_t"] = obs_dict["local_pcd_t"]
 
         with torch.no_grad():
             self.model.eval()
@@ -208,7 +207,7 @@ class WBCPolicyTransformer:
         step_actions = torch.clamp(student_actions, -self.clip_actions, self.clip_actions)
         return step_actions, obs_dict
 
-    def get_action(self, full_pcd_frankabase_frame_t, q_hand, q_arm_manip, q_arm_vision):
+    def get_action(self, full_pcd_frankabase_frame_t, q_hand, q_arm_manip, q_arm_vision, objxyz_t0=None):
         """
         get the final action for execution
 
@@ -240,6 +239,9 @@ class WBCPolicyTransformer:
             ("q_hand", q_hand_b),
             ("q_hand_ctrl_delta", q_hand_ctrl_delta_b*2) # *2 helps with sim-to-real
         ])
+
+        obs_dict["objxyz_t0"] = objxyz_t0
+
         # inference policy
         step_action, obs_dict = self.inference_policy(obs_dict)
 
