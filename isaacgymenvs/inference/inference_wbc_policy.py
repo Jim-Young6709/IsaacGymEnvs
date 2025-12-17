@@ -240,7 +240,8 @@ class WBCPolicyTransformer:
             ("q_hand_ctrl_delta", q_hand_ctrl_delta_b*2) # *2 helps with sim-to-real
         ])
 
-        obs_dict["objxyz_t0"] = objxyz_t0
+        if objxyz_t0 is not None:
+            obs_dict["objxyz_t0"] = objxyz_t0
 
         # inference policy
         step_action, obs_dict = self.inference_policy(obs_dict)
