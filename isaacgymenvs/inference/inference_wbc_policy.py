@@ -85,12 +85,12 @@ class WBCPolicyTransformer:
         self.abs_hand_actions = torch.zeros(16, device=self.device)
         self.steps = 0
 
-    def generate_random_inputs(self):
+    def generate_random_inputs(self, require_object_pos_t0):
         """
         Generate random inputs for the get_action function using torch.rand
         """      
         # Generate random point cloud in EEF frame (N, 3)
-        N = 1500  
+        N = self.num_local_points*2  
         # Random point cloud in [0, 1)
         full_pcd_eef_frame_t = torch.rand(N, 3, device=self.device) 
         # Generate random hand configuration (16,)
@@ -98,7 +98,11 @@ class WBCPolicyTransformer:
         q_arm_manip = torch.rand(7, device=self.device)  # In [0, 1)
         q_arm_vision = torch.rand(6, device=self.device)  # In [0, 1)
 
-        return full_pcd_eef_frame_t, q_hand, q_arm_manip, q_arm_vision
+        if require_object_pos_t0 == True:
+            object_xyz_t0 = torch.rand(3, device=self.device)
+        else:
+            object_xyz_t0 = None
+        return full_pcd_eef_frame_t, q_hand, q_arm_manip, q_arm_vision, object_xyz_t0
 
     def load_checkpoint(self, checkpoint_path):
         checkpoint = torch.load(checkpoint_path, map_location=self.device)
@@ -241,7 +245,7 @@ class WBCPolicyTransformer:
         ])
 
         if objxyz_t0 is not None:
-            obs_dict["objxyz_t0"] = objxyz_t0
+            obs_dict["objxyz_t0"] = objxyz_t0.unsqueeze(0).to(self.device)
 
         # inference policy
         step_action, obs_dict = self.inference_policy(obs_dict)
