@@ -176,10 +176,14 @@ class FrankaLEAPMobile(VecTask):
                 [
                     [0.0, 0.0, 0.0] + \
                     [0.0, -0.25 * np.pi, 0.0, -0.75 * np.pi, 0.0, 0.5 * np.pi, 0.0] + \
-                    [0.7, -0.2,  0.7,  0.7,
-                     0.8,   1.57, 0.77,  0.9,
-                     0.65,  0.0,  0.65,  0.65,
-                     0.7,  0.2,  0.7,  0.7,] + \
+                    # [0.7, -0.2,  0.7,  0.7,
+                    #  0.8,   1.57, 0.77,  0.9,
+                    #  0.65,  0.0,  0.65,  0.65,
+                    #  0.7,  0.2,  0.7,  0.7,] + \
+                    [0.0, 0.0, 0.0, 0.0,
+                     0.0, 0.0, 0.0, 0.0,
+                     0.0, 0.0, 0.0, 0.0,
+                     0.0, 0.0, 0.0, 0.0,] + \
                     [0.0, 0.785, 0.785, 0.0, 0.0, 0.0]
                 ] * self.num_envs
             ).to(self.device)
@@ -441,11 +445,6 @@ class FrankaLEAPMobile(VecTask):
             0.65,  0.0,  0.65,  0.65,
             0.65,  0.0,  0.65,  0.65,
         ], device=self.device)
-
-        # for visualization purposes
-        self.canonical_grasp_config = torch.tensor(
-            [[0, 0, 0, -3*torch.pi/4, 0, 3*torch.pi/4, 0] + self.grasp_finger_dof_pos.tolist()] * self.num_envs
-        ).to(self.device)
 
         self.reward_settings = {
             "target_pos": target_pos,
