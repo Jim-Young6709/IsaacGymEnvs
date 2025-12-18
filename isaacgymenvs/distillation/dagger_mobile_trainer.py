@@ -147,7 +147,6 @@ class DaggerMobile:
 
         self.state_encoders_keys = self.cfg.model.state_encoders_cfg.keys()
         self.pcd_encoders_keys = self.cfg.model.pcd_encoders_cfg.keys()
-        self.num_local_points = self.env.pcd_spec_dict["num_local_points"]
 
         self.save_dir = Path("dagger_ckpts") / self.exp_name
         self.save_freq = self.cfg.dagger.save_freq
@@ -343,11 +342,11 @@ class DaggerMobile:
                 obs_student["full_pcd_t"] = downsample_pcd_batched(obs["full_pcd_t"], num_points_full_pcd_t)
 
         if "local_pcd_t" in self.pcd_encoders_keys:
-            obs_student["local_pcd_t"], crop_logs = crop_local_pcd(obs['full_pcd_t'], self.local_pcd_range, self.num_local_points, is_cylindrical=True) # (num_envs, num_local_points, 3)
+            obs_student["local_pcd_t"], crop_logs = crop_local_pcd(obs['full_pcd_t'], self.local_pcd_range, self.cfg.model.pcd_encoders_cfg["local_pcd_t"]["num_points"], is_cylindrical=True) # (num_envs, num_local_points, 3)
             if self.use_wandb:
                 wandb.log(crop_logs, step=self.total_steps)
         elif "local_scene_pcd_t" in self.pcd_encoders_keys:
-            obs_student["local_scene_pcd_t"], crop_logs = crop_local_pcd(obs["full_scene_pcd_t"], self.local_pcd_range, self.num_local_points, is_cylindrical=True)
+            obs_student["local_scene_pcd_t"], crop_logs = crop_local_pcd(obs["full_scene_pcd_t"], self.local_pcd_range, self.cfg.model.pcd_encoders_cfg["local_pcd_t"]["num_points"], is_cylindrical=True)
             if self.use_wandb:
                 wandb.log(crop_logs, step=self.total_steps)
 
