@@ -333,9 +333,11 @@ def crop_local_pcd(
 
     avg_num_valid_points = is_valid.sum() / B
     min_num_valid_points = is_valid.sum(dim=-1).min()
+
+    crop_type = "cylindrical" if is_cylindrical else "spherical"
     logs = {
-        "local_crop/avg_num_valid_points": avg_num_valid_points.item(),
-        "local_crop/min_num_valid_points": min_num_valid_points.item(),
+        f"local_{crop_type}_crop/avg_num_valid_points": avg_num_valid_points.item(),
+        f"local_{crop_type}_crop/min_num_valid_points": min_num_valid_points.item(),
     }
 
     # replace nan values as 0s
