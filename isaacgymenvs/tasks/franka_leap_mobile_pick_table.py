@@ -226,15 +226,17 @@ class FrankaLEAPMobilePickTable(FrankaLEAPMobile):
 
     def _update_states(self):
         super()._update_states()
-        self.obj_pos_target[:] = self._object_center_init_state.clone()
-        self.obj_pos_target[:, 2] += self.reward_settings['target_lift_dis']
+        lift_5cm = self.states["object_center_pos"][:, 2] - self._object_center_init_state[:, 2] > 0.05
+
+        self.obj_pos_target[~lift_5cm, :2] = self.states["object_center_pos"][~lift_5cm, :2]  # x, y
+        self.obj_pos_target[:, 2] = self.table_surface_height + self.reward_settings['target_lift_dis']
 
         self.switching_target_pos = self.states['object_center_pos'].clone()
         self.switching_target_pos += self.switch_pos_offset
 
         self.states.update({
             # check whether the object is lifted based on bottom board force contact info
-            "lift": ~self.table_collision,
+            "lift": lift_5cm,
             "collision": self.scene_collision,
         })
 

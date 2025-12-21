@@ -626,6 +626,7 @@ class FrankaLEAPMobilePickTopFull(FrankaLEAPMobile):
         box_to_eef_rot_mat = torch.matmul(eef_rot_mat.transpose(1, 2), box_rot_mat)
         box_to_eef_rot_6d = matrix_to_rotation_6d(box_to_eef_rot_mat)
 
+        lift_5cm = self.states["object_center_pos"][:, 2] - self._object_center_init_state[:, 2] > 0.05
         self.states.update({
             # Box region
             "box_to_eef_pos": self.box_pos - self._eef_state[:, :3],
@@ -633,7 +634,7 @@ class FrankaLEAPMobilePickTopFull(FrankaLEAPMobile):
             "box_to_eef_rot_6d": box_to_eef_rot_6d,
             "obj_to_box_center_xy": self._object_state[:, :2] - self.box_pos[:, :2],
             # check whether the object is lifted based on bottom board force contact info
-            "lift": ~self.table_collision,
+            "lift": lift_5cm,
             "collision": self.scene_collision & (not self.scene_box_cfg["colli_reset"]),
         })
 
