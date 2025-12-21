@@ -213,6 +213,7 @@ class DaggerMobile:
             "success_rate_ep": success_rate_ep,
             "batch_idx": self.batch_idx,
             "total_steps": self.total_steps,
+            "cfg": self.cfg,
         }
         if self.scheduler is not None:
             checkpoint["scheduler_state_dict"] = self.scheduler.state_dict()
