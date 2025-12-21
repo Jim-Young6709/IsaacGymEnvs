@@ -199,6 +199,7 @@ class FrankaLEAPMobile(VecTask):
 
         # for distillation purposes
         self.distillation_mode = False
+        self.distillation_steps = 0 # if use distillation mode, this should get tracked in the distillation script
         self.abs_actions = torch.zeros(self.num_envs, 32, device=self.device)
         self.teacher_actions_converted = torch.zeros(self.num_envs, 32, device=self.device)
         # student policy actions space (should get overridden in the distillation class)
@@ -1724,7 +1725,11 @@ class FrankaLEAPMobile(VecTask):
                     writer.append_data(frame)
 
             if wandb.run is not None:
-                wandb.log({"visualization/video": wandb.Video(os.path.join(self.video_dir, f"viz_step{render_step_start}.mp4"))}, commit=True)
+                # note this wandb log has to coordinate with the distillation logs, commit=True should be set there
+                if self.distillation_mode:
+                    wandb.log({"visualization/video": wandb.Video(os.path.join(self.video_dir, f"viz_step{render_step_start}.mp4"))}, step=self.distillation_steps)
+                else:
+                    wandb.log({"visualization/video": wandb.Video(os.path.join(self.video_dir, f"viz_step{render_step_start}.mp4"))}, commit=True)
 
     # debugging utils
     def step_sim_multi(self, num_steps=1, render_pcd=True):

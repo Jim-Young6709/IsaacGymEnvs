@@ -252,6 +252,8 @@ class DaggerMobile:
         return checkpoint["success_rate_ep"]
 
     def preprocess_inputs(self, obs):
+        wandb_logs = {}
+
         # eef states
         franka_base_pos = self.env.states['franka_base_pose7'][:, :3] # (num_envs, 3)
         franka_base_quat = self.env.states['franka_base_pose7'][:, 3:] # (num_envs, 4)
@@ -266,14 +268,14 @@ class DaggerMobile:
                                   self.env.pcd_spec_dict['num_object_points']
 
             camera_pose7 = self.env.states['camera_pose7'].clone() # (num_envs, 7)
-            sim_depth_pcd, logs = simulate_depth_cam_render_from_pose(
+            sim_depth_pcd, sim_depth_render_logs = simulate_depth_cam_render_from_pose(
                 pcd=obs['full_pcd_t'],
                 camera_pose=camera_pose7,
                 num_points=num_full_pcd_points,
             )
 
             if self.use_wandb:
-                wandb.log(logs, step=self.total_steps)
+                wandb_logs.update(sim_depth_render_logs)
 
             obs['full_pcd_t'] = sim_depth_pcd
 
@@ -351,13 +353,13 @@ class DaggerMobile:
             obs_student["local_pcd_t"] = torch.cat([cylindrical_local_pcd_t, spherical_local_pcd_t], dim=1)
 
             if self.use_wandb:
-                wandb.log(cylindrical_crop_logs, step=self.total_steps)
-                wandb.log(spherical_crop_logs, step=self.total_steps)
+                wandb_logs.update(cylindrical_crop_logs)
+                wandb_logs.update(spherical_crop_logs)
 
         elif "local_scene_pcd_t" in self.pcd_encoders_keys:
             obs_student["local_scene_pcd_t"], crop_logs = crop_local_pcd(obs["full_scene_pcd_t"], self.local_pcd_range, self.cfg.model.pcd_encoders_cfg["local_pcd_t"]["num_points"], is_cylindrical=True)
             if self.use_wandb:
-                wandb.log(crop_logs, step=self.total_steps)
+                wandb_logs.update(crop_logs)
 
         # Viser debug utils
         # self.env.viser_visualizer.update_point_cloud(
@@ -365,7 +367,7 @@ class DaggerMobile:
         #     point_cloud=obs_student['local_pcd_t'][env_id].cpu().numpy()
         # )
 
-        return obs_student
+        return obs_student, wandb_logs
 
     def train_episode(self):
         count_reaching = torch.zeros(self.env.num_envs, device=self.device).int()
@@ -383,6 +385,7 @@ class DaggerMobile:
 
         for _ in tqdm(range(self.steps_per_episode), desc=f"Training {self.episode+1}/{self.total_episodes}", \
             ncols=None, dynamic_ncols=True, disable=(self.multi_gpu and self.global_rank != 0) ):
+            self.total_steps += 1
 
             # get obs t_a0 for student, q_hand, rel_pcd
             q_robot = self.env.states['q'].clone() # (num_envs, 32)
@@ -404,7 +407,7 @@ class DaggerMobile:
                 ("robot_pcd_t", robot_pcd_t),
                 ("hand_pcd_t", hand_pcd_t),
             ])
-            obs_input_a0 = self.preprocess_inputs(obs_dict_a0)
+            obs_input_a0, input_wandb_logs = self.preprocess_inputs(obs_dict_a0)
 
             # prepare state inputs
             q_arm_manip = self.env.states['q'][:, 3:10].clone() # (num_envs, 7)
@@ -485,6 +488,8 @@ class DaggerMobile:
                         self.env.reset_buf[reset_ids] = 1
                         count_reaching[reached_reset_flags] = 0
 
+                # sync distillation steps for wandb video logging
+                self.env.distillation_steps = self.total_steps
                 self.env.step(step_actions)
 
                 # count continuous reaching success
@@ -516,15 +521,16 @@ class DaggerMobile:
             mem_allocated_GB = float(torch.cuda.memory_allocated() / 1024**3)
             mem_reserved_GB = float(torch.cuda.memory_reserved() / 1024**3)
 
-            self.total_steps += 1
-
             if self.use_wandb:
-                wandb.log({
+                wandb_logs = {
                     "train/loss": total_loss,
                     "train/lr": self.optimizer.param_groups[0]["lr"],
                     "mem/allocated_GB": mem_allocated_GB,
                     "mem/reserved_GB": mem_reserved_GB,
-                }, step=self.total_steps)
+                }
+                wandb_logs.update(input_wandb_logs)
+
+                wandb.log(wandb_logs, step=self.total_steps)
 
         return total_loss
 
@@ -553,7 +559,7 @@ class DaggerMobile:
                 ("robot_pcd_t", robot_pcd_t),
                 ("hand_pcd_t", hand_pcd_t),
             ])
-            obs_input_a0 = self.preprocess_inputs(obs_dict_a0)
+            obs_input_a0, _ = self.preprocess_inputs(obs_dict_a0)
 
             # prepare state inputs
             q_arm_manip = self.env.states['q'][:, 3:10].clone() # (num_envs, 7)
@@ -625,19 +631,23 @@ class DaggerMobile:
 
                 self.env.step(step_actions)
 
-        if self.use_wandb:
-            wandb.log({
-                "metrics/eval_success_rate_5cm_final_step": self.env.extras["metrics/success_rate_5cm_per_step"],
-                "metrics/eval_success_rate_5cm_per_ep": self.env.extras["metrics/success_rate_5cm_per_ep"],
-                "metrics/eval_lifting_rate_5cm_final_step": self.env.extras["metrics/lifting_rate_5cm_per_step"],
-                "metrics/eval_lifting_rate_5cm_per_ep": self.env.extras["metrics/lifting_rate_5cm_per_ep"],
-            }, step=self.total_steps)
-
         # set env state back for training
         self.env.reset_idx()
         self.env.compute_observations()
         self.env.progress_buf = torch.randint(0, self.env.max_episode_length, (self.env.num_envs,)).to(self.device)
         self.env.abs_actions[:] = self.env.states['q'].clone()
+
+        if self.use_wandb:
+            eval_wandb_logs = {
+                "metrics/eval_success_rate_5cm_final_step": self.env.extras["metrics/success_rate_5cm_per_step"],
+                "metrics/eval_success_rate_5cm_per_ep": self.env.extras["metrics/success_rate_5cm_per_ep"],
+                "metrics/eval_lifting_rate_5cm_final_step": self.env.extras["metrics/lifting_rate_5cm_per_step"],
+                "metrics/eval_lifting_rate_5cm_per_ep": self.env.extras["metrics/lifting_rate_5cm_per_ep"],
+            }
+
+            return eval_wandb_logs
+        else:
+            return {}
 
     def train(self):
         while self.episode < self.total_episodes:
@@ -648,6 +658,10 @@ class DaggerMobile:
 
             train_loss = self.train_episode()
 
+            eval_policy = (self.eval_freq > 0) and (self.episode % self.eval_freq == 0)
+            if eval_policy:
+                eval_wandb_logs = self.eval()
+
             if (not self.multi_gpu) or (self.global_rank == 0):
                 episode_time = time.time() - start_time
                 estimated_finish_time = start_time + episode_time * remaining_episodes
@@ -657,6 +671,9 @@ class DaggerMobile:
                 metrics["episode"] = self.episode
                 metrics["train/teacher_forcing_prop"] = self.teacher_forcing_prop
                 metrics.update(self.env.extras)
+                if eval_policy:
+                    metrics.update(eval_wandb_logs)
+
                 if self.use_wandb:
                     wandb.log(metrics, step=self.total_steps)
 
@@ -671,8 +688,4 @@ class DaggerMobile:
                 colorprint(f"Estimated completion: {datetime.fromtimestamp(estimated_finish_time).strftime('%Y-%m-%d %H:%M:%S')}")
                 print("\n")
 
-            if self.eval_freq > 0 and self.episode % self.eval_freq == 0:
-                self.eval()
-
             self.episode += 1
-
