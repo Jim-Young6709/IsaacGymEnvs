@@ -1,0 +1,49 @@
+{
+  "label": "pumpkin",
+  "base_name": "3",
+  "full_name": "pumpkin_3",
+  "category": "regular",
+  "scale": 0.13,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      1.0215048100000002,
+      1.0608952,
+      0.84342404
+    ],
+    "volume": 0.46981977754357196,
+    "max_dim": 1.0608952
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.1327956253,
+      0.137916376,
+      0.10964512520000001
+    ],
+    "volume": 0.0010321940512632276,
+    "max_dim": 0.137916376
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/pumpkin/3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/pumpkin/3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/pumpkin/3.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/pumpkin_3/pumpkin_3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/pumpkin_3/pumpkin_3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/pumpkin_3/pumpkin_3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/pumpkin_3/pumpkin_3.urdf"
+    }
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "label": "tomato",
+  "base_name": "1",
+  "full_name": "tomato_1",
+  "category": "regular",
+  "scale": 0.1,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      1.11861393,
+      1.11861393,
+      1.00057547
+    ],
+    "volume": 0.6228877550969214,
+    "max_dim": 1.11861393
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.111861393,
+      0.111861393,
+      0.10005754700000001
+    ],
+    "volume": 0.0006228877550969215,
+    "max_dim": 0.111861393
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/tomato/1.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/tomato/1.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/tomato/1.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/tomato_1/tomato_1.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/tomato_1/tomato_1.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/tomato_1/tomato_1.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/tomato_1/tomato_1.urdf"
+    }
+  }
+}

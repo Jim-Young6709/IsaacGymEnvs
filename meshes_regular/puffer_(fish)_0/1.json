@@ -1,0 +1,49 @@
+{
+  "label": "puffer_(fish)",
+  "base_name": "0",
+  "full_name": "puffer_(fish)_0",
+  "category": "regular",
+  "scale": 0.14,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.9752212899999999,
+      0.61885085,
+      0.74642302
+    ],
+    "volume": 0.11672503717038477,
+    "max_dim": 0.9752212899999999
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.13653098060000002,
+      0.086639119,
+      0.10449922280000001
+    ],
+    "volume": 0.00032029350199553583,
+    "max_dim": 0.13653098060000002
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/puffer_(fish)/0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/puffer_(fish)/0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/puffer_(fish)/0.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/puffer_(fish)_0/puffer_(fish)_0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/puffer_(fish)_0/puffer_(fish)_0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/puffer_(fish)_0/puffer_(fish)_0.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/puffer_(fish)_0/puffer_(fish)_0.urdf"
+    }
+  }
+}

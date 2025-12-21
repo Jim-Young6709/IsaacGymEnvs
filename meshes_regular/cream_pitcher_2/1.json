@@ -1,0 +1,49 @@
+{
+  "label": "cream_pitcher",
+  "base_name": "2",
+  "full_name": "cream_pitcher_2",
+  "category": "regular",
+  "scale": 0.15,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      1.05190151,
+      1.04197271,
+      0.66383491
+    ],
+    "volume": 0.2890634032989112,
+    "max_dim": 1.05190151
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.1577852265,
+      0.15629590649999997,
+      0.0995752365
+    ],
+    "volume": 0.0009755889861338253,
+    "max_dim": 0.1577852265
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/cream_pitcher/2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/cream_pitcher/2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/cream_pitcher/2.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/cream_pitcher_2/cream_pitcher_2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/cream_pitcher_2/cream_pitcher_2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/cream_pitcher_2/cream_pitcher_2.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/cream_pitcher_2/cream_pitcher_2.urdf"
+    }
+  }
+}

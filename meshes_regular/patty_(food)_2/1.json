@@ -1,0 +1,49 @@
+{
+  "label": "patty_(food)",
+  "base_name": "2",
+  "full_name": "patty_(food)_2",
+  "category": "regular",
+  "scale": 0.13,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      1.0146242,
+      1.01378941,
+      0.6234521
+    ],
+    "volume": 0.4121847247057181,
+    "max_dim": 1.0146242
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.13190114600000002,
+      0.1317926233,
+      0.08104877299999999
+    ],
+    "volume": 0.0009055698401784627,
+    "max_dim": 0.13190114600000002
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/patty_(food)/2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/patty_(food)/2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/patty_(food)/2.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/patty_(food)_2/patty_(food)_2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/patty_(food)_2/patty_(food)_2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/patty_(food)_2/patty_(food)_2.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/patty_(food)_2/patty_(food)_2.urdf"
+    }
+  }
+}

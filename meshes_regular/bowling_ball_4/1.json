@@ -1,0 +1,49 @@
+{
+  "label": "bowling_ball",
+  "base_name": "4",
+  "full_name": "bowling_ball_4",
+  "category": "regular",
+  "scale": 1.13,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.100837772,
+      0.100837788,
+      0.099868971
+    ],
+    "volume": 0.0005176937129345592,
+    "max_dim": 0.100837788
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.11394668236,
+      0.11394670043999999,
+      0.11285193722999999
+    ],
+    "volume": 0.0007469787053121365,
+    "max_dim": 0.11394670043999999
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/bowling_ball/4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/bowling_ball/4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/bowling_ball/4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/bowling_ball/4.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/bowling_ball_4/bowling_ball_4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/bowling_ball_4/bowling_ball_4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/bowling_ball_4/bowling_ball_4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/bowling_ball_4/bowling_ball_4.urdf"
+    }
+  }
+}

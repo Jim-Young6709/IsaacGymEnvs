@@ -1,0 +1,49 @@
+{
+  "label": "chinaware",
+  "base_name": "4",
+  "full_name": "chinaware_4",
+  "category": "regular",
+  "scale": 0.15,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.99497182,
+      0.59894113,
+      0.59044779
+    ],
+    "volume": 0.14275969726257276,
+    "max_dim": 0.99497182
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.14924577299999997,
+      0.0898411695,
+      0.0885671685
+    ],
+    "volume": 0.00048181397826118304,
+    "max_dim": 0.14924577299999997
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/chinaware/4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/chinaware/4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/chinaware/4.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/chinaware_4/chinaware_4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/chinaware_4/chinaware_4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/chinaware_4/chinaware_4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/chinaware_4/chinaware_4.urdf"
+    }
+  }
+}

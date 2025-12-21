@@ -1,0 +1,49 @@
+{
+  "label": "starfish",
+  "base_name": "0",
+  "full_name": "starfish_0",
+  "category": "regular",
+  "scale": 0.13,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.99822959,
+      0.34939025,
+      0.98528722
+    ],
+    "volume": 0.12392775502623295,
+    "max_dim": 0.99822959
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.1297698467,
+      0.0454207325,
+      0.12808733860000002
+    ],
+    "volume": 0.0002722692777926338,
+    "max_dim": 0.1297698467
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/starfish/0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/starfish/0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/starfish/0.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/starfish_0/starfish_0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/starfish_0/starfish_0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/starfish_0/starfish_0.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/starfish_0/starfish_0.urdf"
+    }
+  }
+}

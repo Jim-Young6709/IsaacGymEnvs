@@ -1,0 +1,49 @@
+{
+  "label": "boxing_glove",
+  "base_name": "0",
+  "full_name": "boxing_glove_0",
+  "category": "regular",
+  "scale": 1.48,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.061875678,
+      0.057459932000000005,
+      0.097197459
+    ],
+    "volume": 0.0001750367230834476,
+    "max_dim": 0.097197459
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.09157600344,
+      0.08504069936,
+      0.14385223932
+    ],
+    "volume": 0.0005674326485981358,
+    "max_dim": 0.14385223932
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/boxing_glove/0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/boxing_glove/0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/boxing_glove/0.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/boxing_glove/0.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/boxing_glove_0/boxing_glove_0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/boxing_glove_0/boxing_glove_0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/boxing_glove_0/boxing_glove_0.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/boxing_glove_0/boxing_glove_0.urdf"
+    }
+  }
+}

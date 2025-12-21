@@ -1,0 +1,49 @@
+{
+  "label": "gondola_(boat)",
+  "base_name": "1",
+  "full_name": "gondola_(boat)_1",
+  "category": "regular",
+  "scale": 0.13,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.46747846000000004,
+      0.9729963099999999,
+      0.53504214
+    ],
+    "volume": 0.11829443215731755,
+    "max_dim": 0.9729963099999999
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.0607721998,
+      0.1264895203,
+      0.0695554782
+    ],
+    "volume": 0.0002598928674496266,
+    "max_dim": 0.1264895203
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/gondola_(boat)/1.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/gondola_(boat)/1.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/gondola_(boat)/1.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/gondola_(boat)_1/gondola_(boat)_1.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/gondola_(boat)_1/gondola_(boat)_1.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/gondola_(boat)_1/gondola_(boat)_1.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/gondola_(boat)_1/gondola_(boat)_1.urdf"
+    }
+  }
+}

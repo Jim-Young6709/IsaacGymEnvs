@@ -1,0 +1,49 @@
+{
+  "label": "piggy_bank",
+  "base_name": "3",
+  "full_name": "piggy_bank_3",
+  "category": "regular",
+  "scale": 0.1,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.99840274,
+      0.81813309,
+      0.80989846
+    ],
+    "volume": 0.3594624343044178,
+    "max_dim": 0.99840274
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.099840274,
+      0.081813309,
+      0.080989846
+    ],
+    "volume": 0.0003594624343044179,
+    "max_dim": 0.099840274
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/piggy_bank/3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/piggy_bank/3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/piggy_bank/3.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/piggy_bank_3/piggy_bank_3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/piggy_bank_3/piggy_bank_3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/piggy_bank_3/piggy_bank_3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/piggy_bank_3/piggy_bank_3.urdf"
+    }
+  }
+}

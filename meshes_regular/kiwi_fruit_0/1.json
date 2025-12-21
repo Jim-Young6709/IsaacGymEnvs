@@ -1,0 +1,49 @@
+{
+  "label": "kiwi_fruit",
+  "base_name": "0",
+  "full_name": "kiwi_fruit_0",
+  "category": "regular",
+  "scale": 0.14,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.91907153,
+      0.77008225,
+      0.56818758
+    ],
+    "volume": 0.16384083966224225,
+    "max_dim": 0.91907153
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.1286700142,
+      0.107811515,
+      0.07954626120000001
+    ],
+    "volume": 0.00044957926403319285,
+    "max_dim": 0.1286700142
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/kiwi_fruit/0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/kiwi_fruit/0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/kiwi_fruit/0.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/kiwi_fruit_0/kiwi_fruit_0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/kiwi_fruit_0/kiwi_fruit_0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/kiwi_fruit_0/kiwi_fruit_0.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/kiwi_fruit_0/kiwi_fruit_0.urdf"
+    }
+  }
+}

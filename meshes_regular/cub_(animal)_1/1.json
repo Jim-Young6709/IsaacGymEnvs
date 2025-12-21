@@ -1,0 +1,49 @@
+{
+  "label": "cub_(animal)",
+  "base_name": "1",
+  "full_name": "cub_(animal)_1",
+  "category": "regular",
+  "scale": 0.13,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.66457006,
+      0.7606972599999999,
+      0.97049828
+    ],
+    "volume": 0.26288260046246986,
+    "max_dim": 0.97049828
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.0863941078,
+      0.0988906438,
+      0.1261647764
+    ],
+    "volume": 0.0005775530732160464,
+    "max_dim": 0.1261647764
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/cub_(animal)/1.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/cub_(animal)/1.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/cub_(animal)/1.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/cub_(animal)_1/cub_(animal)_1.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/cub_(animal)_1/cub_(animal)_1.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/cub_(animal)_1/cub_(animal)_1.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/cub_(animal)_1/cub_(animal)_1.urdf"
+    }
+  }
+}

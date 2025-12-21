@@ -1,0 +1,49 @@
+{
+  "label": "football_(American)",
+  "base_name": "2",
+  "full_name": "football_(American)_2",
+  "category": "regular",
+  "scale": 0.15,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.54517879,
+      0.97974307,
+      0.53717295
+    ],
+    "volume": 0.1327942346106869,
+    "max_dim": 0.97974307
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.0817768185,
+      0.1469614605,
+      0.0805759425
+    ],
+    "volume": 0.00044818054181106835,
+    "max_dim": 0.1469614605
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/football_(American)/2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/football_(American)/2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/football_(American)/2.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/football_(American)_2/football_(American)_2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/football_(American)_2/football_(American)_2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/football_(American)_2/football_(American)_2.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/football_(American)_2/football_(American)_2.urdf"
+    }
+  }
+}

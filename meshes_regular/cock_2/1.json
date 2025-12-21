@@ -1,0 +1,49 @@
+{
+  "label": "cock",
+  "base_name": "2",
+  "full_name": "cock_2",
+  "category": "regular",
+  "scale": 0.17,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.4146331,
+      0.44007092999999997,
+      0.97979451
+    ],
+    "volume": 0.06436340047282599,
+    "max_dim": 0.97979451
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.070487627,
+      0.0748120581,
+      0.16656506670000001
+    ],
+    "volume": 0.0003162173865229941,
+    "max_dim": 0.16656506670000001
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/cock/2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/cock/2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/cock/2.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/cock_2/cock_2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/cock_2/cock_2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/cock_2/cock_2.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/cock_2/cock_2.urdf"
+    }
+  }
+}

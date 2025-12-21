@@ -1,0 +1,49 @@
+{
+  "label": "martini",
+  "base_name": "0",
+  "full_name": "martini_0",
+  "category": "regular",
+  "scale": 0.1,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.71924907,
+      0.7192491,
+      0.99570137
+    ],
+    "volume": 0.3552176718156928,
+    "max_dim": 0.99570137
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.07192490700000001,
+      0.07192491000000001,
+      0.099570137
+    ],
+    "volume": 0.0003552176718156929,
+    "max_dim": 0.099570137
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/martini/0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/martini/0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/martini/0.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/martini_0/martini_0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/martini_0/martini_0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/martini_0/martini_0.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/martini_0/martini_0.urdf"
+    }
+  }
+}

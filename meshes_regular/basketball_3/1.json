@@ -1,0 +1,49 @@
+{
+  "label": "basketball",
+  "base_name": "3",
+  "full_name": "basketball_3",
+  "category": "regular",
+  "scale": 0.95,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 270.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.100565931,
+      0.10056596100000001,
+      0.09999482300000001
+    ],
+    "volume": 0.0005263573841268292,
+    "max_dim": 0.10056596100000001
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.09553766295,
+      0.09553763444999999,
+      0.09499508185000001
+    ],
+    "volume": 0.0004512856622157401,
+    "max_dim": 0.09553766295
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/basketball/3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/basketball/3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/basketball/3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/basketball/3.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/basketball_3/basketball_3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/basketball_3/basketball_3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/basketball_3/basketball_3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/basketball_3/basketball_3.urdf"
+    }
+  }
+}

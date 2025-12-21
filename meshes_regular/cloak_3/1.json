@@ -1,0 +1,49 @@
+{
+  "label": "cloak",
+  "base_name": "3",
+  "full_name": "cloak_3",
+  "category": "regular",
+  "scale": 0.13,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.47611829,
+      0.43379668000000005,
+      1.00094184
+    ],
+    "volume": 0.11273216984126179,
+    "max_dim": 1.00094184
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.061895377700000004,
+      0.0563935684,
+      0.13012243920000002
+    ],
+    "volume": 0.00024767257714125216,
+    "max_dim": 0.13012243920000002
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/cloak/3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/cloak/3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/cloak/3.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/cloak_3/cloak_3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/cloak_3/cloak_3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/cloak_3/cloak_3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/cloak_3/cloak_3.urdf"
+    }
+  }
+}

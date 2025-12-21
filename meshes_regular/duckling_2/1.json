@@ -1,0 +1,49 @@
+{
+  "label": "duckling",
+  "base_name": "2",
+  "full_name": "duckling_2",
+  "category": "regular",
+  "scale": 0.18,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.58612318,
+      0.8667997999999999,
+      0.77827486
+    ],
+    "volume": 0.19236644629794866,
+    "max_dim": 0.8667997999999999
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.10550217240000001,
+      0.15602396399999996,
+      0.1400894748
+    ],
+    "volume": 0.0011218811148096361,
+    "max_dim": 0.15602396399999996
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/duckling/2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/duckling/2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/duckling/2.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/duckling_2/duckling_2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/duckling_2/duckling_2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/duckling_2/duckling_2.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/duckling_2/duckling_2.urdf"
+    }
+  }
+}

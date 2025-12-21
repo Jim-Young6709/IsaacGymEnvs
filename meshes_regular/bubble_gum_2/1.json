@@ -1,0 +1,49 @@
+{
+  "label": "bubble_gum",
+  "base_name": "2",
+  "full_name": "bubble_gum_2",
+  "category": "regular",
+  "scale": 0.1,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.98882341,
+      1.0088631700000001,
+      1.02830846
+    ],
+    "volume": 0.5132552332725334,
+    "max_dim": 1.02830846
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.098882341,
+      0.100886317,
+      0.10283084600000002
+    ],
+    "volume": 0.0005132552332725336,
+    "max_dim": 0.10283084600000002
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/bubble_gum/2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/bubble_gum/2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/bubble_gum/2.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/bubble_gum_2/bubble_gum_2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/bubble_gum_2/bubble_gum_2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/bubble_gum_2/bubble_gum_2.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/bubble_gum_2/bubble_gum_2.urdf"
+    }
+  }
+}

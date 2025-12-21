@@ -1,0 +1,49 @@
+{
+  "label": "fish_(food)",
+  "base_name": "3",
+  "full_name": "fish_(food)_3",
+  "category": "regular",
+  "scale": 1.67,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.059758673000000005,
+      0.096155342,
+      0.08651473100000001
+    ],
+    "volume": 0.00015277209577994286,
+    "max_dim": 0.096155342
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.09979698391,
+      0.16057942114,
+      0.14447960077000002
+    ],
+    "volume": 0.0007115303835275398,
+    "max_dim": 0.16057942114
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/fish_(food)/3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/fish_(food)/3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/fish_(food)/3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/fish_(food)/3.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/fish_(food)_3/fish_(food)_3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/fish_(food)_3/fish_(food)_3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/fish_(food)_3/fish_(food)_3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/fish_(food)_3/fish_(food)_3.urdf"
+    }
+  }
+}

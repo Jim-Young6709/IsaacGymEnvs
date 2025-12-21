@@ -1,0 +1,49 @@
+{
+  "label": "fire_alarm",
+  "base_name": "2",
+  "full_name": "fire_alarm_2",
+  "category": "regular",
+  "scale": 0.1,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.98629487,
+      0.98629492,
+      0.73843787
+    ],
+    "volume": 0.4209547433305155,
+    "max_dim": 0.98629492
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.098629487,
+      0.09862949200000001,
+      0.07384378700000001
+    ],
+    "volume": 0.0004209547433305156,
+    "max_dim": 0.09862949200000001
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/fire_alarm/2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/fire_alarm/2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/fire_alarm/2.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/fire_alarm_2/fire_alarm_2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/fire_alarm_2/fire_alarm_2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/fire_alarm_2/fire_alarm_2.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/fire_alarm_2/fire_alarm_2.urdf"
+    }
+  }
+}

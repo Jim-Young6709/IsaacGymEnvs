@@ -1,0 +1,49 @@
+{
+  "label": "goose",
+  "base_name": "4",
+  "full_name": "goose_4",
+  "category": "regular",
+  "scale": 0.14,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.64814606,
+      1.01772297,
+      0.8168426
+    ],
+    "volume": 0.2358509818552985,
+    "max_dim": 1.01772297
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.0907404484,
+      0.1424812158,
+      0.114357964
+    ],
+    "volume": 0.0006471750942109391,
+    "max_dim": 0.1424812158
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/goose/4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/goose/4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/goose/4.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/goose_4/goose_4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/goose_4/goose_4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/goose_4/goose_4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/goose_4/goose_4.urdf"
+    }
+  }
+}

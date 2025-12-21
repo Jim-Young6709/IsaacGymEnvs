@@ -1,0 +1,49 @@
+{
+  "label": "bow-tie",
+  "base_name": "3",
+  "full_name": "bow-tie_3",
+  "category": "regular",
+  "scale": 0.15,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      1.0,
+      0.2823057,
+      0.59571371
+    ],
+    "volume": 0.0804678838111183,
+    "max_dim": 1.0
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.15,
+      0.042345854999999995,
+      0.08935705649999999
+    ],
+    "volume": 0.0002715791078625242,
+    "max_dim": 0.15
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/bow-tie/3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/bow-tie/3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/bow-tie/3.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/bow-tie_3/bow-tie_3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/bow-tie_3/bow-tie_3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/bow-tie_3/bow-tie_3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/bow-tie_3/bow-tie_3.urdf"
+    }
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "label": "toilet_tissue",
+  "base_name": "1",
+  "full_name": "toilet_tissue_1",
+  "category": "regular",
+  "scale": 0.1,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.8792044999999999,
+      1.06733082,
+      0.99120803
+    ],
+    "volume": 0.6519421928204059,
+    "max_dim": 1.06733082
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.08792045000000001,
+      0.10673308200000002,
+      0.09912080300000001
+    ],
+    "volume": 0.000651942192820406,
+    "max_dim": 0.10673308200000002
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/toilet_tissue/1.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/toilet_tissue/1.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/toilet_tissue/1.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/toilet_tissue_1/toilet_tissue_1.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/toilet_tissue_1/toilet_tissue_1.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/toilet_tissue_1/toilet_tissue_1.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/toilet_tissue_1/toilet_tissue_1.urdf"
+    }
+  }
+}

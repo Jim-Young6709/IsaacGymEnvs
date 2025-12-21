@@ -1,0 +1,49 @@
+{
+  "label": "latch",
+  "base_name": "2",
+  "full_name": "latch_2",
+  "category": "regular",
+  "scale": 0.17,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.1987968,
+      0.5950834899999999,
+      0.99611669
+    ],
+    "volume": 0.07777285855300364,
+    "max_dim": 0.99611669
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.033795456000000015,
+      0.10116419330000001,
+      0.16933983730000002
+    ],
+    "volume": 0.000382098054070907,
+    "max_dim": 0.16933983730000002
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/latch/2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/latch/2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/latch/2.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/latch_2/latch_2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/latch_2/latch_2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/latch_2/latch_2.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/latch_2/latch_2.urdf"
+    }
+  }
+}
