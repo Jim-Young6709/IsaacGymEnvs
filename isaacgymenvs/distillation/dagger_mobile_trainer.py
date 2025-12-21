@@ -152,6 +152,8 @@ class DaggerMobile:
         self.save_freq = self.cfg.dagger.save_freq
         os.makedirs(self.save_dir, exist_ok=True)
 
+        self.eval_freq = self.cfg.dagger.eval_freq
+
         if self.multi_gpu:            
             self.use_wandb = (self.cfg.wandb_activate and self.global_rank == 0)
 
@@ -229,9 +231,9 @@ class DaggerMobile:
         if len(checkpoint_files) > top_k:
             for old_checkpoint in checkpoint_files[:-top_k]:
                 os.remove(os.path.join(self.save_dir, old_checkpoint))
-        
+
         best_path = os.path.join(self.save_dir, "best.pt")
-        if not os.path.exists(best_path) or success_rate_ep > torch.load(best_path, weights_only=True)["success_rate_ep"]:
+        if not os.path.exists(best_path) or success_rate_ep > torch.load(best_path, map_location="cpu")["success_rate_ep"]:
             torch.save(checkpoint, best_path)
 
     def load_checkpoint(self, checkpoint_path):
@@ -514,6 +516,8 @@ class DaggerMobile:
             mem_allocated_GB = float(torch.cuda.memory_allocated() / 1024**3)
             mem_reserved_GB = float(torch.cuda.memory_reserved() / 1024**3)
 
+            self.total_steps += 1
+
             if self.use_wandb:
                 wandb.log({
                     "train/loss": total_loss,
@@ -522,9 +526,118 @@ class DaggerMobile:
                     "mem/reserved_GB": mem_reserved_GB,
                 }, step=self.total_steps)
 
-            self.total_steps += 1
-
         return total_loss
+
+    def eval(self):
+        self.env.reset_idx()
+        self.env.compute_observations()
+        self.env.abs_actions[:] = self.env.states['q'].clone()
+
+        for _ in tqdm(range(self.steps_per_episode), desc="Evaluating", \
+            ncols=None, dynamic_ncols=True, disable=(self.multi_gpu and self.global_rank != 0) ):
+
+            # get obs t_a0 for student, q_hand, rel_pcd
+            q_robot = self.env.states['q'].clone() # (num_envs, 32)
+
+            static_scene_pcd_t0 = self.env.static_scene_pcd_t0 # scene pcd doesn't include object
+            object_pcd_t0 = self.env.object_pcd_t0
+            full_scene_pcd_t = self.env.combined_pcds # scene pcd + object pcd
+            robot_pcd_t = self.env.robot_pcd_sampler.sample(q_robot, self.env.torchurdf_to_isaac_idx)
+            hand_pcd_t = self.env.robot_pcd_sampler.sample(q_robot, self.env.torchurdf_to_isaac_idx, hand_only=True)
+
+            # prepare pcd inputs
+            obs_dict_a0 = OrderedDict([
+                ("static_scene_pcd_t0", static_scene_pcd_t0),
+                ("object_pcd_t0", object_pcd_t0),
+                ("full_scene_pcd_t", full_scene_pcd_t),
+                ("robot_pcd_t", robot_pcd_t),
+                ("hand_pcd_t", hand_pcd_t),
+            ])
+            obs_input_a0 = self.preprocess_inputs(obs_dict_a0)
+
+            # prepare state inputs
+            q_arm_manip = self.env.states['q'][:, 3:10].clone() # (num_envs, 7)
+            q_arm_vision = self.env.states['q'][:, 26:].clone() # (num_envs, 6)
+            q_hand = self.env.states['q'][:, 10:26].clone() # (num_envs, 16)
+
+            obs_input_a0["q_arm_manip"] = self.env.normalize_robot_joints(q_arm_manip, robot="franka", delta=False)
+            obs_input_a0["q_arm_vision"] = self.env.normalize_robot_joints(q_arm_vision, robot="arx", delta=False)
+            obs_input_a0["q_hand"] = self.env.normalize_robot_joints(q_hand, robot="leap", delta=False)
+            if "q_hand_ctrl_delta" in self.state_encoders_keys:
+                obs_input_a0["q_hand_ctrl_delta"] = self.env.normalize_robot_joints(q_hand - self.env.abs_actions[:, 10:26], robot="leap", delta=True)
+            if "objxyz_t0" in self.state_encoders_keys:
+                obs_input_a0["objxyz_t0"] = self.env._object_center_init_state.clone()
+
+                franka_base_pos = self.env.states['franka_base_pose7'][:, :3] # (num_envs, 3)
+                franka_base_quat = self.env.states['franka_base_pose7'][:, 3:] # (num_envs, 4)
+                franka_base_rot_mat = quaternion_to_matrix_ig(franka_base_quat)
+                rot_global2base = franka_base_rot_mat.transpose(1, 2) # (num_envs, 3, 3)
+
+                point_shifted = (obs_input_a0["objxyz_t0"] - franka_base_pos).unsqueeze(1) # (num_envs, 1, 3)
+                point_base_frame = torch.bmm(point_shifted, rot_global2base) # (num_envs, N, 3), bmm is like matmul but specifically made for batches of 2D matrices (input has to be 3D), faster than matmul
+                obs_input_a0["objxyz_t0"] = point_base_frame[:, 0, :] # (num_envs, 3)
+
+            # Viser debug utils
+            # env_id = self.env.viser_visualizer.env_id
+            # self.env.viser_visualizer.update_point_cloud(
+            #     point_cloud_type="obj_point_t",
+            #     point_cloud=obs_input_a0["objxyz_t0"][env_id].reshape(1, 3).cpu().numpy()
+            # )
+
+            with torch.no_grad():
+                student_model = self.student_model.module if self.multi_gpu else self.student_model
+                student_model.eval()
+                student_actions_chunk = student_model(obs_input_a0)
+
+            for action_idx in range(self.chunk_size):
+                # # get teacher action
+                # teacher_obs = self.env.obs_buf.clone()
+                # batch_dict = {
+                #     "is_train": False,
+                #     "obs": teacher_obs,
+                #     "prev_actions": None,
+                # }
+
+                # is_deterministic = True
+
+                # with torch.no_grad():
+                #     res_dict = self.teacher_model(batch_dict)
+
+                # mu = res_dict['mus']
+                # action = res_dict['actions']
+                # self.states = res_dict['rnn_states']
+                # if is_deterministic:
+                #     teacher_actions = mu
+                # else:
+                #     teacher_actions = action
+                # teacher_actions = torch.clamp(teacher_actions, -self.env.clip_actions, self.env.clip_actions)
+                # self.env._pre_physics_step_teacher(teacher_actions)
+                # teacher_actions = self.env.teacher_actions_converted.clone()
+
+                student_actions = student_actions_chunk[:, action_idx, :]
+                step_actions = student_actions # for debugging purposes, this can be changed to teacher_actions to see teacher performance
+                # step with student actions
+                step_actions = torch.clamp(step_actions, -self.env.clip_actions, self.env.clip_actions)
+
+                self.env.progress_buf -= 1 # to avoid automatic resets during the chunk steps, only update progress_buf at the end of the chunk
+                if action_idx == self.chunk_size - 1:
+                    self.env.progress_buf += self.chunk_size
+
+                self.env.step(step_actions)
+
+        if self.use_wandb:
+            wandb.log({
+                "metrics/eval_success_rate_5cm_final_step": self.env.extras["metrics/success_rate_5cm_per_step"],
+                "metrics/eval_success_rate_5cm_per_ep": self.env.extras["metrics/success_rate_5cm_per_ep"],
+                "metrics/eval_lifting_rate_5cm_final_step": self.env.extras["metrics/lifting_rate_5cm_per_step"],
+                "metrics/eval_lifting_rate_5cm_per_ep": self.env.extras["metrics/lifting_rate_5cm_per_ep"],
+            }, step=self.total_steps)
+
+        # set env state back for training
+        self.env.reset_idx()
+        self.env.compute_observations()
+        self.env.progress_buf = torch.randint(0, self.env.max_episode_length, (self.env.num_envs,)).to(self.device)
+        self.env.abs_actions[:] = self.env.states['q'].clone()
 
     def train(self):
         while self.episode < self.total_episodes:
@@ -557,6 +670,9 @@ class DaggerMobile:
                 colorprint(f"Average episodes per hour: {1/episode_time*3600:.2f}")
                 colorprint(f"Estimated completion: {datetime.fromtimestamp(estimated_finish_time).strftime('%Y-%m-%d %H:%M:%S')}")
                 print("\n")
-            
+
+            if self.eval_freq > 0 and self.episode % self.eval_freq == 0:
+                self.eval()
+
             self.episode += 1
 
