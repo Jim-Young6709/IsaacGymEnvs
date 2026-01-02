@@ -348,15 +348,15 @@ class DaggerMobile:
 
         if "local_pcd_t" in self.pcd_encoders_keys:
             num_points = self.cfg.model.pcd_encoders_cfg["local_pcd_t"]["num_points"] # [num cylindrical points, num spherical eef points]
-            cylindrical_local_pcd_t, cylindrical_crop_logs = crop_local_pcd(obs['full_pcd_t'], self.local_pcd_range, num_points[0], is_cylindrical=True) # (num_envs, num_local_points, 3)
-            spherical_local_pcd_t, spherical_crop_logs = crop_local_pcd(obs['full_pcd_t'], self.local_pcd_range, num_points[1], is_cylindrical=False) # (num_envs, num_local_points, 3)
+            cylindrical_local_pcd_t, cylindrical_crop_logs = crop_local_pcd(obs['full_pcd_t'], self.local_pcd_range[0], num_points[0], is_cylindrical=True) # (num_envs, num_local_points, 3)
+            spherical_local_pcd_t, spherical_crop_logs = crop_local_pcd(obs['full_pcd_t'], self.local_pcd_range[1], num_points[1], is_cylindrical=False) # (num_envs, num_local_points, 3)
             obs_student["local_pcd_t"] = torch.cat([cylindrical_local_pcd_t, spherical_local_pcd_t], dim=1)
 
             if self.use_wandb:
                 wandb_logs.update(cylindrical_crop_logs)
                 wandb_logs.update(spherical_crop_logs)
 
-        elif "local_scene_pcd_t" in self.pcd_encoders_keys:
+        elif "local_scene_pcd_t" in self.pcd_encoders_keys: # TODO: this is kinda outdated
             obs_student["local_scene_pcd_t"], crop_logs = crop_local_pcd(obs["full_scene_pcd_t"], self.local_pcd_range, self.cfg.model.pcd_encoders_cfg["local_pcd_t"]["num_points"], is_cylindrical=True)
             if self.use_wandb:
                 wandb_logs.update(crop_logs)
