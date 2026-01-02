@@ -1171,11 +1171,11 @@ class FrankaCMD(VecTask):
                 ctrl_target_eef_quat=ctrl_target_eef_quat,
             )
 
-            hand_actions = actions[:, 6:] * self.action_scale["hand"] * self.dt
+            hand_actions = actions[:, 6:] * self.action_scale["cmd"] * self.dt
             delta_hand_joint_actions_unnormalized = self.unnormalize_robot_joints(hand_actions, robot="hand", delta=True)
         else:
-            arm_actions = actions[:, :7] * self.action_scale["arm"] * self.dt
-            hand_actions = actions[:, 7:] * self.action_scale["hand"] * self.dt
+            arm_actions = actions[:, :7] * self.action_scale["franka"] * self.dt
+            hand_actions = actions[:, 7:] * self.action_scale["cmd"] * self.dt
             delta_arm_joint_actions_unnormalized = self.unnormalize_robot_joints(arm_actions, robot="arm", delta=True)
             delta_hand_joint_actions_unnormalized = self.unnormalize_robot_joints(hand_actions, robot="hand", delta=True)
 

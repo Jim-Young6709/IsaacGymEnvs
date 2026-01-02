@@ -33,12 +33,6 @@ class WBCPolicyTransformer:
         # convert to python dict
         self.action_scale = OmegaConf.to_container(self.action_scale, resolve=True)
 
-        # NOTE: temporary fix
-        if ("franka" not in self.action_scale) and ("arm" in self.action_scale):
-            self.action_scale["franka"] = self.action_scale["arm"]
-        if ("arx" not in self.action_scale) and ("arm" in self.action_scale):
-            self.action_scale["arx"] = self.action_scale["arm"]
-
         self.dt = self.ckpt_cfg["task"]["sim"]["dt"]
 
         self.delta_franka_action = self.ckpt_cfg["action_space"]["delta_franka_action"]
@@ -258,7 +252,7 @@ class WBCPolicyTransformer:
             actions_abs[3:10] = self.unnormalize_robot_joints(actions_abs[3:10], robot="franka", delta=False)
 
         if self.delta_leap_action:
-            actions_abs[10:26] = self.unnormalize_robot_joints(actions_abs[10:26], robot="leap", delta=True) * self.action_scale["hand"] * self.dt + q_hand
+            actions_abs[10:26] = self.unnormalize_robot_joints(actions_abs[10:26], robot="leap", delta=True) * self.action_scale["leap"] * self.dt + q_hand
         else:
             actions_abs[10:26] = self.unnormalize_robot_joints(actions_abs[10:26], robot="leap", delta=False)
 

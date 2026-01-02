@@ -15,8 +15,11 @@ env:
   aggregateMode: 3
 
   actionScale: # note this will multiply sim.dt
-    hand: 3.0
-    arm: 0.6 # joint angle
+    # used for wbc policies
+    leap: 3.0 # used for leap hands all the time
+    franka: 0.6 # joint angle (mainly used in wbc distillation code)
+    arx: 0.6 # joint angle (mainly used in wbc distillation code)
+    # used for local policies (RL & local policy distillation)
     eef_pos: 0.6
     eef_rot: 0.6 # axis-angle rotation
 
