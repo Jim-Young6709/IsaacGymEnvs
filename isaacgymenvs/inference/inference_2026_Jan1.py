@@ -1,8 +1,6 @@
 import torch
 import time
 from hydra.utils import instantiate
-from omegaconf import OmegaConf
-from pathlib import Path
 from collections import OrderedDict
 
 from isaacgymenvs.utils.training_utils import *
@@ -185,9 +183,12 @@ class WBCPolicyTransformer:
         Returns:
             step_actions (torch.Tensor): (action_dim)
         """
-        obs_dict["local_pcd_t"], _ = crop_local_pcd(
-            obs_dict['full_pcd_frankabase_frame_t'], self.local_pcd_range, self.num_local_points, is_cylindrical=True,
-        )
+
+        if "local_pcd_t" in self.ckpt_cfg["model"]["pcd_encoders_cfg"]:
+            num_points = self.ckpt_cfg["model"]["pcd_encoders_cfg"]["local_pcd_t"]["num_points"] # [num cylindrical points, num spherical eef points]
+            cylindrical_local_pcd_t, cylindrical_crop_logs = crop_local_pcd(obs_dict['full_pcd_frankabase_frame_t'], self.local_pcd_range, num_points[0], is_cylindrical=True) # (num_envs, num_local_points, 3)
+            spherical_local_pcd_t, spherical_crop_logs = crop_local_pcd(obs_dict['full_pcd_frankabase_frame_t'], self.local_pcd_range, num_points[1], is_cylindrical=False) # (num_envs, num_local_points, 3)
+            obs_dict["local_pcd_t"] = torch.cat([cylindrical_local_pcd_t, spherical_local_pcd_t], dim=1)
 
         with torch.no_grad():
             self.model.eval()
@@ -243,7 +244,7 @@ class WBCPolicyTransformer:
         actions_abs[:3] = step_action[:3] # base vel TODO: we should keep here as velocity right?
 
         if self.delta_franka_action:
-            actions_abs[3:10] = self.unnormalize_robot_joints(actions_abs[3:10], robot="franka", delta=True) * self.action_scale["franka"] * self.dt + q_arm_manip
+            actions_abs[3:10] = self.unnormalize_robot_joints(actions_abs[3:10], robot="franka", delta=True) * self.action_scale["arm"] * self.dt + q_arm_manip
         else:
             actions_abs[3:10] = self.unnormalize_robot_joints(actions_abs[3:10], robot="franka", delta=False)
 
@@ -253,7 +254,7 @@ class WBCPolicyTransformer:
             actions_abs[10:26] = self.unnormalize_robot_joints(actions_abs[10:26], robot="leap", delta=False)
 
         if self.delta_arx_action:
-            actions_abs[26:] = self.unnormalize_robot_joints(actions_abs[26:], robot="arx", delta=True) * self.action_scale["arx"] * self.dt + q_arm_vision
+            actions_abs[26:] = self.unnormalize_robot_joints(actions_abs[26:], robot="arx", delta=True) * self.action_scale["arm"] * self.dt + q_arm_vision
         else:
             actions_abs[26:] = self.unnormalize_robot_joints(actions_abs[26:], robot="arx", delta=False)
 
