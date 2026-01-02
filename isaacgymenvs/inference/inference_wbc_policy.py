@@ -3,6 +3,8 @@ import time
 from hydra.utils import instantiate
 from collections import OrderedDict
 
+from omegaconf import OmegaConf
+
 from isaacgymenvs.utils.training_utils import *
 from isaacgymenvs.inference.inference_utils import *
 
@@ -28,12 +30,14 @@ class WBCPolicyTransformer:
         self.num_local_points = 1024
         self.clip_actions = self.ckpt_cfg["task"]["env"]["clipActions"]
         self.action_scale = self.ckpt_cfg["task"]["env"]["actionScale"]
+        # convert to python dict
+        self.action_scale = OmegaConf.to_container(self.action_scale, resolve=True)
 
         # NOTE: temporary fix
         if ("franka" not in self.action_scale) and ("arm" in self.action_scale):
-            self.action_scale["franka"] = self.action_scale["arm"].copy()
+            self.action_scale["franka"] = self.action_scale["arm"]
         if ("arx" not in self.action_scale) and ("arm" in self.action_scale):
-            self.action_scale["arx"] = self.action_scale["arm"].copy()
+            self.action_scale["arx"] = self.action_scale["arm"]
 
         self.dt = self.ckpt_cfg["task"]["sim"]["dt"]
 
