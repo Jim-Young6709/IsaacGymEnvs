@@ -1,8 +1,6 @@
 import torch
 import time
 from hydra.utils import instantiate
-from omegaconf import OmegaConf
-from pathlib import Path
 from collections import OrderedDict
 
 from isaacgymenvs.utils.training_utils import *
@@ -10,52 +8,38 @@ from isaacgymenvs.inference.inference_utils import *
 
 
 TRANSFORMER_CONFIGS = {
-    "device": "cuda:0",
-    "clip_actions": 1.0,
-    "local_pcd_range": 1.5,
-    "num_local_points": 1024,
     "seed": 42,
-    "action_scale": {
-        "franka": 0.01,
-        "arx": 0.01,
-        "hand": 0.05,
-    },
-    "action_space": {
-        "delta_franka_action": True,
-        "delta_leap_action": True,
-        "delta_arx_action": True,
-    },
-    "model_config_path": "isaacgymenvs/cfg/model/deploy_transformer_mobile_fullscene_t.yaml",
-    "ckpt_path": "dagger_ckpts/grogu_ckpts/Dec11_wbc_table_delta_nodr.pt",
+    "ckpt_path": "dagger_ckpts/grogu_ckpts/Jan1_wbc_table_deltalre-4_dr.pt",
 }
 
 
 class WBCPolicyTransformer:
     def __init__(self, configs):
-        self.device = configs["device"]
+        self.device = "cuda:0"
         set_seed_and_precision(configs["seed"])
-        self.local_pcd_range = configs["local_pcd_range"]
-        self.num_local_points = configs["num_local_points"]
-        self.clip_actions = configs["clip_actions"]
-        self.action_scale = configs["action_scale"]
 
-        self.delta_franka_action = configs["action_space"]["delta_franka_action"]
-        self.delta_leap_action = configs["action_space"]["delta_leap_action"]
-        self.delta_arx_action = configs["action_space"]["delta_arx_action"]
-
-        # load model from config
-        model_config_file = Path(configs["model_config_path"])
-        assert model_config_file.exists(), f"Model config file {model_config_file} does not exist"
-        with open(model_config_file, "r") as f:
-            model_config = OmegaConf.load(f)
-        self.model = instantiate(model_config).to(self.device)
-        self.model = self.model.to(self.device)
-
-        # load ckpt weight
+        # load ckpt
         load_checkpoint_path = configs["ckpt_path"]
         if load_checkpoint_path is not None:
             success_rate_ep = self.load_checkpoint(load_checkpoint_path)
             colorprint(f"Loading ckpt from {load_checkpoint_path}: success_rate_ep={success_rate_ep}", color="magenta")
+
+        self.local_pcd_range = self.ckpt_cfg["dagger"]["local_pcd_range"]
+        self.num_local_points = 1024
+        self.clip_actions = self.ckpt_cfg["task"]["env"]["clipActions"]
+        self.action_scale = self.ckpt_cfg["task"]["env"]["actionScale"]
+
+        # NOTE: temporary fix
+        if ("franka" not in self.action_scale) and ("arm" in self.action_scale):
+            self.action_scale["franka"] = self.action_scale["arm"].copy()
+        if ("arx" not in self.action_scale) and ("arm" in self.action_scale):
+            self.action_scale["arx"] = self.action_scale["arm"].copy()
+
+        self.dt = self.ckpt_cfg["task"]["sim"]["dt"]
+
+        self.delta_franka_action = self.ckpt_cfg["action_space"]["delta_franka_action"]
+        self.delta_leap_action = self.ckpt_cfg["action_space"]["delta_leap_action"]
+        self.delta_arx_action = self.ckpt_cfg["action_space"]["delta_arx_action"]
 
         self.robot_dof_lower_limits = torch.tensor([
            -5.0000e+00, -5.0000e+00, -1.0000e+05,
@@ -106,11 +90,17 @@ class WBCPolicyTransformer:
 
     def load_checkpoint(self, checkpoint_path):
         checkpoint = torch.load(checkpoint_path, map_location=self.device)
-        state_dict = checkpoint['model_state_dict']
+
+        # load model from config
+        self.ckpt_cfg = checkpoint["cfg"]
+        self.model = instantiate(self.ckpt_cfg["model"]).to(self.device)
+        self.model = self.model.to(self.device)
+
         # remove the DDP ckpt prefix if there are any
+        state_dict = checkpoint["model_state_dict"]
         new_state_dict = {}
         for k, v in state_dict.items():
-            if k.startswith('module.'):
+            if k.startswith("module."):
                 new_state_dict[k[7:]] = v  # remove 'module.' prefix (7 characters)
             else:
                 new_state_dict[k] = v
@@ -198,9 +188,12 @@ class WBCPolicyTransformer:
         Returns:
             step_actions (torch.Tensor): (action_dim)
         """
-        obs_dict["local_pcd_t"], _ = crop_local_pcd(
-            obs_dict['full_pcd_frankabase_frame_t'], self.local_pcd_range, self.num_local_points, is_cylindrical=True,
-        )
+
+        if "local_pcd_t" in self.ckpt_cfg["model"]["pcd_encoders_cfg"]:
+            num_points = self.ckpt_cfg["model"]["pcd_encoders_cfg"]["local_pcd_t"]["num_points"] # [num cylindrical points, num spherical eef points]
+            cylindrical_local_pcd_t, cylindrical_crop_logs = crop_local_pcd(obs_dict['full_pcd_frankabase_frame_t'], self.local_pcd_range[0], num_points[0], is_cylindrical=True) # (num_envs, num_local_points, 3)
+            spherical_local_pcd_t, spherical_crop_logs = crop_local_pcd(obs_dict['full_pcd_frankabase_frame_t'], self.local_pcd_range[1], num_points[1], is_cylindrical=False) # (num_envs, num_local_points, 3)
+            obs_dict["local_pcd_t"] = torch.cat([cylindrical_local_pcd_t, spherical_local_pcd_t], dim=1)
 
         with torch.no_grad():
             self.model.eval()
@@ -256,17 +249,17 @@ class WBCPolicyTransformer:
         actions_abs[:3] = step_action[:3] # base vel TODO: we should keep here as velocity right?
 
         if self.delta_franka_action:
-            actions_abs[3:10] = self.unnormalize_robot_joints(actions_abs[3:10], robot="franka", delta=True) * self.action_scale["franka"] + q_arm_manip
+            actions_abs[3:10] = self.unnormalize_robot_joints(actions_abs[3:10], robot="franka", delta=True) * self.action_scale["franka"] * self.dt + q_arm_manip
         else:
             actions_abs[3:10] = self.unnormalize_robot_joints(actions_abs[3:10], robot="franka", delta=False)
 
         if self.delta_leap_action:
-            actions_abs[10:26] = self.unnormalize_robot_joints(actions_abs[10:26], robot="leap", delta=True) * self.action_scale["hand"] + q_hand
+            actions_abs[10:26] = self.unnormalize_robot_joints(actions_abs[10:26], robot="leap", delta=True) * self.action_scale["hand"] * self.dt + q_hand
         else:
             actions_abs[10:26] = self.unnormalize_robot_joints(actions_abs[10:26], robot="leap", delta=False)
 
         if self.delta_arx_action:
-            actions_abs[26:] = self.unnormalize_robot_joints(actions_abs[26:], robot="arx", delta=True) * self.action_scale["arx"] + q_arm_vision
+            actions_abs[26:] = self.unnormalize_robot_joints(actions_abs[26:], robot="arx", delta=True) * self.action_scale["arx"] * self.dt + q_arm_vision
         else:
             actions_abs[26:] = self.unnormalize_robot_joints(actions_abs[26:], robot="arx", delta=False)
 
@@ -291,7 +284,7 @@ if __name__ == "__main__":
     print("warm up")
     t_1 = time.time()
     for i in range(3):
-        test_input = model.generate_random_inputs()
+        test_input = model.generate_random_inputs(False)
         action = model.get_action(*test_input)
     t_2 = time.time()
     print(f"warm up time: {t_2 - t_1}")
@@ -300,7 +293,7 @@ if __name__ == "__main__":
     print(f"profiling with {test_num} inferences")
     t_3 = time.time()
     for i in range(int(test_num)):
-        test_input = model.generate_random_inputs()
+        test_input = model.generate_random_inputs(False)
         action = model.get_action(*test_input)
     t_4 = time.time()
     t_test = t_4 - t_3
