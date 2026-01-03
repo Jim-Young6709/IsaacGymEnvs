@@ -257,7 +257,7 @@ class DaggerMobile:
     def preprocess_inputs(self, obs):
         wandb_logs = {}
 
-        # eef states
+        # franka base states
         franka_base_pos = self.env.states['franka_base_pose7'][:, :3] # (num_envs, 3)
         franka_base_quat = self.env.states['franka_base_pose7'][:, 3:] # (num_envs, 4)
         franka_base_rot_mat = quaternion_to_matrix_ig(franka_base_quat)
@@ -300,6 +300,15 @@ class DaggerMobile:
         #     point_cloud_type="seg_static_object_t0",
         #     point_cloud=obs["object_pcd_t0"][env_id].cpu().numpy()
         # )
+
+        if "local_pcd_t" in self.pcd_encoders_keys:
+            # get full pcd in eef frame (only xyz shifted, not rotated)
+            eef_pos = self.env.states['eef_pos'] # (num_envs, 3)
+            full_pcd_shifted = obs['full_pcd_t'] - eef_pos.unsqueeze(1) # (num_envs, N, 3)
+            num_points = self.cfg.model.pcd_encoders_cfg["local_pcd_t"]["num_points"][1]
+            spherical_local_pcd_t, spherical_crop_logs = crop_local_pcd(full_pcd_shifted, self.local_pcd_range[1], num_points, is_cylindrical=False) # (num_envs, num_local_points, 3)
+            # local eef pcd in global frame
+            obs["local_eef_pcd_t"] = spherical_local_pcd_t + eef_pos.unsqueeze(1) # back to global frame for now, will be converted to franka base frame later
 
         # convert all pcd to franka base frame
         for key in obs.keys():
@@ -352,8 +361,7 @@ class DaggerMobile:
         if "local_pcd_t" in self.pcd_encoders_keys:
             num_points = self.cfg.model.pcd_encoders_cfg["local_pcd_t"]["num_points"] # [num cylindrical points, num spherical eef points]
             cylindrical_local_pcd_t, cylindrical_crop_logs = crop_local_pcd(obs['full_pcd_t'], self.local_pcd_range[0], num_points[0], is_cylindrical=True) # (num_envs, num_local_points, 3)
-            spherical_local_pcd_t, spherical_crop_logs = crop_local_pcd(obs['full_pcd_t'], self.local_pcd_range[1], num_points[1], is_cylindrical=False) # (num_envs, num_local_points, 3)
-            obs_student["local_pcd_t"] = torch.cat([cylindrical_local_pcd_t, spherical_local_pcd_t], dim=1)
+            obs_student["local_pcd_t"] = torch.cat([cylindrical_local_pcd_t, obs["local_eef_pcd_t"]], dim=1)
 
             if self.use_wandb:
                 wandb_logs.update(cylindrical_crop_logs)
@@ -659,11 +667,11 @@ class DaggerMobile:
             start_time = time.time()
             remaining_episodes = self.total_episodes - self.episode
 
+            train_loss = self.train_episode()
+
             eval_policy = (self.eval_freq > 0) and (self.episode % self.eval_freq == 0)
             if eval_policy:
                 eval_wandb_logs = self.eval()
-
-            train_loss = self.train_episode()
 
             if (not self.multi_gpu) or (self.global_rank == 0):
                 episode_time = time.time() - start_time
