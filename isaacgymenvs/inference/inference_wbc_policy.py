@@ -190,7 +190,8 @@ class WBCPolicyTransformer:
         if "local_pcd_t" in self.ckpt_cfg["model"]["pcd_encoders_cfg"]:
             num_points = self.ckpt_cfg["model"]["pcd_encoders_cfg"]["local_pcd_t"]["num_points"] # [num cylindrical points, num spherical eef points]
             cylindrical_local_pcd_t, cylindrical_crop_logs = crop_local_pcd(obs_dict['full_pcd_frankabase_frame_t'], self.local_pcd_range[0], num_points[0], is_cylindrical=True) # (num_envs, num_local_points, 3)
-            spherical_local_pcd_t, spherical_crop_logs = crop_local_pcd(obs_dict['full_pcd_frankabase_frame_t'], self.local_pcd_range[1], num_points[1], is_cylindrical=False) # (num_envs, num_local_points, 3)
+            spherical_local_pcd_t, spherical_crop_logs = crop_local_pcd(obs_dict['full_pcd_frankabase_frame_t'] - obs_dict['eef_xyz_frankabase_frame_t'], \
+                    self.local_pcd_range[1], num_points[1], is_cylindrical=False) + obs_dict['eef_xyz_frankabase_frame_t'] # (num_envs, num_local_points, 3)
             obs_dict["local_pcd_t"] = torch.cat([cylindrical_local_pcd_t, spherical_local_pcd_t], dim=1)
 
         with torch.no_grad():
@@ -202,7 +203,7 @@ class WBCPolicyTransformer:
         step_actions = torch.clamp(student_actions, -self.clip_actions, self.clip_actions)
         return step_actions, obs_dict
 
-    def get_action(self, full_pcd_frankabase_frame_t, q_hand, q_arm_manip, q_arm_vision, objxyz_t0=None):
+    def get_action(self, full_pcd_frankabase_frame_t, eef_xyz_frankabase_frame_t, q_hand, q_arm_manip, q_arm_vision, objxyz_t0=None):
         """
         get the final action for execution
 
@@ -220,6 +221,7 @@ class WBCPolicyTransformer:
             and full_pcd_frankabase_frame_t.size(1) == 3
         # (1, N, 3)
         full_pcd_frankabase_frame_t_b = full_pcd_frankabase_frame_t.unsqueeze(0).to(self.device)
+        eef_xyz_frankabase_frame_t_b = eef_xyz_frankabase_frame_t.unsqueeze(0).to(self.device)  # (1, 3)
         q_hand_b = self.normalize_robot_joints(q_hand.unsqueeze(0).to(self.device), robot="leap", delta=False) # (1, 16)
         q_hand_ctrl_delta_b = self.normalize_robot_joints(
             (q_hand.to(self.device) - self.abs_hand_actions), robot="leap", delta=True
@@ -229,6 +231,7 @@ class WBCPolicyTransformer:
 
         obs_dict = OrderedDict([
             ("full_pcd_frankabase_frame_t", full_pcd_frankabase_frame_t_b),
+            ("eef_xyz_frankabase_frame_t", eef_xyz_frankabase_frame_t_b),
             ("q_arm_manip", q_arm_manip_b),
             ("q_arm_vision", q_arm_vision_b),
             ("q_hand", q_hand_b),
