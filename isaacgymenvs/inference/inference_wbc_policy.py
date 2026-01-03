@@ -11,7 +11,7 @@ from isaacgymenvs.inference.inference_utils import *
 
 TRANSFORMER_CONFIGS = {
     "seed": 42,
-    "ckpt_path": "dagger_ckpts/grogu_ckpts/Jan1_wbc_table_deltalre-4_dr.pt",
+    "ckpt_path": "dagger_ckpts/grogu_ckpts/Jan3_wbc_table_deltalre-4_nodr_local.pt",
 }
 
 
@@ -84,7 +84,7 @@ class WBCPolicyTransformer:
             object_xyz_t0 = torch.rand(3, device=self.device)
         else:
             object_xyz_t0 = None
-        return full_pcd_eef_frame_t, q_hand, q_arm_manip, q_arm_vision, object_xyz_t0
+        return full_pcd_eef_frame_t, torch.zeros(3, device=self.device), q_hand, q_arm_manip, q_arm_vision, object_xyz_t0
 
     def load_checkpoint(self, checkpoint_path):
         checkpoint = torch.load(checkpoint_path, map_location=self.device)
@@ -191,7 +191,8 @@ class WBCPolicyTransformer:
             num_points = self.ckpt_cfg["model"]["pcd_encoders_cfg"]["local_pcd_t"]["num_points"] # [num cylindrical points, num spherical eef points]
             cylindrical_local_pcd_t, cylindrical_crop_logs = crop_local_pcd(obs_dict['full_pcd_frankabase_frame_t'], self.local_pcd_range[0], num_points[0], is_cylindrical=True) # (num_envs, num_local_points, 3)
             spherical_local_pcd_t, spherical_crop_logs = crop_local_pcd(obs_dict['full_pcd_frankabase_frame_t'] - obs_dict['eef_xyz_frankabase_frame_t'], \
-                    self.local_pcd_range[1], num_points[1], is_cylindrical=False) + obs_dict['eef_xyz_frankabase_frame_t'] # (num_envs, num_local_points, 3)
+                    self.local_pcd_range[1], num_points[1], is_cylindrical=False) # (num_envs, num_local_points, 3)
+            spherical_local_pcd_t = spherical_local_pcd_t + obs_dict['eef_xyz_frankabase_frame_t']
             obs_dict["local_pcd_t"] = torch.cat([cylindrical_local_pcd_t, spherical_local_pcd_t], dim=1)
 
         with torch.no_grad():
