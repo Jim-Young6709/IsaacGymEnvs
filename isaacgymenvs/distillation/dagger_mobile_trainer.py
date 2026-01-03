@@ -30,6 +30,9 @@ from isaacgymenvs.tasks import FrankaLEAPMobile
 
 class DaggerMobile:
     def __init__(self, cfg):
+        # overwrite the video logging freq so it aligns well with the eval pattern
+        cfg.task.env.video_logging.freq = (cfg.dagger.eval_freq + 1) * cfg.task.env.episodeLength
+
         # load configs
         self.multi_gpu = cfg.multi_gpu
         if self.multi_gpu:
@@ -656,11 +659,11 @@ class DaggerMobile:
             start_time = time.time()
             remaining_episodes = self.total_episodes - self.episode
 
-            train_loss = self.train_episode()
-
             eval_policy = (self.eval_freq > 0) and (self.episode % self.eval_freq == 0)
             if eval_policy:
                 eval_wandb_logs = self.eval()
+
+            train_loss = self.train_episode()
 
             if (not self.multi_gpu) or (self.global_rank == 0):
                 episode_time = time.time() - start_time
