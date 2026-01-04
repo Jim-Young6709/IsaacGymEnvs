@@ -42,6 +42,7 @@ class FrankaLEAP(VecTask):
         self.eef_actions = True if self.cfg["env"]["numActions"] == 22 else False
         self.aggregate_mode = self.cfg["env"]["aggregateMode"]
         self.mesh_args = self.cfg["env"]["mesh"]
+        self.object_wrench_args = self.cfg["env"]["object_wrench"]
         self.eef_init = self.cfg["env"]["eef_init"]
         self.distractor_settings = self.cfg["env"]["distractor_settings"]
         self.video_logging = self.cfg["env"]["video_logging"]
@@ -155,11 +156,18 @@ class FrankaLEAP(VecTask):
         self.delta_joint_actions = torch.zeros((self.num_envs, self.num_robot_dofs), device=self.device, dtype=torch.float) # Current delta actions to be deployed
         self.delta_eef_actions = torch.zeros((self.num_envs, self.num_robot_dofs-1), device=self.device, dtype=torch.float) # Current delta actions to be deployed at the end effector
         self.success_flags = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device) # 1 if success condition has been achieved at any step, 0 otherwise
+        self.success_5cm_per_step = torch.zeros((self.num_envs,), dtype=torch.bool, device=self.device) # success within 5cm threshold
         self.lifting_flags = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device)
+        self.lifting_5cm_per_step = torch.zeros((self.num_envs,), dtype=torch.bool, device=self.device)
 
         self.static_scene_pcd_t0 = self.static_pcds.clone()
 
         self.abs_actions = torch.zeros(self.num_envs, 23, device=self.device)
+
+        self.rigid_body_forces = torch.zeros((self.num_envs, self.num_bodies, 3), dtype=torch.float, device=self.device)
+        self.rigid_body_torques = torch.zeros_like(self.rigid_body_forces)
+        self.object_applied_forces = torch.zeros((self.num_envs, 3), dtype=torch.float, device=self.device)
+        self.object_applied_torques = torch.zeros_like(self.object_applied_forces)
 
     def _build_joint_mapping(self):
         env_ptr = self.envs[0]
@@ -330,6 +338,7 @@ class FrankaLEAP(VecTask):
         self._root_state = gymtorch.wrap_tensor(_actor_root_state_tensor).view(self.num_envs, -1, 13)
         self._dof_state = gymtorch.wrap_tensor(_dof_state_tensor).view(self.num_envs, -1, 2)
         self._rigid_body_state = gymtorch.wrap_tensor(_rigid_body_state_tensor).view(self.num_envs, -1, 13)
+        self.num_bodies = self._rigid_body_state.shape[1]
         self._q = self._dof_state[..., 0]
         self._qd = self._dof_state[..., 1]
         self._eef_state = self._rigid_body_state[:, self.handles["hand"], :]
@@ -1197,7 +1206,59 @@ class FrankaLEAP(VecTask):
         self.progress_buf[env_ids] = 0
         self.reset_buf[env_ids] = 0
 
-    # for debugging purposes only, so this scripts on its own can run
+    def _apply_object_wrench(self):
+        curriculum_factor = min(self.sim_steps / self.object_wrench_args["curri_steps"], 1)
+        max_linear_force = self.object_wrench_args["max_linear_force"] * curriculum_factor
+        linear_force_mag = max_linear_force * torch.rand(self.num_envs, 1, device=self.device)
+        torque_mag = (linear_force_mag * self.object_wrench_args["torsional_radius"])
+        rand_forces =\
+            linear_force_mag * torch.nn.functional.normalize(
+                torch.randn(self.num_envs, 3, device=self.device),
+                dim=-1
+            )
+        rand_torques =\
+            torque_mag * torch.nn.functional.normalize(
+                torch.randn(self.num_envs, 3, device=self.device),
+                dim=-1
+            )
+
+        num_trigger_steps = int(round(self.object_wrench_args["trigger_duration"] / self.dt))
+
+        self.object_applied_forces = torch.where(
+            ((self.progress_buf % num_trigger_steps) == 0).unsqueeze(-1),
+            rand_forces,
+            self.object_applied_forces
+        )
+
+        self.object_applied_forces = torch.where(
+            self.success_5cm_per_step.unsqueeze(-1),
+            self.object_applied_forces,
+            torch.zeros_like(self.object_applied_forces)
+        )
+
+        self.object_applied_torques = torch.where(
+            ((self.progress_buf % num_trigger_steps) == 0).unsqueeze(-1),
+            rand_torques,
+            self.object_applied_torques
+        )
+
+        self.object_applied_torques = torch.where(
+            self.success_5cm_per_step.unsqueeze(-1),
+            self.object_applied_torques,
+            torch.zeros_like(self.object_applied_torques)
+        )
+
+        # NOTE: this assumes object body is always the last rigid body in the env, which mean object actor must be created last in _create_envs
+        self.rigid_body_forces[:, -1, :] = self.object_applied_forces
+        self.rigid_body_torques[:, -1, :] = self.object_applied_torques
+
+        self.gym.apply_rigid_body_force_tensors(
+            self.sim,
+            gymtorch.unwrap_tensor(self.rigid_body_forces),
+            gymtorch.unwrap_tensor(self.rigid_body_torques),
+            gymapi.ENV_SPACE,  # ENV_SPACE (world) or LOCAL_SPACE
+        )
+
     def pre_physics_step(self, actions):
         """
         Args:
@@ -1251,6 +1312,10 @@ class FrankaLEAP(VecTask):
             self.abs_actions, self.robot_dof_lower_limits, self.robot_dof_upper_limits
         )
         self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(self.abs_actions))
+
+        # Add F/T wrench to object
+        if self.object_wrench_args["enable"]:
+            self._apply_object_wrench()
 
     def post_physics_step(self):
         self.progress_buf += 1

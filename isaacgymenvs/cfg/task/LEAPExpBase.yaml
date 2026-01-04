@@ -44,6 +44,13 @@ env:
     xyz_range: [[0.35, -0.2, 0.2], [0.55, 0.2, 0.25]] # xy is center position, z is BOTTOM height
     scale_range: [0.1, 0.1]
 
+  object_wrench:
+    enable: True
+    max_linear_force: 5.0 # in Newtons
+    torsional_radius: 0.01 # in meters
+    trigger_duration: 1.0 # seconds, this will time sim_dt to get the number of trigger steps
+    curri_steps: 1 # curriculum steps, now default to 1 which is no curri
+
   distractor_settings:
     enable: False
     params:
