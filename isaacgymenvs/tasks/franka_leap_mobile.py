@@ -184,7 +184,7 @@ class FrankaLEAPMobile(VecTask):
                      0.0, 0.0, 0.0, 0.0,
                      0.0, 0.0, 0.0, 0.0,
                      0.0, 0.0, 0.0, 0.0,] + \
-                    [0.0, 0.785, 0.785, 0.0, 0.0, 0.0]
+                    [0.0, 0.4, 0.4, 0.0, 0.0, 0.0]
                 ] * self.num_envs
             ).to(self.device)
             self.canonical_joint_config[:, :3] = base_init_pose
