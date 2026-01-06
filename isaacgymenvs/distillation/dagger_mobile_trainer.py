@@ -373,9 +373,13 @@ class DaggerMobile:
                 wandb_logs.update(crop_logs)
 
         # Viser debug utils
+        # vis_local_pcd_t = obs_student['local_pcd_t'].clone()
+        # vis_local_pcd_t = torch.bmm(vis_local_pcd_t, rot_global2base.transpose(1, 2)) # (num_envs, N, 3), bmm is like matmul but specifically made for batches of 2D matrices, faster than matmul
+        # vis_local_pcd_t = vis_local_pcd_t + franka_base_pos.unsqueeze(1) # (num_envs, N, 3)
+
         # self.env.viser_visualizer.update_point_cloud(
         #     point_cloud_type="local_point_t",
-        #     point_cloud=obs_student['local_pcd_t'][env_id].cpu().numpy()
+        #     point_cloud=vis_local_pcd_t[env_id].cpu().numpy()
         # )
 
         return obs_student, wandb_logs
