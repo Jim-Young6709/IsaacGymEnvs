@@ -37,7 +37,7 @@ env:
     assetFileNameFranka: "franka_hand/franka_leap.urdf"
 
   mesh:
-    mesh_dir: "./meshes_100"
+    mesh_dir: "./meshes_69"
     obj_list: ["all"]
 
   object_settings:
