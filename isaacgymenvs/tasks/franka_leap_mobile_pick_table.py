@@ -36,8 +36,8 @@ class FrankaLEAPMobilePickTable(FrankaLEAPMobile):
         z_shift_range = self.cfg["env"]["scene"]["z_shift_range"] # this shifts the table height, not just the safety box
         self.z_shift = torch.rand(self.num_envs, device=self.device) * (z_shift_range[1] - z_shift_range[0]) + z_shift_range[0]
 
-        table_thickness_range = self.cfg["env"]["scene"]["table_thickness_range"]
-        self.table_thickness = torch.rand(self.num_envs, device=self.device) * (table_thickness_range[1] - table_thickness_range[0]) + table_thickness_range[0]
+        table_size_range = torch.tensor(self.cfg["env"]["scene"]["table_size_range"], device=self.device)
+        self.table_size = torch.rand(self.num_envs, 3, device=self.device) * (table_size_range[1] - table_size_range[0]) + table_size_range[0]
 
         self.max_objects_per_env = 1
 
@@ -59,7 +59,6 @@ class FrankaLEAPMobilePickTable(FrankaLEAPMobile):
 
         # setup params
         self.table_pos = []
-        self.table_size = []
 
         self.cuboid_dims = []  # xyz
         self.cuboid_pos = []
@@ -126,10 +125,9 @@ class FrankaLEAPMobilePickTable(FrankaLEAPMobile):
 
             # Create table
             # setup table
-            table_pos = [0.5, 0.0, -self.table_thickness[i].item()/2+self.z_shift[i].item()]
-            table_size = [0.7, 1.2, self.table_thickness[i].item()]
+            table_pos = [0.5, 0.0, -self.table_size[i, 2].item()/2+self.z_shift[i].item()]
+            table_size = self.table_size[i].cpu().numpy().tolist()
             self.table_pos.append(table_pos)
-            self.table_size.append(table_size)
 
             table_asset, table_start_pose = self._create_cube(
                 pos=table_pos,
@@ -183,7 +181,6 @@ class FrankaLEAPMobilePickTable(FrankaLEAPMobile):
         self.cuboid_quats = np.array(self.cuboid_quats).reshape(self.num_envs, -1, 4)
 
         self.table_pos = torch.tensor(self.table_pos, device=self.device)
-        self.table_size = torch.tensor(self.table_size, device=self.device)
 
         for i in range(self.num_envs):
             # static pcd
