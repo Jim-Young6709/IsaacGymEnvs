@@ -1231,7 +1231,7 @@ class FrankaLEAP(VecTask):
         )
 
         self.object_applied_forces = torch.where(
-            self.success_5cm_per_step.unsqueeze(-1),
+            self.lifting_5cm_per_step.unsqueeze(-1),
             self.object_applied_forces,
             torch.zeros_like(self.object_applied_forces)
         )
@@ -1243,7 +1243,7 @@ class FrankaLEAP(VecTask):
         )
 
         self.object_applied_torques = torch.where(
-            self.success_5cm_per_step.unsqueeze(-1),
+            self.lifting_5cm_per_step.unsqueeze(-1),
             self.object_applied_torques,
             torch.zeros_like(self.object_applied_torques)
         )
