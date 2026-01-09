@@ -175,12 +175,12 @@ class FrankaLEAPMobile(VecTask):
             self.canonical_joint_config = torch.tensor(
                 [
                     [0.0, 0.0, 0.0] + \
-                    [0.0, -0.25 * np.pi, 0.0, -0.75 * np.pi, 0.0, 0.5 * np.pi, 0.0] + \
+                    [0.0, 0.0, 0.0, -0.5 * np.pi, 0.0, 0.5 * np.pi, 0.0] + \
                     [0.0, 0.0, 0.0, 0.0,
                      0.0, 0.0, 0.0, 0.0,
                      0.0, 0.0, 0.0, 0.0,
                      0.0, 0.0, 0.0, 0.0,] + \
-                    [0.0, 0.6, 1.4, -0.8, 0.0, 0.0]
+                    [0.0, 1.0, 2.0, -1.0, 0.0, 0.0]
                 ] * self.num_envs
             ).to(self.device)
             self.canonical_joint_config[:, :3] = base_init_pose
