@@ -1,0 +1,49 @@
+{
+  "label": "salmon_(fish)",
+  "base_name": "3",
+  "full_name": "salmon_(fish)_3",
+  "category": "long",
+  "scale": 0.28,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.43570472,
+      0.9956916,
+      0.38148723
+    ],
+    "volume": 0.047663905021200784,
+    "max_dim": 0.9956916
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.12199732160000001,
+      0.27879364800000006,
+      0.10681642440000001
+    ],
+    "volume": 0.0010463180430254002,
+    "max_dim": 0.27879364800000006
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/salmon_(fish)/3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/salmon_(fish)/3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/salmon_(fish)/3.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/salmon_(fish)_3/salmon_(fish)_3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/salmon_(fish)_3/salmon_(fish)_3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/salmon_(fish)_3/salmon_(fish)_3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/salmon_(fish)_3/salmon_(fish)_3.urdf"
+    }
+  }
+}

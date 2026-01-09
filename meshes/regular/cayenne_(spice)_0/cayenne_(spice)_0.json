@@ -1,0 +1,49 @@
+{
+  "label": "cayenne_(spice)",
+  "base_name": "0",
+  "full_name": "cayenne_(spice)_0",
+  "category": "regular",
+  "scale": 0.14,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 270.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.89294173,
+      0.8446627499999999,
+      0.80904938
+    ],
+    "volume": 0.2607615066825215,
+    "max_dim": 0.89294173
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.118252785,
+      0.1250118422,
+      0.11326691320000003
+    ],
+    "volume": 0.0007155295743368393,
+    "max_dim": 0.1250118422
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/cayenne_(spice)/0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/cayenne_(spice)/0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/cayenne_(spice)/0.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/cayenne_(spice)_0/cayenne_(spice)_0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/cayenne_(spice)_0/cayenne_(spice)_0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/cayenne_(spice)_0/cayenne_(spice)_0.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/cayenne_(spice)_0/cayenne_(spice)_0.urdf"
+    }
+  }
+}

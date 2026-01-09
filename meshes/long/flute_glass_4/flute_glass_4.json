@@ -1,0 +1,49 @@
+{
+  "label": "flute_glass",
+  "base_name": "4",
+  "full_name": "flute_glass_4",
+  "category": "long",
+  "scale": 2.34,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.036437835,
+      0.037257687,
+      0.09999898000000002
+    ],
+    "volume": 9.301248781106732e-05,
+    "max_dim": 0.09999898000000002
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.0852645339,
+      0.08718298757999998,
+      0.23399761320000004
+    ],
+    "volume": 0.0011917600771243755,
+    "max_dim": 0.23399761320000004
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/flute_glass/4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/flute_glass/4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/flute_glass/4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/flute_glass/4.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/flute_glass_4/flute_glass_4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/flute_glass_4/flute_glass_4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/flute_glass_4/flute_glass_4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/flute_glass_4/flute_glass_4.urdf"
+    }
+  }
+}

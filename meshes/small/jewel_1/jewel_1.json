@@ -1,0 +1,49 @@
+{
+  "label": "jewel",
+  "base_name": "1",
+  "full_name": "jewel_1",
+  "category": "small",
+  "scale": 0.55,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.040284914000000005,
+      0.045868933,
+      0.09976499700000001
+    ],
+    "volume": 7.520173306623529e-05,
+    "max_dim": 0.09976499700000001
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.022156702700000003,
+      0.025227913150000003,
+      0.05487074835000001
+    ],
+    "volume": 1.25116883388949e-05,
+    "max_dim": 0.05487074835000001
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/jewel/1.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/jewel/1.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/jewel/1.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/jewel/1.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/jewel_1/jewel_1.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/jewel_1/jewel_1.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/jewel_1/jewel_1.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/jewel_1/jewel_1.urdf"
+    }
+  }
+}

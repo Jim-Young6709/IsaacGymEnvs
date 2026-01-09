@@ -1,0 +1,49 @@
+{
+  "label": "deck_chair",
+  "base_name": "0",
+  "full_name": "deck_chair_0",
+  "category": "small",
+  "scale": 0.1,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.48988945,
+      0.43385667,
+      0.89051019
+    ],
+    "volume": 0.13104479230264826,
+    "max_dim": 0.89051019
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.048988945000000006,
+      0.04338566700000002,
+      0.08905101900000001
+    ],
+    "volume": 0.00013104479230264827,
+    "max_dim": 0.08905101900000001
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/deck_chair/0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/deck_chair/0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/deck_chair/0.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/deck_chair_0/deck_chair_0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/deck_chair_0/deck_chair_0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/deck_chair_0/deck_chair_0.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/deck_chair_0/deck_chair_0.urdf"
+    }
+  }
+}

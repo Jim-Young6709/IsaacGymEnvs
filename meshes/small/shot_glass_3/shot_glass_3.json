@@ -1,0 +1,49 @@
+{
+  "label": "shot_glass",
+  "base_name": "3",
+  "full_name": "shot_glass_3",
+  "category": "small",
+  "scale": 0.57,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.066666664,
+      0.06666667100000001,
+      0.09999999700000001
+    ],
+    "volume": 0.00029949003773295816,
+    "max_dim": 0.09999999700000001
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.03799999848,
+      0.03800000247,
+      0.05699999829
+    ],
+    "volume": 5.5463458557879704e-05,
+    "max_dim": 0.05699999829
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/shot_glass/3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/shot_glass/3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/shot_glass/3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/shot_glass/3.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/shot_glass_3/shot_glass_3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/shot_glass_3/shot_glass_3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/shot_glass_3/shot_glass_3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/shot_glass_3/shot_glass_3.urdf"
+    }
+  }
+}

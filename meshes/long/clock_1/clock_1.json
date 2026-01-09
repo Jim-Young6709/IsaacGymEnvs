@@ -1,0 +1,49 @@
+{
+  "label": "clock",
+  "base_name": "1",
+  "full_name": "clock_1",
+  "category": "long",
+  "scale": 0.26,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.27587274,
+      0.22014473,
+      0.99685613
+    ],
+    "volume": 0.04808153061247841,
+    "max_dim": 0.99685613
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.07172691240000001,
+      0.05723762980000001,
+      0.25918259379999997
+    ],
+    "volume": 0.0008450809820449205,
+    "max_dim": 0.25918259379999997
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/clock/1.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/clock/1.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/clock/1.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/clock_1/clock_1.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/clock_1/clock_1.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/clock_1/clock_1.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/clock_1/clock_1.urdf"
+    }
+  }
+}

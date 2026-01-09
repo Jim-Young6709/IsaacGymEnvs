@@ -1,0 +1,49 @@
+{
+  "label": "broccoli",
+  "base_name": "1",
+  "full_name": "broccoli_1",
+  "category": "regular",
+  "scale": 1.26,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.068751302,
+      0.076466874,
+      0.096818524
+    ],
+    "volume": 0.00020836035900154902,
+    "max_dim": 0.096818524
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.08662664052,
+      0.09634826124000001,
+      0.12199134024000001
+    ],
+    "volume": 0.0004167990614980827,
+    "max_dim": 0.12199134024000001
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/broccoli/1.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/broccoli/1.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/broccoli/1.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/broccoli/1.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/broccoli_1/broccoli_1.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/broccoli_1/broccoli_1.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/broccoli_1/broccoli_1.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/broccoli_1/broccoli_1.urdf"
+    }
+  }
+}

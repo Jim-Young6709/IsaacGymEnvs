@@ -1,0 +1,49 @@
+{
+  "label": "cab_(taxi)",
+  "base_name": "3",
+  "full_name": "cab_(taxi)_3",
+  "category": "long",
+  "scale": 1.72,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 270.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.04353546900000001,
+      0.09986032400000001,
+      0.028359509
+    ],
+    "volume": 8.572271306065066e-05,
+    "max_dim": 0.09986032400000001
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.17175975728000004,
+      0.07488100668,
+      0.04877835548000001
+    ],
+    "volume": 0.00043619556782804176,
+    "max_dim": 0.17175975728000004
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/cab_(taxi)/3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/cab_(taxi)/3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/cab_(taxi)/3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/cab_(taxi)/3.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/cab_(taxi)_3/cab_(taxi)_3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/cab_(taxi)_3/cab_(taxi)_3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/cab_(taxi)_3/cab_(taxi)_3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/cab_(taxi)_3/cab_(taxi)_3.urdf"
+    }
+  }
+}

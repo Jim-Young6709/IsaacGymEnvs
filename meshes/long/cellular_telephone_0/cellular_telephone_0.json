@@ -1,0 +1,49 @@
+{
+  "label": "cellular_telephone",
+  "base_name": "0",
+  "full_name": "cellular_telephone_0",
+  "category": "long",
+  "scale": 0.26,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 270.0,
+    "y": 0.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.32735780000000003,
+      0.97239591,
+      0.08908227
+    ],
+    "volume": 0.02516902774882899,
+    "max_dim": 0.97239591
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.08511302800000001,
+      0.02316139020000005,
+      0.2528229366
+    ],
+    "volume": 0.0004423708317134185,
+    "max_dim": 0.2528229366
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/cellular_telephone/0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/cellular_telephone/0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/cellular_telephone/0.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/cellular_telephone_0/cellular_telephone_0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/cellular_telephone_0/cellular_telephone_0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/cellular_telephone_0/cellular_telephone_0.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/cellular_telephone_0/cellular_telephone_0.urdf"
+    }
+  }
+}

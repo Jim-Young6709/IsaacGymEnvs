@@ -1,0 +1,49 @@
+{
+  "label": "jet_plane",
+  "base_name": "3",
+  "full_name": "jet_plane_3",
+  "category": "small",
+  "scale": 0.55,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.09577058799999999,
+      0.120864951,
+      0.056203917000000006
+    ],
+    "volume": 0.00017395534148398003,
+    "max_dim": 0.120864951
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.0526738234,
+      0.06647572305,
+      0.03091215435000001
+    ],
+    "volume": 2.8941819939397177e-05,
+    "max_dim": 0.06647572305
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/jet_plane/3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/jet_plane/3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/jet_plane/3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/jet_plane/3.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/jet_plane_3/jet_plane_3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/jet_plane_3/jet_plane_3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/jet_plane_3/jet_plane_3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/jet_plane_3/jet_plane_3.urdf"
+    }
+  }
+}

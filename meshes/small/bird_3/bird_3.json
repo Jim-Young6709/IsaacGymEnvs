@@ -1,0 +1,49 @@
+{
+  "label": "bird",
+  "base_name": "3",
+  "full_name": "bird_3",
+  "category": "small",
+  "scale": 0.66,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 270.0,
+    "y": 180.0,
+    "z": 0.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.114164328,
+      0.076798566,
+      0.089788896
+    ],
+    "volume": 0.0002415899457734941,
+    "max_dim": 0.114164328
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.07534845647999999,
+      0.05926067136000001,
+      0.05068705356
+    ],
+    "volume": 6.945614305009645e-05,
+    "max_dim": 0.07534845647999999
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/bird/3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/bird/3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/bird/3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/bird/3.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/bird_3/bird_3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/bird_3/bird_3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/bird_3/bird_3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/bird_3/bird_3.urdf"
+    }
+  }
+}

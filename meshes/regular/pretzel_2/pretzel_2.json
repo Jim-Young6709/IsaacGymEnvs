@@ -1,0 +1,49 @@
+{
+  "label": "pretzel",
+  "base_name": "2",
+  "full_name": "pretzel_2",
+  "category": "regular",
+  "scale": 0.12,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.99490754,
+      1.0545347,
+      0.78817987
+    ],
+    "volume": 0.2620458342838804,
+    "max_dim": 1.0545347
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.11938890479999999,
+      0.12654416400000001,
+      0.0945815844
+    ],
+    "volume": 0.0004528152016425453,
+    "max_dim": 0.12654416400000001
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/pretzel/2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/pretzel/2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/pretzel/2.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/pretzel_2/pretzel_2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/pretzel_2/pretzel_2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/pretzel_2/pretzel_2.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/pretzel_2/pretzel_2.urdf"
+    }
+  }
+}

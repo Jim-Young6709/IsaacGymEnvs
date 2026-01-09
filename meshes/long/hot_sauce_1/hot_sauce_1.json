@@ -1,0 +1,49 @@
+{
+  "label": "hot_sauce",
+  "base_name": "1",
+  "full_name": "hot_sauce_1",
+  "category": "long",
+  "scale": 1.94,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.028825628,
+      0.028825627,
+      0.099919583
+    ],
+    "volume": 5.377500456790014e-05,
+    "max_dim": 0.099919583
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.055921718319999994,
+      0.05592171638,
+      0.19384399102
+    ],
+    "volume": 0.00039263195795199296,
+    "max_dim": 0.19384399102
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/hot_sauce/1.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/hot_sauce/1.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/hot_sauce/1.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/hot_sauce/1.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/hot_sauce_1/hot_sauce_1.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/hot_sauce_1/hot_sauce_1.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/hot_sauce_1/hot_sauce_1.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/hot_sauce_1/hot_sauce_1.urdf"
+    }
+  }
+}

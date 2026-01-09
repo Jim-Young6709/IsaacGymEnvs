@@ -1,0 +1,49 @@
+{
+  "label": "mallard",
+  "base_name": "4",
+  "full_name": "mallard_4",
+  "category": "regular",
+  "scale": 0.15,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.85621916,
+      0.39977358,
+      0.91647654
+    ],
+    "volume": 0.11023421079977222,
+    "max_dim": 0.91647654
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.128432874,
+      0.05996603699999999,
+      0.137471481
+    ],
+    "volume": 0.0003720404614492312,
+    "max_dim": 0.137471481
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/mallard/4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/mallard/4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/mallard/4.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/mallard_4/mallard_4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/mallard_4/mallard_4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/mallard_4/mallard_4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/mallard_4/mallard_4.urdf"
+    }
+  }
+}

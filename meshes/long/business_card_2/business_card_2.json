@@ -1,0 +1,49 @@
+{
+  "label": "business_card",
+  "base_name": "2",
+  "full_name": "business_card_2",
+  "category": "long",
+  "scale": 1.19,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 270.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.09986843000000001,
+      0.03673983,
+      0.061540459000000006
+    ],
+    "volume": 0.00021946475762980283,
+    "max_dim": 0.09986843000000001
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.04372039769999999,
+      0.11884343169999999,
+      0.07323314620999999
+    ],
+    "volume": 0.00036983301150268083,
+    "max_dim": 0.11884343169999999
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/business_card/2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/business_card/2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/business_card/2.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/business_card/2.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/business_card_2/business_card_2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/business_card_2/business_card_2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/business_card_2/business_card_2.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/business_card_2/business_card_2.urdf"
+    }
+  }
+}

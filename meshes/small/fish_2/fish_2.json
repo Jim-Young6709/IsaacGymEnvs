@@ -1,0 +1,49 @@
+{
+  "label": "fish",
+  "base_name": "2",
+  "full_name": "fish_2",
+  "category": "small",
+  "scale": 0.1,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.28913032,
+      1.00107447,
+      0.58423408
+    ],
+    "volume": 0.062082196474508244,
+    "max_dim": 1.00107447
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.028913032,
+      0.100107447,
+      0.058423408
+    ],
+    "volume": 6.208219647450826e-05,
+    "max_dim": 0.100107447
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/fish/2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/fish/2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/fish/2.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/fish_2/fish_2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/fish_2/fish_2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/fish_2/fish_2.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/fish_2/fish_2.urdf"
+    }
+  }
+}

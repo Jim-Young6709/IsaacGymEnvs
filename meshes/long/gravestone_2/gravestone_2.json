@@ -1,0 +1,49 @@
+{
+  "label": "gravestone",
+  "base_name": "2",
+  "full_name": "gravestone_2",
+  "category": "long",
+  "scale": 0.23,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.53801583,
+      0.21499221000000002,
+      0.99956184
+    ],
+    "volume": 0.07697556703965683,
+    "max_dim": 0.99956184
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.12374364090000002,
+      0.04944820830000002,
+      0.22989922320000003
+    ],
+    "volume": 0.0009365617241715048,
+    "max_dim": 0.22989922320000003
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/gravestone/2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/gravestone/2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/gravestone/2.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/gravestone_2/gravestone_2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/gravestone_2/gravestone_2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/gravestone_2/gravestone_2.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/gravestone_2/gravestone_2.urdf"
+    }
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "label": "coffee_maker",
+  "base_name": "3",
+  "full_name": "coffee_maker_3",
+  "category": "long",
+  "scale": 0.15,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.30274565,
+      0.39907306,
+      0.99716633
+    ],
+    "volume": 0.10140162919265629,
+    "max_dim": 0.99716633
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.045411847500000005,
+      0.05986095899999999,
+      0.1495749495
+    ],
+    "volume": 0.00034223049852521493,
+    "max_dim": 0.1495749495
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/coffee_maker/3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/coffee_maker/3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/coffee_maker/3.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/coffee_maker_3/coffee_maker_3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/coffee_maker_3/coffee_maker_3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/coffee_maker_3/coffee_maker_3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/coffee_maker_3/coffee_maker_3.urdf"
+    }
+  }
+}

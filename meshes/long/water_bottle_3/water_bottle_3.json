@@ -1,0 +1,49 @@
+{
+  "label": "water_bottle",
+  "base_name": "3",
+  "full_name": "water_bottle_3",
+  "category": "long",
+  "scale": 0.29,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.27551367000000004,
+      0.27549290000000004,
+      0.99983292
+    ],
+    "volume": 0.051560151315643524,
+    "max_dim": 0.99983292
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.0798989643,
+      0.079892941,
+      0.28995154679999996
+    ],
+    "volume": 0.0012575005304372297,
+    "max_dim": 0.28995154679999996
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/water_bottle/3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/water_bottle/3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/water_bottle/3.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/water_bottle_3/water_bottle_3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/water_bottle_3/water_bottle_3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/water_bottle_3/water_bottle_3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/water_bottle_3/water_bottle_3.urdf"
+    }
+  }
+}

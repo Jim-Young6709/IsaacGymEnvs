@@ -1,0 +1,49 @@
+{
+  "label": "mallet",
+  "base_name": "1",
+  "full_name": "mallet_1",
+  "category": "long",
+  "scale": 0.24,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 90.0,
+    "y": 270.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.35658557999999996,
+      0.59430933,
+      0.99992541
+    ],
+    "volume": 0.12567434709954953,
+    "max_dim": 0.99992541
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.1426342392,
+      0.2399820984,
+      0.08558053920000003
+    ],
+    "volume": 0.0017373221743041726,
+    "max_dim": 0.2399820984
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/mallet/1.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/mallet/1.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/mallet/1.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/mallet_1/mallet_1.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/mallet_1/mallet_1.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/mallet_1/mallet_1.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/mallet_1/mallet_1.urdf"
+    }
+  }
+}

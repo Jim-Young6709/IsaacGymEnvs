@@ -1,0 +1,49 @@
+{
+  "label": "foal",
+  "base_name": "4",
+  "full_name": "foal_4",
+  "category": "small",
+  "scale": 1.05,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.028747615000000004,
+      0.097597902,
+      0.075393942
+    ],
+    "volume": 9.819758262909979e-05,
+    "max_dim": 0.097597902
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.030184995750000006,
+      0.1024777971,
+      0.07916363910000002
+    ],
+    "volume": 0.00011367597659101166,
+    "max_dim": 0.1024777971
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/foal/4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/foal/4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/foal/4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/foal/4.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/foal_4/foal_4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/foal_4/foal_4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/foal_4/foal_4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/foal_4/foal_4.urdf"
+    }
+  }
+}

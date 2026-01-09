@@ -1,0 +1,49 @@
+{
+  "label": "chalice",
+  "base_name": "2",
+  "full_name": "chalice_2",
+  "category": "long",
+  "scale": 0.2,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.5068248399999999,
+      0.50804227,
+      0.9986815
+    ],
+    "volume": 0.1592195562339699,
+    "max_dim": 0.9986815
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.101364968,
+      0.10160845400000001,
+      0.1997363
+    ],
+    "volume": 0.0012737564498717597,
+    "max_dim": 0.1997363
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/chalice/2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/chalice/2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/chalice/2.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/chalice_2/chalice_2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/chalice_2/chalice_2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/chalice_2/chalice_2.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/chalice_2/chalice_2.urdf"
+    }
+  }
+}

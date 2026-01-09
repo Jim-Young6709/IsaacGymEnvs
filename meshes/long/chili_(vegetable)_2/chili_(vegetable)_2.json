@@ -1,0 +1,49 @@
+{
+  "label": "chili_(vegetable)",
+  "base_name": "2",
+  "full_name": "chili_(vegetable)_2",
+  "category": "long",
+  "scale": 0.25,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.78106674,
+      0.470222,
+      0.5427116
+    ],
+    "volume": 0.02273611614327044,
+    "max_dim": 0.78106674
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.195266685,
+      0.11755549999999998,
+      0.1356779
+    ],
+    "volume": 0.00035525181473860065,
+    "max_dim": 0.195266685
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/chili_(vegetable)/2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/chili_(vegetable)/2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/chili_(vegetable)/2.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/chili_(vegetable)_2/chili_(vegetable)_2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/chili_(vegetable)_2/chili_(vegetable)_2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/chili_(vegetable)_2/chili_(vegetable)_2.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/chili_(vegetable)_2/chili_(vegetable)_2.urdf"
+    }
+  }
+}

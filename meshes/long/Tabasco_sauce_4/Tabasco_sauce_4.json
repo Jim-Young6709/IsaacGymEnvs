@@ -1,0 +1,49 @@
+{
+  "label": "Tabasco_sauce",
+  "base_name": "4",
+  "full_name": "Tabasco_sauce_4",
+  "category": "long",
+  "scale": 0.19,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.29480206,
+      0.29998093000000003,
+      1.00034438
+    ],
+    "volume": 0.056882467356464524,
+    "max_dim": 1.00034438
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.0560123914,
+      0.056996376700000004,
+      0.1900654322
+    ],
+    "volume": 0.0003901568435979902,
+    "max_dim": 0.1900654322
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/Tabasco_sauce/4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/Tabasco_sauce/4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/Tabasco_sauce/4.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/Tabasco_sauce_4/Tabasco_sauce_4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/Tabasco_sauce_4/Tabasco_sauce_4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/Tabasco_sauce_4/Tabasco_sauce_4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/Tabasco_sauce_4/Tabasco_sauce_4.urdf"
+    }
+  }
+}

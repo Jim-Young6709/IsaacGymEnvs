@@ -1,0 +1,49 @@
+{
+  "label": "squirrel",
+  "base_name": "4",
+  "full_name": "squirrel_4",
+  "category": "small",
+  "scale": 0.68,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.020659469,
+      0.099930529,
+      0.031155236
+    ],
+    "volume": 3.10696858027594e-05,
+    "max_dim": 0.099930529
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.014048438920000003,
+      0.06795275972,
+      0.02118556048
+    ],
+    "volume": 9.769303446333245e-06,
+    "max_dim": 0.06795275972
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/squirrel/4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/squirrel/4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/squirrel/4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/squirrel/4.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/squirrel_4/squirrel_4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/squirrel_4/squirrel_4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/squirrel_4/squirrel_4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/squirrel_4/squirrel_4.urdf"
+    }
+  }
+}

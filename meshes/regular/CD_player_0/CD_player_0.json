@@ -1,0 +1,49 @@
+{
+  "label": "CD_player",
+  "base_name": "0",
+  "full_name": "CD_player_0",
+  "category": "regular",
+  "scale": 1.42,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.08034361100000001,
+      0.030425444000000003,
+      0.091754053
+    ],
+    "volume": 0.00013738664278894133,
+    "max_dim": 0.091754053
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.11408792762,
+      0.043204130480000005,
+      0.13029075526
+    ],
+    "volume": 0.0003933775256578622,
+    "max_dim": 0.13029075526
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/CD_player/0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/CD_player/0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/CD_player/0.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/CD_player/0.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/CD_player_0/CD_player_0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/CD_player_0/CD_player_0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/CD_player_0/CD_player_0.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/CD_player_0/CD_player_0.urdf"
+    }
+  }
+}

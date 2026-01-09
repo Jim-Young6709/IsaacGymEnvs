@@ -1,0 +1,49 @@
+{
+  "label": "costume",
+  "base_name": "4",
+  "full_name": "costume_4",
+  "category": "long",
+  "scale": 0.16,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.55649523,
+      0.20070497999999998,
+      0.99891483
+    ],
+    "volume": 0.042365927526309945,
+    "max_dim": 0.99891483
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.0890392368,
+      0.03211279680000002,
+      0.1598263728
+    ],
+    "volume": 0.00017353083914776557,
+    "max_dim": 0.1598263728
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/costume/4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/costume/4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/costume/4.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/costume_4/costume_4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/costume_4/costume_4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/costume_4/costume_4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/costume_4/costume_4.urdf"
+    }
+  }
+}

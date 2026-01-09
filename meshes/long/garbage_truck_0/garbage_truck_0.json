@@ -1,0 +1,49 @@
+{
+  "label": "garbage_truck",
+  "base_name": "0",
+  "full_name": "garbage_truck_0",
+  "category": "long",
+  "scale": 0.19,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.99782667,
+      0.35812972,
+      0.47205176
+    ],
+    "volume": 0.128335902934109,
+    "max_dim": 0.99782667
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.18958706730000002,
+      0.0680446468,
+      0.08968983440000002
+    ],
+    "volume": 0.0008802559582250537,
+    "max_dim": 0.18958706730000002
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/garbage_truck/0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/garbage_truck/0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/garbage_truck/0.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/garbage_truck_0/garbage_truck_0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/garbage_truck_0/garbage_truck_0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/garbage_truck_0/garbage_truck_0.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/garbage_truck_0/garbage_truck_0.urdf"
+    }
+  }
+}

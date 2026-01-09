@@ -1,0 +1,49 @@
+{
+  "label": "dinghy",
+  "base_name": "2",
+  "full_name": "dinghy_2",
+  "category": "long",
+  "scale": 0.41,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.19485852999999997,
+      1.00008684,
+      0.12190419
+    ],
+    "volume": 0.011476348591208663,
+    "max_dim": 1.00008684
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.07989199729999999,
+      0.4100356044,
+      0.04998071790000002
+    ],
+    "volume": 0.000790961421254692,
+    "max_dim": 0.4100356044
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/dinghy/2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/dinghy/2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/dinghy/2.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/dinghy_2/dinghy_2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/dinghy_2/dinghy_2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/dinghy_2/dinghy_2.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/dinghy_2/dinghy_2.urdf"
+    }
+  }
+}

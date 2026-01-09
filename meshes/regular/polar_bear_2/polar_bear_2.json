@@ -1,0 +1,49 @@
+{
+  "label": "polar_bear",
+  "base_name": "2",
+  "full_name": "polar_bear_2",
+  "category": "regular",
+  "scale": 0.18,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.9746775699999999,
+      0.40471423,
+      0.55823897
+    ],
+    "volume": 0.13038131814162107,
+    "max_dim": 0.9746775699999999
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.1754419626,
+      0.0728485614,
+      0.10048301459999999
+    ],
+    "volume": 0.0007603838474019339,
+    "max_dim": 0.1754419626
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/polar_bear/2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/polar_bear/2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/polar_bear/2.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/polar_bear_2/polar_bear_2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/polar_bear_2/polar_bear_2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/polar_bear_2/polar_bear_2.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/polar_bear_2/polar_bear_2.urdf"
+    }
+  }
+}

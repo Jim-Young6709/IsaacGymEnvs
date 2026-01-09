@@ -1,0 +1,49 @@
+{
+  "label": "toothpaste",
+  "base_name": "3",
+  "full_name": "toothpaste_3",
+  "category": "long",
+  "scale": 1.92,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.030956619000000005,
+      0.099981185,
+      0.020995089
+    ],
+    "volume": 2.6512374338347076e-05,
+    "max_dim": 0.099981185
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.05943670848,
+      0.1919638752,
+      0.04031057088
+    ],
+    "volume": 0.0001876516161808947,
+    "max_dim": 0.1919638752
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/toothpaste/3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/toothpaste/3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/toothpaste/3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/toothpaste/3.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/toothpaste_3/toothpaste_3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/toothpaste_3/toothpaste_3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/toothpaste_3/toothpaste_3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/toothpaste_3/toothpaste_3.urdf"
+    }
+  }
+}

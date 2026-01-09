@@ -1,0 +1,49 @@
+{
+  "label": "water_cooler",
+  "base_name": "2",
+  "full_name": "water_cooler_2",
+  "category": "long",
+  "scale": 0.22,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.29692713000000004,
+      0.29957879,
+      0.96477294
+    ],
+    "volume": 0.08098360220966727,
+    "max_dim": 0.96477294
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.0653239686,
+      0.0659073338,
+      0.2122500468
+    ],
+    "volume": 0.0008623133963285369,
+    "max_dim": 0.2122500468
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/water_cooler/2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/water_cooler/2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/water_cooler/2.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/water_cooler_2/water_cooler_2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/water_cooler_2/water_cooler_2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/water_cooler_2/water_cooler_2.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/water_cooler_2/water_cooler_2.urdf"
+    }
+  }
+}

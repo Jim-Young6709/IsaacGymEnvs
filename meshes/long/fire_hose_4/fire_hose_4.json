@@ -1,0 +1,49 @@
+{
+  "label": "fire_hose",
+  "base_name": "4",
+  "full_name": "fire_hose_4",
+  "category": "long",
+  "scale": 0.19,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.65838552,
+      0.27131506000000005,
+      0.97454668
+    ],
+    "volume": 0.07540987448744899,
+    "max_dim": 0.97454668
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.1250932488,
+      0.051549861400000015,
+      0.1851638692
+    ],
+    "volume": 0.0005172363291094126,
+    "max_dim": 0.1851638692
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/fire_hose/4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/fire_hose/4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/fire_hose/4.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/fire_hose_4/fire_hose_4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/fire_hose_4/fire_hose_4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/fire_hose_4/fire_hose_4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/fire_hose_4/fire_hose_4.urdf"
+    }
+  }
+}

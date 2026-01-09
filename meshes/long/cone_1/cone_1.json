@@ -1,0 +1,49 @@
+{
+  "label": "cone",
+  "base_name": "1",
+  "full_name": "cone_1",
+  "category": "long",
+  "scale": 0.12,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.79604235,
+      0.72796803,
+      0.9887788
+    ],
+    "volume": 0.13677604778275693,
+    "max_dim": 0.9887788
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.09552508199999998,
+      0.0873561636,
+      0.11865345599999999
+    ],
+    "volume": 0.00023634901056860392,
+    "max_dim": 0.11865345599999999
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/cone/1.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/cone/1.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/cone/1.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/cone_1/cone_1.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/cone_1/cone_1.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/cone_1/cone_1.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/cone_1/cone_1.urdf"
+    }
+  }
+}

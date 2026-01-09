@@ -1,0 +1,49 @@
+{
+  "label": "Dixie_cup",
+  "base_name": "0",
+  "full_name": "Dixie_cup_0",
+  "category": "regular",
+  "scale": 0.12,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.71939974,
+      0.71939973,
+      0.99751805
+    ],
+    "volume": 0.2789199285792269,
+    "max_dim": 0.99751805
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.08632796879999999,
+      0.0863279676,
+      0.119702166
+    ],
+    "volume": 0.00048197363658490395,
+    "max_dim": 0.119702166
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/Dixie_cup/0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/Dixie_cup/0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/Dixie_cup/0.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/Dixie_cup_0/Dixie_cup_0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/Dixie_cup_0/Dixie_cup_0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/Dixie_cup_0/Dixie_cup_0.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/Dixie_cup_0/Dixie_cup_0.urdf"
+    }
+  }
+}

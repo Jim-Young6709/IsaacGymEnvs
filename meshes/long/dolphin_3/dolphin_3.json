@@ -1,0 +1,49 @@
+{
+  "label": "dolphin",
+  "base_name": "3",
+  "full_name": "dolphin_3",
+  "category": "long",
+  "scale": 0.23,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 270.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      1.00234789,
+      0.41424495,
+      0.48909454
+    ],
+    "volume": 0.062322263553961095,
+    "max_dim": 1.00234789
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.23054001470000002,
+      0.11249174420000002,
+      0.0952763385
+    ],
+    "volume": 0.0007582749806610445,
+    "max_dim": 0.23054001470000002
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/dolphin/3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/dolphin/3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/dolphin/3.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/dolphin_3/dolphin_3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/dolphin_3/dolphin_3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/dolphin_3/dolphin_3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/dolphin_3/dolphin_3.urdf"
+    }
+  }
+}

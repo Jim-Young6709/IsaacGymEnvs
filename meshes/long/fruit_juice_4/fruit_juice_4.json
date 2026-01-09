@@ -1,0 +1,49 @@
+{
+  "label": "fruit_juice",
+  "base_name": "4",
+  "full_name": "fruit_juice_4",
+  "category": "long",
+  "scale": 1.83,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.046707771,
+      0.040556367,
+      0.099211726
+    ],
+    "volume": 0.0001317690828068165,
+    "max_dim": 0.099211726
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.08547522092999998,
+      0.07421815161000002,
+      0.18155745858
+    ],
+    "volume": 0.0008075451109834984,
+    "max_dim": 0.18155745858
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/fruit_juice/4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/fruit_juice/4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/fruit_juice/4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/fruit_juice/4.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/fruit_juice_4/fruit_juice_4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/fruit_juice_4/fruit_juice_4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/fruit_juice_4/fruit_juice_4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/fruit_juice_4/fruit_juice_4.urdf"
+    }
+  }
+}

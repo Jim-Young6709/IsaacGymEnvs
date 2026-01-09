@@ -1,0 +1,49 @@
+{
+  "label": "puppy",
+  "base_name": "3",
+  "full_name": "puppy_3",
+  "category": "small",
+  "scale": 0.49,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.08525096400000001,
+      0.10837612,
+      0.09085217100000001
+    ],
+    "volume": 0.00042545557106412127,
+    "max_dim": 0.10837612
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.04177297236,
+      0.053104298800000005,
+      0.044517563790000006
+    ],
+    "volume": 5.0054422480122804e-05,
+    "max_dim": 0.053104298800000005
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/puppy/3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/puppy/3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/puppy/3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/puppy/3.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/puppy_3/puppy_3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/puppy_3/puppy_3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/puppy_3/puppy_3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/puppy_3/puppy_3.urdf"
+    }
+  }
+}

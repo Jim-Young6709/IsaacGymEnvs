@@ -1,0 +1,49 @@
+{
+  "label": "alcohol",
+  "base_name": "1",
+  "full_name": "alcohol_1",
+  "category": "long",
+  "scale": 2.05,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 270.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.032043583,
+      0.031717439,
+      0.09999999600000001
+    ],
+    "volume": 5.574890513443611e-05,
+    "max_dim": 0.09999999600000001
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.06502074995,
+      0.06568934515000001,
+      0.2049999918
+    ],
+    "volume": 0.00048028378634630884,
+    "max_dim": 0.2049999918
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/alcohol/1.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/alcohol/1.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/alcohol/1.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/alcohol/1.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/alcohol_1/alcohol_1.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/alcohol_1/alcohol_1.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/alcohol_1/alcohol_1.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/alcohol_1/alcohol_1.urdf"
+    }
+  }
+}

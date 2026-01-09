@@ -1,0 +1,49 @@
+{
+  "label": "eraser",
+  "base_name": "4",
+  "full_name": "eraser_4",
+  "category": "long",
+  "scale": 0.23,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      1.0,
+      0.27970402,
+      0.19622101
+    ],
+    "volume": 0.0548837991476901,
+    "max_dim": 1.0
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.23,
+      0.06433192460000003,
+      0.04513083230000002
+    ],
+    "volume": 0.0006677711842299455,
+    "max_dim": 0.23
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/eraser/4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/eraser/4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/eraser/4.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/eraser_4/eraser_4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/eraser_4/eraser_4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/eraser_4/eraser_4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/eraser_4/eraser_4.urdf"
+    }
+  }
+}

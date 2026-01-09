@@ -1,0 +1,49 @@
+{
+  "label": "armchair",
+  "base_name": "4",
+  "full_name": "armchair_4",
+  "category": "small",
+  "scale": 0.74,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 270.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.053927351,
+      0.04666964300000001,
+      0.089763818
+    ],
+    "volume": 2.3465506089680525e-05,
+    "max_dim": 0.089763818
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.034535535820000005,
+      0.03990623974,
+      0.06642522531999999
+    ],
+    "volume": 9.508786239684697e-06,
+    "max_dim": 0.06642522531999999
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/armchair/4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/armchair/4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/armchair/4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/armchair/4.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/armchair_4/armchair_4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/armchair_4/armchair_4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/armchair_4/armchair_4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/armchair_4/armchair_4.urdf"
+    }
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "label": "hamburger",
+  "base_name": "0",
+  "full_name": "hamburger_0",
+  "category": "regular",
+  "scale": 0.12,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      1.1785228399999998,
+      1.02993473,
+      0.87714657
+    ],
+    "volume": 0.5341523719452789,
+    "max_dim": 1.1785228399999998
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.1414227408,
+      0.1235921676,
+      0.10525758839999999
+    ],
+    "volume": 0.0009230152987214418,
+    "max_dim": 0.1414227408
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/hamburger/0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/hamburger/0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/hamburger/0.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/hamburger_0/hamburger_0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/hamburger_0/hamburger_0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/hamburger_0/hamburger_0.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/hamburger_0/hamburger_0.urdf"
+    }
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "label": "giant_panda",
+  "base_name": "3",
+  "full_name": "giant_panda_3",
+  "category": "small",
+  "scale": 0.54,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.11570612600000002,
+      0.050141002000000004,
+      0.099952496
+    ],
+    "volume": 0.00023718848640678496,
+    "max_dim": 0.11570612600000002
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.062481308040000016,
+      0.027076141079999998,
+      0.053974347840000006
+    ],
+    "volume": 3.734864782355799e-05,
+    "max_dim": 0.062481308040000016
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/giant_panda/3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/giant_panda/3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/giant_panda/3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/giant_panda/3.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/giant_panda_3/giant_panda_3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/giant_panda_3/giant_panda_3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/giant_panda_3/giant_panda_3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/giant_panda_3/giant_panda_3.urdf"
+    }
+  }
+}

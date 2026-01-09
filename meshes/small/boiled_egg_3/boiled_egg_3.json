@@ -1,0 +1,49 @@
+{
+  "label": "boiled_egg",
+  "base_name": "3",
+  "full_name": "boiled_egg_3",
+  "category": "small",
+  "scale": 0.48,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.074321909,
+      0.074321909,
+      0.100000009
+    ],
+    "volume": 0.00028459374650301433,
+    "max_dim": 0.100000009
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.03567451632,
+      0.03567451632,
+      0.04800000432
+    ],
+    "volume": 3.147379161326135e-05,
+    "max_dim": 0.04800000432
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/boiled_egg/3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/boiled_egg/3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/boiled_egg/3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/boiled_egg/3.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/boiled_egg_3/boiled_egg_3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/boiled_egg_3/boiled_egg_3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/boiled_egg_3/boiled_egg_3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/boiled_egg_3/boiled_egg_3.urdf"
+    }
+  }
+}

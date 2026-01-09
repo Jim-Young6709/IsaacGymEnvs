@@ -1,0 +1,49 @@
+{
+  "label": "shark",
+  "base_name": "3",
+  "full_name": "shark_3",
+  "category": "long",
+  "scale": 0.36,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.4452178,
+      0.9982123,
+      0.32062138
+    ],
+    "volume": 0.0338484311438543,
+    "max_dim": 0.9982123
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.16027840799999998,
+      0.359356428,
+      0.1154236968
+    ],
+    "volume": 0.001579232403447666,
+    "max_dim": 0.359356428
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/shark/3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/shark/3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/shark/3.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/shark_3/shark_3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/shark_3/shark_3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/shark_3/shark_3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/shark_3/shark_3.urdf"
+    }
+  }
+}

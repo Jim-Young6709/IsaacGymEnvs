@@ -1,0 +1,49 @@
+{
+  "label": "water_tower",
+  "base_name": "3",
+  "full_name": "water_tower_3",
+  "category": "small",
+  "scale": 0.62,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.055795036000000006,
+      0.065195396,
+      0.09920197200000001
+    ],
+    "volume": 0.00021251362775656074,
+    "max_dim": 0.09920197200000001
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.034592922320000004,
+      0.04042114552000001,
+      0.06150522264000001
+    ],
+    "volume": 5.0647947875965616e-05,
+    "max_dim": 0.06150522264000001
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/water_tower/3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/water_tower/3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/water_tower/3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/water_tower/3.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/water_tower_3/water_tower_3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/water_tower_3/water_tower_3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/water_tower_3/water_tower_3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/water_tower_3/water_tower_3.urdf"
+    }
+  }
+}

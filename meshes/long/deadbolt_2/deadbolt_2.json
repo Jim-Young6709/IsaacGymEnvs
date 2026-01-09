@@ -1,0 +1,49 @@
+{
+  "label": "deadbolt",
+  "base_name": "2",
+  "full_name": "deadbolt_2",
+  "category": "long",
+  "scale": 0.17,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.48769251,
+      0.34018874000000004,
+      0.97538505
+    ],
+    "volume": 0.16045326752603634,
+    "max_dim": 0.97538505
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.08290772670000005,
+      0.05783208580000003,
+      0.1658154585
+    ],
+    "volume": 0.0007883069033554165,
+    "max_dim": 0.1658154585
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/deadbolt/2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/deadbolt/2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/deadbolt/2.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/deadbolt_2/deadbolt_2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/deadbolt_2/deadbolt_2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/deadbolt_2/deadbolt_2.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/deadbolt_2/deadbolt_2.urdf"
+    }
+  }
+}

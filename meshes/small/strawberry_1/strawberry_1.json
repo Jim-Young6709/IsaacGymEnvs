@@ -1,0 +1,49 @@
+{
+  "label": "strawberry",
+  "base_name": "1",
+  "full_name": "strawberry_1",
+  "category": "small",
+  "scale": 0.61,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.076437875,
+      0.07595336800000001,
+      0.101327554
+    ],
+    "volume": 0.00022579001206975038,
+    "max_dim": 0.101327554
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.04662710375,
+      0.04633155448,
+      0.061809807939999996
+    ],
+    "volume": 5.1250042729604007e-05,
+    "max_dim": 0.061809807939999996
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/strawberry/1.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/strawberry/1.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/strawberry/1.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/strawberry/1.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/strawberry_1/strawberry_1.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/strawberry_1/strawberry_1.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/strawberry_1/strawberry_1.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/strawberry_1/strawberry_1.urdf"
+    }
+  }
+}

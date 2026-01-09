@@ -1,0 +1,49 @@
+{
+  "label": "vodka",
+  "base_name": "0",
+  "full_name": "vodka_0",
+  "category": "long",
+  "scale": 1.91,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.033245366,
+      0.033245369,
+      0.099995128
+    ],
+    "volume": 6.648130605790919e-05,
+    "max_dim": 0.099995128
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.06349864906,
+      0.06349865479,
+      0.19099069448
+    ],
+    "volume": 0.0004632331645230297,
+    "max_dim": 0.19099069448
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/vodka/0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/vodka/0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/vodka/0.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/vodka/0.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/vodka_0/vodka_0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/vodka_0/vodka_0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/vodka_0/vodka_0.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/vodka_0/vodka_0.urdf"
+    }
+  }
+}

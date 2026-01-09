@@ -1,0 +1,49 @@
+{
+  "label": "cupcake",
+  "base_name": "3",
+  "full_name": "cupcake_3",
+  "category": "regular",
+  "scale": 0.1,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.8899271799999999,
+      0.86851606,
+      1.00030727
+    ],
+    "volume": 0.35569151196095017,
+    "max_dim": 1.00030727
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.088992718,
+      0.08685160600000001,
+      0.100030727
+    ],
+    "volume": 0.00035569151196095024,
+    "max_dim": 0.100030727
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/cupcake/3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/cupcake/3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/cupcake/3.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/cupcake_3/cupcake_3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/cupcake_3/cupcake_3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/cupcake_3/cupcake_3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/cupcake_3/cupcake_3.urdf"
+    }
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "label": "pug-dog",
+  "base_name": "4",
+  "full_name": "pug-dog_4",
+  "category": "small",
+  "scale": 0.79,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.027586201,
+      0.088571349,
+      0.07982838
+    ],
+    "volume": 0.00010696366844800597,
+    "max_dim": 0.088571349
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.02179309879,
+      0.06997136571000001,
+      0.06306442020000001
+    ],
+    "volume": 5.2737260127936423e-05,
+    "max_dim": 0.06997136571000001
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/pug-dog/4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/pug-dog/4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/pug-dog/4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/pug-dog/4.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/pug-dog_4/pug-dog_4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/pug-dog_4/pug-dog_4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/pug-dog_4/pug-dog_4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/pug-dog_4/pug-dog_4.urdf"
+    }
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "label": "burrito",
+  "base_name": "4",
+  "full_name": "burrito_4",
+  "category": "long",
+  "scale": 0.22,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 90.0,
+    "y": 90.0,
+    "z": 270.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.31079022999999995,
+      0.31675808,
+      0.99736296
+    ],
+    "volume": 0.06251581464751918,
+    "max_dim": 0.99736296
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.21941985120000002,
+      0.0696867776,
+      0.0683738506
+    ],
+    "volume": 0.0006656683943667841,
+    "max_dim": 0.21941985120000002
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/burrito/4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/burrito/4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/burrito/4.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/burrito_4/burrito_4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/burrito_4/burrito_4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/burrito_4/burrito_4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/burrito_4/burrito_4.urdf"
+    }
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "label": "birdcage",
+  "base_name": "0",
+  "full_name": "birdcage_0",
+  "category": "regular",
+  "scale": 1.31,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.07516488800000001,
+      0.073753913,
+      0.09857789
+    ],
+    "volume": 0.0003290560139236912,
+    "max_dim": 0.09857789
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.09846600328000002,
+      0.09661762603,
+      0.1291370359
+    ],
+    "volume": 0.0007397478633977251,
+    "max_dim": 0.1291370359
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/birdcage/0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/birdcage/0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/birdcage/0.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/birdcage/0.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/birdcage_0/birdcage_0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/birdcage_0/birdcage_0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/birdcage_0/birdcage_0.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/birdcage_0/birdcage_0.urdf"
+    }
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "label": "crouton",
+  "base_name": "2",
+  "full_name": "crouton_2",
+  "category": "small",
+  "scale": 0.53,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.07169829800000001,
+      0.08931775600000001,
+      0.089871801
+    ],
+    "volume": 0.0005755328121856455,
+    "max_dim": 0.089871801
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.038000097940000005,
+      0.04733841068000002,
+      0.047632054530000016
+    ],
+    "volume": 8.568359847976238e-05,
+    "max_dim": 0.047632054530000016
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/crouton/2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/crouton/2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/crouton/2.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/crouton/2.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/crouton_2/crouton_2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/crouton_2/crouton_2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/crouton_2/crouton_2.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/crouton_2/crouton_2.urdf"
+    }
+  }
+}

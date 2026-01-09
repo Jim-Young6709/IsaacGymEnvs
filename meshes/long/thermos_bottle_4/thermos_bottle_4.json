@@ -1,0 +1,49 @@
+{
+  "label": "thermos_bottle",
+  "base_name": "4",
+  "full_name": "thermos_bottle_4",
+  "category": "long",
+  "scale": 0.28,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.29440397,
+      0.29440399,
+      0.99599928
+    ],
+    "volume": 0.061578596523840824,
+    "max_dim": 0.99599928
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.08243311160000001,
+      0.08243311720000002,
+      0.27887979840000005
+    ],
+    "volume": 0.0013517733508913543,
+    "max_dim": 0.27887979840000005
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/thermos_bottle/4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/thermos_bottle/4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/thermos_bottle/4.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/thermos_bottle_4/thermos_bottle_4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/thermos_bottle_4/thermos_bottle_4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/thermos_bottle_4/thermos_bottle_4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/thermos_bottle_4/thermos_bottle_4.urdf"
+    }
+  }
+}

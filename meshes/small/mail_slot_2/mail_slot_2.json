@@ -1,0 +1,49 @@
+{
+  "label": "mail_slot",
+  "base_name": "2",
+  "full_name": "mail_slot_2",
+  "category": "small",
+  "scale": 0.53,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.063985481,
+      0.041982756,
+      0.092889163
+    ],
+    "volume": 0.0002118318951609684,
+    "max_dim": 0.092889163
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.033912304930000005,
+      0.022250860680000005,
+      0.049231256390000006
+    ],
+    "volume": 3.153689705587949e-05,
+    "max_dim": 0.049231256390000006
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/mail_slot/2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/mail_slot/2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/mail_slot/2.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/mail_slot/2.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/mail_slot_2/mail_slot_2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/mail_slot_2/mail_slot_2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/mail_slot_2/mail_slot_2.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/mail_slot_2/mail_slot_2.urdf"
+    }
+  }
+}

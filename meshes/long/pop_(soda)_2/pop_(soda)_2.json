@@ -1,0 +1,49 @@
+{
+  "label": "pop_(soda)",
+  "base_name": "2",
+  "full_name": "pop_(soda)_2",
+  "category": "long",
+  "scale": 1.59,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.054011406000000005,
+      0.04646650100000001,
+      0.10267936
+    ],
+    "volume": 0.00016186743788805874,
+    "max_dim": 0.10267936
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.08587813554000001,
+      0.07388173659000001,
+      0.1632601824
+    ],
+    "volume": 0.0006506551408624342,
+    "max_dim": 0.1632601824
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/pop_(soda)/2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/pop_(soda)/2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/pop_(soda)/2.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/pop_(soda)/2.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/pop_(soda)_2/pop_(soda)_2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/pop_(soda)_2/pop_(soda)_2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/pop_(soda)_2/pop_(soda)_2.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/pop_(soda)_2/pop_(soda)_2.urdf"
+    }
+  }
+}

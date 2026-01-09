@@ -1,0 +1,49 @@
+{
+  "label": "goldfish",
+  "base_name": "3",
+  "full_name": "goldfish_3",
+  "category": "long",
+  "scale": 0.26,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.99997078,
+      0.08924910999999999,
+      0.37231951
+    ],
+    "volume": 0.011032087281951286,
+    "max_dim": 0.99997078
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.2599924028,
+      0.0232047686,
+      0.09680307260000001
+    ],
+    "volume": 0.00019389996606757585,
+    "max_dim": 0.2599924028
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/goldfish/3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/goldfish/3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/goldfish/3.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/goldfish_3/goldfish_3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/goldfish_3/goldfish_3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/goldfish_3/goldfish_3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/goldfish_3/goldfish_3.urdf"
+    }
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "label": "chaise_longue",
+  "base_name": "3",
+  "full_name": "chaise_longue_3",
+  "category": "long",
+  "scale": 0.2,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 270.0,
+    "y": 0.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.37118544,
+      0.99715179,
+      0.40770975
+    ],
+    "volume": 0.10602096592626567,
+    "max_dim": 0.99715179
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.074237088,
+      0.08154195000000002,
+      0.19943035800000003
+    ],
+    "volume": 0.0008481677274101256,
+    "max_dim": 0.19943035800000003
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/chaise_longue/3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/chaise_longue/3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/chaise_longue/3.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/chaise_longue_3/chaise_longue_3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/chaise_longue_3/chaise_longue_3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/chaise_longue_3/chaise_longue_3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/chaise_longue_3/chaise_longue_3.urdf"
+    }
+  }
+}

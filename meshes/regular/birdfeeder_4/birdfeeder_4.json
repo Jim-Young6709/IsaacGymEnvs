@@ -1,0 +1,49 @@
+{
+  "label": "birdfeeder",
+  "base_name": "4",
+  "full_name": "birdfeeder_4",
+  "category": "regular",
+  "scale": 1.19,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.07191836900000001,
+      0.06970407,
+      0.09646423200000001
+    ],
+    "volume": 0.0003285843878874236,
+    "max_dim": 0.09646423200000001
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.08558285911,
+      0.08294784329999999,
+      0.11479243608
+    ],
+    "volume": 0.0005537169385079828,
+    "max_dim": 0.11479243608
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/birdfeeder/4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/birdfeeder/4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/birdfeeder/4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/birdfeeder/4.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/birdfeeder_4/birdfeeder_4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/birdfeeder_4/birdfeeder_4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/birdfeeder_4/birdfeeder_4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/birdfeeder_4/birdfeeder_4.urdf"
+    }
+  }
+}

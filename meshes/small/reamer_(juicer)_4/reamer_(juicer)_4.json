@@ -1,0 +1,49 @@
+{
+  "label": "reamer_(juicer)",
+  "base_name": "4",
+  "full_name": "reamer_(juicer)_4",
+  "category": "small",
+  "scale": 0.76,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.07178674900000001,
+      0.04225276900000001,
+      0.09095932300000001
+    ],
+    "volume": 0.00014380595275236273,
+    "max_dim": 0.09095932300000001
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.05455792924,
+      0.03211210444000001,
+      0.06912908548
+    ],
+    "volume": 6.31273619154212e-05,
+    "max_dim": 0.06912908548
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/reamer_(juicer)/4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/reamer_(juicer)/4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/reamer_(juicer)/4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/reamer_(juicer)/4.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/reamer_(juicer)_4/reamer_(juicer)_4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/reamer_(juicer)_4/reamer_(juicer)_4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/reamer_(juicer)_4/reamer_(juicer)_4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/reamer_(juicer)_4/reamer_(juicer)_4.urdf"
+    }
+  }
+}

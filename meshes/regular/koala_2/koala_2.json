@@ -1,0 +1,49 @@
+{
+  "label": "koala",
+  "base_name": "2",
+  "full_name": "koala_2",
+  "category": "regular",
+  "scale": 0.13,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.95931927,
+      0.6636388599999999,
+      1.01912914
+    ],
+    "volume": 0.29844760810984583,
+    "max_dim": 1.01912914
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.12471150510000001,
+      0.08627305180000001,
+      0.1324867882
+    ],
+    "volume": 0.0006556893950173314,
+    "max_dim": 0.1324867882
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/koala/2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/koala/2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/koala/2.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/koala_2/koala_2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/koala_2/koala_2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/koala_2/koala_2.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/koala_2/koala_2.urdf"
+    }
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "label": "celery",
+  "base_name": "0",
+  "full_name": "celery_0",
+  "category": "long",
+  "scale": 0.41,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 270.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.116478,
+      0.28254777,
+      0.9808508
+    ],
+    "volume": 0.0036001792952181557,
+    "max_dim": 0.9808508
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.11584458570000003,
+      0.04775598000000006,
+      0.40214882799999996
+    ],
+    "volume": 0.0002481279572057305,
+    "max_dim": 0.40214882799999996
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/celery/0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/celery/0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/celery/0.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/celery_0/celery_0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/celery_0/celery_0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/celery_0/celery_0.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/celery_0/celery_0.urdf"
+    }
+  }
+}

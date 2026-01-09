@@ -1,0 +1,49 @@
+{
+  "label": "combination_lock",
+  "base_name": "4",
+  "full_name": "combination_lock_4",
+  "category": "regular",
+  "scale": 0.11,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.46567167,
+      0.22249902,
+      0.99965569
+    ],
+    "volume": 0.0659108107944134,
+    "max_dim": 0.99965569
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.0512238837,
+      0.0244748922,
+      0.1099621259
+    ],
+    "volume": 8.772728916736423e-05,
+    "max_dim": 0.1099621259
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/combination_lock/4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/combination_lock/4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/combination_lock/4.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/combination_lock_4/combination_lock_4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/combination_lock_4/combination_lock_4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/combination_lock_4/combination_lock_4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/combination_lock_4/combination_lock_4.urdf"
+    }
+  }
+}

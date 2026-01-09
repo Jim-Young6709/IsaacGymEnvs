@@ -1,0 +1,49 @@
+{
+  "label": "toilet",
+  "base_name": "0",
+  "full_name": "toilet_0",
+  "category": "small",
+  "scale": 0.73,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.054752068,
+      0.071781403,
+      0.090786009
+    ],
+    "volume": 0.00016832286149226985,
+    "max_dim": 0.090786009
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.03996900964,
+      0.05240042419,
+      0.06627378656999999
+    ],
+    "volume": 6.548045460913834e-05,
+    "max_dim": 0.06627378656999999
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/toilet/0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/toilet/0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/toilet/0.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/toilet/0.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/toilet_0/toilet_0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/toilet_0/toilet_0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/toilet_0/toilet_0.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/toilet_0/toilet_0.urdf"
+    }
+  }
+}

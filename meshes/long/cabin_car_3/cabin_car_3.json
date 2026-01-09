@@ -1,0 +1,49 @@
+{
+  "label": "cabin_car",
+  "base_name": "3",
+  "full_name": "cabin_car_3",
+  "category": "long",
+  "scale": 1.83,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 270.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.036040869,
+      0.09990907500000001,
+      0.055511981
+    ],
+    "volume": 0.00013205247444059251,
+    "max_dim": 0.09990907500000001
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.18283360725000003,
+      0.06595479027000004,
+      0.10158692523000003
+    ],
+    "volume": 0.0008092818729270037,
+    "max_dim": 0.18283360725000003
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/cabin_car/3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/cabin_car/3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/cabin_car/3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/cabin_car/3.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/cabin_car_3/cabin_car_3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/cabin_car_3/cabin_car_3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/cabin_car_3/cabin_car_3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/cabin_car_3/cabin_car_3.urdf"
+    }
+  }
+}

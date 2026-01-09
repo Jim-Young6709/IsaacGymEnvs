@@ -1,0 +1,49 @@
+{
+  "label": "cracker",
+  "base_name": "2",
+  "full_name": "cracker_2",
+  "category": "small",
+  "scale": 0.1,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.99967062,
+      0.1680385,
+      0.43256692
+    ],
+    "volume": 0.05067411264440953,
+    "max_dim": 0.99967062
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.09996706200000001,
+      0.01680385,
+      0.043256692000000006
+    ],
+    "volume": 5.067411241543069e-05,
+    "max_dim": 0.09996706200000001
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/cracker/2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/cracker/2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/cracker/2.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/cracker_2/cracker_2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/cracker_2/cracker_2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/cracker_2/cracker_2.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/cracker_2/cracker_2.urdf"
+    }
+  }
+}

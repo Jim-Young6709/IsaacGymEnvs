@@ -1,0 +1,49 @@
+{
+  "label": "wine_bottle",
+  "base_name": "2",
+  "full_name": "wine_bottle_2",
+  "category": "long",
+  "scale": 0.31,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.22519511,
+      0.22337139,
+      0.99956788
+    ],
+    "volume": 0.02915396684069972,
+    "max_dim": 0.99956788
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.0698104841,
+      0.06924513090000001,
+      0.30986604279999996
+    ],
+    "volume": 0.0008685258261512852,
+    "max_dim": 0.30986604279999996
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/wine_bottle/2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/wine_bottle/2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/wine_bottle/2.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/wine_bottle_2/wine_bottle_2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/wine_bottle_2/wine_bottle_2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/wine_bottle_2/wine_bottle_2.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/wine_bottle_2/wine_bottle_2.urdf"
+    }
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "label": "grizzly",
+  "base_name": "0",
+  "full_name": "grizzly_0",
+  "category": "regular",
+  "scale": 0.18,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 270.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.36113241,
+      0.6131025,
+      0.92208457
+    ],
+    "volume": 0.13076040671471323,
+    "max_dim": 0.92208457
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.0650038338,
+      0.16597522259999997,
+      0.11035844999999997
+    ],
+    "volume": 0.0007625946919602074,
+    "max_dim": 0.16597522259999997
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/grizzly/0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/grizzly/0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/grizzly/0.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/grizzly_0/grizzly_0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/grizzly_0/grizzly_0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/grizzly_0/grizzly_0.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/grizzly_0/grizzly_0.urdf"
+    }
+  }
+}

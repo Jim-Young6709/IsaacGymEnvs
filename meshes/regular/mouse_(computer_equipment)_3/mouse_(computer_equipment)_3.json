@@ -1,0 +1,49 @@
+{
+  "label": "mouse_(computer_equipment)",
+  "base_name": "3",
+  "full_name": "mouse_(computer_equipment)_3",
+  "category": "regular",
+  "scale": 0.13,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.51667321,
+      0.9997037,
+      0.27787272
+    ],
+    "volume": 0.08982818854955106,
+    "max_dim": 0.9997037
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.06716751730000001,
+      0.129961481,
+      0.0361234536
+    ],
+    "volume": 0.0001973525302433637,
+    "max_dim": 0.129961481
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/mouse_(computer_equipment)/3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/mouse_(computer_equipment)/3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/mouse_(computer_equipment)/3.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/mouse_(computer_equipment)_3/mouse_(computer_equipment)_3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/mouse_(computer_equipment)_3/mouse_(computer_equipment)_3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/mouse_(computer_equipment)_3/mouse_(computer_equipment)_3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/mouse_(computer_equipment)_3/mouse_(computer_equipment)_3.urdf"
+    }
+  }
+}

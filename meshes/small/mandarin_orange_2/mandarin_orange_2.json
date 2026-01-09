@@ -1,0 +1,49 @@
+{
+  "label": "mandarin_orange",
+  "base_name": "2",
+  "full_name": "mandarin_orange_2",
+  "category": "small",
+  "scale": 0.46,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.109856298,
+      0.107442335,
+      0.084365254
+    ],
+    "volume": 0.0005511409192284187,
+    "max_dim": 0.109856298
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.05053389708,
+      0.0494234741,
+      0.03880801684
+    ],
+    "volume": 5.364585251401735e-05,
+    "max_dim": 0.05053389708
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/mandarin_orange/2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/mandarin_orange/2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/mandarin_orange/2.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/mandarin_orange/2.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/mandarin_orange_2/mandarin_orange_2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/mandarin_orange_2/mandarin_orange_2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/mandarin_orange_2/mandarin_orange_2.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/mandarin_orange_2/mandarin_orange_2.urdf"
+    }
+  }
+}

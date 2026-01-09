@@ -1,0 +1,49 @@
+{
+  "label": "jar",
+  "base_name": "3",
+  "full_name": "jar_3",
+  "category": "small",
+  "scale": 0.55,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.06956140499999999,
+      0.069561403,
+      0.099605444
+    ],
+    "volume": 0.0003418167310540841,
+    "max_dim": 0.099605444
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.03825877275,
+      0.03825877165000001,
+      0.054782994200000004
+    ],
+    "volume": 5.686975862912325e-05,
+    "max_dim": 0.054782994200000004
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/jar/3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/jar/3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/jar/3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/jar/3.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/jar_3/jar_3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/jar_3/jar_3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/jar_3/jar_3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/jar_3/jar_3.urdf"
+    }
+  }
+}

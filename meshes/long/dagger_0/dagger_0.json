@@ -1,0 +1,49 @@
+{
+  "label": "dagger",
+  "base_name": "0",
+  "full_name": "dagger_0",
+  "category": "long",
+  "scale": 3.0,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.008726573999999999,
+      0.015301316999999998,
+      0.09999350600000001
+    ],
+    "volume": 5.423937529334927e-06,
+    "max_dim": 0.09999350600000001
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.026179721999999996,
+      0.04590395100000001,
+      0.29998051800000003
+    ],
+    "volume": 0.00014644631329204305,
+    "max_dim": 0.29998051800000003
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/dagger/0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/dagger/0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/dagger/0.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/dagger/0.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/dagger_0/dagger_0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/dagger_0/dagger_0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/dagger_0/dagger_0.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/dagger_0/dagger_0.urdf"
+    }
+  }
+}

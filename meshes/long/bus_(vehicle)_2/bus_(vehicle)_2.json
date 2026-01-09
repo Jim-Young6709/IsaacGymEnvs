@@ -1,0 +1,49 @@
+{
+  "label": "bus_(vehicle)",
+  "base_name": "2",
+  "full_name": "bus_(vehicle)_2",
+  "category": "long",
+  "scale": 0.21,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 270.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.23609865,
+      0.99805327,
+      0.24683042
+    ],
+    "volume": 0.048217390779063854,
+    "max_dim": 0.99805327
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.2095911867,
+      0.049580716500000004,
+      0.0518343882
+    ],
+    "volume": 0.00044654125600491036,
+    "max_dim": 0.2095911867
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/bus_(vehicle)/2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/bus_(vehicle)/2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/bus_(vehicle)/2.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/bus_(vehicle)_2/bus_(vehicle)_2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/bus_(vehicle)_2/bus_(vehicle)_2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/bus_(vehicle)_2/bus_(vehicle)_2.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/bus_(vehicle)_2/bus_(vehicle)_2.urdf"
+    }
+  }
+}

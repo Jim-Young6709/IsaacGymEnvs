@@ -1,0 +1,49 @@
+{
+  "label": "checkbook",
+  "base_name": "4",
+  "full_name": "checkbook_4",
+  "category": "long",
+  "scale": 0.23,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 90.0,
+    "y": 0.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.5642351,
+      0.98778279,
+      0.19832601
+    ],
+    "volume": 0.10553112513386416,
+    "max_dim": 0.98778279
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.129774073,
+      0.045614982300000016,
+      0.2271900417
+    ],
+    "volume": 0.0012839971995037254,
+    "max_dim": 0.2271900417
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/checkbook/4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/checkbook/4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/checkbook/4.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/checkbook_4/checkbook_4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/checkbook_4/checkbook_4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/checkbook_4/checkbook_4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/checkbook_4/checkbook_4.urdf"
+    }
+  }
+}

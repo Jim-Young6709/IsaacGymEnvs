@@ -1,0 +1,49 @@
+{
+  "label": "sausage",
+  "base_name": "4",
+  "full_name": "sausage_4",
+  "category": "long",
+  "scale": 0.21,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.42274277,
+      1.00000025,
+      0.33904589
+    ],
+    "volume": 0.09336550351288012,
+    "max_dim": 1.00000025
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.08877598169999999,
+      0.21000005249999998,
+      0.0711996369
+    ],
+    "volume": 0.0008646579280327827,
+    "max_dim": 0.21000005249999998
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/sausage/4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/sausage/4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/sausage/4.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/sausage_4/sausage_4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/sausage_4/sausage_4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/sausage_4/sausage_4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/sausage_4/sausage_4.urdf"
+    }
+  }
+}

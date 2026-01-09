@@ -1,0 +1,49 @@
+{
+  "label": "candle",
+  "base_name": "0",
+  "full_name": "candle_0",
+  "category": "long",
+  "scale": 0.17,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 270.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.50484865,
+      0.6165538500000001,
+      1.00368474
+    ],
+    "volume": 0.09775829321676024,
+    "max_dim": 1.00368474
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.1048141545,
+      0.08582427050000001,
+      0.17062640580000002
+    ],
+    "volume": 0.0004802864945739432,
+    "max_dim": 0.17062640580000002
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/candle/0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/candle/0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/candle/0.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/candle_0/candle_0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/candle_0/candle_0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/candle_0/candle_0.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/candle_0/candle_0.urdf"
+    }
+  }
+}

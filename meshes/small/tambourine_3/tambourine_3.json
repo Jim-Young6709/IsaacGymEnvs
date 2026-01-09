@@ -1,0 +1,49 @@
+{
+  "label": "tambourine",
+  "base_name": "3",
+  "full_name": "tambourine_3",
+  "category": "small",
+  "scale": 0.56,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.07298723700000001,
+      0.065949268,
+      0.09992070800000001
+    ],
+    "volume": 0.00016146649486856974,
+    "max_dim": 0.09992070800000001
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.040872852720000005,
+      0.03693159008,
+      0.05595559648000001
+    ],
+    "volume": 2.835609996283875e-05,
+    "max_dim": 0.05595559648000001
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/tambourine/3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/tambourine/3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/tambourine/3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/tambourine/3.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/tambourine_3/tambourine_3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/tambourine_3/tambourine_3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/tambourine_3/tambourine_3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/tambourine_3/tambourine_3.urdf"
+    }
+  }
+}

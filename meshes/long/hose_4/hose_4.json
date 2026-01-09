@@ -1,0 +1,49 @@
+{
+  "label": "hose",
+  "base_name": "4",
+  "full_name": "hose_4",
+  "category": "long",
+  "scale": 0.37,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.13968958,
+      0.13968959,
+      1.0
+    ],
+    "volume": 0.010154008294277076,
+    "max_dim": 1.0
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.0516851446,
+      0.0516851483,
+      0.37
+    ],
+    "volume": 0.0005143309821300168,
+    "max_dim": 0.37
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/hose/4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/hose/4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/hose/4.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/hose_4/hose_4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/hose_4/hose_4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/hose_4/hose_4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/hose_4/hose_4.urdf"
+    }
+  }
+}

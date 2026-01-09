@@ -1,0 +1,49 @@
+{
+  "label": "space_shuttle",
+  "base_name": "3",
+  "full_name": "space_shuttle_3",
+  "category": "long",
+  "scale": 0.18,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.55940496,
+      0.44760142,
+      0.97937783
+    ],
+    "volume": 0.08120245436707232,
+    "max_dim": 0.97937783
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.10069289279999999,
+      0.0805682556,
+      0.1762880094
+    ],
+    "volume": 0.00047357271386876565,
+    "max_dim": 0.1762880094
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/space_shuttle/3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/space_shuttle/3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/space_shuttle/3.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/space_shuttle_3/space_shuttle_3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/space_shuttle_3/space_shuttle_3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/space_shuttle_3/space_shuttle_3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/space_shuttle_3/space_shuttle_3.urdf"
+    }
+  }
+}

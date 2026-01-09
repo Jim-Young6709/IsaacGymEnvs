@@ -1,0 +1,49 @@
+{
+  "label": "pastry",
+  "base_name": "3",
+  "full_name": "pastry_3",
+  "category": "regular",
+  "scale": 0.13,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.88584293,
+      1.00045537,
+      0.53357879
+    ],
+    "volume": 0.23148077990323435,
+    "max_dim": 1.00045537
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.1151595809,
+      0.1300591981,
+      0.0693652427
+    ],
+    "volume": 0.000508563273447406,
+    "max_dim": 0.1300591981
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/pastry/3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/pastry/3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/pastry/3.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/pastry_3/pastry_3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/pastry_3/pastry_3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/pastry_3/pastry_3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/pastry_3/pastry_3.urdf"
+    }
+  }
+}

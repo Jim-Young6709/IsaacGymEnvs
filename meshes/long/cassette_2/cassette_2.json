@@ -1,0 +1,49 @@
+{
+  "label": "cassette",
+  "base_name": "2",
+  "full_name": "cassette_2",
+  "category": "long",
+  "scale": 0.19,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 270.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.51729458,
+      0.36761391,
+      0.9495149
+    ],
+    "volume": 0.08624769633528347,
+    "max_dim": 0.9495149
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.06984664289999998,
+      0.0982859702,
+      0.18040783100000002
+    ],
+    "volume": 0.0005915729491637093,
+    "max_dim": 0.18040783100000002
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/cassette/2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/cassette/2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/cassette/2.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/cassette_2/cassette_2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/cassette_2/cassette_2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/cassette_2/cassette_2.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/cassette_2/cassette_2.urdf"
+    }
+  }
+}

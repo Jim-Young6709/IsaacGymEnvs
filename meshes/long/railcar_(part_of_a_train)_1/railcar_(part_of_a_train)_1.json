@@ -1,0 +1,49 @@
+{
+  "label": "railcar_(part_of_a_train)",
+  "base_name": "1",
+  "full_name": "railcar_(part_of_a_train)_1",
+  "category": "long",
+  "scale": 1.81,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.09985706700000001,
+      0.025987577,
+      0.032107497000000006
+    ],
+    "volume": 7.628852484022373e-05,
+    "max_dim": 0.09985706700000001
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.18074129127000002,
+      0.04703751437000002,
+      0.05811456957000001
+    ],
+    "volume": 0.0004523711935745931,
+    "max_dim": 0.18074129127000002
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/railcar_(part_of_a_train)/1.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/railcar_(part_of_a_train)/1.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/railcar_(part_of_a_train)/1.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/railcar_(part_of_a_train)/1.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/railcar_(part_of_a_train)_1/railcar_(part_of_a_train)_1.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/railcar_(part_of_a_train)_1/railcar_(part_of_a_train)_1.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/railcar_(part_of_a_train)_1/railcar_(part_of_a_train)_1.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/railcar_(part_of_a_train)_1/railcar_(part_of_a_train)_1.urdf"
+    }
+  }
+}

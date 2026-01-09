@@ -1,0 +1,49 @@
+{
+  "label": "ambulance",
+  "base_name": "2",
+  "full_name": "ambulance_2",
+  "category": "small",
+  "scale": 0.68,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 270.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.09997997,
+      0.040699287,
+      0.044934506000000006
+    ],
+    "volume": 0.00013940322997824608,
+    "max_dim": 0.09997997
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.027675515160000004,
+      0.06798637960000001,
+      0.030555464080000008
+    ],
+    "volume": 4.383283640851989e-05,
+    "max_dim": 0.06798637960000001
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/ambulance/2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/ambulance/2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/ambulance/2.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/ambulance/2.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/ambulance_2/ambulance_2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/ambulance_2/ambulance_2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/ambulance_2/ambulance_2.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/ambulance_2/ambulance_2.urdf"
+    }
+  }
+}

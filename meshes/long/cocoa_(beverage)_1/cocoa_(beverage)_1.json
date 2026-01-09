@@ -1,0 +1,49 @@
+{
+  "label": "cocoa_(beverage)",
+  "base_name": "1",
+  "full_name": "cocoa_(beverage)_1",
+  "category": "long",
+  "scale": 0.13,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.7594476699999999,
+      0.7594476699999999,
+      0.99926356
+    ],
+    "volume": 0.2751785438287719,
+    "max_dim": 0.99926356
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.0987281971,
+      0.0987281971,
+      0.12990426280000003
+    ],
+    "volume": 0.000604567260791812,
+    "max_dim": 0.12990426280000003
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/cocoa_(beverage)/1.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/cocoa_(beverage)/1.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/cocoa_(beverage)/1.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/cocoa_(beverage)_1/cocoa_(beverage)_1.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/cocoa_(beverage)_1/cocoa_(beverage)_1.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/cocoa_(beverage)_1/cocoa_(beverage)_1.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/cocoa_(beverage)_1/cocoa_(beverage)_1.urdf"
+    }
+  }
+}

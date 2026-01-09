@@ -1,0 +1,49 @@
+{
+  "label": "banana",
+  "base_name": "4",
+  "full_name": "banana_4",
+  "category": "long",
+  "scale": 1.35,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 270.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.055144284,
+      0.09937898,
+      0.022760783000000003
+    ],
+    "volume": 2.882859530167836e-05,
+    "max_dim": 0.09937898
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.134161623,
+      0.07444478340000002,
+      0.030727057050000006
+    ],
+    "volume": 7.09291551653669e-05,
+    "max_dim": 0.134161623
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/banana/4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/banana/4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/banana/4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/banana/4.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/banana_4/banana_4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/banana_4/banana_4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/banana_4/banana_4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/banana_4/banana_4.urdf"
+    }
+  }
+}

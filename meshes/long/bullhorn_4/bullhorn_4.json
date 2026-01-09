@@ -1,0 +1,49 @@
+{
+  "label": "bullhorn",
+  "base_name": "4",
+  "full_name": "bullhorn_4",
+  "category": "long",
+  "scale": 0.19,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 90.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.38305536,
+      0.42814569999999996,
+      0.99154744
+    ],
+    "volume": 0.06985034798189937,
+    "max_dim": 0.99154744
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.081347683,
+      0.07278051840000001,
+      0.1883940136
+    ],
+    "volume": 0.0004791035368078478,
+    "max_dim": 0.1883940136
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/bullhorn/4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/bullhorn/4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/bullhorn/4.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/bullhorn_4/bullhorn_4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/bullhorn_4/bullhorn_4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/bullhorn_4/bullhorn_4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/bullhorn_4/bullhorn_4.urdf"
+    }
+  }
+}

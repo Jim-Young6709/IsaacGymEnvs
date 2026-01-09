@@ -1,0 +1,49 @@
+{
+  "label": "corset",
+  "base_name": "0",
+  "full_name": "corset_0",
+  "category": "long",
+  "scale": 0.19,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.35409182,
+      0.20071858,
+      1.00068552
+    ],
+    "volume": 0.03769251693742672,
+    "max_dim": 1.00068552
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.0672774458,
+      0.038136530200000004,
+      0.1901302488
+    ],
+    "volume": 0.0002585329736738099,
+    "max_dim": 0.1901302488
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/corset/0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/corset/0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/corset/0.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/corset_0/corset_0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/corset_0/corset_0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/corset_0/corset_0.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/corset_0/corset_0.urdf"
+    }
+  }
+}

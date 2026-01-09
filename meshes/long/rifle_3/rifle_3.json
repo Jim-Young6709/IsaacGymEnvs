@@ -1,0 +1,49 @@
+{
+  "label": "rifle",
+  "base_name": "3",
+  "full_name": "rifle_3",
+  "category": "long",
+  "scale": 0.58,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.9996643599999999,
+      0.09489125000000001,
+      0.16381871
+    ],
+    "volume": 0.005866314855681718,
+    "max_dim": 0.9996643599999999
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.5798053288,
+      0.055036925,
+      0.0950148518
+    ],
+    "volume": 0.0011445884241217711,
+    "max_dim": 0.5798053288
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/rifle/3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/rifle/3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/rifle/3.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/rifle_3/rifle_3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/rifle_3/rifle_3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/rifle_3/rifle_3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/rifle_3/rifle_3.urdf"
+    }
+  }
+}

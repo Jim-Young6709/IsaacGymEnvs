@@ -1,0 +1,49 @@
+{
+  "label": "aerosol_can",
+  "base_name": "1",
+  "full_name": "aerosol_can_1",
+  "category": "long",
+  "scale": 1.84,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.036748453,
+      0.036748460000000004,
+      0.099747826
+    ],
+    "volume": 8.86837910149173e-05,
+    "max_dim": 0.099747826
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.06761715352,
+      0.06761716640000001,
+      0.18353599984
+    ],
+    "volume": 0.0005524560308625916,
+    "max_dim": 0.18353599984
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/aerosol_can/1.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/aerosol_can/1.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/aerosol_can/1.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/aerosol_can/1.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/aerosol_can_1/aerosol_can_1.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/aerosol_can_1/aerosol_can_1.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/aerosol_can_1/aerosol_can_1.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/aerosol_can_1/aerosol_can_1.urdf"
+    }
+  }
+}

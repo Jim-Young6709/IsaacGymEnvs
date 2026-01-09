@@ -1,0 +1,49 @@
+{
+  "label": "cistern",
+  "base_name": "0",
+  "full_name": "cistern_0",
+  "category": "long",
+  "scale": 0.15,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.30119185000000004,
+      0.45232090999999996,
+      0.9628408
+    ],
+    "volume": 0.06719117316124013,
+    "max_dim": 0.9628408
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.0451787775,
+      0.06784813649999999,
+      0.14442612
+    ],
+    "volume": 0.00022677020941918542,
+    "max_dim": 0.14442612
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/cistern/0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/cistern/0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/cistern/0.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/cistern_0/cistern_0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/cistern_0/cistern_0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/cistern_0/cistern_0.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/cistern_0/cistern_0.urdf"
+    }
+  }
+}

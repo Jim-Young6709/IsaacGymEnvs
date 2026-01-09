@@ -1,0 +1,49 @@
+{
+  "label": "chicken_(animal)",
+  "base_name": "1",
+  "full_name": "chicken_(animal)_1",
+  "category": "regular",
+  "scale": 1.29,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.050642232,
+      0.080840136,
+      0.087766751
+    ],
+    "volume": 7.695795045206444e-05,
+    "max_dim": 0.087766751
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.06532847928,
+      0.10428377544,
+      0.11321910879000001
+    ],
+    "volume": 0.0001652047856979918,
+    "max_dim": 0.11321910879000001
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/chicken_(animal)/1.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/chicken_(animal)/1.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/chicken_(animal)/1.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/chicken_(animal)/1.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/chicken_(animal)_1/chicken_(animal)_1.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/chicken_(animal)_1/chicken_(animal)_1.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/chicken_(animal)_1/chicken_(animal)_1.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/chicken_(animal)_1/chicken_(animal)_1.urdf"
+    }
+  }
+}

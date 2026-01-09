@@ -1,0 +1,49 @@
+{
+  "label": "bread",
+  "base_name": "4",
+  "full_name": "bread_4",
+  "category": "long",
+  "scale": 1.86,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.046596280000000004,
+      0.099851982,
+      0.027188749
+    ],
+    "volume": 7.396363577934558e-05,
+    "max_dim": 0.099851982
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.0866690808,
+      0.18572468652000002,
+      0.050571073140000006
+    ],
+    "volume": 0.0004759453454765367,
+    "max_dim": 0.18572468652000002
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/bread/4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/bread/4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/bread/4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/bread/4.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/bread_4/bread_4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/bread_4/bread_4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/bread_4/bread_4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/bread_4/bread_4.urdf"
+    }
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "label": "barge",
+  "base_name": "4",
+  "full_name": "barge_4",
+  "category": "long",
+  "scale": 1.78,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 270.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.10037121200000002,
+      0.038754544,
+      0.041024007
+    ],
+    "volume": 7.660908756472158e-05,
+    "max_dim": 0.10037121200000002
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.06898308832000002,
+      0.17866075736000003,
+      0.07302273246
+    ],
+    "volume": 0.00043205625481131376,
+    "max_dim": 0.17866075736000003
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/barge/4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/barge/4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/barge/4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/barge/4.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/barge_4/barge_4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/barge_4/barge_4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/barge_4/barge_4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/barge_4/barge_4.urdf"
+    }
+  }
+}

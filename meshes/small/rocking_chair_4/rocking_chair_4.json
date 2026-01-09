@@ -1,0 +1,49 @@
+{
+  "label": "rocking_chair",
+  "base_name": "4",
+  "full_name": "rocking_chair_4",
+  "category": "small",
+  "scale": 0.54,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.060001416,
+      0.10015193700000001,
+      0.107900624
+    ],
+    "volume": 0.0004051977228653939,
+    "max_dim": 0.107900624
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.03240076464000001,
+      0.05408204598000001,
+      0.058266336960000005
+    ],
+    "volume": 6.380405423327639e-05,
+    "max_dim": 0.058266336960000005
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/rocking_chair/4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/rocking_chair/4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/rocking_chair/4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/rocking_chair/4.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/rocking_chair_4/rocking_chair_4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/rocking_chair_4/rocking_chair_4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/rocking_chair_4/rocking_chair_4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/rocking_chair_4/rocking_chair_4.urdf"
+    }
+  }
+}

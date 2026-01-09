@@ -1,0 +1,49 @@
+{
+  "label": "beret",
+  "base_name": "2",
+  "full_name": "beret_2",
+  "category": "long",
+  "scale": 1.72,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 0.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.05256515900000001,
+      0.048082084000000004,
+      0.099181503
+    ],
+    "volume": 0.00016597982536046491,
+    "max_dim": 0.099181503
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.09041207348000002,
+      0.08270118448000001,
+      0.17059218516
+    ],
+    "volume": 0.0008445797103958069,
+    "max_dim": 0.17059218516
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/beret/2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/beret/2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/beret/2.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/beret/2.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/beret_2/beret_2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/beret_2/beret_2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/beret_2/beret_2.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/beret_2/beret_2.urdf"
+    }
+  }
+}

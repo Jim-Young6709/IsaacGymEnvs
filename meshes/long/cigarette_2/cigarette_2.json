@@ -1,0 +1,49 @@
+{
+  "label": "cigarette",
+  "base_name": "2",
+  "full_name": "cigarette_2",
+  "category": "long",
+  "scale": 0.39,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.0995343,
+      0.09976688,
+      1.0
+    ],
+    "volume": 0.0077566571630328,
+    "max_dim": 1.0
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.038818377,
+      0.0389090832,
+      0.39
+    ],
+    "volume": 0.0004601171462539427,
+    "max_dim": 0.39
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/cigarette/2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/cigarette/2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/cigarette/2.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/cigarette_2/cigarette_2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/cigarette_2/cigarette_2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/cigarette_2/cigarette_2.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/cigarette_2/cigarette_2.urdf"
+    }
+  }
+}

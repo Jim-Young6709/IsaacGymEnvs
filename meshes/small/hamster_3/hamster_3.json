@@ -1,0 +1,49 @@
+{
+  "label": "hamster",
+  "base_name": "3",
+  "full_name": "hamster_3",
+  "category": "small",
+  "scale": 0.5,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.10002149900000001,
+      0.053722488,
+      0.075894661
+    ],
+    "volume": 0.00016108289085542326,
+    "max_dim": 0.10002149900000001
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.05001074950000001,
+      0.026861244,
+      0.0379473305
+    ],
+    "volume": 2.013536135692791e-05,
+    "max_dim": 0.05001074950000001
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/hamster/3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/hamster/3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/hamster/3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/hamster/3.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/hamster_3/hamster_3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/hamster_3/hamster_3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/hamster_3/hamster_3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/hamster_3/hamster_3.urdf"
+    }
+  }
+}

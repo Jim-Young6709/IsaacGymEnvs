@@ -1,0 +1,49 @@
+{
+  "label": "kettle",
+  "base_name": "4",
+  "full_name": "kettle_4",
+  "category": "small",
+  "scale": 0.37,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.09146390400000001,
+      0.10904360800000001,
+      0.063594417
+    ],
+    "volume": 0.00024592684684429916,
+    "max_dim": 0.10904360800000001
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.03384164448,
+      0.04034613496,
+      0.023529934290000002
+    ],
+    "volume": 1.2456932573204282e-05,
+    "max_dim": 0.04034613496
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/kettle/4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/kettle/4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/kettle/4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/kettle/4.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/kettle_4/kettle_4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/kettle_4/kettle_4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/kettle_4/kettle_4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/kettle_4/kettle_4.urdf"
+    }
+  }
+}

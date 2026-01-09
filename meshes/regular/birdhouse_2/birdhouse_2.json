@@ -1,0 +1,49 @@
+{
+  "label": "birdhouse",
+  "base_name": "2",
+  "full_name": "birdhouse_2",
+  "category": "regular",
+  "scale": 1.19,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.071396081,
+      0.061627259000000004,
+      0.08640594900000001
+    ],
+    "volume": 0.00015494343836744529,
+    "max_dim": 0.08640594900000001
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.08496133639,
+      0.07333643821,
+      0.10282307931000001
+    ],
+    "volume": 0.0002611043296558457,
+    "max_dim": 0.10282307931000001
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/birdhouse/2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/birdhouse/2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/birdhouse/2.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/birdhouse/2.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/birdhouse_2/birdhouse_2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/birdhouse_2/birdhouse_2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/birdhouse_2/birdhouse_2.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/birdhouse_2/birdhouse_2.urdf"
+    }
+  }
+}

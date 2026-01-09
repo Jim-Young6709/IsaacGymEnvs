@@ -1,0 +1,49 @@
+{
+  "label": "cleansing_agent",
+  "base_name": "0",
+  "full_name": "cleansing_agent_0",
+  "category": "long",
+  "scale": 0.21,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.25210982,
+      0.41707493,
+      0.99764294
+    ],
+    "volume": 0.07189353812138599,
+    "max_dim": 0.99764294
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.05294306219999999,
+      0.08758573530000001,
+      0.2095050174
+    ],
+    "volume": 0.0006658060565421556,
+    "max_dim": 0.2095050174
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/cleansing_agent/0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/cleansing_agent/0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/cleansing_agent/0.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/cleansing_agent_0/cleansing_agent_0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/cleansing_agent_0/cleansing_agent_0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/cleansing_agent_0/cleansing_agent_0.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/cleansing_agent_0/cleansing_agent_0.urdf"
+    }
+  }
+}

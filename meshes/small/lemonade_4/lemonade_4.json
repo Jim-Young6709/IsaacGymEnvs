@@ -1,0 +1,49 @@
+{
+  "label": "lemonade",
+  "base_name": "4",
+  "full_name": "lemonade_4",
+  "category": "small",
+  "scale": 0.57,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.051712109000000006,
+      0.082928975,
+      0.087791087
+    ],
+    "volume": 0.0001939722448036875,
+    "max_dim": 0.087791087
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.029475902130000002,
+      0.04726951574999999,
+      0.050040919589999996
+    ],
+    "volume": 3.59223019319293e-05,
+    "max_dim": 0.050040919589999996
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/lemonade/4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/lemonade/4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/lemonade/4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/lemonade/4.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/lemonade_4/lemonade_4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/lemonade_4/lemonade_4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/lemonade_4/lemonade_4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/lemonade_4/lemonade_4.urdf"
+    }
+  }
+}

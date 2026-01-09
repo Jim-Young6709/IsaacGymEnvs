@@ -1,0 +1,49 @@
+{
+  "label": "fighter_jet",
+  "base_name": "3",
+  "full_name": "fighter_jet_3",
+  "category": "small",
+  "scale": 0.1,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.8243315600000001,
+      1.00340648,
+      0.27671264
+    ],
+    "volume": 0.06827263807568079,
+    "max_dim": 1.00340648
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.08243315600000001,
+      0.100340648,
+      0.027671263999999998
+    ],
+    "volume": 6.82726380756808e-05,
+    "max_dim": 0.100340648
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/fighter_jet/3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/fighter_jet/3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/fighter_jet/3.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/fighter_jet_3/fighter_jet_3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/fighter_jet_3/fighter_jet_3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/fighter_jet_3/fighter_jet_3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/fighter_jet_3/fighter_jet_3.urdf"
+    }
+  }
+}

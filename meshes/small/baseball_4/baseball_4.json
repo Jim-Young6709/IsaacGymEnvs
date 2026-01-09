@@ -1,0 +1,49 @@
+{
+  "label": "baseball",
+  "base_name": "4",
+  "full_name": "baseball_4",
+  "category": "small",
+  "scale": 0.7,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 270.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.063281808,
+      0.063281827,
+      0.089897584
+    ],
+    "volume": 0.00015208503728394976,
+    "max_dim": 0.089897584
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.0442972789,
+      0.044297265599999996,
+      0.0629283088
+    ],
+    "volume": 5.216516778839477e-05,
+    "max_dim": 0.0629283088
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/baseball/4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/baseball/4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/baseball/4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/baseball/4.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/baseball_4/baseball_4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/baseball_4/baseball_4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/baseball_4/baseball_4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/baseball_4/baseball_4.urdf"
+    }
+  }
+}

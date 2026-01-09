@@ -1,0 +1,49 @@
+{
+  "label": "cappuccino",
+  "base_name": "0",
+  "full_name": "cappuccino_0",
+  "category": "regular",
+  "scale": 0.14,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 270.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      1.00143537,
+      0.72060359,
+      0.60709968
+    ],
+    "volume": 0.1980138555669219,
+    "max_dim": 1.00143537
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.10088450260000001,
+      0.1402009518,
+      0.08499395520000003
+    ],
+    "volume": 0.0005433500196756338,
+    "max_dim": 0.1402009518
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/cappuccino/0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/cappuccino/0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/cappuccino/0.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/cappuccino_0/cappuccino_0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/cappuccino_0/cappuccino_0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/cappuccino_0/cappuccino_0.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/cappuccino_0/cappuccino_0.urdf"
+    }
+  }
+}

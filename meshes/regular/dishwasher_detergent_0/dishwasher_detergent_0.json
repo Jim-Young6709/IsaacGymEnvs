@@ -1,0 +1,49 @@
+{
+  "label": "dishwasher_detergent",
+  "base_name": "0",
+  "full_name": "dishwasher_detergent_0",
+  "category": "regular",
+  "scale": 0.12,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.7112172999999999,
+      0.6920364800000001,
+      1.00306385
+    ],
+    "volume": 0.2593070233561776,
+    "max_dim": 1.00306385
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.08534607599999999,
+      0.0830443776,
+      0.12036766199999999
+    ],
+    "volume": 0.000448082536359475,
+    "max_dim": 0.12036766199999999
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/dishwasher_detergent/0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/dishwasher_detergent/0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/dishwasher_detergent/0.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/dishwasher_detergent_0/dishwasher_detergent_0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/dishwasher_detergent_0/dishwasher_detergent_0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/dishwasher_detergent_0/dishwasher_detergent_0.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/dishwasher_detergent_0/dishwasher_detergent_0.urdf"
+    }
+  }
+}

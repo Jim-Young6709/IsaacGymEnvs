@@ -1,0 +1,49 @@
+{
+  "label": "fire_engine",
+  "base_name": "2",
+  "full_name": "fire_engine_2",
+  "category": "small",
+  "scale": 0.1,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.29889118000000003,
+      0.99873725,
+      0.27285314
+    ],
+    "volume": 0.06137751237734532,
+    "max_dim": 0.99873725
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.029889118,
+      0.09987372500000001,
+      0.027285314000000012
+    ],
+    "volume": 6.137751237734532e-05,
+    "max_dim": 0.09987372500000001
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/fire_engine/2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/fire_engine/2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/fire_engine/2.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/fire_engine_2/fire_engine_2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/fire_engine_2/fire_engine_2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/fire_engine_2/fire_engine_2.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/fire_engine_2/fire_engine_2.urdf"
+    }
+  }
+}

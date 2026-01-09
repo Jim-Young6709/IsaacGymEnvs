@@ -1,0 +1,49 @@
+{
+  "label": "ferret",
+  "base_name": "4",
+  "full_name": "ferret_4",
+  "category": "long",
+  "scale": 1.95,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.033076475,
+      0.08449300000000001,
+      0.084104597
+    ],
+    "volume": 7.787805271832217e-05,
+    "max_dim": 0.08449300000000001
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.06449912625000001,
+      0.16476134999999997,
+      0.16400396415000001
+    ],
+    "volume": 0.000577456026149769,
+    "max_dim": 0.16476134999999997
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/ferret/4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/ferret/4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/ferret/4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/ferret/4.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/ferret_4/ferret_4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/ferret_4/ferret_4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/ferret_4/ferret_4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/ferret_4/ferret_4.urdf"
+    }
+  }
+}

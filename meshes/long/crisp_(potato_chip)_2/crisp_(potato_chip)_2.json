@@ -1,0 +1,49 @@
+{
+  "label": "crisp_(potato_chip)",
+  "base_name": "2",
+  "full_name": "crisp_(potato_chip)_2",
+  "category": "long",
+  "scale": 0.37,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.23967413999999998,
+      1.0,
+      0.13445448
+    ],
+    "volume": 0.016603825701758054,
+    "max_dim": 1.0
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.0886794318,
+      0.37,
+      0.049748157599999995
+    ],
+    "volume": 0.0008410335832711507,
+    "max_dim": 0.37
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/crisp_(potato_chip)/2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/crisp_(potato_chip)/2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/crisp_(potato_chip)/2.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/crisp_(potato_chip)_2/crisp_(potato_chip)_2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/crisp_(potato_chip)_2/crisp_(potato_chip)_2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/crisp_(potato_chip)_2/crisp_(potato_chip)_2.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/crisp_(potato_chip)_2/crisp_(potato_chip)_2.urdf"
+    }
+  }
+}

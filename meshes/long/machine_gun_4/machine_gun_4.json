@@ -1,0 +1,49 @@
+{
+  "label": "machine_gun",
+  "base_name": "4",
+  "full_name": "machine_gun_4",
+  "category": "long",
+  "scale": 0.26,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 270.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.99985956,
+      0.19037629,
+      0.29736415
+    ],
+    "volume": 0.017044364221867243,
+    "max_dim": 0.99985956
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.25996348560000004,
+      0.07731467900000001,
+      0.049497835399999995
+    ],
+    "volume": 0.00029957174556353874,
+    "max_dim": 0.25996348560000004
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/machine_gun/4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/machine_gun/4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/machine_gun/4.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/machine_gun_4/machine_gun_4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/machine_gun_4/machine_gun_4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/machine_gun_4/machine_gun_4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/machine_gun_4/machine_gun_4.urdf"
+    }
+  }
+}

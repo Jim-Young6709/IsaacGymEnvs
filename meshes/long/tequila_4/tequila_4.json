@@ -1,0 +1,49 @@
+{
+  "label": "tequila",
+  "base_name": "4",
+  "full_name": "tequila_4",
+  "category": "long",
+  "scale": 1.6,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.058087653,
+      0.058417315,
+      0.09953555400000001
+    ],
+    "volume": 0.00013900944737859229,
+    "max_dim": 0.09953555400000001
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.09294024480000002,
+      0.09346770400000001,
+      0.15925688640000002
+    ],
+    "volume": 0.0005693826964627141,
+    "max_dim": 0.15925688640000002
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/tequila/4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/tequila/4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/tequila/4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/tequila/4.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/tequila_4/tequila_4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/tequila_4/tequila_4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/tequila_4/tequila_4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/tequila_4/tequila_4.urdf"
+    }
+  }
+}

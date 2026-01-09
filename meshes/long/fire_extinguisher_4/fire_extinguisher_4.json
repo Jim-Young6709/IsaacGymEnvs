@@ -1,0 +1,49 @@
+{
+  "label": "fire_extinguisher",
+  "base_name": "4",
+  "full_name": "fire_extinguisher_4",
+  "category": "long",
+  "scale": 0.21,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.25633082,
+      0.49826059999999994,
+      0.96560539
+    ],
+    "volume": 0.05946172700916098,
+    "max_dim": 0.96560539
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.053829472200000006,
+      0.10463472599999997,
+      0.2027771319
+    ],
+    "volume": 0.0005506750538318398,
+    "max_dim": 0.2027771319
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/fire_extinguisher/4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/fire_extinguisher/4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/fire_extinguisher/4.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/fire_extinguisher_4/fire_extinguisher_4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/fire_extinguisher_4/fire_extinguisher_4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/fire_extinguisher_4/fire_extinguisher_4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/fire_extinguisher_4/fire_extinguisher_4.urdf"
+    }
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "label": "zucchini",
+  "base_name": "3",
+  "full_name": "zucchini_3",
+  "category": "long",
+  "scale": 0.21,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.9948012800000001,
+      0.28926582,
+      0.28579025
+    ],
+    "volume": 0.03425169107915442,
+    "max_dim": 0.9948012800000001
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.20890826880000002,
+      0.0607458222,
+      0.060015952500000004
+    ],
+    "volume": 0.0003172049110840491,
+    "max_dim": 0.20890826880000002
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/zucchini/3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/zucchini/3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/zucchini/3.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/zucchini_3/zucchini_3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/zucchini_3/zucchini_3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/zucchini_3/zucchini_3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/zucchini_3/zucchini_3.urdf"
+    }
+  }
+}

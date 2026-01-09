@@ -1,0 +1,49 @@
+{
+  "label": "futon",
+  "base_name": "0",
+  "full_name": "futon_0",
+  "category": "small",
+  "scale": 0.59,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.1,
+      0.056818180999999995,
+      0.06439394600000001
+    ],
+    "volume": 0.0003130087241969544,
+    "max_dim": 0.1
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.059000000000000004,
+      0.03352272679000001,
+      0.03799242814000001
+    ],
+    "volume": 6.428541876684629e-05,
+    "max_dim": 0.059000000000000004
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/futon/0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/futon/0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/futon/0.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/futon/0.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/futon_0/futon_0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/futon_0/futon_0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/futon_0/futon_0.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/futon_0/futon_0.urdf"
+    }
+  }
+}

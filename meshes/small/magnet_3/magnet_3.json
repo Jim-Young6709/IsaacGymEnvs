@@ -1,0 +1,49 @@
+{
+  "label": "magnet",
+  "base_name": "3",
+  "full_name": "magnet_3",
+  "category": "small",
+  "scale": 0.67,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.07828690500000002,
+      0.08131985200000001,
+      0.037020958
+    ],
+    "volume": 0.00010983725508979826,
+    "max_dim": 0.08131985200000001
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.05245222635000001,
+      0.054484300840000006,
+      0.024804041860000008
+    ],
+    "volume": 3.3034982352573e-05,
+    "max_dim": 0.054484300840000006
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/magnet/3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/magnet/3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/magnet/3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/magnet/3.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/magnet_3/magnet_3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/magnet_3/magnet_3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/magnet_3/magnet_3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/magnet_3/magnet_3.urdf"
+    }
+  }
+}

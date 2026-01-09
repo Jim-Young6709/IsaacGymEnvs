@@ -1,0 +1,49 @@
+{
+  "label": "pelican",
+  "base_name": "0",
+  "full_name": "pelican_0",
+  "category": "small",
+  "scale": 0.74,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.037849723,
+      0.07060301299999999,
+      0.095496131
+    ],
+    "volume": 8.996554239593867e-05,
+    "max_dim": 0.095496131
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.02800879502,
+      0.05224622962,
+      0.07066713694
+    ],
+    "volume": 3.6456196951851845e-05,
+    "max_dim": 0.07066713694
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/pelican/0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/pelican/0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/pelican/0.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/pelican/0.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/pelican_0/pelican_0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/pelican_0/pelican_0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/pelican_0/pelican_0.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/pelican_0/pelican_0.urdf"
+    }
+  }
+}

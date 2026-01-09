@@ -1,0 +1,49 @@
+{
+  "label": "vinegar",
+  "base_name": "4",
+  "full_name": "vinegar_4",
+  "category": "long",
+  "scale": 0.2,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.35300617,
+      0.35300627,
+      1.0
+    ],
+    "volume": 0.004640981737055414,
+    "max_dim": 1.0
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.070601234,
+      0.070601254,
+      0.2
+    ],
+    "volume": 3.712785389644339e-05,
+    "max_dim": 0.2
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/vinegar/4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/vinegar/4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/vinegar/4.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/vinegar_4/vinegar_4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/vinegar_4/vinegar_4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/vinegar_4/vinegar_4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/vinegar_4/vinegar_4.urdf"
+    }
+  }
+}

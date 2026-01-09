@@ -1,0 +1,49 @@
+{
+  "label": "mammoth",
+  "base_name": "2",
+  "full_name": "mammoth_2",
+  "category": "small",
+  "scale": 0.1,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.47290892,
+      0.9846582899999999,
+      0.69545455
+    ],
+    "volume": 0.1670273120662073,
+    "max_dim": 0.9846582899999999
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.047290892,
+      0.098465829,
+      0.069545455
+    ],
+    "volume": 0.00016702731206620733,
+    "max_dim": 0.098465829
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/mammoth/2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/mammoth/2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/mammoth/2.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/mammoth_2/mammoth_2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/mammoth_2/mammoth_2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/mammoth_2/mammoth_2.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/small/mammoth_2/mammoth_2.urdf"
+    }
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "label": "hairbrush",
+  "base_name": "1",
+  "full_name": "hairbrush_1",
+  "category": "long",
+  "scale": 0.35,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.20136046,
+      0.9976725399999999,
+      0.18490491
+    ],
+    "volume": 0.022941874752991743,
+    "max_dim": 0.9976725399999999
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.07047616099999998,
+      0.34918538899999996,
+      0.06471671850000003
+    ],
+    "volume": 0.0009836328800345206,
+    "max_dim": 0.34918538899999996
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/hairbrush/1.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/hairbrush/1.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/hairbrush/1.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/hairbrush_1/hairbrush_1.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/hairbrush_1/hairbrush_1.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/hairbrush_1/hairbrush_1.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/hairbrush_1/hairbrush_1.urdf"
+    }
+  }
+}

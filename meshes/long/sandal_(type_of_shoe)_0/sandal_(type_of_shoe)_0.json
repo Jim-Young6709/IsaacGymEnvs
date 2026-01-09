@@ -1,0 +1,49 @@
+{
+  "label": "sandal_(type_of_shoe)",
+  "base_name": "0",
+  "full_name": "sandal_(type_of_shoe)_0",
+  "category": "long",
+  "scale": 1.72,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.034295398000000005,
+      0.10031836400000002,
+      0.032426463
+    ],
+    "volume": 2.998461908241037e-05,
+    "max_dim": 0.10031836400000002
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.05898808456000001,
+      0.17254758608000004,
+      0.055773516360000004
+    ],
+    "volume": 0.00015257517500065287,
+    "max_dim": 0.17254758608000004
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/sandal_(type_of_shoe)/0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/sandal_(type_of_shoe)/0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/sandal_(type_of_shoe)/0.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/sandal_(type_of_shoe)/0.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/sandal_(type_of_shoe)_0/sandal_(type_of_shoe)_0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/sandal_(type_of_shoe)_0/sandal_(type_of_shoe)_0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/sandal_(type_of_shoe)_0/sandal_(type_of_shoe)_0.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/sandal_(type_of_shoe)_0/sandal_(type_of_shoe)_0.urdf"
+    }
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "label": "drumstick",
+  "base_name": "0",
+  "full_name": "drumstick_0",
+  "category": "long",
+  "scale": 0.23,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.35003784000000004,
+      0.35003786000000003,
+      0.99992147
+    ],
+    "volume": 0.05540653950245546,
+    "max_dim": 0.99992147
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.0805087032,
+      0.0805087078,
+      0.2299819381
+    ],
+    "volume": 0.0006741313661263757,
+    "max_dim": 0.2299819381
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/drumstick/0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/drumstick/0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/drumstick/0.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/drumstick_0/drumstick_0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/drumstick_0/drumstick_0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/drumstick_0/drumstick_0.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/drumstick_0/drumstick_0.urdf"
+    }
+  }
+}

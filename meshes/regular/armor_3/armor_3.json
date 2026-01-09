@@ -1,0 +1,49 @@
+{
+  "label": "armor",
+  "base_name": "3",
+  "full_name": "armor_3",
+  "category": "regular",
+  "scale": 1.18,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 270.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.064551867,
+      0.06530497800000001,
+      0.096109385
+    ],
+    "volume": 0.00022155113369367896,
+    "max_dim": 0.096109385
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.07705987404,
+      0.07617120306,
+      0.1134090743
+    ],
+    "volume": 0.00036401560229499267,
+    "max_dim": 0.1134090743
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/armor/3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/armor/3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/armor/3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/armor/3.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/armor_3/armor_3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/armor_3/armor_3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/armor_3/armor_3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/regular/armor_3/armor_3.urdf"
+    }
+  }
+}

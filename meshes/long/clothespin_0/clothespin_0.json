@@ -1,0 +1,49 @@
+{
+  "label": "clothespin",
+  "base_name": "0",
+  "full_name": "clothespin_0",
+  "category": "long",
+  "scale": 0.28,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.20674004,
+      0.17881179,
+      0.99971562
+    ],
+    "volume": 0.02597312031556006,
+    "max_dim": 0.99971562
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.05788721120000001,
+      0.050067301200000004,
+      0.27992037360000005
+    ],
+    "volume": 0.0005701619371671747,
+    "max_dim": 0.27992037360000005
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/clothespin/0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/clothespin/0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/clothespin/0.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/clothespin_0/clothespin_0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/clothespin_0/clothespin_0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/clothespin_0/clothespin_0.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/clothespin_0/clothespin_0.urdf"
+    }
+  }
+}

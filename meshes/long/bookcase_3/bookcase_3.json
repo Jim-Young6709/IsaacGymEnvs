@@ -1,0 +1,49 @@
+{
+  "label": "bookcase",
+  "base_name": "3",
+  "full_name": "bookcase_3",
+  "category": "long",
+  "scale": 0.21,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.49000336,
+      0.17249384,
+      0.99842462
+    ],
+    "volume": 0.0843884324815957,
+    "max_dim": 0.99842462
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.1029007056,
+      0.0362237064,
+      0.20966917019999998
+    ],
+    "volume": 0.0007815212732120574,
+    "max_dim": 0.20966917019999998
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/bookcase/3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/bookcase/3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/bookcase/3.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/bookcase_3/bookcase_3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/bookcase_3/bookcase_3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/bookcase_3/bookcase_3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/bookcase_3/bookcase_3.urdf"
+    }
+  }
+}

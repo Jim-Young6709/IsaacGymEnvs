@@ -1,0 +1,49 @@
+{
+  "label": "dumbbell",
+  "base_name": "4",
+  "full_name": "dumbbell_4",
+  "category": "long",
+  "scale": 0.25,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 270.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      1.0,
+      0.42290565,
+      0.36624708
+    ],
+    "volume": 0.11112211838729175,
+    "max_dim": 1.0
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.09156177000000006,
+      0.1057264125,
+      0.25
+    ],
+    "volume": 0.0017362830998014338,
+    "max_dim": 0.25
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/dumbbell/4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/dumbbell/4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/dumbbell/4.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/dumbbell_4/dumbbell_4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/dumbbell_4/dumbbell_4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/dumbbell_4/dumbbell_4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/dumbbell_4/dumbbell_4.urdf"
+    }
+  }
+}

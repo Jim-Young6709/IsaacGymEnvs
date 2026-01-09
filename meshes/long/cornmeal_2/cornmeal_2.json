@@ -1,0 +1,49 @@
+{
+  "label": "cornmeal",
+  "base_name": "2",
+  "full_name": "cornmeal_2",
+  "category": "long",
+  "scale": 0.19,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 180.0,
+    "y": 180.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.33992526,
+      0.32192352999999996,
+      0.99982703
+    ],
+    "volume": 0.070032612063613,
+    "max_dim": 0.99982703
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.0645857994,
+      0.06116547070000001,
+      0.18996713569999998
+    ],
+    "volume": 0.00048035368614432136,
+    "max_dim": 0.18996713569999998
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/cornmeal/2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/cornmeal/2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/cornmeal/2.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/cornmeal_2/cornmeal_2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/cornmeal_2/cornmeal_2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/cornmeal_2/cornmeal_2.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/cornmeal_2/cornmeal_2.urdf"
+    }
+  }
+}

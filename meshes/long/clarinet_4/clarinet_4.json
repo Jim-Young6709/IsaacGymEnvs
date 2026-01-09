@@ -1,0 +1,49 @@
+{
+  "label": "clarinet",
+  "base_name": "4",
+  "full_name": "clarinet_4",
+  "category": "long",
+  "scale": 2.61,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 180.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.013094610000000001,
+      0.01309461,
+      0.09988604400000001
+    ],
+    "volume": 1.153789387057603e-05,
+    "max_dim": 0.09988604400000001
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.0341769321,
+      0.0341769321,
+      0.26070257484
+    ],
+    "volume": 0.00020513891864130997,
+    "max_dim": 0.26070257484
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/clarinet/4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/clarinet/4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/clarinet/4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/clarinet/4.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/clarinet_4/clarinet_4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/clarinet_4/clarinet_4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/clarinet_4/clarinet_4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_sorted/long/clarinet_4/clarinet_4.urdf"
+    }
+  }
+}
