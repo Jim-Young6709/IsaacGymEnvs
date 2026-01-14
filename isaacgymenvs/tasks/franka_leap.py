@@ -238,7 +238,7 @@ class FrankaLEAP(VecTask):
     def _create_ground_plane(self):
         plane_params = gymapi.PlaneParams()
         plane_params.normal = gymapi.Vec3(0.0, 0.0, 1.0)
-        plane_params.distance = 0.3 # according to current randomization params, -0.275 would be the lowest surface from the env
+        plane_params.distance = 1.0 # according to current randomization params, -0.275 would be the lowest surface from the env
         self.gym.add_ground(self.sim, plane_params)
 
     def _create_franka_leap(self):

@@ -27,7 +27,7 @@ env:
     hand: 0.5
     arm: 0.2 # joint angle
 
-  grasp_guide_idx: 0
+  grasp_guide_idx: 1 # 0: thumb curl toward the other fingers, 1: thumb is more curled horizontally, more enveloped grasp
 
   controlType: joint_position  # options are {joint_position, osc}
   controlFrequencyInv: 1
@@ -46,6 +46,7 @@ env:
 
   object_wrench:
     enable: True
+    activation_dis: 0.15 # in meters (apply forces within this range / when object is lifted)
     max_linear_force: 5.0 # in Newtons
     torsional_radius: 0.01 # in meters
     trigger_duration: 1.0 # seconds, this will time sim_dt to get the number of trigger steps
