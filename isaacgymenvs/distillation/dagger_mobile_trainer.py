@@ -492,9 +492,9 @@ class DaggerMobile:
                 # step with student actions
                 step_actions = torch.clamp(step_actions, -self.env.clip_actions, self.env.clip_actions)
 
-                self.env.progress_buf -= 1 # to avoid automatic resets during the chunk steps, only update progress_buf at the end of the chunk
+                # self.env.progress_buf -= 1 # to avoid automatic resets during the chunk steps, only update progress_buf at the end of the chunk
                 if action_idx == self.chunk_size - 1:
-                    self.env.progress_buf += self.chunk_size
+                    # self.env.progress_buf += self.chunk_size
 
                     # early reset: reset envs to start config if reached (and stay reached for a while)
                     if (count_reaching >= self.reaching_reset_threshold).any():
@@ -550,8 +550,9 @@ class DaggerMobile:
         return total_loss
 
     def eval(self):
-        self.env.reset_idx()
-        self.env.compute_observations()
+        dummy_action = torch.zeros((self.env.num_envs, 32), device=self.device)
+        self.env.reset_buf[:] = 1
+        self.env.step(dummy_action)
         self.env.abs_actions[:] = self.env.states['q'].clone()
 
         for _ in tqdm(range(self.steps_per_episode), desc="Evaluating", \
@@ -640,16 +641,23 @@ class DaggerMobile:
                 # step with student actions
                 step_actions = torch.clamp(step_actions, -self.env.clip_actions, self.env.clip_actions)
 
-                self.env.progress_buf -= 1 # to avoid automatic resets during the chunk steps, only update progress_buf at the end of the chunk
-                if action_idx == self.chunk_size - 1:
-                    self.env.progress_buf += self.chunk_size
+                # self.env.progress_buf -= 1 # to avoid automatic resets during the chunk steps, only update progress_buf at the end of the chunk
+                # if action_idx == self.chunk_size - 1:
+                    # self.env.progress_buf += self.chunk_size
 
                 self.env.step(step_actions)
 
-        # set env state back for training
-        self.env.reset_idx()
-        self.env.compute_observations()
-        self.env.progress_buf = torch.randint(0, self.env.max_episode_length, (self.env.num_envs,)).to(self.device)
+        # # set env state back for training
+        dummy_action = torch.zeros((self.env.num_envs, 32), device=self.device)
+        self.env.reset_buf[:] = 1
+        self.env.step(dummy_action)
+        self.env.progress_buf[:] = torch.randint(
+            0, self.env.max_episode_length,
+            (self.env.num_envs,),
+            device=self.device,
+            dtype=self.env.progress_buf.dtype
+        )
+        # self.env.progress_buf = torch.randint(0, self.env.max_episode_length, (self.env.num_envs,)).to(self.device)
         self.env.abs_actions[:] = self.env.states['q'].clone()
 
         if self.use_wandb:
@@ -673,9 +681,8 @@ class DaggerMobile:
 
             train_loss = self.train_episode()
 
-            eval_policy = (self.eval_freq > 0) and (self.episode % self.eval_freq == 0)
-            if eval_policy:
-                eval_wandb_logs = self.eval()
+            if self.multi_gpu:
+                dist.barrier()
 
             if (not self.multi_gpu) or (self.global_rank == 0):
                 episode_time = time.time() - start_time
@@ -686,7 +693,11 @@ class DaggerMobile:
                 metrics["episode"] = self.episode
                 metrics["train/teacher_forcing_prop"] = self.teacher_forcing_prop
                 metrics.update(self.env.extras)
+
+                # eval only happen on rank 0
+                eval_policy = (self.eval_freq > 0) and (self.episode % self.eval_freq == 0)
                 if eval_policy:
+                    eval_wandb_logs = self.eval()
                     metrics.update(eval_wandb_logs)
 
                 if self.use_wandb:
@@ -702,5 +713,8 @@ class DaggerMobile:
                 colorprint(f"Average episodes per hour: {1/episode_time*3600:.2f}")
                 colorprint(f"Estimated completion: {datetime.fromtimestamp(estimated_finish_time).strftime('%Y-%m-%d %H:%M:%S')}")
                 print("\n")
+
+            if self.multi_gpu:
+                dist.barrier()
 
             self.episode += 1
