@@ -31,7 +31,7 @@ from isaacgymenvs.tasks import FrankaLEAPMobile
 class DaggerMobile:
     def __init__(self, cfg):
         # overwrite the video logging freq so it aligns well with the eval pattern
-        cfg.task.env.video_logging.freq = (cfg.dagger.eval_freq + 1) * cfg.task.env.episodeLength
+        cfg.task.env.video_logging.freq = max((cfg.dagger.eval_freq + 1), 10) * cfg.task.env.episodeLength
 
         # load configs
         self.multi_gpu = cfg.multi_gpu
