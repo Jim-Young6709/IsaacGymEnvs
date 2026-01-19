@@ -272,7 +272,7 @@ class FrankaLEAPMobile(VecTask):
     def _create_ground_plane(self):
         plane_params = gymapi.PlaneParams()
         plane_params.normal = gymapi.Vec3(0.0, 0.0, 1.0)
-        plane_params.distance = 0.0
+        plane_params.distance = 1.0
         self.gym.add_ground(self.sim, plane_params)
 
     def _create_franka_leap(self):
@@ -1573,17 +1573,19 @@ class FrankaLEAPMobile(VecTask):
 
         reset_noise = torch.rand((len(env_ids), 32), device=self.device) # [0, 1]
         reset_noise = 2.0 * (reset_noise - 0.5) # [-1, 1]
-        reset_noise[:, 3:10] *= self.reset_noise_scale["arm"]
+        reset_noise[:, :3] *= 0 # no base reset noise for now
+        reset_noise[:, 3:10] *= self.reset_noise_scale["franka"]
 
-        if self.reset_noise_scale["hand"] is None:
+        if self.reset_noise_scale["leap"] is None:
             reset_noise[:, 10:26] = self.unnormalize_robot_joints(reset_noise[:, 10:26], robot="leap", delta=False)
             reset_noise[:, 10:26] -= self.canonical_joint_config[env_ids, 10:26]
         else:
-            reset_noise[:, 10:26] *= self.reset_noise_scale["hand"]
+            reset_noise[:, 10:26] *= self.reset_noise_scale["leap"]
 
-        # TODO: fix later, also add base noise scale
+        reset_noise[:, 26:32] *= self.reset_noise_scale["arx"]
+
         reset_joint_config = tensor_clamp(
-            self.canonical_joint_config[env_ids] + 0*reset_noise,
+            self.canonical_joint_config[env_ids] + reset_noise,
             self.robot_dof_lower_limits,
             self.robot_dof_upper_limits,
         )

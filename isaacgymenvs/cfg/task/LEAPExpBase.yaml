@@ -24,8 +24,9 @@ env:
     eef_rot: 0.6 # axis-angle rotation
 
   resetNoiseScale:
-    hand: 0.5
-    arm: 0.2 # joint angle
+    leap: 0.5
+    franka: 0.2 # joint angle
+    arx: 0.2 # joint angle
 
   grasp_guide_idx: 1 # 0: thumb curl toward the other fingers, 1: thumb is more curled horizontally, more enveloped grasp
 
@@ -51,6 +52,14 @@ env:
     torsional_radius: 0.01 # in meters
     trigger_duration: 1.0 # seconds, this will time sim_dt to get the number of trigger steps
     curri_steps: 1 # curriculum steps, now default to 1 which is no curri
+
+  object_teleport:
+    enable: False
+    env_proportion: 0.3 # proportion of envs to apply teleportation
+    curri_steps: 200000
+    n0: 10 # within n0 steps, don't teleport
+    n1: 150 # until n1 steps, the probability of teleporting sum up to 0.5
+    n2: 300 # at n2 steps, the probability of teleporting is 1.0
 
   distractor_settings:
     enable: False

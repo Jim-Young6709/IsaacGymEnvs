@@ -210,12 +210,13 @@ class DaggerMobile:
         if self.normalize_input and 'running_mean_std' in weights:
             model.running_mean_std.load_state_dict(weights["running_mean_std"])
 
-    def save_checkpoint(self, episode, success_rate_ep=None, top_k=3):
+    def save_checkpoint(self, episode, train_success_rate_ep=None, eval_success_rate_ep=None, top_k=3):
         checkpoint = {
             "episode": episode,
             "model_state_dict": self.student_model.state_dict(),
             "optimizer_state_dict": self.optimizer.state_dict(),
-            "success_rate_ep": success_rate_ep,
+            "train_success_rate_ep": train_success_rate_ep,
+            "eval_success_rate_ep": eval_success_rate_ep,
             "batch_idx": self.batch_idx,
             "total_steps": self.total_steps,
             "cfg": self.cfg,
@@ -229,15 +230,20 @@ class DaggerMobile:
         torch.save(checkpoint, self.save_dir / "latest.pt")
         if episode % self.save_freq == 0:
             torch.save(checkpoint, self.save_dir / f"episode_{episode:06d}.pt")
-        
+
         checkpoint_files = sorted([f for f in os.listdir(self.save_dir) if f.startswith("episode_")])
         if len(checkpoint_files) > top_k:
             for old_checkpoint in checkpoint_files[:-top_k]:
                 os.remove(os.path.join(self.save_dir, old_checkpoint))
 
-        best_path = os.path.join(self.save_dir, "best.pt")
-        if not os.path.exists(best_path) or success_rate_ep > torch.load(best_path, map_location="cpu")["success_rate_ep"]:
-            torch.save(checkpoint, best_path)
+        best_train_path = os.path.join(self.save_dir, "best_train_success.pt")
+        if not os.path.exists(best_train_path) or train_success_rate_ep > torch.load(best_train_path, map_location="cpu")["train_success_rate_ep"]:
+            torch.save(checkpoint, best_train_path)
+
+        if eval_success_rate_ep is not None:
+            best_eval_path = os.path.join(self.save_dir, "best_eval_success.pt")
+            if not os.path.exists(best_eval_path) or eval_success_rate_ep > torch.load(best_eval_path, map_location="cpu")["eval_success_rate_ep"]:
+                torch.save(checkpoint, best_eval_path)
 
     def load_checkpoint(self, checkpoint_path):
         checkpoint = torch.load(checkpoint_path, map_location=self.device)
@@ -640,29 +646,29 @@ class DaggerMobile:
                 # step with student actions
                 step_actions = torch.clamp(step_actions, -self.env.clip_actions, self.env.clip_actions)
 
-                self.env.progress_buf -= 1 # to avoid automatic resets during the chunk steps, only update progress_buf at the end of the chunk
-                if action_idx == self.chunk_size - 1:
-                    self.env.progress_buf += self.chunk_size
+                self.env.progress_buf[:] = 0 # since we are only evaling one episode, just disable env resets, it might mess up loggings a little bit
 
                 self.env.step(step_actions)
 
         # set env state back for training
         self.env.reset_idx()
         self.env.compute_observations()
-        self.env.progress_buf = torch.randint(0, self.env.max_episode_length, (self.env.num_envs,)).to(self.device)
+        self.env.progress_buf = torch.randint(
+            0, self.env.max_episode_length,
+            (self.env.num_envs,),
+            device=self.device,
+            dtype=self.env.progress_buf.dtype,
+        )
         self.env.abs_actions[:] = self.env.states['q'].clone()
 
-        if self.use_wandb:
-            eval_wandb_logs = {
-                "metrics/eval_success_rate_5cm_final_step": self.env.extras["metrics/success_rate_5cm_per_step"],
-                "metrics/eval_success_rate_5cm_per_ep": self.env.extras["metrics/success_rate_5cm_per_ep"],
-                "metrics/eval_lifting_rate_5cm_final_step": self.env.extras["metrics/lifting_rate_5cm_per_step"],
-                "metrics/eval_lifting_rate_5cm_per_ep": self.env.extras["metrics/lifting_rate_5cm_per_ep"],
-            }
+        eval_wandb_logs = {
+            "metrics/eval_success_rate_5cm_final_step": self.env.extras["metrics/success_rate_5cm_per_step"],
+            "metrics/eval_success_rate_5cm_per_ep": self.env.extras["metrics/success_rate_5cm_per_ep"],
+            "metrics/eval_lifting_rate_5cm_final_step": self.env.extras["metrics/lifting_rate_5cm_per_step"],
+            "metrics/eval_lifting_rate_5cm_per_ep": self.env.extras["metrics/lifting_rate_5cm_per_ep"],
+        }
 
-            return eval_wandb_logs
-        else:
-            return {}
+        return eval_wandb_logs
 
     def train(self):
         while self.episode < self.total_episodes:
@@ -693,7 +699,7 @@ class DaggerMobile:
                     wandb.log(metrics, step=self.total_steps)
 
                 # TODO: add args: save ckpt? frequency?
-                self.save_checkpoint(self.episode, metrics["metrics/success_rate_5cm_per_ep"])
+                self.save_checkpoint(self.episode, metrics["metrics/success_rate_5cm_per_ep"], metrics.get("metrics/eval_lifting_rate_5cm_per_ep", None))
 
                 colorprint(f"Episode {self.episode + 1}/{self.total_episodes} completed in {timedelta(seconds=int(episode_time))}", color="magenta")
                 for metric, value in metrics.items():
