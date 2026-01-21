@@ -258,7 +258,7 @@ class DaggerMobile:
             self.wandb_id = checkpoint["wandb_id"]
             self.wandb_name = checkpoint["wandb_name"]
             self.wandb_project = checkpoint["wandb_project"]
-        return checkpoint["success_rate_ep"]
+        return checkpoint["train_success_rate_ep"]
 
     def preprocess_inputs(self, obs):
         wandb_logs = {}

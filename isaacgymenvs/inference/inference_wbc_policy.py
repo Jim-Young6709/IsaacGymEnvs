@@ -103,7 +103,7 @@ class WBCPolicyTransformer:
             else:
                 new_state_dict[k] = v
         self.model.load_state_dict(new_state_dict)
-        return checkpoint["success_rate_ep"]
+        return checkpoint["train_success_rate_ep"]
 
     def normalize_robot_joints(self, joint_angles: torch.Tensor, robot: bool, delta: bool = False) -> torch.Tensor:
         """
