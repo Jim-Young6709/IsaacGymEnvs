@@ -14,6 +14,7 @@ normalize_action: ${normalize_action}
 action_std: 1 # provide action_std for relative or delta action space
 action_space: ${action_space}
 action_dim: 32  # Glorbot (3+7+4*4+6)
+aux_weight: 0.1 # weight for auxiliary object state loss (if enabled)
 
 # Point cloud encoder parameters
 pcd_encoders_cfg:

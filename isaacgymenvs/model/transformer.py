@@ -124,6 +124,7 @@ class PCDTransformer(BaseModel):
         action_std=None,
         action_space="delta",
         action_dim=22,
+        aux_weight=0.0,
     ):
         super().__init__(
             normalize_state=normalize_state,
@@ -141,7 +142,15 @@ class PCDTransformer(BaseModel):
         self.pcd_encoders_cfg = pcd_encoders_cfg
         self.state_encoders_cfg = state_encoders_cfg
         self.transformer_cfg = transformer_cfg
-        
+
+        # update config for auxiliary object state prediction
+        if "aux_object_state" in state_encoders_cfg:
+            self.aux_object_state = True
+            action_dim += 3
+        else:
+            self.aux_object_state = False
+        self.aux_weight = aux_weight
+
         # Type embeddings and encodersfor different modalities
         self.type_embeddings = nn.ParameterDict()
         self.encoders = nn.ModuleDict()
@@ -229,19 +238,28 @@ class PCDTransformer(BaseModel):
         action_tokens = self.action_tokens.expand(B, -1, -1)  # (B, chunk_size, H)
         output = self.decoder(action_tokens, memory)  # (B, chunk_size, H)
         actions = self.action_head(output)  # (B, chunk_size, 7)
-        
+
         # If target is provided, compute loss and return it
         if target is not None:
             loss = self.compute_loss(actions, target, action_chunk_idx)
             return loss
-        
+
         return actions
     
     def compute_loss(self, pred, target, action_chunk_idx=None):
         if len(target.shape) == 3:
-            return torch.nn.functional.mse_loss(pred, target)
+            _pred = pred
         else:
-            return torch.nn.functional.mse_loss(pred[:, action_chunk_idx], target)
+            _pred = pred[:, action_chunk_idx]
+
+        if self.aux_object_state:
+            action_loss = torch.nn.functional.mse_loss(_pred[..., :-3], target[..., :-3])
+            aux_loss = torch.nn.functional.mse_loss(_pred[..., -3:], target[..., -3:])
+            loss = action_loss + self.aux_weight * aux_loss
+        else:
+            loss = torch.nn.functional.mse_loss(_pred, target)
+
+        return loss
 
     def forward_pass(self, obs, target):
         # This method is kept for backward compatibility
