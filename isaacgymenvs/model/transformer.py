@@ -252,12 +252,14 @@ class PCDTransformer(BaseModel):
         else:
             _pred = pred[:, action_chunk_idx]
 
+        loss = {}
+
         if self.aux_object_state:
-            action_loss = torch.nn.functional.mse_loss(_pred[..., :-3], target[..., :-3])
-            aux_loss = torch.nn.functional.mse_loss(_pred[..., -3:], target[..., -3:])
-            loss = action_loss + self.aux_weight * aux_loss
+            loss["action"] = torch.nn.functional.mse_loss(_pred[..., :-3], target[..., :-3])
+            loss["aux"] = torch.nn.functional.mse_loss(_pred[..., -3:], target[..., -3:])
+            loss["total"] = loss["action"] + self.aux_weight * loss["aux"]
         else:
-            loss = torch.nn.functional.mse_loss(_pred, target)
+            loss["total"] = torch.nn.functional.mse_loss(_pred, target)
 
         return loss
 

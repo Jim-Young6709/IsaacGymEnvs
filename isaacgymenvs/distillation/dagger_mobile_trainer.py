@@ -451,6 +451,8 @@ class DaggerMobile:
                 point_shifted = (obs_input_a0["objxyz_t0"] - franka_base_pos).unsqueeze(1) # (num_envs, 1, 3)
                 point_base_frame = torch.bmm(point_shifted, rot_global2base) # (num_envs, N, 3), bmm is like matmul but specifically made for batches of 2D matrices (input has to be 3D), faster than matmul
                 obs_input_a0["objxyz_t0"] = point_base_frame[:, 0, :] # (num_envs, 3)
+            if "aux_object_state" in self.state_encoders_keys:
+                obs_input_a0["aux_object_state"] = torch.rand(self.env.num_envs, 3, device=self.device) # purely white noise for now TODO: update this later
 
             # Viser debug utils
             # env_id = self.env.viser_visualizer.env_id
@@ -463,8 +465,10 @@ class DaggerMobile:
                 student_model = self.student_model.module if self.multi_gpu else self.student_model
                 student_model.eval()
                 student_actions_chunk = student_model(obs_input_a0)
+            if "aux_object_state" in self.state_encoders_keys:
+                student_actions_chunk = student_actions_chunk[:, :, :32] # remove extra dimensions if aux_object_state is used
 
-            teacher_actions_buffer = []
+            teacher_preds_buffer = []
 
             for action_idx in range(self.chunk_size):
                 # get teacher action
@@ -490,7 +494,23 @@ class DaggerMobile:
                 teacher_actions = torch.clamp(teacher_actions, -self.env.clip_actions, self.env.clip_actions)
                 self.env._pre_physics_step_teacher(teacher_actions)
                 teacher_actions = self.env.teacher_actions_converted.clone()
-                teacher_actions_buffer.append(teacher_actions)
+                if "aux_object_state" in self.state_encoders_keys:
+                    object_center_pos = self.env.states["object_center_pos"].clone()
+
+                    franka_base_pos = self.env.states['franka_base_pose7'][:, :3] # (num_envs, 3)
+                    franka_base_quat = self.env.states['franka_base_pose7'][:, 3:] # (num_envs, 4)
+                    franka_base_rot_mat = quaternion_to_matrix_ig(franka_base_quat)
+                    rot_global2base = franka_base_rot_mat.transpose(1, 2) # (num_envs, 3, 3)
+
+                    point_shifted = (object_center_pos - franka_base_pos).unsqueeze(1) # (num_envs, 1, 3)
+                    point_base_frame = torch.bmm(point_shifted, rot_global2base) # (num_envs, N, 3), bmm is like matmul but specifically made for batches of 2D matrices (input has to be 3D), faster than matmul
+                    object_center_pos = point_base_frame[:, 0, :] # (num_envs, 3)
+
+                    teacher_pred = torch.cat([teacher_actions, object_center_pos], dim=1) # add aux info, object_xyz_pos
+                else:
+                    teacher_pred = teacher_actions
+
+                teacher_preds_buffer.append(teacher_pred)
 
                 student_actions = student_actions_chunk[:, action_idx, :]
                 step_actions = student_actions
@@ -517,24 +537,32 @@ class DaggerMobile:
                 count_reaching += self.env.success_5cm_per_step
                 count_reaching *= self.env.success_5cm_per_step
 
-            teacher_actions_buffer = torch.stack(teacher_actions_buffer, dim=1) # (num_envs, chunk_size, action_dim)
+            teacher_preds_buffer = torch.stack(teacher_preds_buffer, dim=1) # (num_envs, chunk_size, action_dim)
 
             self.student_model.train()
             n_batches = self.env.num_envs // self.batch_size # now this is 1
             indices = torch.randperm(self.env.num_envs, device=self.device)
-            total_loss = 0
+            ave_loss = {
+                "action": 0.0,
+                "aux": 0.0,
+                "total": 0.0,
+            }
             for i in range(n_batches):
                 batch_indices = indices[i * self.batch_size:(i + 1) * self.batch_size]
                 batch_obs = {k: v[batch_indices] for k, v in obs_input_a0.items()}
-                batch_actions = teacher_actions_buffer[batch_indices]
+                batch_actions = teacher_preds_buffer[batch_indices]
                 # NOTE: supervise student model on first step
                 loss = self.student_model.forward(batch_obs, batch_actions, action_chunk_idx=0)
                 self.optimizer.zero_grad()
-                loss.backward()
+                loss["total"].backward()
                 torch.nn.utils.clip_grad_norm_(self.student_model.parameters(), max_norm=self.max_grad_norm) 
                 self.optimizer.step()
-                total_loss += loss.item()
-            total_loss /= n_batches
+
+                for key in loss.keys():
+                    ave_loss[key] += loss[key].item()
+
+            for key in ave_loss.keys():
+                ave_loss[key] /= n_batches
 
             if self.scheduler is not None:
                 self.scheduler.step()
@@ -544,16 +572,22 @@ class DaggerMobile:
 
             if self.use_wandb:
                 wandb_logs = {
-                    "train/loss": total_loss,
+                    "train/loss_total": ave_loss["total"],
                     "train/lr": self.optimizer.param_groups[0]["lr"],
                     "mem/allocated_GB": mem_allocated_GB,
                     "mem/reserved_GB": mem_reserved_GB,
                 }
                 wandb_logs.update(input_wandb_logs)
+                if "aux_object_state" in self.state_encoders_keys:
+                    aux_wandb_logs = {
+                        "train/loss_aux": ave_loss["aux"],
+                        "train/loss_action": ave_loss["action"],
+                    }
+                    wandb_logs.update(aux_wandb_logs)
 
                 wandb.log(wandb_logs, step=self.total_steps)
 
-        return total_loss
+        return ave_loss
 
     def eval(self):
         self.env.reset_idx()
@@ -603,6 +637,8 @@ class DaggerMobile:
                 point_shifted = (obs_input_a0["objxyz_t0"] - franka_base_pos).unsqueeze(1) # (num_envs, 1, 3)
                 point_base_frame = torch.bmm(point_shifted, rot_global2base) # (num_envs, N, 3), bmm is like matmul but specifically made for batches of 2D matrices (input has to be 3D), faster than matmul
                 obs_input_a0["objxyz_t0"] = point_base_frame[:, 0, :] # (num_envs, 3)
+            if "aux_object_state" in self.state_encoders_keys:
+                obs_input_a0["aux_object_state"] = torch.rand(self.env.num_envs, 3, device=self.device) # purely white noise for now TODO: update this later
 
             # Viser debug utils
             # env_id = self.env.viser_visualizer.env_id
@@ -615,6 +651,8 @@ class DaggerMobile:
                 student_model = self.student_model.module if self.multi_gpu else self.student_model
                 student_model.eval()
                 student_actions_chunk = student_model(obs_input_a0)
+            if "aux_object_state" in self.state_encoders_keys:
+                student_actions_chunk = student_actions_chunk[:, :, :32] # remove extra dimensions if aux_object_state is used
 
             for action_idx in range(self.chunk_size):
                 # # get teacher action
