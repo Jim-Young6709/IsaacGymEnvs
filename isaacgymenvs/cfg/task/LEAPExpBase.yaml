@@ -54,7 +54,7 @@ env:
     curri_steps: 1 # curriculum steps, now default to 1 which is no curri
 
   object_teleport:
-    enable: False
+    enable: True
     env_proportion: 0.3 # proportion of envs to apply teleportation
     curri_steps: 200000
     n0: 10 # within n0 steps, don't teleport
