@@ -289,7 +289,8 @@ class WBCPolicyTransformer:
         franka_joint_pos = actions_abs_cpu[3:10]
         leap_joint_pos = actions_abs_cpu[10:26]
         arx_joint_pos = actions_abs_cpu[26:32]
-        return base_vel_robot, franka_joint_pos, leap_joint_pos, arx_joint_pos, aux_pred, obs_dict
+        aux_pred_cpu = aux_pred.cpu().numpy() if aux_pred is not None else None
+        return base_vel_robot, franka_joint_pos, leap_joint_pos, arx_joint_pos, aux_pred_cpu, obs_dict
 
 
 
