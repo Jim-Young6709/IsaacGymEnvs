@@ -11,7 +11,7 @@ from isaacgymenvs.inference.inference_utils import *
 
 TRANSFORMER_CONFIGS = {
     "seed": 42,
-    "ckpt_path": "dagger_ckpts/grogu_ckpts/Jan22_wbc_table_aux.pt",
+    "ckpt_path": "dagger_ckpts/grogu_ckpts/Jan3_wbc_table_deltalre-4_nodr_local.pt",
 }
 
 
@@ -84,13 +84,7 @@ class WBCPolicyTransformer:
             object_xyz_t0 = torch.rand(3, device=self.device)
         else:
             object_xyz_t0 = None
-
-        if self.has_aux == True:
-            aux_inputs = torch.rand(3, device=self.device)
-        else:
-            aux_inputs = None
-
-        return full_pcd_eef_frame_t, torch.zeros(3, device=self.device), q_hand, q_arm_manip, q_arm_vision, aux_inputs, object_xyz_t0
+        return full_pcd_eef_frame_t, torch.zeros(3, device=self.device), q_hand, q_arm_manip, q_arm_vision, object_xyz_t0
 
     def load_checkpoint(self, checkpoint_path):
         checkpoint = torch.load(checkpoint_path, map_location=self.device)
@@ -99,7 +93,6 @@ class WBCPolicyTransformer:
         self.ckpt_cfg = checkpoint["cfg"]
         self.model = instantiate(self.ckpt_cfg["model"]).to(self.device)
         self.model = self.model.to(self.device)
-        self.has_aux = "aux_object_state" in self.ckpt_cfg.model.state_encoders_cfg
 
         # remove the DDP ckpt prefix if there are any
         state_dict = checkpoint["model_state_dict"]
@@ -206,16 +199,12 @@ class WBCPolicyTransformer:
             self.model.eval()
             student_actions_chunk = self.model(obs_dict)
         # (Batch, Chunk, Action_dim)
-        student_actions = student_actions_chunk[0, 0, :32]
-        if student_actions_chunk.shape[-1] > 32:
-            aux_pred = student_actions_chunk[0, 0, 32:]
-        else:
-            aux_pred = None
+        student_actions = student_actions_chunk[0, 0, :] 
         # get the step action that goes into env.step() in sim
         step_actions = torch.clamp(student_actions, -self.clip_actions, self.clip_actions)
-        return step_actions, aux_pred, obs_dict
+        return step_actions, obs_dict
 
-    def get_action(self, full_pcd_frankabase_frame_t, eef_xyz_frankabase_frame_t, q_hand, q_arm_manip, q_arm_vision, aux_inputs=None, objxyz_t0=None):
+    def get_action(self, full_pcd_frankabase_frame_t, eef_xyz_frankabase_frame_t, q_hand, q_arm_manip, q_arm_vision, objxyz_t0=None):
         """
         get the final action for execution
 
@@ -234,7 +223,6 @@ class WBCPolicyTransformer:
         # (1, N, 3)
         full_pcd_frankabase_frame_t_b = full_pcd_frankabase_frame_t.unsqueeze(0).to(self.device)
         eef_xyz_frankabase_frame_t_b = eef_xyz_frankabase_frame_t.unsqueeze(0).to(self.device)  # (1, 3)
-        aux_inputs_b = aux_inputs.unsqueeze(0).to(self.device) if aux_inputs is not None else None
         q_hand_b = self.normalize_robot_joints(q_hand.unsqueeze(0).to(self.device), robot="leap", delta=False) # (1, 16)
         q_hand_ctrl_delta_b = self.normalize_robot_joints(
             (q_hand.to(self.device) - self.abs_hand_actions), robot="leap", delta=True
@@ -245,7 +233,6 @@ class WBCPolicyTransformer:
         obs_dict = OrderedDict([
             ("full_pcd_frankabase_frame_t", full_pcd_frankabase_frame_t_b),
             ("eef_xyz_frankabase_frame_t", eef_xyz_frankabase_frame_t_b),
-            ("aux_object_state", aux_inputs_b),
             ("q_arm_manip", q_arm_manip_b),
             ("q_arm_vision", q_arm_vision_b),
             ("q_hand", q_hand_b),
@@ -256,7 +243,7 @@ class WBCPolicyTransformer:
             obs_dict["objxyz_t0"] = objxyz_t0.unsqueeze(0).to(self.device)
 
         # inference policy
-        step_action, aux_pred, obs_dict = self.inference_policy(obs_dict)
+        step_action, obs_dict = self.inference_policy(obs_dict)
 
         # get unnormalized absolute actions for execution
         actions_abs = step_action.clone() # (32,)
@@ -289,7 +276,7 @@ class WBCPolicyTransformer:
         franka_joint_pos = actions_abs_cpu[3:10]
         leap_joint_pos = actions_abs_cpu[10:26]
         arx_joint_pos = actions_abs_cpu[26:32]
-        return base_vel_robot, franka_joint_pos, leap_joint_pos, arx_joint_pos, aux_pred, obs_dict
+        return base_vel_robot, franka_joint_pos, leap_joint_pos, arx_joint_pos, obs_dict
 
 
 
