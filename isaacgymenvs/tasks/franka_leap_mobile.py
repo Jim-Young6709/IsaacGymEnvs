@@ -946,7 +946,7 @@ class FrankaLEAPMobile(VecTask):
         )
 
         self.fabric_q, self.fabric_qd, self.fabric_qdd = self.franka_integrator.step(
-            self.fabric_q.detach(), self.fabric_qd.detach(), timestep, speed_scalar=3.0,
+            self.fabric_q.detach(), self.fabric_qd.detach(), timestep, speed_scalar=1.5,
         )
 
         return self.fabric_q
