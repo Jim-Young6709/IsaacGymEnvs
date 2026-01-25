@@ -56,6 +56,7 @@ env:
   object_teleport:
     enable: True
     env_proportion: 0.3 # proportion of envs to apply teleportation
+    swap_freq: 3 # in episodes, how often to swap the environments that do teleport
     curri_steps: 200000
     n0: 10 # within n0 steps, don't teleport
     n1: 150 # until n1 steps, the probability of teleporting sum up to 0.5

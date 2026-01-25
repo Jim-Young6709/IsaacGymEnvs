@@ -215,7 +215,8 @@ class FrankaLEAPMobile(VecTask):
         self.sim_steps = 0.0 # keep track on the number of simulation steps
 
         # teleport init
-        self.teleport_env_step = int(round(1 / self.object_teleport_args['env_proportion']))
+        self.num_teleport_envs = int(round(self.object_teleport_args['env_proportion'] * self.num_envs))
+        self.teleport_env_ids = torch.randperm(self.num_envs, device=self.device)[:self.num_teleport_envs]
         tele_n0 = self.object_teleport_args['n0']
         tele_n1 = self.object_teleport_args['n1']
         tele_n2 = self.object_teleport_args['n2']
@@ -1537,12 +1538,14 @@ class FrankaLEAPMobile(VecTask):
             env_ids = object_reset_env_ids.clone()
 
         if self.object_teleport_args["enable"]:
+            if self.sim_steps % (self.max_episode_length * self.object_teleport_args['swap_freq']) == 0:
+                self.teleport_env_ids = torch.randperm(self.num_envs, device=self.device)[:self.num_teleport_envs]
+
             curri_factor = min(self.sim_steps / self.object_teleport_args['curri_steps'], 1.0)
             # teleport object (note this is in addition to normal reset)
-            teleport_env_ids = torch.arange(start=0, end=self.num_envs, step=self.teleport_env_step, device=self.device)
-            _teleport_buf = self.teleport_buf[teleport_env_ids] # get the corresponding teleport buffer
+            _teleport_buf = self.teleport_buf[self.teleport_env_ids] # get the corresponding teleport buffer
             apply_teleport = (self.teleport_probs[_teleport_buf] * curri_factor) > torch.rand(len(_teleport_buf), device=self.device)
-            apply_teleport_env_ids = teleport_env_ids[apply_teleport]
+            apply_teleport_env_ids = self.teleport_env_ids[apply_teleport]
 
             env_ids = torch.unique(torch.cat([env_ids, apply_teleport_env_ids], dim=0))
 
