@@ -452,7 +452,18 @@ class DaggerMobile:
                 point_base_frame = torch.bmm(point_shifted, rot_global2base) # (num_envs, N, 3), bmm is like matmul but specifically made for batches of 2D matrices (input has to be 3D), faster than matmul
                 obs_input_a0["objxyz_t0"] = point_base_frame[:, 0, :] # (num_envs, 3)
             if "aux_object_state" in self.state_encoders_keys:
-                obs_input_a0["aux_object_state"] = torch.rand(self.env.num_envs, 3, device=self.device) # purely white noise for now TODO: update this later
+                object_center_pos = self.env.states["object_center_pos"].clone()
+
+                franka_base_pos = self.env.states['franka_base_pose7'][:, :3] # (num_envs, 3)
+                franka_base_quat = self.env.states['franka_base_pose7'][:, 3:] # (num_envs, 4)
+                franka_base_rot_mat = quaternion_to_matrix_ig(franka_base_quat)
+                rot_global2base = franka_base_rot_mat.transpose(1, 2) # (num_envs, 3, 3)
+
+                point_shifted = (object_center_pos - franka_base_pos).unsqueeze(1) # (num_envs, 1, 3)
+                point_base_frame = torch.bmm(point_shifted, rot_global2base) # (num_envs, N, 3), bmm is like matmul but specifically made for batches of 2D matrices (input has to be 3D), faster than matmul
+                object_center_pos = point_base_frame[:, 0, :] # (num_envs, 3) object center pos in franka base frame
+
+                obs_input_a0["aux_object_state"] = object_center_pos + 0.1 * torch.rand(self.env.num_envs, 3, device=self.device) # purely white noise for now TODO: update this later
 
             # Viser debug utils
             # env_id = self.env.viser_visualizer.env_id
@@ -638,7 +649,18 @@ class DaggerMobile:
                 point_base_frame = torch.bmm(point_shifted, rot_global2base) # (num_envs, N, 3), bmm is like matmul but specifically made for batches of 2D matrices (input has to be 3D), faster than matmul
                 obs_input_a0["objxyz_t0"] = point_base_frame[:, 0, :] # (num_envs, 3)
             if "aux_object_state" in self.state_encoders_keys:
-                obs_input_a0["aux_object_state"] = torch.rand(self.env.num_envs, 3, device=self.device) # purely white noise for now TODO: update this later
+                object_center_pos = self.env.states["object_center_pos"].clone()
+
+                franka_base_pos = self.env.states['franka_base_pose7'][:, :3] # (num_envs, 3)
+                franka_base_quat = self.env.states['franka_base_pose7'][:, 3:] # (num_envs, 4)
+                franka_base_rot_mat = quaternion_to_matrix_ig(franka_base_quat)
+                rot_global2base = franka_base_rot_mat.transpose(1, 2) # (num_envs, 3, 3)
+
+                point_shifted = (object_center_pos - franka_base_pos).unsqueeze(1) # (num_envs, 1, 3)
+                point_base_frame = torch.bmm(point_shifted, rot_global2base) # (num_envs, N, 3), bmm is like matmul but specifically made for batches of 2D matrices (input has to be 3D), faster than matmul
+                object_center_pos = point_base_frame[:, 0, :] # (num_envs, 3) object center pos in franka base frame
+
+                obs_input_a0["aux_object_state"] = object_center_pos + 0.1 * torch.rand(self.env.num_envs, 3, device=self.device) # purely white noise for now TODO: update this later
 
             # Viser debug utils
             # env_id = self.env.viser_visualizer.env_id
