@@ -475,9 +475,8 @@ class DaggerMobile:
             with torch.no_grad():
                 student_model = self.student_model.module if self.multi_gpu else self.student_model
                 student_model.eval()
-                student_actions_chunk = student_model(obs_input_a0)
-            if "aux_object_state" in self.state_encoders_keys:
-                student_actions_chunk = student_actions_chunk[:, :, :32] # remove extra dimensions if aux_object_state is used
+                output = student_model(obs_input_a0)
+                student_actions_chunk = output["action"]
 
             teacher_preds_buffer = []
 
@@ -672,9 +671,8 @@ class DaggerMobile:
             with torch.no_grad():
                 student_model = self.student_model.module if self.multi_gpu else self.student_model
                 student_model.eval()
-                student_actions_chunk = student_model(obs_input_a0)
-            if "aux_object_state" in self.state_encoders_keys:
-                student_actions_chunk = student_actions_chunk[:, :, :32] # remove extra dimensions if aux_object_state is used
+                output = student_model(obs_input_a0)
+                student_actions_chunk = output["action"]
 
             for action_idx in range(self.chunk_size):
                 # # get teacher action

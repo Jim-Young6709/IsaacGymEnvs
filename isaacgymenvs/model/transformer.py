@@ -144,11 +144,7 @@ class PCDTransformer(BaseModel):
         self.transformer_cfg = transformer_cfg
 
         # update config for auxiliary object state prediction
-        if "aux_object_state" in state_encoders_cfg:
-            self.aux_object_state = True
-            action_dim += 3
-        else:
-            self.aux_object_state = False
+        self.aux_prediction = (aux_weight > 0)
         self.aux_weight = aux_weight
 
         # Type embeddings and encodersfor different modalities
@@ -162,10 +158,13 @@ class PCDTransformer(BaseModel):
             if cfg["use_state"]:
                 self.type_embeddings[key] = nn.Parameter(nn.init.xavier_uniform_(torch.zeros(1, 1, type_dim)))
                 self.encoders[key] = StateEncoder(cfg["input_dim"], cfg["hidden_dims"], self.hidden_dim-self.type_dim, cfg["dropout"])
-        
-        # Action tokens
-        self.action_tokens = nn.Parameter(nn.init.xavier_uniform_(torch.zeros(chunk_size, hidden_dim)))
-        
+
+        # Query tokens
+        if self.aux_prediction:
+            self.query_tokens = nn.Parameter(nn.init.xavier_uniform_(torch.zeros(chunk_size+1, hidden_dim)))
+        else:
+            self.query_tokens = nn.Parameter(nn.init.xavier_uniform_(torch.zeros(chunk_size, hidden_dim)))
+
         # Transformer
         if transformer_cfg["type"] == "encoder_decoder":
             encoder_layer = nn.TransformerEncoderLayer(
@@ -176,7 +175,7 @@ class PCDTransformer(BaseModel):
                 batch_first=True
             )
             self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=transformer_cfg["encoder_layers"])
-            
+
             decoder_layer = nn.TransformerDecoderLayer(
                 d_model=hidden_dim,
                 nhead=transformer_cfg["decoder_heads"],
@@ -187,10 +186,12 @@ class PCDTransformer(BaseModel):
             self.decoder = nn.TransformerDecoder(decoder_layer, num_layers=transformer_cfg["decoder_layers"])
         else:
             raise NotImplementedError(f"Transformer type {transformer_cfg['type']} not implemented")
-        
+
         # Output head
         self.action_head = nn.Linear(hidden_dim, action_dim)  # eef (6) + hand (16)
-    
+        if self.aux_prediction:
+            self.aux_head = nn.Linear(hidden_dim, 3)  # auxiliary object state prediction head
+
     def load_checkpoint(self, checkpoint_path):
         checkpoint = torch.load(checkpoint_path)
         # Note: deal with torch.compile and DDP
@@ -204,10 +205,10 @@ class PCDTransformer(BaseModel):
             eval_success_rate = checkpoint["eval_success_rate"]
         if "val_loss" in checkpoint:
             val_loss = checkpoint["val_loss"]
-            
+
         self.load_state_dict(model_state_dict)
         return epoch, eval_success_rate, val_loss
-    
+
     def _initialize_pcd_encoder(self, hidden_dim, encoder_cfg):
         if encoder_cfg["type"] == "mlp":
             return MLPEncoder(hidden_dim, encoder_cfg["num_output_tokens"])
@@ -215,12 +216,12 @@ class PCDTransformer(BaseModel):
             return PointNetEncoder(hidden_dim, encoder_cfg["num_output_tokens"])
         else:
             raise ValueError(f"Unknown encoder type: {encoder_cfg['type']}")
-    
+
     def _add_type_embeddings(self, tokens, token_type):
         B = tokens.shape[0]
         type_emb = self.type_embeddings[token_type].expand(B, tokens.shape[1], -1)
         return torch.cat([tokens, type_emb], dim=-1)
-    
+
     def forward(self, obs, target=None, action_chunk_idx=None):
         # Get inputs
         obs_dict = copy.deepcopy(obs)
@@ -233,33 +234,39 @@ class PCDTransformer(BaseModel):
                 tokens = tokens.unsqueeze(1)
             obs_tokens.append(self._add_type_embeddings(tokens, key))
         obs_tokens = torch.cat(obs_tokens, dim=1)  # (B, N, H)
-        
+
         memory = self.encoder(obs_tokens)  # (B, N, H)
-        action_tokens = self.action_tokens.expand(B, -1, -1)  # (B, chunk_size, H)
-        output = self.decoder(action_tokens, memory)  # (B, chunk_size, H)
-        actions = self.action_head(output)  # (B, chunk_size, 7)
+        query_tokens = self.query_tokens.expand(B, -1, -1)  # (B, chunk_size/C+1, H)
+        output = self.decoder(query_tokens, memory)  # (B, chunk_size/C+1, H)
+
+        pred = {}
+        if self.aux_prediction:
+            output_action = output[:, 1:, :]  # (B, chunk_size, H)
+            output_aux = output[:, 0:1, :]  # (B, 1, H)
+            pred["aux"] = self.aux_head(output_aux)  # (B, 1, 3)
+        else:
+            output_action = output  # (B, chunk_size, H)
+
+        pred["action"] = self.action_head(output_action)  # (B, chunk_size, 7)
 
         # If target is provided, compute loss and return it
         if target is not None:
-            loss = self.compute_loss(actions, target, action_chunk_idx)
+            loss = self.compute_loss(pred, target, action_chunk_idx)
             return loss
 
-        return actions
-    
+        return pred
+
     def compute_loss(self, pred, target, action_chunk_idx=None):
-        if len(target.shape) == 3:
-            _pred = pred
-        else:
-            _pred = pred[:, action_chunk_idx]
+        assert len(target.shape) == 3
 
         loss = {}
 
-        if self.aux_object_state:
-            loss["action"] = torch.nn.functional.mse_loss(_pred[..., :-3], target[..., :-3])
-            loss["aux"] = torch.nn.functional.mse_loss(_pred[..., -3:], target[..., -3:])
+        if self.aux_prediction:
+            loss["action"] = torch.nn.functional.mse_loss(pred["action"], target[..., :-3])
+            loss["aux"] = torch.nn.functional.mse_loss(pred["aux"], target[..., -3:])
             loss["total"] = loss["action"] + self.aux_weight * loss["aux"]
         else:
-            loss["total"] = torch.nn.functional.mse_loss(_pred, target)
+            loss["total"] = torch.nn.functional.mse_loss(pred["action"], target)
 
         return loss
 
@@ -267,7 +274,7 @@ class PCDTransformer(BaseModel):
         # This method is kept for backward compatibility
         # but now just calls forward with the target
         return self.forward(obs, target)
-    
+
     # Note this function is outdated, maybe update this later, coordinate with the inference scripts
     def get_action(self, obs):
         self.eval()
