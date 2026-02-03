@@ -189,6 +189,7 @@ class DaggerMobile:
             )
 
         # aux
+        self.aux_enable = "aux_object_state" in self.state_encoders_keys
         self.aux_switch_steps = 30000
         self.aux_buffer = torch.zeros(self.env.num_envs, 1, 3, device=self.device)
 
@@ -484,7 +485,7 @@ class DaggerMobile:
                 student_model.eval()
                 output = student_model(obs_input_a0)
                 student_actions_chunk = output["action"]
-                if self.student_model.aux_prediction:
+                if self.aux_enable:
                     self.aux_buffer[:] = output["aux"].clone()
 
             teacher_preds_buffer = []
@@ -671,7 +672,7 @@ class DaggerMobile:
                 student_model.eval()
                 output = student_model(obs_input_a0)
                 student_actions_chunk = output["action"]
-                if self.student_model.aux_prediction:
+                if self.aux_enable:
                     self.aux_buffer[:] = output["aux"].clone()
 
             for action_idx in range(self.chunk_size):
