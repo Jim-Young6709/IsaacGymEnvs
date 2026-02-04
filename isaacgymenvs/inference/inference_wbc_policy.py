@@ -11,7 +11,7 @@ from isaacgymenvs.inference.inference_utils import *
 
 TRANSFORMER_CONFIGS = {
     "seed": 42,
-    "ckpt_path": "dagger_ckpts/grogu_ckpts/Jan22_wbc_table_aux.pt",
+    "ckpt_path": "dagger_ckpts/grogu_ckpts/Feb2_wbc_table_aux_expNov24_8x512.pt",
 }
 
 
@@ -204,13 +204,14 @@ class WBCPolicyTransformer:
 
         with torch.no_grad():
             self.model.eval()
-            student_actions_chunk = self.model(obs_dict)
-        # (Batch, Chunk, Action_dim)
-        student_actions = student_actions_chunk[0, 0, :32]
-        if student_actions_chunk.shape[-1] > 32:
-            aux_pred = student_actions_chunk[0, 0, 32:]
-        else:
-            aux_pred = None
+            output = self.model(obs_dict)
+            student_actions_chunk = output["action"]
+            if self.model.aux_prediction:
+                aux_pred = output["aux"].clone()
+                aux_pred = aux_pred[0, 0, :]
+
+        student_actions = student_actions_chunk[0, 0, :32] # TODO: this assumes chunk size is 1
+
         # get the step action that goes into env.step() in sim
         step_actions = torch.clamp(student_actions, -self.clip_actions, self.clip_actions)
         return step_actions, aux_pred, obs_dict
