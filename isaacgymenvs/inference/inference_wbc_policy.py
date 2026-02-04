@@ -67,7 +67,7 @@ class WBCPolicyTransformer:
         self.abs_hand_actions = torch.zeros(16, device=self.device)
         self.steps = 0
 
-    def generate_random_inputs(self, require_object_pos_t0):
+    def generate_random_inputs(self):
         """
         Generate random inputs for the get_action function using torch.rand
         """      
@@ -80,17 +80,12 @@ class WBCPolicyTransformer:
         q_arm_manip = torch.rand(7, device=self.device)  # In [0, 1)
         q_arm_vision = torch.rand(6, device=self.device)  # In [0, 1)
 
-        if require_object_pos_t0 == True:
-            object_xyz_t0 = torch.rand(3, device=self.device)
-        else:
-            object_xyz_t0 = None
-
         if self.has_aux == True:
             aux_inputs = torch.rand(3, device=self.device)
         else:
             aux_inputs = None
 
-        return full_pcd_eef_frame_t, torch.zeros(3, device=self.device), q_hand, q_arm_manip, q_arm_vision, aux_inputs, object_xyz_t0
+        return full_pcd_eef_frame_t, torch.zeros(3, device=self.device), q_hand, q_arm_manip, q_arm_vision, aux_inputs
 
     def load_checkpoint(self, checkpoint_path):
         checkpoint = torch.load(checkpoint_path, map_location=self.device)
@@ -216,7 +211,7 @@ class WBCPolicyTransformer:
         step_actions = torch.clamp(student_actions, -self.clip_actions, self.clip_actions)
         return step_actions, aux_pred, obs_dict
 
-    def get_action(self, full_pcd_frankabase_frame_t, eef_xyz_frankabase_frame_t, q_hand, q_arm_manip, q_arm_vision, aux_inputs=None, objxyz_t0=None):
+    def get_action(self, full_pcd_frankabase_frame_t, eef_xyz_frankabase_frame_t, q_hand, q_arm_manip, q_arm_vision, aux_inputs=None):
         """
         get the final action for execution
 
@@ -235,7 +230,14 @@ class WBCPolicyTransformer:
         # (1, N, 3)
         full_pcd_frankabase_frame_t_b = full_pcd_frankabase_frame_t.unsqueeze(0).to(self.device)
         eef_xyz_frankabase_frame_t_b = eef_xyz_frankabase_frame_t.unsqueeze(0).to(self.device)  # (1, 3)
-        aux_inputs_b = aux_inputs.unsqueeze(0).to(self.device) if aux_inputs is not None else None
+        if self.has_aux:
+            if aux_inputs is None:
+                aux_inputs_b = torch.rand((1, 3), device=self.device)
+            else:
+                aux_inputs_b = aux_inputs.unsqueeze(0).to(self.device)
+        else:
+            aux_inputs_b = None
+    
         q_hand_b = self.normalize_robot_joints(q_hand.unsqueeze(0).to(self.device), robot="leap", delta=False) # (1, 16)
         q_hand_ctrl_delta_b = self.normalize_robot_joints(
             (q_hand.to(self.device) - self.abs_hand_actions), robot="leap", delta=True
@@ -252,9 +254,6 @@ class WBCPolicyTransformer:
             ("q_hand", q_hand_b),
             ("q_hand_ctrl_delta", q_hand_ctrl_delta_b*2) # *2 helps with sim-to-real
         ])
-
-        if objxyz_t0 is not None:
-            obs_dict["objxyz_t0"] = objxyz_t0.unsqueeze(0).to(self.device)
 
         # inference policy
         step_action, aux_pred, obs_dict = self.inference_policy(obs_dict)
@@ -301,7 +300,7 @@ if __name__ == "__main__":
     print("warm up")
     t_1 = time.time()
     for i in range(3):
-        test_input = model.generate_random_inputs(False)
+        test_input = model.generate_random_inputs()
         action = model.get_action(*test_input)
     t_2 = time.time()
     print(f"warm up time: {t_2 - t_1}")
@@ -310,7 +309,7 @@ if __name__ == "__main__":
     print(f"profiling with {test_num} inferences")
     t_3 = time.time()
     for i in range(int(test_num)):
-        test_input = model.generate_random_inputs(False)
+        test_input = model.generate_random_inputs()
         action = model.get_action(*test_input)
     t_4 = time.time()
     t_test = t_4 - t_3
