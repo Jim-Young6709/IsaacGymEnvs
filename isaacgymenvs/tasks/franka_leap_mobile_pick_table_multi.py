@@ -1,0 +1,849 @@
+"""
+Franka + LEAP Hand Pick Env
+TODO:1. clean up
+"""
+
+import time
+
+import hydra
+import isaacgym
+import numpy as np
+import torch
+from isaacgym import gymapi
+from isaacgym.torch_utils import *
+from isaacgymenvs.utils.pcd_utils import *
+from isaacgymenvs.utils.rotation_conversions import *
+from isaacgymenvs.tasks import FrankaLEAPMobile
+from isaacgymenvs.utils.reformat import omegaconf_to_dict
+from omegaconf import DictConfig
+from tqdm import tqdm
+
+
+
+class FrankaLEAPMobilePickTableMulti(FrankaLEAPMobile):
+    def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
+        super().__init__(
+            cfg=cfg,
+            rl_device=rl_device,
+            sim_device=sim_device,
+            graphics_device_id=graphics_device_id,
+            headless=headless,
+            virtual_screen_capture=virtual_screen_capture,
+            force_render=force_render
+        )
+
+        if self.eef_init["enable"]:
+            dis_open_range = self.eef_init["dis_open_range"]
+            dis_open = torch.rand(self.num_envs, device=self.device) * (dis_open_range[1] - dis_open_range[0]) + dis_open_range[0]
+            dis_side_range = self.eef_init["dis_side_range"]
+            dis_side_x = torch.rand(self.num_envs, device=self.device) * (self.box_dims[:, 0] + 2*dis_side_range) - (self.box_dims[:, 0]/2 + dis_side_range)
+            dis_side_y = torch.rand(self.num_envs, device=self.device) * (self.box_dims[:, 1] + 2*dis_side_range) - (self.box_dims[:, 1]/2 + dis_side_range)
+
+            eef_init_pos = self.box_pos.clone()
+            eef_init_pos[:, 0] += dis_side_x
+            eef_init_pos[:, 1] += dis_side_y
+            eef_init_pos[:, 2] += dis_open + self.box_dims[:, 2]
+
+            eef_init_quat = A2B_quaternion(eef_init_pos, self.box_pos, max_angle_deg=20, right_axis="y")
+            flip_idx = eef_init_pos[:, 0] < self.box_pos[:, 0]
+            rot_local_z_180 = torch.tensor([[0.0, 0.0, 1.0, 0.0]]*sum(flip_idx), device=self.device)  # 180 degrees around local z-axis
+            eef_init_quat[flip_idx] = quat_mul(eef_init_quat[flip_idx], rot_local_z_180)  # rotate by 180 degrees around local z-axis
+
+            eef_init_pos7 = torch.cat((eef_init_pos, eef_init_quat), dim=-1)  # (num_envs, 7)
+
+            # TODO: resampling mechanism here when IK failed
+            # self.canonical_joint_config[:, 3:10] = self.get_joint_from_ee(eef_init_pos7)
+
+        if not self.headless:
+            for i in range(self.num_envs):
+                self.draw_box_lines(i, self.box_pos[i].clone(), self.box_quats[i].clone(), self.box_dims[i].clone())
+
+    def _init_params(self):
+        self.scene_box_cfg = self.cfg["env"]["scene"]["safety_box"]
+
+        # safety box
+        x_shift_range = self.scene_box_cfg["x_shift_range"]
+        y_shift_range = self.scene_box_cfg["y_shift_range"]
+        z_shift_range = self.cfg["env"]["scene"]["z_shift_range"] # this shifts the table height, not just the safety box
+        self.x_shift = torch.rand(self.num_envs, device=self.device) * (x_shift_range[1] - x_shift_range[0]) + x_shift_range[0]
+        self.y_shift = torch.rand(self.num_envs, device=self.device) * (y_shift_range[1] - y_shift_range[0]) + y_shift_range[0]
+        self.z_shift = torch.rand(self.num_envs, device=self.device) * (z_shift_range[1] - z_shift_range[0]) + z_shift_range[0]
+
+        table_thickness_range = self.cfg["env"]["scene"]["table_thickness_range"]
+        self.table_thickness = torch.rand(self.num_envs, device=self.device) * (table_thickness_range[1] - table_thickness_range[0]) + table_thickness_range[0]
+
+        self.add_on_obstacles_cfg = self.cfg["env"]["scene"]["add_on_obstacles"]
+        self.num_add_on_cuboids = self.add_on_obstacles_cfg["cuboids"]["num"]
+        self.num_add_on_spheres = self.add_on_obstacles_cfg["spheres"]["num"]
+        self.num_add_on_capsules = self.add_on_obstacles_cfg["capsules"]["num"]
+
+        self.tol_add_on_obstacles = self.num_add_on_cuboids + self.num_add_on_spheres + self.num_add_on_capsules
+        num_corner_obstacles_range = self.cfg["env"]["scene"]["safety_box"]["corner_obstacles_range"]
+        self.num_corner_obstacles = np.random.randint(num_corner_obstacles_range[0], num_corner_obstacles_range[1]+1)
+        num_extra_surrounding_obstacles_range = self.cfg["env"]["scene"]["safety_box"]["extra_surrounding_obstacles_range"]
+        self.num_extra_surrounding_obstacles = np.random.randint(num_extra_surrounding_obstacles_range[0], num_extra_surrounding_obstacles_range[1]+1)
+        self.num_other_obstacles = self.tol_add_on_obstacles - self.num_corner_obstacles - self.num_extra_surrounding_obstacles
+        self.shift_other_obstacles_range = self.cfg["env"]["scene"]["safety_box"]["shift_other_obstacles_range"]
+
+        # mobile obstacles
+        self.mobile_obstacles_cfg = self.cfg["env"]["scene"]["mobile_obstacles"]
+        self.num_mobile_cuboids = self.mobile_obstacles_cfg["cuboids"]["num"]
+        self.mobile_cuboids_size_range = self.mobile_obstacles_cfg["cuboids"]["size_range"]
+        self.num_mobile_capsules = self.mobile_obstacles_cfg["capsules"]["num"]
+        self.mobile_capsules_size_range = self.mobile_obstacles_cfg["capsules"]["size_range"]
+
+        self.tol_mobile_obstacles = self.num_mobile_cuboids + self.num_mobile_capsules
+        self.mobile_x_offset_range = self.mobile_obstacles_cfg["x_offset_range"]
+        self.mobile_y_offset_range = self.mobile_obstacles_cfg["y_offset_range"]
+
+    def _setup_fabric_switching_target(self):
+        self.switching_target_pos = self.box_pos.clone()
+        self.switching_target_pos[:, 2] += self.box_dims[:, 2]
+        self.switching_target_pos += self.switch_pos_offset
+        rot_local_x_180 = torch.tensor([[1.0, 0.0, 0.0, 0.0]]*self.num_envs, device=self.device)  # 180 degrees around local x-axis
+        self.switching_target_quat = quat_mul(self.box_quats.clone(), rot_local_x_180) # default hand orientation is facing up, so need to rotate 180
+
+    def _create_envs(self, spacing, num_per_row):
+        """
+        loading Franka + LEAP + a table in the environment, this is for debugging purposes only
+        """
+        self._init_params()
+
+        lower = gymapi.Vec3(-spacing, -spacing, 0.0)
+        upper = gymapi.Vec3(spacing, spacing, spacing)
+
+        # setup params
+        self.table_pos = []
+        self.table_size = []
+
+        self.box_dims = []
+        self.box_pos = []
+        self.box_quats = []
+
+        self.cuboid_dims = []  # xyz
+        self.cuboid_pos = []
+        self.cuboid_quats = [] # xyzw
+
+        self.sphere_radii = []
+        self.sphere_pos = []
+
+        self.capsule_dims = []
+        self.capsule_pos = []
+
+        self.mesh_aabb_extents = None  # xyz, axis-aligned bounding box full extents
+        self.table_surface_height = torch.zeros((self.num_envs,), device=self.device)
+        self.obj_pos_range = torch.zeros((self.num_envs, 4), device=self.device) # x-min, x-max, y-min, y-max
+        self.obj_pos_target = torch.zeros((self.num_envs, 3), device=self.device) # x, y, z
+
+        # setup robot (franka + leap)
+        robot_dof_props = self._create_franka_leap()
+        robot_asset = self.robot_asset
+        robot_start_pose = gymapi.Transform()
+        robot_start_pose.p = gymapi.Vec3(0.0, 0.0, 0.0) # make sure robot spawns at the origin, this matches the IK setting with cuRobo
+        robot_start_pose.r = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
+
+        # compute aggregate size
+        num_robot_bodies = self.gym.get_asset_rigid_body_count(robot_asset)
+        num_robot_shapes = self.gym.get_asset_rigid_shape_count(robot_asset)
+        max_agg_bodies = num_robot_bodies + self.tol_add_on_obstacles + self.tol_mobile_obstacles + 1 + 1 # 1 for object, 1 for table
+        max_agg_shapes = num_robot_shapes + self.tol_add_on_obstacles + self.tol_mobile_obstacles + 1 + 1 # 1 for object, 1 for table
+
+        self.robots = []
+        self.objects = []
+        self.add_on_obstacles = []
+        self.envs = []
+        self._object_center_init_state = torch.zeros((self.num_envs, 3), device=self.device)
+
+        # load all meshes first
+        all_meshes_list = self.create_all_meshes()
+
+        # Create environments
+        for i in tqdm(range(self.num_envs), desc="Creating Envs"):
+            # grasp object
+            object_asset, object_start_pose, object_scale, object_id, mesh_id = all_meshes_list[i % len(all_meshes_list)]
+
+            # create env instance
+            env_ptr = self.gym.create_env(self.sim, lower, upper, num_per_row)
+
+            # Create actors and define aggregate group appropriately depending on setting
+            # NOTE: franka should ALWAYS be loaded first in sim!
+            if self.aggregate_mode >= 3:
+                self.gym.begin_aggregate(env_ptr, max_agg_bodies, max_agg_shapes, True)
+
+            # Create robot (franka + leap)
+            robot_actor = self.gym.create_actor(
+                env_ptr, robot_asset, robot_start_pose, "franka", i, 0, 0
+            )
+            self.gym.set_actor_dof_properties(env_ptr, robot_actor, robot_dof_props)
+
+            if self.aggregate_mode == 2:
+                self.gym.begin_aggregate(env_ptr, max_agg_bodies, max_agg_shapes, True)
+
+            # Create virtual box (create it but not actually loading the box)
+            self._create_box()
+            self.table_surface_height[i] = self.box_pos[i][2]
+
+            # Create table
+            # setup table
+            table_pos = [0.5, 0.0, -self.table_thickness[i].item()/2+self.z_shift[i].item()]
+            table_size = [0.7, 1.2, self.table_thickness[i].item()]
+            self.table_pos.append(table_pos)
+            self.table_size.append(table_size)
+
+            table_asset, table_start_pose = self._create_cube(
+                pos=table_pos,
+                size=table_size,
+            )
+
+            if self.enable_fabric:
+                self._create_fabric_cube(
+                    pos=table_pos,
+                    size=table_size,
+                    quat=[0, 0, 0, 1],
+                    env_id=i,
+                )
+
+            self.gym.create_actor(
+                env_ptr, table_asset, table_start_pose, "table", i, 1, 0
+            )
+
+            # create mobile obstacles
+            for mob_i in range(self.num_mobile_cuboids):
+                theta = np.random.uniform(0, 2 * np.pi)
+                quat_z_rand = [0, 0, np.sin(theta/2), np.cos(theta/2)]  # xyzw
+                size = np.random.uniform(*self.mobile_cuboids_size_range)
+                x_pos = self.box_pos[i][0] - self.box_dims[i][0]/2 + np.random.uniform(*self.mobile_x_offset_range)
+                y_pos = self.box_pos[i][1] + (self.box_dims[i][1]/2 + np.random.uniform(*self.mobile_y_offset_range)) * random.choice([-1, 1])
+                z_pos = size[2]/2
+
+                mobile_obs_asset, mobile_obs_start_pose = self._create_cube(
+                    pos=[x_pos, y_pos, z_pos],
+                    size=size,
+                    quat=quat_z_rand, # xyzw
+                )
+
+                if self.enable_fabric:
+                    self._create_fabric_cube(
+                        pos=[x_pos, y_pos, z_pos],
+                        size=size,
+                        quat=quat_z_rand,
+                        env_id=i,
+                    )
+
+                self.gym.create_actor(
+                    env_ptr, mobile_obs_asset, mobile_obs_start_pose, f"mobile_cuboids{mob_i}", i, 1, 0
+                )
+
+            for mob_i in range(self.num_mobile_capsules):
+                size = np.random.uniform(*self.mobile_capsules_size_range)
+                cap_r = size[0]
+                cap_l = size[1]/2 - size[0]
+                x_pos = self.box_pos[i][0] - self.box_dims[i][0]/2 + np.random.uniform(*self.mobile_x_offset_range)
+                y_pos = self.box_pos[i][1] + (self.box_dims[i][1]/2 + np.random.uniform(*self.mobile_y_offset_range)) * random.choice([-1, 1])
+                z_pos = size[1]/2
+
+                mobile_obs_asset, mobile_obs_start_pose = self._create_capsule(
+                    pos=[x_pos, y_pos, z_pos],
+                    size=[cap_r, cap_l],
+                )
+
+                if self.enable_fabric:
+                    self._create_fabric_cylinder(
+                        pos=[x_pos, y_pos, z_pos],
+                        size=size,
+                        quat=[0, 0, 0, 1],
+                        env_id=i,
+                    )
+
+                self.gym.create_actor(
+                    env_ptr, mobile_obs_asset, mobile_obs_start_pose, f"mobile_capsules{mob_i}", i, 1, 0
+                )
+
+            self.objects_per_env = 1 + self.tol_mobile_obstacles
+
+            ### setup add on obstacles
+            box_height_limit = self.box_dims[i][2]
+
+            ## get obstacle size params
+            # cuboids
+            cuboids_xy_range = self.add_on_obstacles_cfg["cuboids"]["size_xy"]
+            cuboids_size_range = cuboids_xy_range.copy()
+            cuboids_size_range[0].append(self.add_on_obstacles_cfg["cuboids"]["size_z_min"])
+            cuboids_size_range[1].append(box_height_limit)
+            cuboids_size_add = np.random.uniform(cuboids_size_range[0], cuboids_size_range[1], size=(self.num_add_on_cuboids, 3))
+
+            # spheres
+            spheres_r_range = [self.add_on_obstacles_cfg["spheres"]["r_min"], box_height_limit / 2]
+            spheres_size_add = np.random.uniform(spheres_r_range[0], spheres_r_range[1], size=(self.num_add_on_spheres, 1))
+
+            # capsules
+            capsules_r_min = self.add_on_obstacles_cfg["capsules"]["r_min"]
+            capsules_l_min = self.add_on_obstacles_cfg["capsules"]["l_min"]
+            additional_capsules_semilength = box_height_limit / 2 - capsules_r_min - capsules_l_min
+            capsules_size_add = []
+            for obs_i in range(self.num_add_on_capsules):
+                alpha = np.random.uniform(0.0, 1.0)
+                capsules_r_max = capsules_r_min + additional_capsules_semilength * alpha
+                capsules_l_max = capsules_l_min + additional_capsules_semilength * (1.0 - alpha)
+                capsules_size_range = [[capsules_r_min, capsules_l_min], [capsules_r_max, capsules_l_max]]
+                capsule_size_add = np.random.uniform(capsules_size_range[0], capsules_size_range[1])
+                capsules_size_add.append(capsule_size_add)
+            capsules_size_add = np.array(capsules_size_add)
+
+            obstacles_size_add = cuboids_size_add.tolist() + spheres_size_add.tolist() + capsules_size_add.tolist()
+
+            x_dir_corner = random.choice([-1, 1])
+            y_dir_corner = random.choice([-1, 1])
+
+            self.obj_pos_range[i, 0] = (self.box_pos[i][0] + x_dir_corner*(self.box_dims[i][0]/4 - self.scene_box_cfg["obj_wall_tol"])) - self.box_dims[i][0] / 4 # x-min
+            self.obj_pos_range[i, 1] = (self.box_pos[i][0] + x_dir_corner*(self.box_dims[i][0]/4 - self.scene_box_cfg["obj_wall_tol"])) + self.box_dims[i][0] / 4 # x-max
+            self.obj_pos_range[i, 2] = (self.box_pos[i][1] + y_dir_corner*(self.box_dims[i][1]/4 - self.scene_box_cfg["obj_wall_tol"])) - self.box_dims[i][1] / 4 # y-min
+            self.obj_pos_range[i, 3] = (self.box_pos[i][1] + y_dir_corner*(self.box_dims[i][1]/4 - self.scene_box_cfg["obj_wall_tol"])) + self.box_dims[i][1] / 4 # y-max
+
+            box_quater_length = self.box_dims[i][0]/2 + self.box_dims[i][1]/2
+            num_x_dir_obj = round(self.num_corner_obstacles * (self.box_dims[i][0]/2 / box_quater_length))
+            num_x_dir_obj = max(0, min(num_x_dir_obj, self.num_corner_obstacles-1))
+            if num_x_dir_obj == 0 and self.num_corner_obstacles > 1:
+                num_x_dir_obj = 1
+            num_y_dir_obj = self.num_corner_obstacles - num_x_dir_obj
+
+            def _sample_size_and_radius(obstacles_size_list):
+                """
+                Returns:
+                    size  (list): size of the obstacle, depends on type, (3,) for cuboid, (2,) for capsule, (1,) for sphere
+                    type  (int): type of the obstacle, 3-cuboid, 2-capsule, 1-sphere
+                    radius (float): 'radius' of the obstacle, for collision checking (against the safety region)
+                """
+                size = obstacles_size_list.pop(np.random.randint(len(obstacles_size_list)))
+                type = len(size)
+                radius = np.hypot(size[0]/2, size[1]/2) if type == 3 else size[0]
+                return size, type, radius
+
+            for mode, num in [
+                ("corner_x", num_x_dir_obj),
+                ("corner_y", num_y_dir_obj),
+                ("extra", self.num_extra_surrounding_obstacles),
+                ("other", self.num_other_obstacles),
+            ]:
+                for obs_i in range(num):
+                    size, type, radius = _sample_size_and_radius(obstacles_size_add)
+
+                    if mode == "corner_x":
+                        x_pos = np.random.uniform(0, self.box_dims[i][0]/2) * x_dir_corner
+                        y_pos = (self.box_dims[i][1]/2 + radius) * y_dir_corner
+                    elif mode == "corner_y":
+                        x_pos = (self.box_dims[i][0]/2 + radius) * x_dir_corner
+                        y_pos = np.random.uniform(0, self.box_dims[i][1]/2) * y_dir_corner
+                    elif mode == "extra":
+                        x_dir = random.choice([-1, 1])
+                        y_dir = random.choice([-1, 1])
+
+                        if random.choice([0, 1]) == 0:
+                            x_pos = (self.box_dims[i][0]/2 + radius) * x_dir
+                            y_pos = np.random.uniform(-self.box_dims[i][1]/2, self.box_dims[i][1]/2)
+                        else:
+                            x_pos = np.random.uniform(-self.box_dims[i][0]/2, self.box_dims[i][0]/2)
+                            y_pos = (self.box_dims[i][1]/2 + radius) * y_dir
+                    elif mode == "other":
+                        x_pos = np.random.uniform(self.table_pos[i][0] - self.table_size[i][0]/2,
+                                                self.table_pos[i][0] + self.table_size[i][0]/2) - self.box_pos[i][0]
+                        y_pos = np.random.uniform(self.table_pos[i][1] - self.table_size[i][1]/2,
+                                                self.table_pos[i][1] + self.table_size[i][1]/2) - self.box_pos[i][1]
+
+                        shift_other_obstacles = np.random.uniform(self.shift_other_obstacles_range[0],
+                                                                self.shift_other_obstacles_range[1])
+
+                        x_min = -self.box_dims[i][0]/2 - radius # no shift here in case the obstacle collide with robot base
+                        x_max =  self.box_dims[i][0]/2 + radius + shift_other_obstacles
+                        y_min = -self.box_dims[i][1]/2 - radius - shift_other_obstacles
+                        y_max =  self.box_dims[i][1]/2 + radius + shift_other_obstacles
+
+                        if x_min < x_pos < x_max and y_min < y_pos < y_max:
+                            x_or_y = random.choice([0, 1]) # 0 for x ; 1 for y
+                            if x_or_y == 0:
+                                if x_pos < (x_min + x_max)/2:
+                                    x_pos = x_min
+                                else:
+                                    x_pos = x_max
+                            elif x_or_y == 1:
+                                if y_pos < (y_min + y_max)/2:
+                                    y_pos = y_min
+                                else:
+                                    y_pos = y_max
+
+                    x_pos += self.box_pos[i][0]
+                    y_pos += self.box_pos[i][1]
+
+                    # randomly rotate obstacles around their z axis
+                    theta = np.random.uniform(0, 2 * np.pi)
+                    quat_z_rand = [0, 0, np.sin(theta/2), np.cos(theta/2)]  # xyzw
+
+                    self._create_add_on_obstacles(
+                        env_ptr=env_ptr,
+                        i=i,
+                        obs_i=obs_i,
+                        type=type,
+                        x_pos=x_pos,
+                        y_pos=y_pos,
+                        size=size,
+                        quat=quat_z_rand,
+                    )
+
+                    self.objects_per_env += 1
+
+            # update max_objects_per_envs
+            if self.enable_fabric and self.objects_per_env > self.max_objects_per_env:
+                self.max_objects_per_env = self.objects_per_env
+
+            # Create object
+            self._object_id = self.gym.create_actor(
+                env_ptr, object_asset, object_start_pose, "object", i, 2, 0
+            )
+            self._object_center_init_state[i, :3] = torch.tensor([object_start_pose.p.x, object_start_pose.p.y, object_start_pose.p.z], device=self.device)
+
+            if self.aggregate_mode == 1:
+                self.gym.begin_aggregate(env_ptr, max_agg_bodies, max_agg_shapes, True)
+
+            if self.aggregate_mode > 0:
+                self.gym.end_aggregate(env_ptr)
+
+            # Store the created env pointers
+            self.envs.append(env_ptr)
+            self.robots.append(robot_actor)
+            self.objects.append(self._object_id)
+            self.add_on_obstacles.append(self._add_on_obstacle_ids)
+
+            # object pcd
+            object_pcd_i = torch.from_numpy(compute_scene_oracle_pcd(
+                num_obstacle_points=self.pcd_spec_dict["num_object_points"],
+                mesh_position=np.array([[0.0, 0.0, 0.0]]),
+                mesh_scale=np.array([object_scale]),
+                mesh_quaternion=np.array([[0.0, 0.0, 0.0, 1.0]]),
+                obj_id=np.array([object_id]),
+                mesh_id=np.array([mesh_id]),
+                meshes_dir=self.mesh_args["mesh_dir"],
+            )).to(self.device)
+            self.object_pcds.append(object_pcd_i)
+
+        self.cuboid_dims = np.array(self.cuboid_dims).reshape(self.num_envs, -1, 3)
+        self.cuboid_pos = np.array(self.cuboid_pos).reshape(self.num_envs, -1, 3)
+        self.cuboid_quats = np.array(self.cuboid_quats).reshape(self.num_envs, -1, 4)
+
+        self.sphere_radii = np.array(self.sphere_radii).reshape(self.num_envs, -1)
+        self.sphere_pos = np.array(self.sphere_pos).reshape(self.num_envs, -1, 3)
+
+        self.capsule_dims = np.array(self.capsule_dims).reshape(self.num_envs, -1, 2)
+        self.capsule_pos = np.array(self.capsule_pos).reshape(self.num_envs, -1, 3)
+
+        # TODO: currently don't have capsule supported in pcd utils so use cylinder instead, maybe fix this later, or maybe this doesn't matter much?
+        self.cylinder_radii = self.capsule_dims[:, :, 0]
+        self.cylinder_heights = (self.capsule_dims[:, :, 0] + self.capsule_dims[:, :, 1]) * 2
+        self.cylinder_pos = self.capsule_pos
+        self.cylinder_quat = np.array([[0.0, 0.0, 0.0, 1.0]] * self.capsule_pos.shape[0] * self.capsule_pos.shape[1]).reshape(self.num_envs, -1, 4)
+
+        self.table_pos = torch.tensor(self.table_pos, device=self.device)
+        self.table_size = torch.tensor(self.table_size, device=self.device)
+
+        self.box_dims = torch.tensor(self.box_dims, device=self.device) # (num_envs, 3)
+        self.box_pos = torch.tensor(self.box_pos, device=self.device) # (num_envs, 3)
+        self.box_quats = torch.tensor(self.box_quats, device=self.device)
+
+        for i in range(self.num_envs):
+            # static pcd
+            static_pcd_i = torch.from_numpy(compute_scene_oracle_pcd(
+                num_obstacle_points=self.pcd_spec_dict["num_static_points"],
+                cuboid_dims=np.array(self.cuboid_dims[i]),
+                cuboid_centers=np.array(self.cuboid_pos[i]),
+                cuboid_quats=np.array(self.cuboid_quats[i]),
+                cylinder_radii=np.array(self.cylinder_radii[i]),
+                cylinder_heights=np.array(self.cylinder_heights[i]),
+                cylinder_centers=np.array(self.cylinder_pos[i]),
+                cylinder_quats=np.array(self.cylinder_quat[i]),
+                sphere_centers=np.array(self.sphere_pos[i]),
+                sphere_radii=np.array(self.sphere_radii[i]),
+            )).to(self.device)
+            self.static_pcds.append(static_pcd_i)
+
+        self.obj_pos_target[:, :2] = self.box_pos[:, :2]
+        self.obj_pos_target[:, 2] = self.box_pos[:, 2] + self.box_dims[:, 2]
+
+        self.cuboid_dims = torch.from_numpy(self.cuboid_dims).to(self.device)
+        self.cuboid_pos = torch.from_numpy(self.cuboid_pos).to(self.device)
+        self.cuboid_quats = torch.from_numpy(self.cuboid_quats).to(self.device)
+
+        self.sphere_radii = torch.from_numpy(self.sphere_radii).to(self.device)
+        self.sphere_pos = torch.from_numpy(self.sphere_pos).to(self.device)
+
+        self.static_pcds = torch.stack(self.static_pcds, dim=0).to(self.device).to(torch.float32) # (num_envs, num_points, 3)
+        self.object_pcds = torch.stack(self.object_pcds, dim=0).to(self.device).to(torch.float32)
+        self.combined_pcds = torch.cat([self.static_pcds, self.object_pcds], dim=1).to(self.device) # (num_envs, num_static_points + num_object_points, 3)
+        if self.distractor_settings["enable"]:
+            self._create_distractor_pcd()
+            self.combined_pcds = torch.cat([self.combined_pcds, self.distractor_pcds], dim=1).to(self.device) # (num_envs, num_static_points + num_object_points + num_distractor_points, 3)
+
+        # get mesh AABB (axis-aligned bounding box) extents
+        min_xyz = self.object_pcds.min(axis=1).values
+        max_xyz = self.object_pcds.max(axis=1).values
+        self.mesh_aabb_extents = max_xyz - min_xyz
+        self._object_center_init_state[:, 2] += self.mesh_aabb_extents[:, 2] / 2
+
+        # refine obj_rand_pos_range based on mesh AABB
+        self.obj_pos_range[:, 0] += self.mesh_aabb_extents[:, 0] / 2
+        self.obj_pos_range[:, 1] -= self.mesh_aabb_extents[:, 0] / 2
+        self.obj_pos_range[:, 2] += self.mesh_aabb_extents[:, 1] / 2
+        self.obj_pos_range[:, 3] -= self.mesh_aabb_extents[:, 1] / 2
+
+        # Setup data
+        actor_num = self.tol_add_on_obstacles + self.tol_mobile_obstacles + 1 + 1 + 1 # robot, table, object
+        self.init_data(actor_num=actor_num)
+
+        if self.enable_fabric:
+            self._init_fabric()
+
+    def _create_add_on_obstacles(self, env_ptr, i, obs_i, type, x_pos, y_pos, size, quat):
+        if type == 3: # cuboid
+            pos = [x_pos, y_pos, size[2]/2+self.table_surface_height[i].item()]
+            asset, start_pose  = self._create_cube(
+                pos=pos,
+                size=size,
+                quat=quat, # xyzw
+            )
+            if self.enable_fabric:
+                self._create_fabric_cube(
+                    pos=pos,
+                    size=size,
+                    quat=quat,
+                    env_id=i,
+                )
+
+        if type == 2: # capsule
+            pos = [x_pos, y_pos, size[0]+size[1]+self.table_surface_height[i].item()]
+            asset, start_pose = self._create_capsule(
+                pos=pos,
+                size=size,
+            )
+            if self.enable_fabric:
+                self._create_fabric_cylinder(
+                    pos=pos,
+                    size=[size[0], 2*(size[0]+size[1])],
+                    quat=[0, 0, 0, 1],
+                    env_id=i,
+                )
+
+        if type == 1: # sphere
+            pos = [x_pos, y_pos, size[0]+self.table_surface_height[i].item()]
+            asset, start_pose = self._create_sphere(
+                pos=pos,
+                size=size[0],
+            )
+            if self.enable_fabric:
+                self._create_fabric_sphere(
+                    pos=pos,
+                    radius=size[0],
+                    quat=[0, 0, 0, 1],
+                    env_id=i,
+                )
+
+        self.gym.create_actor(
+            env_ptr, asset, start_pose, f"add_on_obstacle{obs_i}", i, 1, 0
+        )
+
+    def init_data(self, actor_num):
+        super().init_data(actor_num=actor_num)
+        self.obj_pos_target[:, 2] += 0.2
+        self.reward_settings["target_pos"] = self.obj_pos_target
+        self.reward_settings["beta_object_drag"] = to_torch(self.cfg["reward"]["exp"]["beta_object_drag"], device=self.device)
+        self.reward_settings["w_obj_drag"] = to_torch(self.cfg["reward"]["weights"]["w_obj_drag"], device=self.device)
+        self.reward_settings["w_colli"] = to_torch(self.cfg["reward"]["weights"]["w_colli"], device=self.device)
+
+    def _create_box(self):
+        size_range = self.scene_box_cfg["size"]
+        size = np.random.uniform(size_range[0], size_range[1]) # inner size of the box
+
+        env_idx = len(self.box_dims)
+
+        # for simple debugging scenario training
+        x_shift = self.x_shift[env_idx].item()
+        y_shift = self.y_shift[env_idx].item()
+        z_shift = self.z_shift[env_idx].item()
+
+        self.box_dims.append(size.tolist())
+        self.box_pos.append([x_shift, y_shift, z_shift])
+        self.box_quats.append([0.0, 0.0, 0.0, 1.0])
+
+    def draw_box_lines(self, env_idx, pos_xyz, quat_xyzw, dims_xyz, color=(1.0, 0.2, 0.2)):
+        import numpy as np
+        from isaacgym import gymapi
+
+        px, py, pz = pos_xyz
+        qx, qy, qz, qw = quat_xyzw
+        sx, sy, sz = dims_xyz
+        sx -= 0.0001
+        sy -= 0.0001
+        sz -= 0.0001
+        pz += sz / 2
+
+        center = gymapi.Vec3(px, py, pz)
+        q = gymapi.Quat(qx, qy, qz, qw)
+
+        hx, hy, hz = sx * 0.5, sy * 0.5, sz * 0.5
+        corners_local = [
+            gymapi.Vec3(-hx, -hy, -hz),
+            gymapi.Vec3( hx, -hy, -hz),
+            gymapi.Vec3( hx,  hy, -hz),
+            gymapi.Vec3(-hx,  hy, -hz),
+            gymapi.Vec3(-hx, -hy,  hz),
+            gymapi.Vec3( hx, -hy,  hz),
+            gymapi.Vec3( hx,  hy,  hz),
+            gymapi.Vec3(-hx,  hy,  hz),
+        ]
+
+        corners_world = [gymapi.Quat.rotate(q, c) for c in corners_local]
+        corners_world = [gymapi.Vec3(c.x + center.x, c.y + center.y, c.z + center.z) for c in corners_world]
+
+        edges = [
+            (0,1), (1,2), (2,3), (3,0),
+            (4,5), (5,6), (6,7), (7,4),
+            (0,4), (1,5), (2,6), (3,7)
+        ]
+
+        # Collect line endpoints
+        lines = []
+        for i, j in edges:
+            lines.append(corners_world[i])
+            lines.append(corners_world[j])
+
+        # Convert to numpy
+        line_points = np.array([[p.x, p.y, p.z] for p in lines], dtype=np.float32)
+        line_colors = np.array([list(color)] * len(edges), dtype=np.float32)
+
+        self.gym.add_lines(self.viewer, self.envs[env_idx], len(edges), line_points, line_colors)
+
+    def _update_states(self):
+        super()._update_states()
+        eef_rot_mat = quaternion_to_matrix_ig(self._eef_state[:, 3:7])
+        box_rot_mat = quaternion_to_matrix_ig(self.box_quats)
+        box_to_eef_rot_mat = torch.matmul(eef_rot_mat.transpose(1, 2), box_rot_mat)
+        box_to_eef_rot_6d = matrix_to_rotation_6d(box_to_eef_rot_mat)
+
+        lift_5cm = self.states["object_center_pos"][:, 2] - self._object_center_init_state[:, 2] > 0.05
+        self.states.update({
+            # Box region
+            "box_to_eef_pos": self.box_pos - self._eef_state[:, :3],
+            "box_dims": self.box_dims,
+            "box_to_eef_rot_6d": box_to_eef_rot_6d,
+            "obj_to_box_center_xy": self._object_state[:, :2] - self.box_pos[:, :2],
+            # check whether the object is lifted based on bottom board force contact info
+            "lift": lift_5cm,
+            "collision": self.scene_collision & (not self.scene_box_cfg["colli_reset"]),
+        })
+
+    def check_robot_collision(self):
+        super().check_robot_collision()
+        self.scene_collision = torch.any(self.contact_forces[:, 59:-1].view(self.num_envs, -1) != 0, dim=1)
+        self.table_collision = torch.any(self.contact_forces[:, 58].view(self.num_envs, -1) != 0, dim=1)
+
+    def compute_observations(self):
+        self._refresh()
+
+        obs_components = ["q_hand",
+                          "eef_finger1_pos_relative", "eef_finger2_pos_relative",
+                          "eef_finger3_pos_relative", "eef_finger4_pos_relative",
+                          "object_to_eef", "object_to_eef_rot_6d",
+                          "target_to_eef", "target_to_eef_rot_6d"]
+
+        states_components = ["q", "qd",
+                             "eef_pos", "eef_rot_6d", "eef_vel",
+                             "eef_finger1_pos_relative", "eef_finger2_pos_relative",
+                             "eef_finger3_pos_relative", "eef_finger4_pos_relative",
+                             "object_to_eef", "object_to_eef_rot_6d",
+                             "target_to_eef", "target_to_eef_rot_6d"]
+
+        obs_buf = torch.cat([self.states[ob] for ob in obs_components], dim=-1)
+        states_buf = torch.cat([self.states[st] for st in states_components], dim=-1)
+
+        # TODO： convert box to a local region
+        obs_buf = torch.cat([obs_buf, self.mesh_aabb_extents], dim=-1)
+        states_buf = torch.cat([states_buf, self.mesh_aabb_extents], dim=-1)
+
+        self.obs_buf = obs_buf
+        self.states_buf = states_buf
+
+        return self.obs_buf
+
+    def compute_reward(self):
+        self.reset_buf[:] = torch.where((self.progress_buf >= self.max_episode_length - 1), torch.ones_like(self.reset_buf), self.reset_buf)
+        self.reset_buf[self.states['object_center_pos'][:, 2] < self.table_surface_height-0.1] = 1
+
+        if self.scene_box_cfg["colli_reset"]:
+            self.reset_buf[self.scene_collision] = 1
+
+        reward_dict = compute_franka_leap_reward(self.states, self.reward_settings)
+
+        self.rew_buf[:] = reward_dict["r_total"]
+        self.extras["sep_reward/r_hand_obj"] = torch.mean(reward_dict["r_hand_obj"]).item()
+        self.extras["sep_reward/r_obj_goal"] = torch.mean(reward_dict["r_obj_goal"]).item()
+        self.extras["sep_reward/r_obj_drag"] = torch.mean(reward_dict["r_obj_drag"]).item()
+        self.extras["sep_reward/r_lift"] = torch.mean(reward_dict["r_lift"]).item()
+        self.extras["sep_reward/r_curl"] = torch.mean(reward_dict["r_curl"]).item()
+        self.extras["sep_reward/r_colli"] = torch.mean(reward_dict["r_colli"]).item()
+        self.extras["sep_reward/r_actionreg"] = torch.mean(reward_dict["r_actionreg"]).item()
+        self.extras["dis/d_hand_obj"] = torch.mean(reward_dict["d_hand_obj"]).item()
+        self.extras["dis/d_lift"] = torch.mean(reward_dict["d_lift"]).item()
+        self.extras["dis/d_eef_point_goal"] = torch.mean(reward_dict["d_eef_point_goal"]).item()
+        self.extras["dis/d_obj_drag"] = torch.mean(reward_dict["d_obj_drag"]).item()
+
+        # log metrics
+        self.lifting_5cm_per_step = self.states["lift"]
+        self.lifting_flags[self.lifting_5cm_per_step] = 1
+        self.success_5cm_per_step = (reward_dict["d_eef_point_goal"] < 0.05) & self.lifting_5cm_per_step
+        self.success_flags[self.success_5cm_per_step] = 1
+
+        self.extras["metrics/success_rate_5cm_per_step"] = torch.mean(self.success_5cm_per_step.float()).item()
+        self.extras["metrics/lifting_rate_5cm_per_step"] = torch.mean(self.lifting_5cm_per_step.float()).item()
+        self.extras["metrics/success_rate_5cm_per_ep"] = torch.mean(self.success_flags).item()
+        self.extras["metrics/lifting_rate_5cm_per_ep"] = torch.mean(self.lifting_flags).item()
+        self.extras["metrics/collision_rate_per_step"] = torch.mean(self.states["collision"].float()).item()
+
+    def set_viewer(self):
+        super().set_viewer(
+            pos=[2.0, 0.0, 1.2],
+            target=[0.3, 0.0, 0.7],
+        )
+
+
+@torch.jit.script
+def compute_franka_leap_reward(states, reward_settings):
+    # type: (Dict[str, Tensor], Dict[str, Tensor]) -> Dict[str, Tensor]
+
+    # R1: Hand (palm, fingers) to object distance
+    d_palm = torch.norm(states["object_center_pos"] - states["eef_pos"], dim=-1)
+    d_finger1 = torch.norm(states["object_center_pos"] - states["eef_finger1_pos"], dim=-1)
+    d_finger2 = torch.norm(states["object_center_pos"] - states["eef_finger2_pos"], dim=-1)
+    d_finger3 = torch.norm(states["object_center_pos"] - states["eef_finger3_pos"], dim=-1)
+    d_finger4 = torch.norm(states["object_center_pos"] - states["eef_finger4_pos"], dim=-1)
+
+    # R1: Max dist component to object: max_i∈{palm_pos,fingertips} ||x^i - x^obj||
+    d_hand_obj = torch.stack([d_palm, d_finger1, d_finger2, d_finger3, d_finger4], dim=1)
+    d_hand_obj = torch.max(d_hand_obj, dim=1)[0]
+
+    # R1: Hand object distance reward
+    beta_hand_object = reward_settings["beta_hand_object"]
+    r_hand_obj = torch.exp(-beta_hand_object * d_hand_obj)
+
+    # R2: Lifting bonus: r_lift = 1.0 if object is lifted
+    target_pos = reward_settings["target_pos"].squeeze(-1)
+    object_height = states["object_center_pos"][:, 2] - reward_settings["object_init_height"].squeeze(-1)
+    beta_lift = reward_settings["beta_lift"]
+    if beta_lift > 0:
+        object_vertical_err = torch.abs(states["object_center_pos"][:, 2] - target_pos[2])
+        r_lift = torch.exp(-beta_lift * object_vertical_err)
+        r_lift = torch.where(states["lift"], r_lift, 0.0)
+    else:
+        r_lift = torch.where(states["lift"], 1.0, torch.zeros_like(object_height))
+
+    # R3: Object goal distance reward (based on average point matching distance)
+    d_eef_point_goal = states["point_matching_err"]
+    beta_object_goal = reward_settings["beta_object_goal"]
+    r_obj_goal = torch.exp(-beta_object_goal * d_eef_point_goal)
+    r_obj_goal = torch.where(states["lift"], r_obj_goal, 0.0)
+
+    # R4: Drag reward
+    beta_drag = reward_settings["beta_object_drag"]
+    d_obj_drag = torch.norm(states["obj_to_box_center_xy"], dim=1)
+    r_obj_drag = torch.exp(-beta_drag * d_obj_drag)
+
+    # R5: Finger curl
+    hand_dof_pos = states["q"][:, 10:26] # hand joint angles
+    near_object = (d_hand_obj <= reward_settings["curl_reaching_threshold"])
+    finger_pos_diff = torch.sum((hand_dof_pos - reward_settings["grasp_finger_dof_pos"]) ** 2, dim=1)
+
+    beta_curl = reward_settings["beta_curl"]
+    r_curl= torch.exp(-beta_curl * finger_pos_diff)
+    r_curl = torch.where(near_object, r_curl, 0.0)
+
+    # R6: Colli Penalty
+    # import ipdb ; ipdb.set_trace()
+    r_colli = torch.where(states["collision"], 1.0, 0.0)
+
+    # R7: Velocity Regularization/Penalty
+    actionreg = states["actionreg"]
+    r_actionreg = torch.sum(actionreg**2, dim=-1)
+
+    w_hand_obj = reward_settings["w_hand_obj"]
+    w_obj_goal = reward_settings["w_obj_goal"]
+    w_obj_drag = reward_settings["w_obj_drag"]
+    w_lift = reward_settings["w_lift"]
+    w_curl = reward_settings["w_curl"]
+    w_colli = reward_settings["w_colli"]
+    w_actionreg = reward_settings["w_actionreg"]
+
+    r_total = w_hand_obj*r_hand_obj + w_obj_goal*r_obj_goal + \
+              w_obj_drag*r_obj_drag + w_lift*r_lift + w_curl*r_curl + \
+              w_colli*r_colli + w_actionreg*r_actionreg
+
+    rewards = {
+        "r_hand_obj": w_hand_obj*r_hand_obj,
+        "r_lift": w_lift*r_lift,
+        "r_obj_goal": w_obj_goal*r_obj_goal,
+        "r_obj_drag": w_obj_drag*r_obj_drag,
+        "r_curl": w_curl*r_curl,
+        "r_colli": w_colli*r_colli,
+        "r_actionreg": w_actionreg*r_actionreg,
+        "r_total": r_total,
+        "d_hand_obj": d_hand_obj,
+        "d_lift": object_height,
+        "d_eef_point_goal": d_eef_point_goal,
+        "d_obj_drag": d_obj_drag,
+    }
+
+    return rewards
+
+
+@hydra.main(config_name="config", config_path="../cfg/")
+def launch_test(cfg: DictConfig):
+    np.random.seed(0)
+    torch.manual_seed(0)
+    cfg_dict = omegaconf_to_dict(cfg)
+    cfg_task = cfg_dict["task"]
+    rl_device = cfg_dict["rl_device"]
+    sim_device = cfg_dict["sim_device"]
+    headless = cfg_dict["headless"]
+    graphics_device_id = 0
+    virtual_screen_capture = False
+    force_render = False
+    env = FrankaLEAPMobilePickTopFull(cfg_task, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render)
+    env.reset()
+
+    for i in tqdm(range(1000)):
+        t1 = time.time()
+        env.reset_idx()
+        # env.set_robot_joint_state(env.canonical_joint_config)
+        # env.set_robot_joint_state(env.canonical_grasp_config)
+        env.step_sim_multi(1, False)
+        env.compute_observations()
+
+        # test fk, ik # need to set eef to panda_link7, otherwise will have offset
+        ee_pos = env.get_ee_from_joint(env.states['q'][:, :7])
+        fk_pos_err = torch.any((ee_pos[:, :3] - env.states['eef_pos']) > 1e-4)
+        fk_ori_err1 = (ee_pos[:, 3:] - env.states['eef_quat']) > 1e-4
+        fk_ori_err2 = (ee_pos[:, 3:] + env.states['eef_quat']) > 1e-4
+        fk_ori_err = torch.any(fk_ori_err1 & fk_ori_err2)
+        print(f"FK pos error: {fk_pos_err}, FK ori error: {fk_ori_err}")
+
+        q_config = env.get_joint_from_ee(ee_pos)
+        ee_pos_resolve = env.get_ee_from_joint(q_config)
+        ik_pos_err = torch.any((ee_pos_resolve[:, :3] - env.states['eef_pos']) > 1e-4)
+        ik_quat_err1 = (ee_pos_resolve[:, 3:] - env.states['eef_quat']) > 1e-4
+        ik_quat_err2 = (ee_pos_resolve[:, 3:] + env.states['eef_quat']) > 1e-4
+        ik_quat_err = torch.any(ik_quat_err1 & ik_quat_err2)
+        print(f"IK pos error: {ik_pos_err}, IK ori error: {ik_quat_err}")
+
+        import ipdb ; ipdb.set_trace()
+        t2 = time.time()
+        print(f"Reset time: {t2 - t1}")
+        env.render()
+
+
+if __name__ == "__main__":
+    launch_test()
