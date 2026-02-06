@@ -97,11 +97,11 @@ class FrankaLEAPMobilePickTableMulti(FrankaLEAPMobile):
         self.mobile_y_offset_range = self.mobile_obstacles_cfg["y_offset_range"]
 
     def _setup_fabric_switching_target(self):
-        self.switching_target_pos = self.box_pos.clone()
-        self.switching_target_pos[:, 2] += self.box_dims[:, 2]
+        self.switching_target_pos = self._object_state[:, :3].clone()
         self.switching_target_pos += self.switch_pos_offset
+        self.switching_target_pos[:, 2] += self.mesh_aabb_extents[:, 2] / 2
         rot_local_x_180 = torch.tensor([[1.0, 0.0, 0.0, 0.0]]*self.num_envs, device=self.device)  # 180 degrees around local x-axis
-        self.switching_target_quat = quat_mul(self.box_quats.clone(), rot_local_x_180) # default hand orientation is facing up, so need to rotate 180
+        self.switching_target_quat = rot_local_x_180 # default hand orientation is facing up, so need to rotate 180
 
     def _create_envs(self, spacing, num_per_row):
         """
@@ -627,6 +627,13 @@ class FrankaLEAPMobilePickTableMulti(FrankaLEAPMobile):
         box_to_eef_rot_6d = matrix_to_rotation_6d(box_to_eef_rot_mat)
 
         lift_5cm = self.states["object_center_pos"][:, 2] - self._object_center_init_state[:, 2] > 0.05
+
+        self.obj_pos_target[~lift_5cm, :2] = self.states["object_center_pos"][~lift_5cm, :2]  # x, y
+        self.obj_pos_target[:, 2] = self.table_surface_height + self.reward_settings['target_lift_dis']
+
+        self.switching_target_pos = self.states['object_center_pos'].clone()
+        self.switching_target_pos += self.switch_pos_offset
+
         self.states.update({
             # Box region
             "box_to_eef_pos": self.box_pos - self._eef_state[:, :3],
@@ -812,7 +819,7 @@ def launch_test(cfg: DictConfig):
     graphics_device_id = 0
     virtual_screen_capture = False
     force_render = False
-    env = FrankaLEAPMobilePickTopFull(cfg_task, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render)
+    env = FrankaLEAPMobilePickTableMulti(cfg_task, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render)
     env.reset()
 
     for i in tqdm(range(1000)):
