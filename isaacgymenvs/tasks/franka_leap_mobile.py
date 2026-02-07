@@ -229,6 +229,12 @@ class FrankaLEAPMobile(VecTask):
         quad_a = (1 - quad_c) / ( (tele_n2 - quad_b)**2 )
         self.teleport_probs[tele_n1:] = quad_a*(indexing + 1 - quad_b)**2 + quad_c
         self.teleport_buf = torch.zeros((self.num_envs,), dtype=torch.int, device=self.device)
+        # Codex
+        # Latched until consumed by distillation logic, so resets across chunked steps are preserved.
+        self.object_reset_mask = torch.zeros((self.num_envs,), dtype=torch.bool, device=self.device)
+        # Codex
+        # Pending resets are promoted after one post-physics pass so downstream logic reads post-reset state.
+        self.object_reset_pending_mask = torch.zeros((self.num_envs,), dtype=torch.bool, device=self.device)
 
     def _build_joint_mapping(self):
         env_ptr = self.envs[0]
@@ -1549,6 +1555,10 @@ class FrankaLEAPMobile(VecTask):
 
             env_ids = torch.unique(torch.cat([env_ids, apply_teleport_env_ids], dim=0))
 
+        # Codex
+        if env_ids.numel() > 0:
+            self.object_reset_pending_mask[env_ids] = True
+
         # Initialize buffer to hold sampled values
         num_resets = len(env_ids)
         sampled_object_state = torch.zeros(num_resets, 13, device=self.device)
@@ -1600,6 +1610,12 @@ class FrankaLEAPMobile(VecTask):
             self._apply_object_wrench()
 
     def post_physics_step(self):
+        # Codex
+        # Promote pending reset events one sim step later, matching when set_*_tensor_indexed changes are observed.
+        if torch.any(self.object_reset_pending_mask):
+            self.object_reset_mask |= self.object_reset_pending_mask
+            self.object_reset_pending_mask[:] = False
+
         self.progress_buf += 1
         self.teleport_buf += 1
         self.teleport_buf = self.teleport_buf % self.object_teleport_args['n2']
