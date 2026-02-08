@@ -313,13 +313,54 @@ class DaggerMobile:
         # )
 
         if "local_pcd_t" in self.pcd_encoders_keys:
+            # Codex
+            num_points = self.cfg.model.pcd_encoders_cfg["local_pcd_t"]["num_points"] # [num cylindrical points, num spherical eef points, num spherical aux points]
+            local_ranges = self.local_pcd_range
+            local_eef_spherical_range = local_ranges[1]
+            local_aux_spherical_range = local_ranges[2]
+
             # get full pcd in eef frame (only xyz shifted, not rotated)
             eef_pos = self.env.states['eef_pos'] # (num_envs, 3)
             full_pcd_shifted = obs['full_pcd_t'] - eef_pos.unsqueeze(1) # (num_envs, N, 3)
-            num_points = self.cfg.model.pcd_encoders_cfg["local_pcd_t"]["num_points"][1]
-            spherical_local_pcd_t, spherical_crop_logs = crop_local_pcd(full_pcd_shifted, self.local_pcd_range[1], num_points, is_cylindrical=False) # (num_envs, num_local_points, 3)
+            eef_spherical_local_pcd_t, eef_spherical_crop_logs = crop_local_pcd(full_pcd_shifted, local_eef_spherical_range, num_points[1], is_cylindrical=False) # (num_envs, num_local_points, 3)
             # local eef pcd in global frame
-            obs["local_eef_pcd_t"] = spherical_local_pcd_t + eef_pos.unsqueeze(1) # back to global frame for now, will be converted to franka base frame later
+            obs["local_eef_pcd_t"] = eef_spherical_local_pcd_t + eef_pos.unsqueeze(1) # back to global frame for now, will be converted to franka base frame later
+
+            # Codex: aux-centered local pcd in global frame
+            aux_crop_origin = eef_pos
+            if "aux_object_state" in self.state_encoders_keys:
+                noisy_object_center_pos = self.env.states["object_center_pos"].clone()
+                # add noise (-0.05m ~ 0.05m)
+                noisy_object_center_pos = noisy_object_center_pos + 0.1 * ( torch.rand(self.env.num_envs, 3, device=self.device) - 0.5 )
+                if self.total_steps < self.aux_switch_steps:
+                    aux_crop_origin = noisy_object_center_pos
+                else:
+                    aux_crop_origin = self.aux_buffer.clone()
+                    if aux_crop_origin.ndim == 3:
+                        aux_crop_origin = aux_crop_origin[:, 0, :]
+                    if hasattr(self.env, "object_reset_mask") and torch.any(self.env.object_reset_mask):
+                        aux_crop_origin[self.env.object_reset_mask] = noisy_object_center_pos[self.env.object_reset_mask]
+            aux_full_pcd_shifted = obs['full_pcd_t'] - aux_crop_origin.unsqueeze(1) # (num_envs, N, 3)
+            aux_spherical_local_pcd_t, aux_spherical_crop_logs = crop_local_pcd(aux_full_pcd_shifted, local_aux_spherical_range, num_points[2], is_cylindrical=False) # (num_envs, num_local_points, 3)
+            obs["local_aux_pcd_t"] = aux_spherical_local_pcd_t + aux_crop_origin.unsqueeze(1)
+
+        # env_id = self.env.viser_visualizer.env_id
+        # self.env.viser_visualizer.update_point_cloud(
+        #     point_cloud_type="rendered_points",
+        #     point_cloud=obs['full_pcd_t'][env_id].cpu().numpy()
+        # )
+        # self.env.viser_visualizer.update_point_cloud(
+        #     point_cloud_type="hand_pcd_t",
+        #     point_cloud=obs["local_eef_pcd_t"][env_id].cpu().numpy()
+        # )
+        # self.env.viser_visualizer.update_point_cloud(
+        #     point_cloud_type="seg_static_obsacles_t0",
+        #     point_cloud=obs["local_aux_pcd_t"][env_id].cpu().numpy()
+        # )
+        # self.env.viser_visualizer.update_point_cloud(
+        #     point_cloud_type="obj_point_t",
+        #     point_cloud=aux_crop_origin[env_id].reshape(1, 3).cpu().numpy()
+        # )
 
         # convert all pcd to franka base frame
         for key in obs.keys():
@@ -370,16 +411,23 @@ class DaggerMobile:
                 obs_student["full_pcd_t"] = downsample_pcd_batched(obs["full_pcd_t"], num_points_full_pcd_t)
 
         if "local_pcd_t" in self.pcd_encoders_keys:
-            num_points = self.cfg.model.pcd_encoders_cfg["local_pcd_t"]["num_points"] # [num cylindrical points, num spherical eef points]
+            # Codex
+            num_points = self.cfg.model.pcd_encoders_cfg["local_pcd_t"]["num_points"] # [num cylindrical points, num spherical eef points, num spherical aux points]
             cylindrical_local_pcd_t, cylindrical_crop_logs = crop_local_pcd(obs['full_pcd_t'], self.local_pcd_range[0], num_points[0], is_cylindrical=True) # (num_envs, num_local_points, 3)
-            obs_student["local_pcd_t"] = torch.cat([cylindrical_local_pcd_t, obs["local_eef_pcd_t"]], dim=1)
+            obs_student["local_pcd_t"] = torch.cat([cylindrical_local_pcd_t, obs["local_eef_pcd_t"], obs["local_aux_pcd_t"]], dim=1)
 
             if self.use_wandb:
                 wandb_logs.update(cylindrical_crop_logs)
-                wandb_logs.update(spherical_crop_logs)
+                wandb_logs.update(eef_spherical_crop_logs)
+                wandb_logs.update({
+                    # Codex
+                    "local_spherical_crop_aux/avg_num_valid_points": aux_spherical_crop_logs["local_spherical_crop/avg_num_valid_points"],
+                    # Codex
+                    "local_spherical_crop_aux/min_num_valid_points": aux_spherical_crop_logs["local_spherical_crop/min_num_valid_points"],
+                })
 
         elif "local_scene_pcd_t" in self.pcd_encoders_keys: # TODO: this is kinda outdated
-            obs_student["local_scene_pcd_t"], crop_logs = crop_local_pcd(obs["full_scene_pcd_t"], self.local_pcd_range, self.cfg.model.pcd_encoders_cfg["local_pcd_t"]["num_points"], is_cylindrical=True)
+            obs_student["local_scene_pcd_t"], crop_logs = crop_local_pcd(obs["full_scene_pcd_t"], self.local_pcd_range[0], self.cfg.model.pcd_encoders_cfg["local_pcd_t"]["num_points"][0], is_cylindrical=True)
             if self.use_wandb:
                 wandb_logs.update(crop_logs)
 
@@ -472,7 +520,8 @@ class DaggerMobile:
             if "aux_object_state" in self.state_encoders_keys:
                 # Codex
                 noisy_object_center_pos = self._get_object_center_pos_in_base_frame()
-                noisy_object_center_pos = noisy_object_center_pos + 0.05 * torch.rand(self.env.num_envs, 3, device=self.device)
+                # add noise (-0.05m ~ 0.05m)
+                noisy_object_center_pos = noisy_object_center_pos + 0.1 * ( torch.rand(self.env.num_envs, 3, device=self.device) - 0.5 )
 
                 if self.total_steps < self.aux_switch_steps:
                     obs_input_a0["aux_object_state"] = noisy_object_center_pos
