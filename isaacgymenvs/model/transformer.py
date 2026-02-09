@@ -146,6 +146,7 @@ class PCDTransformer(BaseModel):
         # update config for auxiliary object state prediction
         self.aux_prediction = (aux_weight > 0)
         self.aux_weight = aux_weight
+        self.aux_memory_allowlist = ["local_pcd_t", "aux_object_state"]
 
         # Type embeddings and encodersfor different modalities
         self.type_embeddings = nn.ParameterDict()
@@ -161,7 +162,7 @@ class PCDTransformer(BaseModel):
 
         # Query tokens
         if self.aux_prediction:
-            self.query_tokens = nn.Parameter(nn.init.xavier_uniform_(torch.zeros(chunk_size+1, hidden_dim)))
+            self.query_tokens = nn.Parameter(nn.init.xavier_uniform_(torch.zeros(chunk_size+1, hidden_dim))) # assume aux first, then aciton tokens
         else:
             self.query_tokens = nn.Parameter(nn.init.xavier_uniform_(torch.zeros(chunk_size, hidden_dim)))
 
@@ -222,22 +223,66 @@ class PCDTransformer(BaseModel):
         type_emb = self.type_embeddings[token_type].expand(B, tokens.shape[1], -1)
         return torch.cat([tokens, type_emb], dim=-1)
 
+    def _build_decoder_masks(self, query_tokens, token_ranges):
+        num_queries = query_tokens.shape[1]
+        num_memory_tokens = 0
+        for token_slice in token_ranges.values():
+            num_memory_tokens = max(num_memory_tokens, token_slice.stop)
+
+        tgt_mask = torch.zeros((num_queries, num_queries), dtype=torch.bool, device=query_tokens.device)
+        memory_mask = torch.zeros((num_queries, num_memory_tokens), dtype=torch.bool, device=query_tokens.device)
+
+        # Aux query is index 0; action queries are index [1:].
+        # For cross-attention, allow aux query to read only from the allowlist.
+        memory_mask[0, :] = True
+        found_allowed = False
+        for key in self.aux_memory_allowlist:
+            if key in token_ranges:
+                memory_mask[0, token_ranges[key]] = False
+                found_allowed = True
+
+        if not found_allowed:
+            raise ValueError(
+                f"None of aux_memory_allowlist keys were found in encoder tokens: {self.aux_memory_allowlist}"
+            )
+
+        # For decoder self-attention, block aux query from reading action queries.
+        if num_queries > 1:
+            tgt_mask[0, 1:] = True
+
+        return tgt_mask, memory_mask
+
     def forward(self, obs, target=None, action_chunk_idx=None):
         # Get inputs
         obs_dict = copy.deepcopy(obs)
         B = obs_dict["q_hand"].shape[0]
 
         obs_tokens = []
+        token_ranges = {}
+        token_start_idx = 0
+
         for key in self.encoders.keys():
             tokens = self.encoders[key](obs_dict[key])
             if len(tokens.shape) == 2:
                 tokens = tokens.unsqueeze(1)
-            obs_tokens.append(self._add_type_embeddings(tokens, key))
+            typed_tokens = self._add_type_embeddings(tokens, key)
+            obs_tokens.append(typed_tokens)
+            token_ranges[key] = slice(token_start_idx, token_start_idx + typed_tokens.shape[1])
+            token_start_idx += typed_tokens.shape[1]
         obs_tokens = torch.cat(obs_tokens, dim=1)  # (B, N, H)
 
         memory = self.encoder(obs_tokens)  # (B, N, H)
         query_tokens = self.query_tokens.expand(B, -1, -1)  # (B, chunk_size/C+1, H)
-        output = self.decoder(query_tokens, memory)  # (B, chunk_size/C+1, H)
+        if self.aux_prediction:
+            tgt_mask, memory_mask = self._build_decoder_masks(query_tokens, token_ranges)
+            output = self.decoder(
+                query_tokens,
+                memory,
+                tgt_mask=tgt_mask,
+                memory_mask=memory_mask,
+            )  # (B, chunk_size/C+1, H)
+        else:
+            output = self.decoder(query_tokens, memory)  # (B, chunk_size/C+1, H)
 
         pred = {}
         if self.aux_prediction:
