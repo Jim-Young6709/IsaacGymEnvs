@@ -11,7 +11,7 @@ from isaacgymenvs.inference.inference_utils import *
 
 TRANSFORMER_CONFIGS = {
     "seed": 42,
-    "ckpt_path": "dagger_ckpts/grogu_ckpts/Feb2_wbc_table_aux_expNov24_8x512.pt",
+    "ckpt_path": "dagger_ckpts/grogu_ckpts/Feb9_wbc_table_aux_1024_0_1024_expJan22.pt",
 }
 
 
@@ -190,13 +190,47 @@ class WBCPolicyTransformer:
         """
 
         if "local_pcd_t" in self.ckpt_cfg["model"]["pcd_encoders_cfg"]:
-            num_points = self.ckpt_cfg["model"]["pcd_encoders_cfg"]["local_pcd_t"]["num_points"] # [num cylindrical points, num spherical eef points]
-            cylindrical_local_pcd_t, cylindrical_crop_logs = crop_local_pcd(obs_dict['full_pcd_frankabase_frame_t'], self.local_pcd_range[0], num_points[0], is_cylindrical=True) # (num_envs, num_local_points, 3)
-            spherical_local_pcd_t, spherical_crop_logs = crop_local_pcd(obs_dict['full_pcd_frankabase_frame_t'] - obs_dict['eef_xyz_frankabase_frame_t'], \
-                    self.local_pcd_range[1], num_points[1], is_cylindrical=False) # (num_envs, num_local_points, 3)
-            spherical_local_pcd_t = spherical_local_pcd_t + obs_dict['eef_xyz_frankabase_frame_t']
-            obs_dict["local_pcd_t"] = torch.cat([cylindrical_local_pcd_t, spherical_local_pcd_t], dim=1)
+            # Codex
+            num_points = self.ckpt_cfg["model"]["pcd_encoders_cfg"]["local_pcd_t"]["num_points"] # [num cylindrical points, num spherical eef points, num spherical aux points]
+            num_cyl = int(num_points[0])
+            num_eef = int(num_points[1]) if len(num_points) > 1 else 0
+            num_aux = int(num_points[2]) if len(num_points) > 2 else 0
+            local_ranges = self.local_pcd_range
+            local_cyl_range = float(local_ranges[0])
+            local_eef_range = float(local_ranges[1]) if len(local_ranges) > 1 else float(local_ranges[0])
+            local_aux_range = float(local_ranges[2]) if len(local_ranges) > 2 else local_eef_range
 
+            cylindrical_local_pcd_t, _ = crop_local_pcd(
+                obs_dict['full_pcd_frankabase_frame_t'],
+                local_cyl_range,
+                num_cyl,
+                is_cylindrical=True,
+            ) # (num_envs, num_local_points, 3)
+            spherical_local_pcd_t, _ = crop_local_pcd(
+                obs_dict['full_pcd_frankabase_frame_t'] - obs_dict['eef_xyz_frankabase_frame_t'],
+                local_eef_range,
+                num_eef,
+                is_cylindrical=False,
+            ) # (num_envs, num_local_points, 3)
+            spherical_local_pcd_t = spherical_local_pcd_t + obs_dict['eef_xyz_frankabase_frame_t']
+
+            local_pcd_parts = [cylindrical_local_pcd_t, spherical_local_pcd_t]
+
+            # Codex
+            if num_aux > 0 and self.has_aux:
+                aux_origin = obs_dict["aux_object_state"]
+                aux_spherical_local_pcd_t, _ = crop_local_pcd(
+                    obs_dict['full_pcd_frankabase_frame_t'] - aux_origin,
+                    local_aux_range,
+                    num_aux,
+                    is_cylindrical=False,
+                ) # (num_envs, num_local_points, 3)
+                aux_spherical_local_pcd_t = aux_spherical_local_pcd_t + aux_origin
+                local_pcd_parts.append(aux_spherical_local_pcd_t)
+
+            obs_dict["local_pcd_t"] = torch.cat(local_pcd_parts, dim=1)
+
+        aux_pred = None
         with torch.no_grad():
             self.model.eval()
             output = self.model(obs_dict)
@@ -219,6 +253,7 @@ class WBCPolicyTransformer:
             full_pcd_frankabase_frame_t (torch.Tensor): (N, 3), N should be larger than num_local_points
             q_hand (torch.Tensor): (16,)
             eef_abs_pose (torch.Tensor): (7,) xyz + xyzw
+            aux_inputs (torch.Tensor): (3,) optional auxiliary inputs, currently set to object center xyz position
         Returns:
             step_actions (torch.Tensor): (7+16,)
         """
