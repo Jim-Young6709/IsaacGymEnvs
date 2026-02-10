@@ -189,7 +189,12 @@ class DaggerMobile:
             )
 
         # aux
-        self.aux_enable = "aux_object_state" in self.state_encoders_keys
+        aux_weight = float(self.cfg.model.get("aux_weight", 0.0))
+        self.aux_enable = ("aux_object_state" in self.state_encoders_keys) and (aux_weight > 0.0)
+        self.aux_prediction_mode = str(self.cfg.model.get("aux_prediction_mode", "absolute")).lower()
+        self.aux_delta_scale = float(self.cfg.model.get("aux_delta_scale", 0.01))
+        if self.aux_prediction_mode not in ["absolute", "delta"]:
+            raise ValueError(f"aux_prediction_mode must be 'absolute' or 'delta', got {self.aux_prediction_mode}")
         self.aux_switch_steps = 30000
         self.aux_buffer = torch.zeros(self.env.num_envs, 1, 3, device=self.device)
 
@@ -332,7 +337,7 @@ class DaggerMobile:
                 noisy_object_center_pos = self.env.states["object_center_pos"].clone()
                 # add noise (-0.05m ~ 0.05m)
                 noisy_object_center_pos = noisy_object_center_pos + 0.1 * ( torch.rand(self.env.num_envs, 3, device=self.device) - 0.5 )
-                if self.total_steps < self.aux_switch_steps:
+                if (not self.aux_enable) or (self.total_steps < self.aux_switch_steps):
                     aux_crop_origin = noisy_object_center_pos
                 else:
                     aux_crop_origin = self.aux_buffer.clone()
@@ -456,6 +461,25 @@ class DaggerMobile:
         point_base_frame = torch.bmm(point_shifted, rot_global2base) # (num_envs, N, 3)
         return point_base_frame[:, 0, :] # (num_envs, 3)
 
+    def _aux_to_2d(self, aux_tensor):
+        if aux_tensor.ndim == 3:
+            return aux_tensor[:, 0, :]
+        return aux_tensor
+
+    def _decode_aux_prediction(self, aux_pred, prev_abs_aux):
+        prev_abs_aux_2d = self._aux_to_2d(prev_abs_aux)
+        if self.aux_prediction_mode == "delta":
+            aux_delta = torch.clamp(aux_pred, -1.0, 1.0)
+            return prev_abs_aux_2d.unsqueeze(1) + self.aux_delta_scale * aux_delta
+        return self._aux_to_2d(aux_pred).unsqueeze(1)
+
+    def _get_aux_target(self, object_center_pos, prev_abs_aux):
+        prev_abs_aux_2d = self._aux_to_2d(prev_abs_aux)
+        if self.aux_prediction_mode == "delta":
+            target_delta = (object_center_pos - prev_abs_aux_2d) / self.aux_delta_scale
+            return torch.clamp(target_delta, -1.0, 1.0)
+        return object_center_pos
+
     def train_episode(self):
         count_reaching = torch.zeros(self.env.num_envs, device=self.device).int()
 
@@ -523,7 +547,7 @@ class DaggerMobile:
                 # add noise (-0.05m ~ 0.05m)
                 noisy_object_center_pos = noisy_object_center_pos + 0.1 * ( torch.rand(self.env.num_envs, 3, device=self.device) - 0.5 )
 
-                if self.total_steps < self.aux_switch_steps:
+                if (not self.aux_enable) or (self.total_steps < self.aux_switch_steps):
                     obs_input_a0["aux_object_state"] = noisy_object_center_pos
                 else:
                     aux_object_state = self.aux_buffer.clone()
@@ -552,9 +576,10 @@ class DaggerMobile:
                 output = student_model(obs_input_a0)
                 student_actions_chunk = output["action"]
                 if self.aux_enable:
-                    self.aux_buffer[:] = output["aux"].clone()
+                    self.aux_buffer[:] = self._decode_aux_prediction(output["aux"], obs_input_a0["aux_object_state"])
 
             teacher_preds_buffer = []
+            aux_ref_state = obs_input_a0["aux_object_state"] if self.aux_enable else None
 
             for action_idx in range(self.chunk_size):
                 # get teacher action
@@ -580,9 +605,10 @@ class DaggerMobile:
                 teacher_actions = torch.clamp(teacher_actions, -self.env.clip_actions, self.env.clip_actions)
                 self.env._pre_physics_step_teacher(teacher_actions)
                 teacher_actions = self.env.teacher_actions_converted.clone()
-                if "aux_object_state" in self.state_encoders_keys:
+                if self.aux_enable:
                     object_center_pos = self._get_object_center_pos_in_base_frame()
-                    teacher_pred = torch.cat([teacher_actions, object_center_pos], dim=1) # add aux info, object_xyz_pos
+                    aux_target = self._get_aux_target(object_center_pos, aux_ref_state)
+                    teacher_pred = torch.cat([teacher_actions, aux_target], dim=1) # add aux info, object_xyz_pos
                 else:
                     teacher_pred = teacher_actions
 
@@ -654,7 +680,7 @@ class DaggerMobile:
                     "mem/reserved_GB": mem_reserved_GB,
                 }
                 wandb_logs.update(input_wandb_logs)
-                if "aux_object_state" in self.state_encoders_keys:
+                if self.aux_enable:
                     aux_wandb_logs = {
                         "train/loss_aux": ave_loss["aux"],
                         "train/loss_action": ave_loss["action"],
@@ -714,7 +740,10 @@ class DaggerMobile:
                 point_base_frame = torch.bmm(point_shifted, rot_global2base) # (num_envs, N, 3), bmm is like matmul but specifically made for batches of 2D matrices (input has to be 3D), faster than matmul
                 obs_input_a0["objxyz_t0"] = point_base_frame[:, 0, :] # (num_envs, 3)
             if "aux_object_state" in self.state_encoders_keys:
-                obs_input_a0["aux_object_state"] = self.aux_buffer.clone()
+                if self.aux_enable:
+                    obs_input_a0["aux_object_state"] = self.aux_buffer.clone()
+                else:
+                    obs_input_a0["aux_object_state"] = self._get_object_center_pos_in_base_frame()
 
             # Viser debug utils
             # env_id = self.env.viser_visualizer.env_id
@@ -729,7 +758,7 @@ class DaggerMobile:
                 output = student_model(obs_input_a0)
                 student_actions_chunk = output["action"]
                 if self.aux_enable:
-                    self.aux_buffer[:] = output["aux"].clone()
+                    self.aux_buffer[:] = self._decode_aux_prediction(output["aux"], obs_input_a0["aux_object_state"])
 
             for action_idx in range(self.chunk_size):
                 # # get teacher action

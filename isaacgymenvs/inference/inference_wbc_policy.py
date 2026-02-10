@@ -95,6 +95,10 @@ class WBCPolicyTransformer:
         self.model = instantiate(self.ckpt_cfg["model"]).to(self.device)
         self.model = self.model.to(self.device)
         self.has_aux_input = "aux_object_state" in self.ckpt_cfg.model.state_encoders_cfg
+        self.aux_prediction_mode = str(self.ckpt_cfg.model.get("aux_prediction_mode", "absolute")).lower()
+        self.aux_delta_scale = float(self.ckpt_cfg.model.get("aux_delta_scale", 0.01))
+        if self.aux_prediction_mode not in ["absolute", "delta"]:
+            raise ValueError(f"aux_prediction_mode must be 'absolute' or 'delta', got {self.aux_prediction_mode}")
 
         # remove the DDP ckpt prefix if there are any
         state_dict = checkpoint["model_state_dict"]
@@ -106,6 +110,18 @@ class WBCPolicyTransformer:
                 new_state_dict[k] = v
         self.model.load_state_dict(new_state_dict)
         return checkpoint["train_success_rate_ep"]
+
+    def _aux_to_2d(self, aux_tensor):
+        if aux_tensor.ndim == 3:
+            return aux_tensor[:, 0, :]
+        return aux_tensor
+
+    def _decode_aux_prediction(self, aux_pred, prev_abs_aux):
+        prev_abs_aux_2d = self._aux_to_2d(prev_abs_aux)
+        if self.aux_prediction_mode == "delta":
+            aux_delta = torch.clamp(aux_pred, -1.0, 1.0)
+            return prev_abs_aux_2d.unsqueeze(1) + self.aux_delta_scale * aux_delta
+        return self._aux_to_2d(aux_pred).unsqueeze(1)
 
     def normalize_robot_joints(self, joint_angles: torch.Tensor, robot: bool, delta: bool = False) -> torch.Tensor:
         """
@@ -236,7 +252,7 @@ class WBCPolicyTransformer:
             output = self.model(obs_dict)
             student_actions_chunk = output["action"]
             if self.model.aux_prediction:
-                aux_pred = output["aux"].clone()
+                aux_pred = self._decode_aux_prediction(output["aux"], obs_dict["aux_object_state"])
                 aux_pred = aux_pred[0, 0, :]
 
         student_actions = student_actions_chunk[0, 0, :32] # TODO: this assumes chunk size is 1
