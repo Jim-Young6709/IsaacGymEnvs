@@ -11,7 +11,7 @@ from isaacgymenvs.inference.inference_utils import *
 
 TRANSFORMER_CONFIGS = {
     "seed": 42,
-    "ckpt_path": "dagger_ckpts/grogu_ckpts/Feb9_wbc_table_aux_1024_0_1024_expJan22.pt",
+    "ckpt_path": "dagger_ckpts/grogu_ckpts/Feb9_wbc_tablemulti_aux_1024_0_1024_expJan22.pt",
 }
 
 
