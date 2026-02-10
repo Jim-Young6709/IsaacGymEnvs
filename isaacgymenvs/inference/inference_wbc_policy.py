@@ -80,7 +80,7 @@ class WBCPolicyTransformer:
         q_arm_manip = torch.rand(7, device=self.device)  # In [0, 1)
         q_arm_vision = torch.rand(6, device=self.device)  # In [0, 1)
 
-        if self.has_aux == True:
+        if self.has_aux_input == True:
             aux_inputs = torch.rand(3, device=self.device)
         else:
             aux_inputs = None
@@ -94,7 +94,7 @@ class WBCPolicyTransformer:
         self.ckpt_cfg = checkpoint["cfg"]
         self.model = instantiate(self.ckpt_cfg["model"]).to(self.device)
         self.model = self.model.to(self.device)
-        self.has_aux = "aux_object_state" in self.ckpt_cfg.model.state_encoders_cfg
+        self.has_aux_input = "aux_object_state" in self.ckpt_cfg.model.state_encoders_cfg
 
         # remove the DDP ckpt prefix if there are any
         state_dict = checkpoint["model_state_dict"]
@@ -217,7 +217,7 @@ class WBCPolicyTransformer:
             local_pcd_parts = [cylindrical_local_pcd_t, spherical_local_pcd_t]
 
             # Codex
-            if num_aux > 0 and self.has_aux:
+            if num_aux > 0 and self.has_aux_input:
                 aux_origin = obs_dict["aux_object_state"]
                 aux_spherical_local_pcd_t, _ = crop_local_pcd(
                     obs_dict['full_pcd_frankabase_frame_t'] - aux_origin,
@@ -265,7 +265,7 @@ class WBCPolicyTransformer:
         # (1, N, 3)
         full_pcd_frankabase_frame_t_b = full_pcd_frankabase_frame_t.unsqueeze(0).to(self.device)
         eef_xyz_frankabase_frame_t_b = eef_xyz_frankabase_frame_t.unsqueeze(0).to(self.device)  # (1, 3)
-        if self.has_aux:
+        if self.has_aux_input:
             if aux_inputs is None:
                 aux_inputs_b = torch.rand((1, 3), device=self.device)
             else:
