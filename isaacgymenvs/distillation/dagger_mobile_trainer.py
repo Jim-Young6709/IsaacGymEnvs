@@ -195,7 +195,10 @@ class DaggerMobile:
         self.aux_delta_scale = float(self.cfg.model.get("aux_delta_scale", 0.01))
         if self.aux_prediction_mode not in ["absolute", "delta"]:
             raise ValueError(f"aux_prediction_mode must be 'absolute' or 'delta', got {self.aux_prediction_mode}")
-        self.aux_switch_steps = 30000
+        self.aux_init_only = bool(self.cfg.dagger.get("aux_init_only", False))
+        self.aux_feedback_to_policy = bool(self.cfg.dagger.get("aux_feedback_to_policy", True))
+        self.aux_init_only = self.aux_init_only and (not self.aux_feedback_to_policy) # if not feeding aux feedback to policy, then aux is effectively only used for initialization
+        self.aux_switch_steps = int(self.cfg.dagger.get("aux_feedback_start_steps", 30000))
         self.aux_buffer = torch.zeros(self.env.num_envs, 1, 3, device=self.device)
 
     # teacher loading utils
@@ -337,7 +340,7 @@ class DaggerMobile:
                 noisy_object_center_pos = self.env.states["object_center_pos"].clone()
                 # add noise (-0.05m ~ 0.05m)
                 noisy_object_center_pos = noisy_object_center_pos + 0.1 * ( torch.rand(self.env.num_envs, 3, device=self.device) - 0.5 )
-                if (not self.aux_enable) or (self.total_steps < self.aux_switch_steps):
+                if not self._use_aux_feedback():
                     aux_crop_origin = noisy_object_center_pos
                 else:
                     aux_crop_origin = self.aux_buffer.clone()
@@ -449,8 +452,11 @@ class DaggerMobile:
         return obs_student, wandb_logs
 
     # Codex
-    def _get_object_center_pos_in_base_frame(self):
-        object_center_pos = self.env.states["object_center_pos"].clone()
+    def _get_object_center_pos_in_base_frame(self, use_initial_frame=False):
+        if use_initial_frame:
+            object_center_pos = self.env._object_center_init_state.clone()
+        else:
+            object_center_pos = self.env.states["object_center_pos"].clone()
 
         franka_base_pos = self.env.states['franka_base_pose7'][:, :3] # (num_envs, 3)
         franka_base_quat = self.env.states['franka_base_pose7'][:, 3:] # (num_envs, 4)
@@ -472,6 +478,9 @@ class DaggerMobile:
             aux_delta = torch.clamp(aux_pred, -1.0, 1.0)
             return prev_abs_aux_2d.unsqueeze(1) + self.aux_delta_scale * aux_delta
         return self._aux_to_2d(aux_pred).unsqueeze(1)
+
+    def _use_aux_feedback(self):
+        return self.aux_enable and self.aux_feedback_to_policy and (self.total_steps >= self.aux_switch_steps)
 
     def _get_aux_target(self, object_center_pos, prev_abs_aux):
         prev_abs_aux_2d = self._aux_to_2d(prev_abs_aux)
@@ -543,11 +552,11 @@ class DaggerMobile:
                 obs_input_a0["objxyz_t0"] = point_base_frame[:, 0, :] # (num_envs, 3)
             if "aux_object_state" in self.state_encoders_keys:
                 # Codex
-                noisy_object_center_pos = self._get_object_center_pos_in_base_frame()
+                noisy_object_center_pos = self._get_object_center_pos_in_base_frame(use_initial_frame=self.aux_init_only)
                 # add noise (-0.05m ~ 0.05m)
                 noisy_object_center_pos = noisy_object_center_pos + 0.1 * ( torch.rand(self.env.num_envs, 3, device=self.device) - 0.5 )
 
-                if (not self.aux_enable) or (self.total_steps < self.aux_switch_steps):
+                if not self._use_aux_feedback():
                     obs_input_a0["aux_object_state"] = noisy_object_center_pos
                 else:
                     aux_object_state = self.aux_buffer.clone()
@@ -740,10 +749,10 @@ class DaggerMobile:
                 point_base_frame = torch.bmm(point_shifted, rot_global2base) # (num_envs, N, 3), bmm is like matmul but specifically made for batches of 2D matrices (input has to be 3D), faster than matmul
                 obs_input_a0["objxyz_t0"] = point_base_frame[:, 0, :] # (num_envs, 3)
             if "aux_object_state" in self.state_encoders_keys:
-                if self.aux_enable:
+                if self._use_aux_feedback():
                     obs_input_a0["aux_object_state"] = self.aux_buffer.clone()
                 else:
-                    obs_input_a0["aux_object_state"] = self._get_object_center_pos_in_base_frame()
+                    obs_input_a0["aux_object_state"] = self._get_object_center_pos_in_base_frame(use_initial_frame=self.aux_init_only)
 
             # Viser debug utils
             # env_id = self.env.viser_visualizer.env_id
