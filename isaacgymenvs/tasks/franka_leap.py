@@ -1281,43 +1281,6 @@ class FrankaLEAP(VecTask):
                         {f"visualization/video_env_{env_idx}": wandb.Video(path)},
                         commit=(idx == len(self.video_env_ids) - 1),
                     )
-        # render_step = self.sim_steps % self.video_logging["freq"]
-        # if render_step == 0:
-        #     self.video_ims = []
-
-        # if render_step < self.max_episode_length * 2:
-        #     camera_renders = self.get_camera_render()
-        #     ims = np.array(camera_renders)[:, 0, :, :, :3]
-
-        #     for env_idx in range(ims.shape[0]):
-        #         # Convert to uint8 and correct color format for OpenCV
-        #         img = ims[env_idx].astype(np.uint8).copy()
-                
-        #         # Create a separate overlay image for the semi-transparent rectangle
-        #         overlay = img.copy()
-        #         # Draw grey rectangle on overlay (RGB: 128,128,128)
-        #         cv2.rectangle(overlay, (10, 10), (220, 50), (128, 128, 128), -1)
-        #         # Apply the overlay with transparency (alpha = 0.7)
-        #         alpha = 0.7
-        #         cv2.addWeighted(overlay, alpha, img, 1 - alpha, 0, img)
-        #         # Add black text
-        #         cv2.putText(img, f'Env: {env_idx}  Step: {render_step}', (20, 35),
-        #                 cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 0, 0), 2)
-        #         ims[env_idx] = img
-        #     self.video_ims.append(ims)
-
-        # if render_step == 2*self.max_episode_length - 1:
-        #     render_step_start = self.sim_steps + 1 - self.max_episode_length
-        #     filename = os.path.join(self.video_dir, f"viz_step{render_step_start}.mp4")
-        #     frames = np.asarray(self.video_ims) # (num_frames, num_envs, height, width, channels)
-        #     frames = frames.transpose(1, 0, 2, 3, 4) # (num_envs, num_frames, height, width, channels)
-        #     frames = frames.reshape(-1, frames.shape[2], frames.shape[3], frames.shape[4])  # (num_envs * num_frames, height, width, channels)
-        #     with imageio.get_writer(filename, fps=60, format="ffmpeg") as writer:
-        #         for frame in frames:
-        #             writer.append_data(frame)
-
-        #     if wandb.run is not None:
-        #         wandb.log({"visualization/video": wandb.Video(os.path.join(self.video_dir, f"viz_step{render_step_start}.mp4"))}, commit=True)
 
     # debugging utils
     def step_sim_multi(self, num_steps=1, render_pcd=True):
@@ -1582,6 +1545,7 @@ class FrankaLEAP(VecTask):
         self.mesh_aabb_extents = ...
         self.obj_pos_range = ...
         self.envs = ...
+        self.num_objects = ...
 
     @abstractmethod
     def compute_reward(self):

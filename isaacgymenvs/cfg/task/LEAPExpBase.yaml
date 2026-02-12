@@ -119,6 +119,12 @@ reward:
     target_quat: [0.707, -0.707, 0.0, 0.0]
     matching_dis: 0.2
     curl_reaching_threshold: 0.15
+    success_timeout: 2.0
+    lifting_timeout: 2.0
+
+  # @ray checks where the usage is
+  usage:
+    use_curl: True
 
   exp:
     beta_hand_object: 5.0

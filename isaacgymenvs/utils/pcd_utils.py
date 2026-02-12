@@ -133,7 +133,7 @@ def compute_scene_oracle_pcd(
 
     if len(mesh_position) > 0:
         meshes = [
-            ObjaMesh(pos, scale, quat, obj_id, str(mesh_id), meshes_dir=meshes_dir)
+            ObjaMesh(pos, scale, quat, obj_id, str(int(mesh_id)), meshes_dir=meshes_dir)
             for pos, scale, quat, obj_id, mesh_id in zip(
                 mesh_position,
                 mesh_scale,

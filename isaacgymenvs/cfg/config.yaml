@@ -44,8 +44,8 @@ multi_gpu: False
 wandb_activate: False
 wandb_group: ''
 wandb_name: ${train.params.config.name}
-wandb_entity: 'daedalus2060-carnegie-mellon-university'
-wandb_project: 'dexgym'
+wandb_entity: 'jimyoung6709'
+wandb_project: 'Dex'
 wandb_tags: []
 wandb_logcode_dir: '' 
 

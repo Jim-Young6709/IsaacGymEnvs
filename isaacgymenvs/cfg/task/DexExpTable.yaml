@@ -17,8 +17,6 @@ reward:
     target_lift_dis: 0.1
     target_quat: [1.0, 0.0, 0.0, 0.0]
     curl_reaching_threshold: 0.15
-    success_timeout: 2.0
-    lifting_timeout: 2.0
 
   exp:
     beta_hand_object: 5.0
@@ -34,7 +32,3 @@ reward:
     w_actionreg: -0.001
 
   actionreg_type: "" # "delta_joint_action", "delta_eef_action", "delta_qd"
-
-  # @ray checks where the usage is
-  usage:
-    use_curl: True
