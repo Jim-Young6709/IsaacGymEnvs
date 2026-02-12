@@ -1,9 +1,8 @@
 # Tabletop grasping config for Franka+LEAP environment
-
 defaults:
   - LEAPExpBase
 
-name: FrankaLEAPPickTable
+name: FrankaLEAPPickTableSide
 
 # if given, will override the device setting in gym. 
 env:
@@ -11,11 +10,31 @@ env:
   numStates: 94
   numActions: 22 # delta eef actions 6 (xyz, rpy) + normalized hand joint actions 16
 
+  eef_init:
+    limits_xyz_min: [-0.3, -0.37, -1.0]
+    limits_xyz_max: [0.15, 0.37, 1.0]
+    side_distance: 0.4
+    side_distance_noise: 0.1
+    target_quat_noise_deg: 10
+    dir_y_max: -0.8
+    dir_z_max: 0.75
+    dir_z_min: -0.25
+    dir_candidates_per_env: 5
+    side_mode: both
+    pose_bank_size: 4096 # num of poses per object
+    pose_bank_max_rounds: 10 # max rounds to try to find all valid poses
+
+observation:
+  usage:
+    use_z: False
+    use_xy: False
+
 reward:
   params:
     target_pos: [0.5, 0.0, 0.3]
     target_lift_dis: 0.1
-    target_quat: [1.0, 0.0, 0.0, 0.0]
+    target_quat_right: [-0.7071067811865475, 0.0, 0.0, 0.7071067811865476]
+    target_quat_left: [0.7071067811865475, 0.0, 0.0, 0.7071067811865476]
     curl_reaching_threshold: 0.15
     success_timeout: 2.0
     lifting_timeout: 2.0
@@ -23,12 +42,14 @@ reward:
   exp:
     beta_hand_object: 5.0
     beta_object_goal: 5.0
+    beta_hand_orientation: 5.0
     beta_lift: 0.0 # set this to 0 to use a 0-1 lift reward
     beta_curl: 0.05
 
   weights:
     w_hand_obj: 1.0
     w_obj_goal: 4.0
+    w_hand_orientation: 2.0
     w_lift: 2.0
     w_curl: 0.5
     w_actionreg: -0.001

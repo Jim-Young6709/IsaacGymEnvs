@@ -28,17 +28,18 @@
 
 from .franka_leap import FrankaLEAP
 from .franka_leap_pick_table import FrankaLEAPPickTable
-from .franka_leap_pick_top import FrankaLEAPPickTop
-from .franka_leap_pick_side import FrankaLEAPPickSide
-from .franka_leap_pick_full import FrankaLEAPPickFull
-from .franka_leap_pick_top_full import FrankaLEAPPickTopFull
+from .franka_leap_pick_table_side import FrankaLEAPPickTableSide
+# from .franka_leap_pick_top import FrankaLEAPPickTop
+# from .franka_leap_pick_side import FrankaLEAPPickSide
+# from .franka_leap_pick_full import FrankaLEAPPickFull
+# from .franka_leap_pick_top_full import FrankaLEAPPickTopFull
 
 from .franka_leap_mobile import FrankaLEAPMobile
 from .franka_leap_mobile_pick_table import FrankaLEAPMobilePickTable
-from .franka_leap_mobile_pick_top_full import FrankaLEAPMobilePickTopFull
+# from .franka_leap_mobile_pick_top_full import FrankaLEAPMobilePickTopFull
 
-from .franka_cmd import FrankaCMD
-from .franka_cmd_pick_table import FrankaCMDPickTable
+# from .franka_cmd import FrankaCMD
+# from .franka_cmd_pick_table import FrankaCMDPickTable
 
 
 
@@ -46,13 +47,14 @@ from .franka_cmd_pick_table import FrankaCMDPickTable
 isaacgym_task_map = {
     "FrankaLEAP": FrankaLEAP,
     "FrankaLEAPPickTable": FrankaLEAPPickTable,
-    "FrankaLEAPPickTop": FrankaLEAPPickTop,
-    "FrankaLEAPPickSide": FrankaLEAPPickSide,
-    "FrankaLEAPPickFull": FrankaLEAPPickFull,
-    "FrankaLEAPPickTopFull": FrankaLEAPPickTopFull,
+    "FrankaLEAPPickTableSide": FrankaLEAPPickTableSide,
+    # "FrankaLEAPPickTop": FrankaLEAPPickTop,
+    # "FrankaLEAPPickSide": FrankaLEAPPickSide,
+    # "FrankaLEAPPickFull": FrankaLEAPPickFull,
+    # "FrankaLEAPPickTopFull": FrankaLEAPPickTopFull,
     "FrankaLEAPMobile": FrankaLEAPMobile,
     "FrankaLEAPMobilePickTable": FrankaLEAPMobilePickTable,
-    "FrankaLEAPMobilePickTopFull": FrankaLEAPMobilePickTopFull,
-    "FrankaCMD": FrankaCMD,
-    "FrankaCMDPickTable": FrankaCMDPickTable,
+    # "FrankaLEAPMobilePickTopFull": FrankaLEAPMobilePickTopFull,
+    # "FrankaCMD": FrankaCMD,
+    # "FrankaCMDPickTable": FrankaCMDPickTable,
 }

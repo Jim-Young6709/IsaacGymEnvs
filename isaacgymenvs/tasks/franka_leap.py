@@ -42,12 +42,28 @@ class FrankaLEAP(VecTask):
         self.eef_actions = True if self.cfg["env"]["numActions"] == 22 else False
         self.aggregate_mode = self.cfg["env"]["aggregateMode"]
         self.mesh_args = self.cfg["env"]["mesh"]
+        self.object_center_z_scale = float(self.cfg["env"]["object_settings"]["object_center_z_scale"])
         self.object_wrench_args = self.cfg["env"]["object_wrench"]
         self.eef_init = self.cfg["env"]["eef_init"]
         self.distractor_settings = self.cfg["env"]["distractor_settings"]
         self.video_logging = self.cfg["env"]["video_logging"]
         self.video_dir = os.path.join('videos', self.cfg["name"] + '_{date:%d-%H-%M-%S}'.format(date=datetime.now()))
         os.makedirs(self.video_dir, exist_ok=True)
+        
+        self.log_per_object_success = self.cfg["env"]["log_per_object_success"]["capture"]
+        self.log_per_object_success_freq = int(self.cfg["env"]["log_per_object_success"]["freq"])
+        run_name = None
+        if wandb.run is not None and wandb.run.name is not None:
+            run_name = str(wandb.run.name)
+        elif "experiment" in self.cfg:
+            run_name = str(self.cfg["experiment"])
+        else:
+            run_name = "run"
+        run_stamp = time.strftime("%m-%d-%H-%M-%S")
+        run_dir = f"{run_name}_{run_stamp}"
+        self.log_per_object_success_dir = os.path.join("logs", "per_object_success", run_dir)
+        self.log_per_object_success_artifact = f"per_object_success_{run_dir}"
+        os.makedirs(self.log_per_object_success_dir, exist_ok=True)
 
         self.randomize = self.cfg["task"]["randomize"]
         self.randomization_params = self.cfg["task"]["randomization_params"]
@@ -128,8 +144,12 @@ class FrankaLEAP(VecTask):
         self.static_scene_pcd_t0 = None
         self.object_pcd_t0 = None
 
+        # @ray per object success rate logging
+        self.env_object_ids = None
+
     def _post_init_buffers(self):
         if not hasattr(self, 'canonical_joint_config'):
+            # @ray during reset hand is randomized around these joints
             hand_default_1 = [
                 0.5,  0.0,  0.5,  0.5,
                 1.57,  0.0, -0.3,  0.3,
@@ -142,7 +162,7 @@ class FrankaLEAP(VecTask):
                 0.65,  0.0,  0.65,  0.65,
                 0.7,  0.2,  0.7,  0.7,
             ]
-
+            # @ray default 2 is being used
             self.hand_default = ([hand_default_1] + [hand_default_2])[self.cfg['env']['grasp_guide_idx']]
 
             self.canonical_joint_config = torch.tensor(
@@ -155,10 +175,28 @@ class FrankaLEAP(VecTask):
 
         self.delta_joint_actions = torch.zeros((self.num_envs, self.num_robot_dofs), device=self.device, dtype=torch.float) # Current delta actions to be deployed
         self.delta_eef_actions = torch.zeros((self.num_envs, self.num_robot_dofs-1), device=self.device, dtype=torch.float) # Current delta actions to be deployed at the end effector
-        self.success_flags = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device) # 1 if success condition has been achieved at any step, 0 otherwise
+
+        # @ray per step success tracking
         self.success_5cm_per_step = torch.zeros((self.num_envs,), dtype=torch.bool, device=self.device) # success within 5cm threshold
-        self.lifting_flags = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device)
         self.lifting_5cm_per_step = torch.zeros((self.num_envs,), dtype=torch.bool, device=self.device)
+        # @ray instantaneous success tracking, true if condition met at current step
+        self.success_flags_instant = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device) # 1 if success condition has been achieved at any step, 0 otherwise
+        self.lifting_flags_instant = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device)
+        # @ray time-based success tracking, true if condition met for a duration
+        self.success_duration = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device) # number of seconds in success region, resets to 0 if object drops
+        self.lifting_duration = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device) 
+        self.success_long_enough = torch.zeros((self.num_envs,), dtype=torch.bool, device=self.device) # true if success duration > threshold in any part of an episode, note that this does not reset until episode end
+        self.lifting_long_enough = torch.zeros((self.num_envs,), dtype=torch.bool, device=self.device)
+        self.success_flags = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device) # 1 if success condition has been achieved during the episode, 0 otherwise
+        self.lifting_flags = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device)
+
+        # @ray 
+        # per object success rate tracking
+        # need to be post init to get num_objects
+        self.per_object_episode_counts = torch.zeros((self.num_objects,), dtype=torch.int64, device=self.device)
+        self.per_object_success_counts = torch.zeros((self.num_objects,), dtype=torch.int64, device=self.device)
+        self.per_object_episode_counts_interval = torch.zeros((self.num_objects,), dtype=torch.int64, device=self.device)
+        self.per_object_success_counts_interval = torch.zeros((self.num_objects,), dtype=torch.int64, device=self.device)
 
         self.static_scene_pcd_t0 = self.static_pcds.clone()
 
@@ -220,6 +258,22 @@ class FrankaLEAP(VecTask):
             grad_iters=None
         )
         self.ik_solver = IKSolver(ik_config)
+
+        if self.debug_viz:
+            ik_config_debug = IKSolverConfig.load_from_robot_config(
+                robot_cfg,
+                None,
+                rotation_threshold=0.05,
+                position_threshold=0.005,
+                num_seeds=10,
+                self_collision_check=False,
+                self_collision_opt=False,
+                tensor_args=tensor_args,
+                use_cuda_graph=False,
+                regularization=True,
+                grad_iters=None
+            )
+            self.ik_solver_debug = IKSolver(ik_config_debug)
 
     def create_sim(self):
         self.sim_params.up_axis = gymapi.UP_AXIS_Z
@@ -363,20 +417,34 @@ class FrankaLEAP(VecTask):
         # Initialize indices
         self._global_indices = torch.arange(self.num_envs * actor_num, dtype=torch.int32,
                                            device=self.device).view(self.num_envs, -1) # 3 actors, franka, table, table_stand
-
+        
         target_pos = to_torch(self.cfg["reward"]["params"]["target_pos"], device=self.device).unsqueeze(0).repeat(self.num_envs, 1)
         target_lift_dis = to_torch(self.cfg["reward"]["params"]["target_lift_dis"], device=self.device)
-        target_quat = to_torch(self.cfg["reward"]["params"]["target_quat"], device=self.device).unsqueeze(0).repeat(self.num_envs, 1)
-        target_quat_norm = torch.norm(target_quat, dim=1, keepdim=True)  # normalize quaternion
-        target_quat = target_quat / (target_quat_norm + 1e-10)
+
+        # @ray for side picks we need to switch between left and right rot targets
+        has_lr_quat = "target_quat_right" in self.cfg["reward"]["params"] and "target_quat_left" in self.cfg["reward"]["params"]
+        if has_lr_quat:
+            target_quat_right = to_torch(self.cfg["reward"]["params"]["target_quat_right"], device=self.device).unsqueeze(0).repeat(self.num_envs, 1)
+            target_quat_right_norm = torch.norm(target_quat_right, dim=1, keepdim=True)
+            target_quat_right = target_quat_right / (target_quat_right_norm + 1e-10)
+            target_quat_left = to_torch(self.cfg["reward"]["params"]["target_quat_left"], device=self.device).unsqueeze(0).repeat(self.num_envs, 1)
+            target_quat_left_norm = torch.norm(target_quat_left, dim=1, keepdim=True)
+            target_quat_left = target_quat_left / (target_quat_left_norm + 1e-10)
+            target_quat = target_quat_right.clone()
+        else:
+            target_quat = to_torch(self.cfg["reward"]["params"]["target_quat"], device=self.device).unsqueeze(0).repeat(self.num_envs, 1)
+            target_quat_norm = torch.norm(target_quat, dim=1, keepdim=True)  # normalize quaternion
+            target_quat = target_quat / (target_quat_norm + 1e-10)
 
         # finger indexing: 0-3:index ; 4-7:thumb ; 8-11:middle ; 12-15:ring
+        # @ray curl config
         grasp_default_1 = [
             0.65,  0.0,  0.65,  0.65,
             1.57,  0.0,  0.10,  0.40,
             0.65,  0.0,  0.65,  0.65,
             0.65,  0.0,  0.65,  0.65,
         ]
+        # @ray default is 2
         grasp_default_2 = [
             0.95, -0.2,  0.95,  0.95,
             1.0,   1.57, 1.0,   1.14,
@@ -398,8 +466,19 @@ class FrankaLEAP(VecTask):
             "target_lift_dis": target_lift_dis,
             "target_quat": target_quat,
             "target_rot_6d": matrix_to_rotation_6d(quaternion_to_matrix_ig(target_quat)),
+            **(
+                {
+                    "target_quat_right": target_quat_right,
+                    "target_quat_left": target_quat_left,
+                    "target_rot_6d_right": matrix_to_rotation_6d(quaternion_to_matrix_ig(target_quat_right)),
+                    "target_rot_6d_left": matrix_to_rotation_6d(quaternion_to_matrix_ig(target_quat_left)),
+                }
+                if has_lr_quat else {}
+            ),
             "curl_reaching_threshold": to_torch(self.cfg["reward"]["params"]["curl_reaching_threshold"], device=self.device),
-            "object_init_height": self.mesh_aabb_extents[:, 2] / 2 + self.table_surface_height,
+            "success_timeout": to_torch(self.cfg["reward"]["params"]["success_timeout"], device=self.device),
+            "lifting_timeout": to_torch(self.cfg["reward"]["params"]["lifting_timeout"], device=self.device),
+            "object_init_height": self.mesh_aabb_extents[:, 2] * self.object_center_z_scale + self.table_surface_height, # @ray default center is 1/2 z height
             "grasp_finger_dof_pos": self.grasp_finger_dof_pos,
 
             "beta_hand_object": to_torch(self.cfg["reward"]["exp"]["beta_hand_object"], device=self.device),
@@ -412,6 +491,9 @@ class FrankaLEAP(VecTask):
             "w_lift": to_torch(self.cfg["reward"]["weights"]["w_lift"], device=self.device),
             "w_curl": to_torch(self.cfg["reward"]["weights"]["w_curl"], device=self.device),
             "w_actionreg": to_torch(self.cfg["reward"]["weights"]["w_actionreg"], device=self.device),
+
+            # @ray what rewards to use, for running ablations
+            "use_curl": to_torch(self.cfg["reward"]["usage"]["use_curl"], device=self.device),
         }
 
     def _create_cube(self, pos, size, quat=[0, 0, 0, 1]):
@@ -521,7 +603,7 @@ class FrankaLEAP(VecTask):
         #     f.write(urdf_str)
         return urdf_rel, mesh_dir
 
-    def _create_mesh(self, mesh_path, pos, scale, quat=[0, 0, 0, 1], fix_base_link=True):
+    def _create_mesh(self, mesh_path, pos, scale, quat=[0, 0, 0, 1], fix_base_link=True, obj_str2int=None):
         """
         Args:
             position (np.ndarray): (3,) xyz position of the mesh center
@@ -535,19 +617,46 @@ class FrankaLEAP(VecTask):
         mesh_scale = [scale, scale, scale]
         urdf_path, asset_root = self._create_mesh_urdf(mesh_path, scale=mesh_scale)
 
-        # get object mapping id
-        obj_mapping_path = os.path.join(self.mesh_args["mesh_dir"], "type_mapping.json")
-        obj_str2int = {}
-        try:
-            with open(obj_mapping_path, "r") as f:
-                obj_str2int = json.load(f)
-            if not obj_str2int:
-                raise ValueError("Object type mapping is empty")
-        except FileNotFoundError:
-            print("Object mapping file not found.")
+        # @ray don't get object mapping id every time, we do it in _create_all_meshes instead
+        # # get object mapping id
+        # obj_mapping_path = os.path.join(self.mesh_args["mesh_dir"], "type_mapping.json")
+        # obj_str2int = {}
+        # try:
+        #     with open(obj_mapping_path, "r") as f:
+        #         obj_str2int = json.load(f)
+        #     if not obj_str2int:
+        #         raise ValueError("Object type mapping is empty")
+        # except FileNotFoundError:
+        #     print("Object mapping file not found.")
 
-        asset_obj_id = int(obj_str2int[Path(mesh_path).parts[-2]])
-        asset_mesh_id = int(Path(mesh_path).parts[-1].split(".")[-2])
+        # @ray new loading with backwards
+        # old format
+        # ├── apple
+        # │   ├── 1.glb
+        # │   ├── 1.npy
+        # │   ├── 1.obj
+        # │   └── 1.urdf
+        # └── type_mapping.json
+        # new format
+        # ├── apple_1
+        # │   ├── apple_1.glb
+        # │   ├── apple_1.json
+        # │   ├── apple_1.npy
+        # │   ├── apple_1.obj
+        # │   └── apple_1.urdf
+        # └── type_mapping.json
+        # object specs including id is in apple_1.json
+        asset_specs_path = Path(mesh_path).with_suffix(".json")
+        # new format
+        if asset_specs_path.exists():
+            # with open(asset_specs_path, 'r') as f:
+            #     asset_specs = json.load(f)
+            asset_mesh_id = Path(mesh_path).parts[-2]
+            asset_obj_id = int(obj_str2int[asset_mesh_id])
+        # old format
+        else:
+            asset_obj_id = int(obj_str2int[Path(mesh_path).parts[-2]])
+            asset_mesh_id = int(Path(mesh_path).parts[-1].split(".")[-2])
 
         # Create mesh asset
         opts = gymapi.AssetOptions()
@@ -609,12 +718,22 @@ class FrankaLEAP(VecTask):
                 if obj != "type_mapping.json"
             ]
 
-        mesh_files = [
-            os.path.join(mesh_dir, obj, file)
-            for obj in object_list
-            for file in os.listdir(os.path.join(mesh_dir, obj))
-            if file.endswith(".obj")
-        ]
+        obj_mapping_path = os.path.join(mesh_dir, "type_mapping.json")
+        with open(obj_mapping_path, "r") as f:
+            obj_str2int = json.load(f)
+        object_list = sorted(
+            object_list,
+            key=lambda obj: (0, obj_str2int[obj]) if obj in obj_str2int else (1, obj),
+        )
+
+        mesh_files = []
+        for obj in object_list:
+            obj_dir = os.path.join(mesh_dir, obj)
+            if not os.path.isdir(obj_dir):
+                continue
+            for file in sorted(os.listdir(obj_dir)):
+                if file.endswith(".obj"):
+                    mesh_files.append(os.path.join(obj_dir, file))
 
         meshes = []
         for mesh_file_path in tqdm(mesh_files, desc="Preparing Meshes"):
@@ -626,7 +745,7 @@ class FrankaLEAP(VecTask):
             mesh_pos = np.random.uniform(pos_range[0], pos_range[1])
             mesh_quat = R.random().as_quat()
             asset, start_pose, scale, asset_obj_id, asset_mesh_id = self._create_mesh(
-                mesh_file_path, mesh_pos, mesh_scale, mesh_quat, fix_base_link
+                mesh_file_path, mesh_pos, mesh_scale, mesh_quat, fix_base_link, obj_str2int
             )
             meshes.append((asset, start_pose, scale, asset_obj_id, asset_mesh_id))
 
@@ -654,7 +773,7 @@ class FrankaLEAP(VecTask):
         # update object state
         object_center_pos = self._object_state[:, :3].clone()
         local_offset = torch.zeros([self.num_envs, 3], dtype=torch.float, device=self.device)
-        local_offset[:, 2] = self.mesh_aabb_extents[:, 2] / 2
+        local_offset[:, 2] = self.mesh_aabb_extents[:, 2] * self.object_center_z_scale
         object_rot_mat = quaternion_to_matrix_ig(self._object_state[:, 3:7])
         rotated_offset = torch.matmul(object_rot_mat, local_offset.unsqueeze(-1)).squeeze(-1)
         object_center_pos += rotated_offset
@@ -669,9 +788,16 @@ class FrankaLEAP(VecTask):
         target_rot_mat_in_eef_frame = torch.matmul(eef_rot_mat.transpose(1, 2), target_rot_mat)
         target_to_eef_rot_6d = matrix_to_rotation_6d(target_rot_mat_in_eef_frame)
 
-        point_matching_err = self._get_eef_point_matching_err(
+        # @ray we don't need pos and rot error except for side grasp table
+        # probably should refactor to use separate update states later
+        point_matching_err_target = self._get_eef_point_matching_err(
             curent_eef_pos7=self._eef_state[:, :7],
-            target_eef_pos7=torch.cat([self.reward_settings["target_pos"], self.reward_settings["target_quat"]], dim=-1)
+            target_eef_pos7=torch.cat([self.reward_settings["target_pos"], self.reward_settings["target_quat"]], dim=-1),
+        )
+        hand_eef_pos7_rot = torch.cat([self._eef_state[:, :3], self.reward_settings["target_quat"]], dim=-1)
+        point_matching_err_hand = self._get_eef_point_matching_err(
+            curent_eef_pos7=self._eef_state[:, :7],
+            target_eef_pos7=hand_eef_pos7_rot,
         )
 
         # update point clouds
@@ -695,6 +821,7 @@ class FrankaLEAP(VecTask):
             actionreg = torch.zeros_like(self._qd)
 
         # update states
+        # @ray not just to update states, but this is where the keys are created
         self.states.update({
             # Robot
             "q": self._q[:, :],
@@ -726,7 +853,8 @@ class FrankaLEAP(VecTask):
             "object_to_eef_rot_6d": object_to_eef_rot_6d,
             "target_to_eef": self.reward_settings["target_pos"] - self._eef_state[:, :3],
             "target_to_eef_rot_6d": target_to_eef_rot_6d,
-            "point_matching_err": point_matching_err,
+            "point_matching_err_target": point_matching_err_target,
+            "point_matching_err_hand": point_matching_err_hand, # @ray separates pos and rot error
 
             # recorded actions
             "actionreg": actionreg,
@@ -736,6 +864,7 @@ class FrankaLEAP(VecTask):
         """
         Get the point matching error between current end effector position 
         and target end effector position. (based on 5 points on eef)
+        @ray optionally can return orientation and position error separately
 
         Args:
             curent_eef_pos7: (B, 7) xyz + xyzw
@@ -748,12 +877,13 @@ class FrankaLEAP(VecTask):
         pos_t = target_eef_pos7[:, :3]  # (B, 3)
         quat_t = target_eef_pos7[:, 3:] # (B, 4)
 
+        matching_dis = self.cfg["reward"]["params"]["matching_dis"]
         local_pts = torch.tensor(
-            [[0.1, 0., 0.],
-            [-0.1, 0., 0.],
+            [[matching_dis, 0., 0.],
+            [-matching_dis, 0., 0.],
             [0., 0., 0.],
-            [0., 0.1, 0.],
-            [0., -0.1, 0.]],
+            [0., matching_dis, 0.],
+            [0., -matching_dis, 0.]],
             dtype=curent_eef_pos7.dtype,
             device=curent_eef_pos7.device
         )
@@ -842,7 +972,7 @@ class FrankaLEAP(VecTask):
             ) + lower_limits
         return unnormalized
 
-    def get_joint_from_ee(self, eef_pose):
+    def get_joint_from_ee(self, eef_pose, return_success=False, use_debug=False):
         """
         Get the joint angles from the end effector pose. This func is well tested
         Args:
@@ -866,15 +996,20 @@ class FrankaLEAP(VecTask):
             eef_quat_wxyz = torch.cat((eef_quat_wxyz, eef_quat_wxyz_dummy), dim=0)
 
         goal = Pose(eef_pos, eef_quat_wxyz) # Pose need quat in wxyz format
-        result = self.ik_solver.solve_batch(
+        solver = self.ik_solver_debug if use_debug else self.ik_solver
+        result = solver.solve_batch(
             goal_pose=goal,
             retract_config=self.ik_regularization_config,
         )
         if torch.any(result.success[:B] == False):
-            print(f"IK solver failed for some environments: {sum(result.success)}/{result.success.shape[0]}")
+            # @ray report only the real envs
+            failed = (~result.success[:B]).nonzero(as_tuple=False).squeeze(-1)
+            # print(f"IK solver failed for some environments: {failed}/{B}")
             # TODO: need to think a bit how to handle such cases
 
         q_solution = result.solution[:B, 0]
+        if return_success:
+            return q_solution, result.success[:B]
         return q_solution
 
     def get_ee_from_joint(self, joint_angles):
@@ -970,7 +1105,7 @@ class FrankaLEAP(VecTask):
         sampled_object_state[:, :3] = reset_pos
         self._object_state[env_ids] = sampled_object_state
         self._object_center_init_state[env_ids] = reset_pos
-        self._object_center_init_state[env_ids, 2] += self.mesh_aabb_extents[env_ids, 2] / 2
+        self._object_center_init_state[env_ids, 2] += self.mesh_aabb_extents[env_ids, 2] * self.object_center_z_scale
 
         multi_env_ids_obj_int32 = self._global_indices[env_ids, self._object_id].flatten()
         self.gym.set_actor_root_state_tensor_indexed(
@@ -1003,7 +1138,7 @@ class FrankaLEAP(VecTask):
         return lower_limits, upper_limits
 
     # visualization
-    def set_viewer(self, pos=[1.5, 0.0, 0.7], target=[0.5, 0.0, 0.1]):
+    def set_viewer(self, pos=[1.5, 1.0, 0.7], target=[0.5, 0.0, 0.1]):
         """
         Create the viewer.
         """
@@ -1089,16 +1224,32 @@ class FrankaLEAP(VecTask):
     def video_logger(self):
         render_step = self.sim_steps % self.video_logging["freq"]
         if render_step == 0:
-            self.video_ims = []
+            self.video_writers = []
+            self.video_step_start = self.sim_steps + 1 - self.max_episode_length
+            self.video_env_ids = list(range(self.video_logging["envs"]))
+            for env_idx in self.video_env_ids:
+                filename = os.path.join(
+                    self.video_dir,
+                    f"viz_step{self.video_step_start}_env{env_idx}.mp4"
+                )
+                try:
+                    writer = imageio.get_writer(filename, fps=60, format="ffmpeg")
+                except Exception as exc:
+                    print(f"[video_logger] ffmpeg writer unavailable, skipping video: {exc}")
+                    writer = None
+                self.video_writers.append(writer)
 
         if render_step < self.max_episode_length * 2:
             camera_renders = self.get_camera_render()
             ims = np.array(camera_renders)[:, 0, :, :, :3]
 
-            for env_idx in range(ims.shape[0]):
+            for idx, env_idx in enumerate(self.video_env_ids):
+                writer = self.video_writers[idx]
+                if writer is None:
+                    continue
                 # Convert to uint8 and correct color format for OpenCV
                 img = ims[env_idx].astype(np.uint8).copy()
-                
+
                 # Create a separate overlay image for the semi-transparent rectangle
                 overlay = img.copy()
                 # Draw grey rectangle on overlay (RGB: 128,128,128)
@@ -1107,23 +1258,66 @@ class FrankaLEAP(VecTask):
                 alpha = 0.7
                 cv2.addWeighted(overlay, alpha, img, 1 - alpha, 0, img)
                 # Add black text
-                cv2.putText(img, f'Env: {env_idx}  Step: {render_step}', (20, 35),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 0, 0), 2)
-                ims[env_idx] = img
-            self.video_ims.append(ims)
+                cv2.putText(
+                    img, f'Env: {env_idx}  Step: {render_step}', (20, 35),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 0, 0), 2
+                )
+                writer.append_data(img)
 
         if render_step == 2*self.max_episode_length - 1:
-            render_step_start = self.sim_steps + 1 - self.max_episode_length
-            filename = os.path.join(self.video_dir, f"viz_step{render_step_start}.mp4")
-            frames = np.asarray(self.video_ims) # (num_frames, num_envs, height, width, channels)
-            frames = frames.transpose(1, 0, 2, 3, 4) # (num_envs, num_frames, height, width, channels)
-            frames = frames.reshape(-1, frames.shape[2], frames.shape[3], frames.shape[4])  # (num_envs * num_frames, height, width, channels)
-            with imageio.get_writer(filename, fps=60) as writer:
-                for frame in frames:
-                    writer.append_data(frame)
-
+            # CODEX: close writers at the end of capture window
+            for writer in getattr(self, "video_writers", []):
+                if writer is not None:
+                    writer.close()
+            self.video_writers = []
+            # CODEX: log per-env videos to wandb from disk (no RAM buffering)
             if wandb.run is not None:
-                wandb.log({"visualization/video": wandb.Video(os.path.join(self.video_dir, f"viz_step{render_step_start}.mp4"))}, commit=True)
+                for idx, env_idx in enumerate(self.video_env_ids):
+                    path = os.path.join(
+                        self.video_dir,
+                        f"viz_step{self.video_step_start}_env{env_idx}.mp4"
+                    )
+                    wandb.log(
+                        {f"visualization/video_env_{env_idx}": wandb.Video(path)},
+                        commit=(idx == len(self.video_env_ids) - 1),
+                    )
+        # render_step = self.sim_steps % self.video_logging["freq"]
+        # if render_step == 0:
+        #     self.video_ims = []
+
+        # if render_step < self.max_episode_length * 2:
+        #     camera_renders = self.get_camera_render()
+        #     ims = np.array(camera_renders)[:, 0, :, :, :3]
+
+        #     for env_idx in range(ims.shape[0]):
+        #         # Convert to uint8 and correct color format for OpenCV
+        #         img = ims[env_idx].astype(np.uint8).copy()
+                
+        #         # Create a separate overlay image for the semi-transparent rectangle
+        #         overlay = img.copy()
+        #         # Draw grey rectangle on overlay (RGB: 128,128,128)
+        #         cv2.rectangle(overlay, (10, 10), (220, 50), (128, 128, 128), -1)
+        #         # Apply the overlay with transparency (alpha = 0.7)
+        #         alpha = 0.7
+        #         cv2.addWeighted(overlay, alpha, img, 1 - alpha, 0, img)
+        #         # Add black text
+        #         cv2.putText(img, f'Env: {env_idx}  Step: {render_step}', (20, 35),
+        #                 cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 0, 0), 2)
+        #         ims[env_idx] = img
+        #     self.video_ims.append(ims)
+
+        # if render_step == 2*self.max_episode_length - 1:
+        #     render_step_start = self.sim_steps + 1 - self.max_episode_length
+        #     filename = os.path.join(self.video_dir, f"viz_step{render_step_start}.mp4")
+        #     frames = np.asarray(self.video_ims) # (num_frames, num_envs, height, width, channels)
+        #     frames = frames.transpose(1, 0, 2, 3, 4) # (num_envs, num_frames, height, width, channels)
+        #     frames = frames.reshape(-1, frames.shape[2], frames.shape[3], frames.shape[4])  # (num_envs * num_frames, height, width, channels)
+        #     with imageio.get_writer(filename, fps=60, format="ffmpeg") as writer:
+        #         for frame in frames:
+        #             writer.append_data(frame)
+
+        #     if wandb.run is not None:
+        #         wandb.log({"visualization/video": wandb.Video(os.path.join(self.video_dir, f"viz_step{render_step_start}.mp4"))}, commit=True)
 
     # debugging utils
     def step_sim_multi(self, num_steps=1, render_pcd=True):
@@ -1144,8 +1338,9 @@ class FrankaLEAP(VecTask):
         for _ in range(num_steps):
             self.render()
 
-    def vis_pcd(self):
-        self.gym.clear_lines(self.viewer)
+    def vis_pcd(self, clear_lines=True):
+        if clear_lines:
+            self.gym.clear_lines(self.viewer)
         for i in range(self.num_envs):
             # draw point clouds
             points = self.combined_pcds[i].cpu().numpy()
@@ -1172,6 +1367,44 @@ class FrankaLEAP(VecTask):
                 num_points,     # num_lines = num points
                 verts_flat,     # flat list of start/end points
                 colors_flat     # flat list of RGB triples
+            )
+
+    def _draw_object_center_cross(self, half_extent=0.2, clear_lines=True):
+        if clear_lines:
+            self.gym.clear_lines(self.viewer)
+        centers = self.states["object_center_pos"].detach().cpu().numpy()
+        for i in range(self.num_envs):
+            c = centers[i]
+            verts_flat = [
+                c[0] - half_extent, c[1], c[2],  c[0] + half_extent, c[1], c[2],
+                c[0], c[1] - half_extent, c[2],  c[0], c[1] + half_extent, c[2],
+                c[0], c[1], c[2] - half_extent,  c[0], c[1], c[2] + half_extent,
+            ]
+            colors_flat = [1.0, 0.0, 0.0] * 3
+            self.gym.add_lines(
+                self.viewer,
+                self.envs[i],
+                3,
+                verts_flat,
+                colors_flat
+            )
+
+    def _draw_world_x_axis(self, half_extent=0.08, clear_lines=True):
+        if clear_lines:
+            self.gym.clear_lines(self.viewer)
+        centers = self.states["object_center_pos"].detach().cpu().numpy()
+        for i in range(self.num_envs):
+            c = centers[i]
+            verts_flat = [
+                c[0] - half_extent, c[1], c[2],  c[0] + half_extent, c[1], c[2],
+            ]
+            colors_flat = [1.0, 0.0, 0.0]  # red for +X axis
+            self.gym.add_lines(
+                self.viewer,
+                self.envs[i],
+                1,
+                verts_flat,
+                colors_flat
             )
 
     def reset_idx(self, env_ids=None):
@@ -1201,8 +1434,15 @@ class FrankaLEAP(VecTask):
         )
 
         self.set_robot_joint_state(reset_joint_config, env_ids=env_ids)
-        self.success_flags[env_ids] = 0
-        self.lifting_flags[env_ids] = 0
+        self.success_flags_instant[env_ids] = 0
+        self.lifting_flags_instant[env_ids] = 0
+        # @ray have to update in reset_idx instead of compute_reward otherwise the duration will be overwritten to 0
+        self.success_flags[env_ids] = self.success_long_enough[env_ids].float()
+        self.lifting_flags[env_ids] = self.lifting_long_enough[env_ids].float()
+        self.success_duration[env_ids] = 0
+        self.lifting_duration[env_ids] = 0
+        self.success_long_enough[env_ids] = False
+        self.lifting_long_enough[env_ids] = False
         self.progress_buf[env_ids] = 0
         self.reset_buf[env_ids] = 0
 
@@ -1325,6 +1565,10 @@ class FrankaLEAP(VecTask):
             self.reset_idx(env_ids)
 
         self.compute_observations()
+        if self.debug_viz and self.viewer is not None:
+            self.vis_pcd(clear_lines=True)
+            # self._draw_object_center_cross(clear_lines=False)
+            self._draw_world_x_axis(clear_lines=False)
         self.compute_reward()
 
         # video logging
