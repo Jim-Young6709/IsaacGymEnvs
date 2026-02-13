@@ -1,0 +1,64 @@
+defaults:
+  - _self_
+
+_target_: isaacgymenvs.model.transformer.PCDTransformer
+
+# Model architecture parameters
+hidden_dim: 128  # Token dimension / hidden dimension throughout the model
+type_dim: 4  # Dimension for type embeddings
+dropout: 0  # Dropout rate
+chunk_size: ${chunk_size}  # Number of action tokens to output
+
+normalize_state: ${normalize_state}
+normalize_action: ${normalize_action}
+action_std: 1 # provide action_std for relative or delta action space
+action_space: ${action_space}
+action_dim: 32  # Glorbot (3+7+4*4+6)
+aux_weight: 0.1 # weight for auxiliary object state loss (if enabled)
+
+# Point cloud encoder parameters
+pcd_encoders_cfg:
+  # local pcd
+  local_pcd_t:
+    type: "pointnet"  # Options: ["mlp", "pointnet"]
+    num_output_tokens: 128  # Number of tokens for target point cloud
+    num_points: [1024, 0, 1024] # Codex: [cylindrical, spherical eef-centered, spherical aux-centered]
+    use_pcd: true
+
+# State encoders (MLP parameters)
+state_encoders_cfg:
+  q_arm_manip:
+    input_dim: 7
+    hidden_dims: [128, 256]
+    dropout: 0
+    use_state: true
+  q_arm_vision:
+    input_dim: 6
+    hidden_dims: [128, 256]
+    dropout: 0
+    use_state: true
+  q_hand:
+    input_dim: 16
+    hidden_dims: [128, 256]
+    dropout: 0
+    use_state: true
+  q_hand_ctrl_delta:
+    input_dim: 16
+    hidden_dims: [128, 256]
+    dropout: 0
+    use_state: true
+  aux_object_state:
+    input_dim: 3
+    hidden_dims: [128, 256]
+    dropout: 0
+    use_state: true
+
+# Transformer parameters
+transformer_cfg:
+  type: "encoder_decoder"  # Options: ["encoder_decoder"]
+  encoder_layers: 6  # Number of encoder layers
+  decoder_layers: 6  # Number of decoder layers
+  encoder_heads: 8  # Number of encoder attention heads
+  decoder_heads: 8  # Number of decoder attention heads
+  encoder_dim_feedforward: 1024  # Dimension of encoder feedforward network
+  decoder_dim_feedforward: 1024  # Dimension of decoder feedforward network

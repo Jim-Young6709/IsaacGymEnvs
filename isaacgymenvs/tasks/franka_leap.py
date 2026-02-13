@@ -44,6 +44,7 @@ class FrankaLEAP(VecTask):
         self.mesh_args = self.cfg["env"]["mesh"]
         self.object_center_z_scale = float(self.cfg["env"]["object_settings"]["object_center_z_scale"])
         self.object_wrench_args = self.cfg["env"]["object_wrench"]
+        self.object_teleport_args = self.cfg["env"]["object_teleport"]
         self.eef_init = self.cfg["env"]["eef_init"]
         self.distractor_settings = self.cfg["env"]["distractor_settings"]
         self.video_logging = self.cfg["env"]["video_logging"]
@@ -104,7 +105,6 @@ class FrankaLEAP(VecTask):
 
         # randomize progress buffer
         self.progress_buf = torch.randint(0, self.max_episode_length, (self.num_envs,)).to(self.device)
-        self.sim_steps = 0 # keep track on the number of simulation steps
 
     def _init_buffers(self):
         # Values to be filled in at runtime
@@ -207,6 +207,24 @@ class FrankaLEAP(VecTask):
         self.object_applied_forces = torch.zeros((self.num_envs, 3), dtype=torch.float, device=self.device)
         self.object_applied_torques = torch.zeros_like(self.object_applied_forces)
 
+        self.sim_steps = 0.0 # keep track on the number of simulation steps
+
+        # teleport init
+        self.num_teleport_envs = int(round(self.object_teleport_args['env_proportion'] * self.num_envs))
+        self.teleport_env_ids = torch.randperm(self.num_envs, device=self.device)[:self.num_teleport_envs]
+        tele_n0 = self.object_teleport_args['n0']
+        tele_n1 = self.object_teleport_args['n1']
+        tele_n2 = self.object_teleport_args['n2']
+        self.teleport_probs = torch.zeros(tele_n2, dtype=torch.float32, device=self.device)
+        self.teleport_probs[tele_n0:tele_n1] = 0.5 / (tele_n1 - tele_n0) # until n1 steps, the probability of teleporting sum up to 0.5
+        # for n1~n2 steps, increase the teleport probability quadratically from 0.5 / (tele_n1 - tele_n0) to 1.0
+        indexing = torch.arange(tele_n1, tele_n2, dtype=torch.float32, device=self.device)
+        quad_c = 0.5 / (tele_n1 - tele_n0)
+        quad_b = tele_n1
+        quad_a = (1 - quad_c) / ( (tele_n2 - quad_b)**2 )
+        self.teleport_probs[tele_n1:] = quad_a*(indexing + 1 - quad_b)**2 + quad_c
+        self.teleport_buf = torch.zeros((self.num_envs,), dtype=torch.int, device=self.device)
+
     def _build_joint_mapping(self):
         env_ptr = self.envs[0]
         robot_handle = self.robots[0]
@@ -292,7 +310,7 @@ class FrankaLEAP(VecTask):
     def _create_ground_plane(self):
         plane_params = gymapi.PlaneParams()
         plane_params.normal = gymapi.Vec3(0.0, 0.0, 1.0)
-        plane_params.distance = 0.3 # according to current randomization params, -0.275 would be the lowest surface from the env
+        plane_params.distance = 1.0 # according to current randomization params, -0.275 would be the lowest surface from the env
         self.gym.add_ground(self.sim, plane_params)
 
     def _create_franka_leap(self):
@@ -1040,9 +1058,23 @@ class FrankaLEAP(VecTask):
             len(multi_env_ids_int32),
         )
 
-    def _reset_object_state(self, env_ids):
-        if env_ids is None:
+    def _reset_object_state(self, object_reset_env_ids):
+        if object_reset_env_ids is None:
             env_ids = torch.arange(self.num_envs, device=self.device)
+        else:
+            env_ids = object_reset_env_ids.clone()
+
+        if self.object_teleport_args["enable"]:
+            if self.sim_steps % (self.max_episode_length * self.object_teleport_args['swap_freq']) == 0:
+                self.teleport_env_ids = torch.randperm(self.num_envs, device=self.device)[:self.num_teleport_envs]
+
+            curri_factor = min(self.sim_steps / self.object_teleport_args['curri_steps'], 1.0)
+            # teleport object (note this is in addition to normal reset)
+            _teleport_buf = self.teleport_buf[self.teleport_env_ids] # get the corresponding teleport buffer
+            apply_teleport = (self.teleport_probs[_teleport_buf] * curri_factor) > torch.rand(len(_teleport_buf), device=self.device)
+            apply_teleport_env_ids = self.teleport_env_ids[apply_teleport]
+
+            env_ids = torch.unique(torch.cat([env_ids, apply_teleport_env_ids], dim=0))
 
         # Initialize buffer to hold sampled values
         num_resets = len(env_ids)
@@ -1068,6 +1100,8 @@ class FrankaLEAP(VecTask):
             self.sim, gymtorch.unwrap_tensor(self._root_state),
             gymtorch.unwrap_tensor(multi_env_ids_obj_int32), len(multi_env_ids_obj_int32),
         )
+
+        self.teleport_buf[env_ids] = 0
 
     def get_joint_limits_franka(self):
         """
@@ -1354,15 +1388,18 @@ class FrankaLEAP(VecTask):
 
         self._reset_object_state(env_ids) # reset object state
 
+        if env_ids.numel() == 0:
+            return
+
         reset_noise = torch.rand((len(env_ids), 23), device=self.device) # [0, 1]
         reset_noise = 2.0 * (reset_noise - 0.5) # [-1, 1]
-        reset_noise[:, :7] *= self.reset_noise_scale["arm"]
+        reset_noise[:, :7] *= self.reset_noise_scale["franka"]
 
-        if self.reset_noise_scale["hand"] is None:
+        if self.reset_noise_scale["leap"] is None:
             reset_noise[:, 7:] = self.unnormalize_robot_joints(reset_noise[:, 7:], robot="hand", delta=False)
             reset_noise[:, 7:] -= self.canonical_joint_config[env_ids, 7:]
         else:
-            reset_noise[:, 7:] *= self.reset_noise_scale["hand"]
+            reset_noise[:, 7:] *= self.reset_noise_scale["leap"]
 
         reset_joint_config = tensor_clamp(
             self.canonical_joint_config[env_ids] + reset_noise,
@@ -1383,6 +1420,12 @@ class FrankaLEAP(VecTask):
         self.progress_buf[env_ids] = 0
         self.reset_buf[env_ids] = 0
 
+        if self.object_wrench_args["enable"]:
+            self.object_applied_forces[env_ids] = 0.0
+            self.object_applied_torques[env_ids] = 0.0
+            self.rigid_body_forces[env_ids] = 0
+            self.rigid_body_torques[env_ids] = 0
+
     def _apply_object_wrench(self):
         curriculum_factor = min(self.sim_steps / self.object_wrench_args["curri_steps"], 1)
         max_linear_force = self.object_wrench_args["max_linear_force"] * curriculum_factor
@@ -1400,6 +1443,8 @@ class FrankaLEAP(VecTask):
             )
 
         num_trigger_steps = int(round(self.object_wrench_args["trigger_duration"] / self.dt))
+        activation_dis = self.object_wrench_args["activation_dis"]
+        apply_wrench = ( self.states["object_to_eef"].norm(dim=-1) < activation_dis ) | self.lifting_5cm_per_step
 
         self.object_applied_forces = torch.where(
             ((self.progress_buf % num_trigger_steps) == 0).unsqueeze(-1),
@@ -1408,7 +1453,7 @@ class FrankaLEAP(VecTask):
         )
 
         self.object_applied_forces = torch.where(
-            self.lifting_5cm_per_step.unsqueeze(-1),
+            apply_wrench.unsqueeze(-1),
             self.object_applied_forces,
             torch.zeros_like(self.object_applied_forces)
         )
@@ -1420,7 +1465,7 @@ class FrankaLEAP(VecTask):
         )
 
         self.object_applied_torques = torch.where(
-            self.lifting_5cm_per_step.unsqueeze(-1),
+            apply_wrench.unsqueeze(-1),
             self.object_applied_torques,
             torch.zeros_like(self.object_applied_torques)
         )
@@ -1496,10 +1541,11 @@ class FrankaLEAP(VecTask):
 
     def post_physics_step(self):
         self.progress_buf += 1
+        self.teleport_buf += 1
+        self.teleport_buf = self.teleport_buf % self.object_teleport_args['n2']
 
         env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
-        if len(env_ids) > 0:
-            self.reset_idx(env_ids)
+        self.reset_idx(env_ids)
 
         self.compute_observations()
         if self.debug_viz and self.viewer is not None:

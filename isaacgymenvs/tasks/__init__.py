@@ -36,6 +36,7 @@ from .franka_leap_pick_top_full import FrankaLEAPPickTopFull
 
 from .franka_leap_mobile import FrankaLEAPMobile
 from .franka_leap_mobile_pick_table import FrankaLEAPMobilePickTable
+from .franka_leap_mobile_pick_table_multi import FrankaLEAPMobilePickTableMulti
 from .franka_leap_mobile_pick_top_full import FrankaLEAPMobilePickTopFull
 
 from .franka_cmd import FrankaCMD
@@ -54,6 +55,7 @@ isaacgym_task_map = {
     "FrankaLEAPPickTopFull": FrankaLEAPPickTopFull,
     "FrankaLEAPMobile": FrankaLEAPMobile,
     "FrankaLEAPMobilePickTable": FrankaLEAPMobilePickTable,
+    "FrankaLEAPMobilePickTableMulti": FrankaLEAPMobilePickTableMulti,
     "FrankaLEAPMobilePickTopFull": FrankaLEAPMobilePickTopFull,
     "FrankaCMD": FrankaCMD,
     "FrankaCMDPickTable": FrankaCMDPickTable,

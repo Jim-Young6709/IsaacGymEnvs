@@ -11,7 +11,7 @@ from isaacgymenvs.inference.inference_utils import *
 
 TRANSFORMER_CONFIGS = {
     "seed": 42,
-    "ckpt_path": "dagger_ckpts/grogu_ckpts/Feb9_wbc_tablemulti_aux_1024_0_1024_expJan22.pt",
+    "ckpt_path": "dagger_ckpts/grogu_ckpts/Jan3_wbc_table_deltalre-4_nodr_local.pt",
 }
 
 
@@ -67,7 +67,7 @@ class WBCPolicyTransformer:
         self.abs_hand_actions = torch.zeros(16, device=self.device)
         self.steps = 0
 
-    def generate_random_inputs(self):
+    def generate_random_inputs(self, require_object_pos_t0):
         """
         Generate random inputs for the get_action function using torch.rand
         """      
@@ -80,12 +80,11 @@ class WBCPolicyTransformer:
         q_arm_manip = torch.rand(7, device=self.device)  # In [0, 1)
         q_arm_vision = torch.rand(6, device=self.device)  # In [0, 1)
 
-        if self.has_aux_input == True:
-            aux_inputs = torch.rand(3, device=self.device)
+        if require_object_pos_t0 == True:
+            object_xyz_t0 = torch.rand(3, device=self.device)
         else:
-            aux_inputs = None
-
-        return full_pcd_eef_frame_t, torch.zeros(3, device=self.device), q_hand, q_arm_manip, q_arm_vision, aux_inputs
+            object_xyz_t0 = None
+        return full_pcd_eef_frame_t, torch.zeros(3, device=self.device), q_hand, q_arm_manip, q_arm_vision, object_xyz_t0
 
     def load_checkpoint(self, checkpoint_path):
         checkpoint = torch.load(checkpoint_path, map_location=self.device)
@@ -94,7 +93,6 @@ class WBCPolicyTransformer:
         self.ckpt_cfg = checkpoint["cfg"]
         self.model = instantiate(self.ckpt_cfg["model"]).to(self.device)
         self.model = self.model.to(self.device)
-        self.has_aux_input = "aux_object_state" in self.ckpt_cfg.model.state_encoders_cfg
 
         # remove the DDP ckpt prefix if there are any
         state_dict = checkpoint["model_state_dict"]
@@ -190,62 +188,23 @@ class WBCPolicyTransformer:
         """
 
         if "local_pcd_t" in self.ckpt_cfg["model"]["pcd_encoders_cfg"]:
-            # Codex
-            num_points = self.ckpt_cfg["model"]["pcd_encoders_cfg"]["local_pcd_t"]["num_points"] # [num cylindrical points, num spherical eef points, num spherical aux points]
-            num_cyl = int(num_points[0])
-            num_eef = int(num_points[1]) if len(num_points) > 1 else 0
-            num_aux = int(num_points[2]) if len(num_points) > 2 else 0
-            local_ranges = self.local_pcd_range
-            local_cyl_range = float(local_ranges[0])
-            local_eef_range = float(local_ranges[1]) if len(local_ranges) > 1 else float(local_ranges[0])
-            local_aux_range = float(local_ranges[2]) if len(local_ranges) > 2 else local_eef_range
-
-            cylindrical_local_pcd_t, _ = crop_local_pcd(
-                obs_dict['full_pcd_frankabase_frame_t'],
-                local_cyl_range,
-                num_cyl,
-                is_cylindrical=True,
-            ) # (num_envs, num_local_points, 3)
-            spherical_local_pcd_t, _ = crop_local_pcd(
-                obs_dict['full_pcd_frankabase_frame_t'] - obs_dict['eef_xyz_frankabase_frame_t'],
-                local_eef_range,
-                num_eef,
-                is_cylindrical=False,
-            ) # (num_envs, num_local_points, 3)
+            num_points = self.ckpt_cfg["model"]["pcd_encoders_cfg"]["local_pcd_t"]["num_points"] # [num cylindrical points, num spherical eef points]
+            cylindrical_local_pcd_t, cylindrical_crop_logs = crop_local_pcd(obs_dict['full_pcd_frankabase_frame_t'], self.local_pcd_range[0], num_points[0], is_cylindrical=True) # (num_envs, num_local_points, 3)
+            spherical_local_pcd_t, spherical_crop_logs = crop_local_pcd(obs_dict['full_pcd_frankabase_frame_t'] - obs_dict['eef_xyz_frankabase_frame_t'], \
+                    self.local_pcd_range[1], num_points[1], is_cylindrical=False) # (num_envs, num_local_points, 3)
             spherical_local_pcd_t = spherical_local_pcd_t + obs_dict['eef_xyz_frankabase_frame_t']
+            obs_dict["local_pcd_t"] = torch.cat([cylindrical_local_pcd_t, spherical_local_pcd_t], dim=1)
 
-            local_pcd_parts = [cylindrical_local_pcd_t, spherical_local_pcd_t]
-
-            # Codex
-            if num_aux > 0 and self.has_aux_input:
-                aux_origin = obs_dict["aux_object_state"]
-                aux_spherical_local_pcd_t, _ = crop_local_pcd(
-                    obs_dict['full_pcd_frankabase_frame_t'] - aux_origin,
-                    local_aux_range,
-                    num_aux,
-                    is_cylindrical=False,
-                ) # (num_envs, num_local_points, 3)
-                aux_spherical_local_pcd_t = aux_spherical_local_pcd_t + aux_origin
-                local_pcd_parts.append(aux_spherical_local_pcd_t)
-
-            obs_dict["local_pcd_t"] = torch.cat(local_pcd_parts, dim=1)
-
-        aux_pred = None
         with torch.no_grad():
             self.model.eval()
-            output = self.model(obs_dict)
-            student_actions_chunk = output["action"]
-            if self.model.aux_prediction:
-                aux_pred = output["aux"].clone()
-                aux_pred = aux_pred[0, 0, :]
-
-        student_actions = student_actions_chunk[0, 0, :32] # TODO: this assumes chunk size is 1
-
+            student_actions_chunk = self.model(obs_dict)
+        # (Batch, Chunk, Action_dim)
+        student_actions = student_actions_chunk[0, 0, :] 
         # get the step action that goes into env.step() in sim
         step_actions = torch.clamp(student_actions, -self.clip_actions, self.clip_actions)
-        return step_actions, aux_pred, obs_dict
+        return step_actions, obs_dict
 
-    def get_action(self, full_pcd_frankabase_frame_t, eef_xyz_frankabase_frame_t, q_hand, q_arm_manip, q_arm_vision, aux_inputs=None):
+    def get_action(self, full_pcd_frankabase_frame_t, eef_xyz_frankabase_frame_t, q_hand, q_arm_manip, q_arm_vision, objxyz_t0=None):
         """
         get the final action for execution
 
@@ -253,7 +212,6 @@ class WBCPolicyTransformer:
             full_pcd_frankabase_frame_t (torch.Tensor): (N, 3), N should be larger than num_local_points
             q_hand (torch.Tensor): (16,)
             eef_abs_pose (torch.Tensor): (7,) xyz + xyzw
-            aux_inputs (torch.Tensor): (3,) optional auxiliary inputs, currently set to object center xyz position
         Returns:
             step_actions (torch.Tensor): (7+16,)
         """
@@ -265,14 +223,6 @@ class WBCPolicyTransformer:
         # (1, N, 3)
         full_pcd_frankabase_frame_t_b = full_pcd_frankabase_frame_t.unsqueeze(0).to(self.device)
         eef_xyz_frankabase_frame_t_b = eef_xyz_frankabase_frame_t.unsqueeze(0).to(self.device)  # (1, 3)
-        if self.has_aux_input:
-            if aux_inputs is None:
-                aux_inputs_b = torch.rand((1, 3), device=self.device)
-            else:
-                aux_inputs_b = aux_inputs.unsqueeze(0).to(self.device)
-        else:
-            aux_inputs_b = None
-    
         q_hand_b = self.normalize_robot_joints(q_hand.unsqueeze(0).to(self.device), robot="leap", delta=False) # (1, 16)
         q_hand_ctrl_delta_b = self.normalize_robot_joints(
             (q_hand.to(self.device) - self.abs_hand_actions), robot="leap", delta=True
@@ -283,15 +233,17 @@ class WBCPolicyTransformer:
         obs_dict = OrderedDict([
             ("full_pcd_frankabase_frame_t", full_pcd_frankabase_frame_t_b),
             ("eef_xyz_frankabase_frame_t", eef_xyz_frankabase_frame_t_b),
-            ("aux_object_state", aux_inputs_b),
             ("q_arm_manip", q_arm_manip_b),
             ("q_arm_vision", q_arm_vision_b),
             ("q_hand", q_hand_b),
             ("q_hand_ctrl_delta", q_hand_ctrl_delta_b*2) # *2 helps with sim-to-real
         ])
 
+        if objxyz_t0 is not None:
+            obs_dict["objxyz_t0"] = objxyz_t0.unsqueeze(0).to(self.device)
+
         # inference policy
-        step_action, aux_pred, obs_dict = self.inference_policy(obs_dict)
+        step_action, obs_dict = self.inference_policy(obs_dict)
 
         # get unnormalized absolute actions for execution
         actions_abs = step_action.clone() # (32,)
@@ -324,8 +276,7 @@ class WBCPolicyTransformer:
         franka_joint_pos = actions_abs_cpu[3:10]
         leap_joint_pos = actions_abs_cpu[10:26]
         arx_joint_pos = actions_abs_cpu[26:32]
-        aux_pred_cpu = aux_pred.cpu().numpy() if aux_pred is not None else None
-        return base_vel_robot, franka_joint_pos, leap_joint_pos, arx_joint_pos, aux_pred_cpu, obs_dict
+        return base_vel_robot, franka_joint_pos, leap_joint_pos, arx_joint_pos, obs_dict
 
 
 
@@ -335,7 +286,7 @@ if __name__ == "__main__":
     print("warm up")
     t_1 = time.time()
     for i in range(3):
-        test_input = model.generate_random_inputs()
+        test_input = model.generate_random_inputs(False)
         action = model.get_action(*test_input)
     t_2 = time.time()
     print(f"warm up time: {t_2 - t_1}")
@@ -344,7 +295,7 @@ if __name__ == "__main__":
     print(f"profiling with {test_num} inferences")
     t_3 = time.time()
     for i in range(int(test_num)):
-        test_input = model.generate_random_inputs()
+        test_input = model.generate_random_inputs(False)
         action = model.get_action(*test_input)
     t_4 = time.time()
     t_test = t_4 - t_3

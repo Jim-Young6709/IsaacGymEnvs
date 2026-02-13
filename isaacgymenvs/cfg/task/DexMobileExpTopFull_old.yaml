@@ -9,7 +9,7 @@ name: FrankaLEAPMobilePickTopFull
 env:
   scene:
     table_thickness_range: [0.01, 0.1]
-    z_shift_range: [0.1, 0.7]
+    z_shift_range: [0.01, 0.6]
 
     add_on_obstacles:
       cuboids:
@@ -17,7 +17,7 @@ env:
         size_xy: [[0.05, 0.05], [0.1, 0.1]]
         size_z_min: 0.1
       spheres:
-        num: 0 # 1
+        num: 1
         r_min: 0.05
       capsules:
         num: 10 # currently don't have this supported in pcd utils
@@ -28,33 +28,32 @@ env:
       x_offset_range: [-0.4, -0.2]
       y_offset_range: [0.2, 0.5]
       cuboids:
-        num: 0 # 1
+        num: 1
         size_range: [[0.15, 0.15, 0.4], [0.25, 0.25, 0.6]]
       capsules:
-        num: 0 # 1
+        num: 1
         size_range: [[0.1, 0.4], [0.15, 0.6]] # radius & entire height of the capsule
 
     safety_box:
       wall_thickness: 0.01
-      # size: [[0.25, 0.25, 0.15], [0.5, 0.5, 0.25]] # x, y, z
-      size: [[0.35, 0.35, 0.1], [0.5, 0.5, 0.2]] # x, y, z
+      size: [[0.25, 0.25, 0.15], [0.5, 0.5, 0.25]] # x, y, z
       x_shift_range: [0.3, 0.7]
       y_shift_range: [-0.3, 0.3]
       z: [-0.2, 0.5]
       r: [0.2, 0.4] # rot_ex radius
       rot_in: [-0.4, 0.4] # radians
       rot_ex: [-1.5, 1.5] # radians
-      obj_wall_tol: 0.05
+      obj_wall_tol: 0.03
       colli_reset: False
-      corner_obstacles_range: [2, 3] # [4, 6] # low & high inclusive
-      extra_surrounding_obstacles_range: [2, 3] # [4, 6] # low & high inclusive
+      corner_obstacles_range: [4, 6] # low & high inclusive
+      extra_surrounding_obstacles_range: [4, 6] # low & high inclusive
       shift_other_obstacles_range: [0.1, 0.2]
 
   robot_init:
     # TODO: need to ensure the object is visible in initial camera frame, shift y by 0.3 according to vision arm location, also largely decrease ori rand
-    base_init_range: [[-1.0, -0.25, -0.3], [-0.2, 0.25, 0.3]] # [[-0.2, 0.0, 0.0], [-0.2, 0.0, 0.0]] # x, y, yaw
-    switch_pos_offset: [0.0, 0.0, 0.2]
-    switch_tol: 0.2
+    base_init_range: [[-1.0, 0.1, -0.3], [-0.8, 0.5, 0.3]] # [[-0.2, 0.0, 0.0], [-0.2, 0.0, 0.0]] # x, y, yaw
+    switch_pos_offset: [0.0, 0.0, 0.1]
+    switch_tol: 0.3
 
   eef_init:
     enable: True

@@ -31,7 +31,7 @@ from isaacgymenvs.tasks import FrankaLEAPMobile
 class DaggerMobile:
     def __init__(self, cfg):
         # overwrite the video logging freq so it aligns well with the eval pattern
-        cfg.task.env.video_logging.freq = (cfg.dagger.eval_freq + 1) * cfg.task.env.episodeLength
+        cfg.task.env.video_logging.freq = max((cfg.dagger.eval_freq + 1), 10) * cfg.task.env.episodeLength
 
         # load configs
         self.multi_gpu = cfg.multi_gpu
@@ -188,6 +188,11 @@ class DaggerMobile:
                 }
             )
 
+        # aux
+        self.aux_enable = "aux_object_state" in self.state_encoders_keys
+        self.aux_switch_steps = 30000
+        self.aux_buffer = torch.zeros(self.env.num_envs, 1, 3, device=self.device)
+
     # teacher loading utils
     def load_param_dict(self, cfg_path) -> Dict:
         base_dir = os.path.dirname(__file__)
@@ -210,12 +215,13 @@ class DaggerMobile:
         if self.normalize_input and 'running_mean_std' in weights:
             model.running_mean_std.load_state_dict(weights["running_mean_std"])
 
-    def save_checkpoint(self, episode, success_rate_ep=None, top_k=3):
+    def save_checkpoint(self, episode, train_success_rate_ep=None, eval_success_rate_ep=None, top_k=3):
         checkpoint = {
             "episode": episode,
             "model_state_dict": self.student_model.state_dict(),
             "optimizer_state_dict": self.optimizer.state_dict(),
-            "success_rate_ep": success_rate_ep,
+            "train_success_rate_ep": train_success_rate_ep,
+            "eval_success_rate_ep": eval_success_rate_ep,
             "batch_idx": self.batch_idx,
             "total_steps": self.total_steps,
             "cfg": self.cfg,
@@ -229,15 +235,20 @@ class DaggerMobile:
         torch.save(checkpoint, self.save_dir / "latest.pt")
         if episode % self.save_freq == 0:
             torch.save(checkpoint, self.save_dir / f"episode_{episode:06d}.pt")
-        
+
         checkpoint_files = sorted([f for f in os.listdir(self.save_dir) if f.startswith("episode_")])
         if len(checkpoint_files) > top_k:
             for old_checkpoint in checkpoint_files[:-top_k]:
                 os.remove(os.path.join(self.save_dir, old_checkpoint))
 
-        best_path = os.path.join(self.save_dir, "best.pt")
-        if not os.path.exists(best_path) or success_rate_ep > torch.load(best_path, map_location="cpu")["success_rate_ep"]:
-            torch.save(checkpoint, best_path)
+        best_train_path = os.path.join(self.save_dir, "best_train_success.pt")
+        if not os.path.exists(best_train_path) or train_success_rate_ep > torch.load(best_train_path, map_location="cpu")["train_success_rate_ep"]:
+            torch.save(checkpoint, best_train_path)
+
+        if eval_success_rate_ep is not None:
+            best_eval_path = os.path.join(self.save_dir, "best_eval_success.pt")
+            if not os.path.exists(best_eval_path) or eval_success_rate_ep > torch.load(best_eval_path, map_location="cpu")["eval_success_rate_ep"]:
+                torch.save(checkpoint, best_eval_path)
 
     def load_checkpoint(self, checkpoint_path):
         checkpoint = torch.load(checkpoint_path, map_location=self.device)
@@ -252,7 +263,7 @@ class DaggerMobile:
             self.wandb_id = checkpoint["wandb_id"]
             self.wandb_name = checkpoint["wandb_name"]
             self.wandb_project = checkpoint["wandb_project"]
-        return checkpoint["success_rate_ep"]
+        return checkpoint["train_success_rate_ep"]
 
     def preprocess_inputs(self, obs):
         wandb_logs = {}
@@ -302,13 +313,54 @@ class DaggerMobile:
         # )
 
         if "local_pcd_t" in self.pcd_encoders_keys:
+            # Codex
+            num_points = self.cfg.model.pcd_encoders_cfg["local_pcd_t"]["num_points"] # [num cylindrical points, num spherical eef points, num spherical aux points]
+            local_ranges = self.local_pcd_range
+            local_eef_spherical_range = local_ranges[1]
+            local_aux_spherical_range = local_ranges[2]
+
             # get full pcd in eef frame (only xyz shifted, not rotated)
             eef_pos = self.env.states['eef_pos'] # (num_envs, 3)
             full_pcd_shifted = obs['full_pcd_t'] - eef_pos.unsqueeze(1) # (num_envs, N, 3)
-            num_points = self.cfg.model.pcd_encoders_cfg["local_pcd_t"]["num_points"][1]
-            spherical_local_pcd_t, spherical_crop_logs = crop_local_pcd(full_pcd_shifted, self.local_pcd_range[1], num_points, is_cylindrical=False) # (num_envs, num_local_points, 3)
+            eef_spherical_local_pcd_t, eef_spherical_crop_logs = crop_local_pcd(full_pcd_shifted, local_eef_spherical_range, num_points[1], is_cylindrical=False) # (num_envs, num_local_points, 3)
             # local eef pcd in global frame
-            obs["local_eef_pcd_t"] = spherical_local_pcd_t + eef_pos.unsqueeze(1) # back to global frame for now, will be converted to franka base frame later
+            obs["local_eef_pcd_t"] = eef_spherical_local_pcd_t + eef_pos.unsqueeze(1) # back to global frame for now, will be converted to franka base frame later
+
+            # Codex: aux-centered local pcd in global frame
+            aux_crop_origin = eef_pos
+            if "aux_object_state" in self.state_encoders_keys:
+                noisy_object_center_pos = self.env.states["object_center_pos"].clone()
+                # add noise (-0.05m ~ 0.05m)
+                noisy_object_center_pos = noisy_object_center_pos + 0.1 * ( torch.rand(self.env.num_envs, 3, device=self.device) - 0.5 )
+                if self.total_steps < self.aux_switch_steps:
+                    aux_crop_origin = noisy_object_center_pos
+                else:
+                    aux_crop_origin = self.aux_buffer.clone()
+                    if aux_crop_origin.ndim == 3:
+                        aux_crop_origin = aux_crop_origin[:, 0, :]
+                    if hasattr(self.env, "object_reset_mask") and torch.any(self.env.object_reset_mask):
+                        aux_crop_origin[self.env.object_reset_mask] = noisy_object_center_pos[self.env.object_reset_mask]
+            aux_full_pcd_shifted = obs['full_pcd_t'] - aux_crop_origin.unsqueeze(1) # (num_envs, N, 3)
+            aux_spherical_local_pcd_t, aux_spherical_crop_logs = crop_local_pcd(aux_full_pcd_shifted, local_aux_spherical_range, num_points[2], is_cylindrical=False) # (num_envs, num_local_points, 3)
+            obs["local_aux_pcd_t"] = aux_spherical_local_pcd_t + aux_crop_origin.unsqueeze(1)
+
+        # env_id = self.env.viser_visualizer.env_id
+        # self.env.viser_visualizer.update_point_cloud(
+        #     point_cloud_type="rendered_points",
+        #     point_cloud=obs['full_pcd_t'][env_id].cpu().numpy()
+        # )
+        # self.env.viser_visualizer.update_point_cloud(
+        #     point_cloud_type="hand_pcd_t",
+        #     point_cloud=obs["local_eef_pcd_t"][env_id].cpu().numpy()
+        # )
+        # self.env.viser_visualizer.update_point_cloud(
+        #     point_cloud_type="seg_static_obsacles_t0",
+        #     point_cloud=obs["local_aux_pcd_t"][env_id].cpu().numpy()
+        # )
+        # self.env.viser_visualizer.update_point_cloud(
+        #     point_cloud_type="obj_point_t",
+        #     point_cloud=aux_crop_origin[env_id].reshape(1, 3).cpu().numpy()
+        # )
 
         # convert all pcd to franka base frame
         for key in obs.keys():
@@ -359,16 +411,23 @@ class DaggerMobile:
                 obs_student["full_pcd_t"] = downsample_pcd_batched(obs["full_pcd_t"], num_points_full_pcd_t)
 
         if "local_pcd_t" in self.pcd_encoders_keys:
-            num_points = self.cfg.model.pcd_encoders_cfg["local_pcd_t"]["num_points"] # [num cylindrical points, num spherical eef points]
+            # Codex
+            num_points = self.cfg.model.pcd_encoders_cfg["local_pcd_t"]["num_points"] # [num cylindrical points, num spherical eef points, num spherical aux points]
             cylindrical_local_pcd_t, cylindrical_crop_logs = crop_local_pcd(obs['full_pcd_t'], self.local_pcd_range[0], num_points[0], is_cylindrical=True) # (num_envs, num_local_points, 3)
-            obs_student["local_pcd_t"] = torch.cat([cylindrical_local_pcd_t, obs["local_eef_pcd_t"]], dim=1)
+            obs_student["local_pcd_t"] = torch.cat([cylindrical_local_pcd_t, obs["local_eef_pcd_t"], obs["local_aux_pcd_t"]], dim=1)
 
             if self.use_wandb:
                 wandb_logs.update(cylindrical_crop_logs)
-                wandb_logs.update(spherical_crop_logs)
+                wandb_logs.update(eef_spherical_crop_logs)
+                wandb_logs.update({
+                    # Codex
+                    "local_spherical_crop_aux/avg_num_valid_points": aux_spherical_crop_logs["local_spherical_crop/avg_num_valid_points"],
+                    # Codex
+                    "local_spherical_crop_aux/min_num_valid_points": aux_spherical_crop_logs["local_spherical_crop/min_num_valid_points"],
+                })
 
         elif "local_scene_pcd_t" in self.pcd_encoders_keys: # TODO: this is kinda outdated
-            obs_student["local_scene_pcd_t"], crop_logs = crop_local_pcd(obs["full_scene_pcd_t"], self.local_pcd_range, self.cfg.model.pcd_encoders_cfg["local_pcd_t"]["num_points"], is_cylindrical=True)
+            obs_student["local_scene_pcd_t"], crop_logs = crop_local_pcd(obs["full_scene_pcd_t"], self.local_pcd_range[0], self.cfg.model.pcd_encoders_cfg["local_pcd_t"]["num_points"][0], is_cylindrical=True)
             if self.use_wandb:
                 wandb_logs.update(crop_logs)
 
@@ -383,6 +442,19 @@ class DaggerMobile:
         # )
 
         return obs_student, wandb_logs
+
+    # Codex
+    def _get_object_center_pos_in_base_frame(self):
+        object_center_pos = self.env.states["object_center_pos"].clone()
+
+        franka_base_pos = self.env.states['franka_base_pose7'][:, :3] # (num_envs, 3)
+        franka_base_quat = self.env.states['franka_base_pose7'][:, 3:] # (num_envs, 4)
+        franka_base_rot_mat = quaternion_to_matrix_ig(franka_base_quat)
+        rot_global2base = franka_base_rot_mat.transpose(1, 2) # (num_envs, 3, 3)
+
+        point_shifted = (object_center_pos - franka_base_pos).unsqueeze(1) # (num_envs, 1, 3)
+        point_base_frame = torch.bmm(point_shifted, rot_global2base) # (num_envs, N, 3)
+        return point_base_frame[:, 0, :] # (num_envs, 3)
 
     def train_episode(self):
         count_reaching = torch.zeros(self.env.num_envs, device=self.device).int()
@@ -445,6 +517,27 @@ class DaggerMobile:
                 point_shifted = (obs_input_a0["objxyz_t0"] - franka_base_pos).unsqueeze(1) # (num_envs, 1, 3)
                 point_base_frame = torch.bmm(point_shifted, rot_global2base) # (num_envs, N, 3), bmm is like matmul but specifically made for batches of 2D matrices (input has to be 3D), faster than matmul
                 obs_input_a0["objxyz_t0"] = point_base_frame[:, 0, :] # (num_envs, 3)
+            if "aux_object_state" in self.state_encoders_keys:
+                # Codex
+                noisy_object_center_pos = self._get_object_center_pos_in_base_frame()
+                # add noise (-0.05m ~ 0.05m)
+                noisy_object_center_pos = noisy_object_center_pos + 0.1 * ( torch.rand(self.env.num_envs, 3, device=self.device) - 0.5 )
+
+                if self.total_steps < self.aux_switch_steps:
+                    obs_input_a0["aux_object_state"] = noisy_object_center_pos
+                else:
+                    aux_object_state = self.aux_buffer.clone()
+                    # Codex
+                    if hasattr(self.env, "object_reset_mask") and torch.any(self.env.object_reset_mask):
+                        if aux_object_state.ndim == 3:
+                            aux_object_state[self.env.object_reset_mask, 0, :] = noisy_object_center_pos[self.env.object_reset_mask]
+                        else:
+                            aux_object_state[self.env.object_reset_mask, :] = noisy_object_center_pos[self.env.object_reset_mask]
+                    obs_input_a0["aux_object_state"] = aux_object_state
+
+                # Codex
+                if hasattr(self.env, "object_reset_mask"):
+                    self.env.object_reset_mask[:] = False
 
             # Viser debug utils
             # env_id = self.env.viser_visualizer.env_id
@@ -456,9 +549,12 @@ class DaggerMobile:
             with torch.no_grad():
                 student_model = self.student_model.module if self.multi_gpu else self.student_model
                 student_model.eval()
-                student_actions_chunk = student_model(obs_input_a0)
+                output = student_model(obs_input_a0)
+                student_actions_chunk = output["action"]
+                if self.aux_enable:
+                    self.aux_buffer[:] = output["aux"].clone()
 
-            teacher_actions_buffer = []
+            teacher_preds_buffer = []
 
             for action_idx in range(self.chunk_size):
                 # get teacher action
@@ -484,7 +580,13 @@ class DaggerMobile:
                 teacher_actions = torch.clamp(teacher_actions, -self.env.clip_actions, self.env.clip_actions)
                 self.env._pre_physics_step_teacher(teacher_actions)
                 teacher_actions = self.env.teacher_actions_converted.clone()
-                teacher_actions_buffer.append(teacher_actions)
+                if "aux_object_state" in self.state_encoders_keys:
+                    object_center_pos = self._get_object_center_pos_in_base_frame()
+                    teacher_pred = torch.cat([teacher_actions, object_center_pos], dim=1) # add aux info, object_xyz_pos
+                else:
+                    teacher_pred = teacher_actions
+
+                teacher_preds_buffer.append(teacher_pred)
 
                 student_actions = student_actions_chunk[:, action_idx, :]
                 step_actions = student_actions
@@ -511,24 +613,32 @@ class DaggerMobile:
                 count_reaching += self.env.success_5cm_per_step
                 count_reaching *= self.env.success_5cm_per_step
 
-            teacher_actions_buffer = torch.stack(teacher_actions_buffer, dim=1) # (num_envs, chunk_size, action_dim)
+            teacher_preds_buffer = torch.stack(teacher_preds_buffer, dim=1) # (num_envs, chunk_size, action_dim)
 
             self.student_model.train()
             n_batches = self.env.num_envs // self.batch_size # now this is 1
             indices = torch.randperm(self.env.num_envs, device=self.device)
-            total_loss = 0
+            ave_loss = {
+                "action": 0.0,
+                "aux": 0.0,
+                "total": 0.0,
+            }
             for i in range(n_batches):
                 batch_indices = indices[i * self.batch_size:(i + 1) * self.batch_size]
                 batch_obs = {k: v[batch_indices] for k, v in obs_input_a0.items()}
-                batch_actions = teacher_actions_buffer[batch_indices]
+                batch_actions = teacher_preds_buffer[batch_indices]
                 # NOTE: supervise student model on first step
                 loss = self.student_model.forward(batch_obs, batch_actions, action_chunk_idx=0)
                 self.optimizer.zero_grad()
-                loss.backward()
+                loss["total"].backward()
                 torch.nn.utils.clip_grad_norm_(self.student_model.parameters(), max_norm=self.max_grad_norm) 
                 self.optimizer.step()
-                total_loss += loss.item()
-            total_loss /= n_batches
+
+                for key in loss.keys():
+                    ave_loss[key] += loss[key].item()
+
+            for key in ave_loss.keys():
+                ave_loss[key] /= n_batches
 
             if self.scheduler is not None:
                 self.scheduler.step()
@@ -538,16 +648,22 @@ class DaggerMobile:
 
             if self.use_wandb:
                 wandb_logs = {
-                    "train/loss": total_loss,
+                    "train/loss_total": ave_loss["total"],
                     "train/lr": self.optimizer.param_groups[0]["lr"],
                     "mem/allocated_GB": mem_allocated_GB,
                     "mem/reserved_GB": mem_reserved_GB,
                 }
                 wandb_logs.update(input_wandb_logs)
+                if "aux_object_state" in self.state_encoders_keys:
+                    aux_wandb_logs = {
+                        "train/loss_aux": ave_loss["aux"],
+                        "train/loss_action": ave_loss["action"],
+                    }
+                    wandb_logs.update(aux_wandb_logs)
 
                 wandb.log(wandb_logs, step=self.total_steps)
 
-        return total_loss
+        return ave_loss
 
     def eval(self):
         self.env.reset_idx()
@@ -597,6 +713,8 @@ class DaggerMobile:
                 point_shifted = (obs_input_a0["objxyz_t0"] - franka_base_pos).unsqueeze(1) # (num_envs, 1, 3)
                 point_base_frame = torch.bmm(point_shifted, rot_global2base) # (num_envs, N, 3), bmm is like matmul but specifically made for batches of 2D matrices (input has to be 3D), faster than matmul
                 obs_input_a0["objxyz_t0"] = point_base_frame[:, 0, :] # (num_envs, 3)
+            if "aux_object_state" in self.state_encoders_keys:
+                obs_input_a0["aux_object_state"] = self.aux_buffer.clone()
 
             # Viser debug utils
             # env_id = self.env.viser_visualizer.env_id
@@ -608,7 +726,10 @@ class DaggerMobile:
             with torch.no_grad():
                 student_model = self.student_model.module if self.multi_gpu else self.student_model
                 student_model.eval()
-                student_actions_chunk = student_model(obs_input_a0)
+                output = student_model(obs_input_a0)
+                student_actions_chunk = output["action"]
+                if self.aux_enable:
+                    self.aux_buffer[:] = output["aux"].clone()
 
             for action_idx in range(self.chunk_size):
                 # # get teacher action
@@ -640,29 +761,29 @@ class DaggerMobile:
                 # step with student actions
                 step_actions = torch.clamp(step_actions, -self.env.clip_actions, self.env.clip_actions)
 
-                self.env.progress_buf -= 1 # to avoid automatic resets during the chunk steps, only update progress_buf at the end of the chunk
-                if action_idx == self.chunk_size - 1:
-                    self.env.progress_buf += self.chunk_size
+                self.env.progress_buf[:] = 0 # since we are only evaling one episode, just disable env resets, it might mess up loggings a little bit
 
                 self.env.step(step_actions)
 
         # set env state back for training
         self.env.reset_idx()
         self.env.compute_observations()
-        self.env.progress_buf = torch.randint(0, self.env.max_episode_length, (self.env.num_envs,)).to(self.device)
+        self.env.progress_buf = torch.randint(
+            0, self.env.max_episode_length,
+            (self.env.num_envs,),
+            device=self.device,
+            dtype=self.env.progress_buf.dtype,
+        )
         self.env.abs_actions[:] = self.env.states['q'].clone()
 
-        if self.use_wandb:
-            eval_wandb_logs = {
-                "metrics/eval_success_rate_5cm_final_step": self.env.extras["metrics/success_rate_5cm_per_step"],
-                "metrics/eval_success_rate_5cm_per_ep": self.env.extras["metrics/success_rate_5cm_per_ep"],
-                "metrics/eval_lifting_rate_5cm_final_step": self.env.extras["metrics/lifting_rate_5cm_per_step"],
-                "metrics/eval_lifting_rate_5cm_per_ep": self.env.extras["metrics/lifting_rate_5cm_per_ep"],
-            }
+        eval_wandb_logs = {
+            "metrics/eval_success_rate_5cm_final_step": self.env.extras["metrics/success_rate_5cm_per_step"],
+            "metrics/eval_success_rate_5cm_per_ep": self.env.extras["metrics/success_rate_5cm_per_ep"],
+            "metrics/eval_lifting_rate_5cm_final_step": self.env.extras["metrics/lifting_rate_5cm_per_step"],
+            "metrics/eval_lifting_rate_5cm_per_ep": self.env.extras["metrics/lifting_rate_5cm_per_ep"],
+        }
 
-            return eval_wandb_logs
-        else:
-            return {}
+        return eval_wandb_logs
 
     def train(self):
         while self.episode < self.total_episodes:
@@ -693,7 +814,7 @@ class DaggerMobile:
                     wandb.log(metrics, step=self.total_steps)
 
                 # TODO: add args: save ckpt? frequency?
-                self.save_checkpoint(self.episode, metrics["metrics/success_rate_5cm_per_ep"])
+                self.save_checkpoint(self.episode, metrics["metrics/success_rate_5cm_per_ep"], metrics.get("metrics/eval_lifting_rate_5cm_per_ep", None))
 
                 colorprint(f"Episode {self.episode + 1}/{self.total_episodes} completed in {timedelta(seconds=int(episode_time))}", color="magenta")
                 for metric, value in metrics.items():

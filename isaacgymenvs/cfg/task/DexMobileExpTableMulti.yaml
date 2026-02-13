@@ -3,24 +3,24 @@
 defaults:
   - DexMobileExpBase
 
-name: FrankaLEAPMobilePickTopFull
+name: FrankaLEAPMobilePickTableMulti
 
 # if given, will override the device setting in gym. 
 env:
   scene:
     table_thickness_range: [0.01, 0.1]
-    z_shift_range: [0.1, 0.7]
+    z_shift_range: [0.01, 0.8]
 
     add_on_obstacles:
       cuboids:
-        num: 10
+        num: 2
         size_xy: [[0.05, 0.05], [0.1, 0.1]]
         size_z_min: 0.1
       spheres:
         num: 0 # 1
         r_min: 0.05
       capsules:
-        num: 10 # currently don't have this supported in pcd utils
+        num: 1 # currently don't have this supported in pcd utils
         r_min: 0.025
         l_min: 0.025 # this is semi-length of the cylindrical part
 
@@ -37,7 +37,7 @@ env:
     safety_box:
       wall_thickness: 0.01
       # size: [[0.25, 0.25, 0.15], [0.5, 0.5, 0.25]] # x, y, z
-      size: [[0.35, 0.35, 0.1], [0.5, 0.5, 0.2]] # x, y, z
+      size: [[0.5, 0.5, 0.1], [0.5, 0.5, 0.1]] # x, y, z
       x_shift_range: [0.3, 0.7]
       y_shift_range: [-0.3, 0.3]
       z: [-0.2, 0.5]
@@ -46,8 +46,8 @@ env:
       rot_ex: [-1.5, 1.5] # radians
       obj_wall_tol: 0.05
       colli_reset: False
-      corner_obstacles_range: [2, 3] # [4, 6] # low & high inclusive
-      extra_surrounding_obstacles_range: [2, 3] # [4, 6] # low & high inclusive
+      corner_obstacles_range: [0, 0] # [4, 6] # low & high inclusive
+      extra_surrounding_obstacles_range: [0, 0] # [4, 6] # low & high inclusive
       shift_other_obstacles_range: [0.1, 0.2]
 
   robot_init:
@@ -61,8 +61,8 @@ env:
     dis_open_range: [0.3, 0.35]
     dis_side_range: -0.1
 
-  numObservations: 61
-  numStates: 106
+  numObservations: 49
+  numStates: 94
   numActions: 22 # delta eef actions 6 (xyz, rpy) + normalized hand joint actions 16
 
 fabric:
@@ -71,7 +71,7 @@ fabric:
 reward:
   params:
     target_pos: [0.5, 0.0, 0.3]
-    target_lift_dis: 0.1
+    target_lift_dis: 0.3
     target_quat: [1.0, 0.0, 0.0, 0.0]
     curl_reaching_threshold: 0.15
 
