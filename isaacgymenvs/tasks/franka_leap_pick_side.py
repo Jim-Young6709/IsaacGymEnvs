@@ -351,14 +351,14 @@ class FrankaLEAPPickSide(FrankaLEAP):
 
         # log metrics
         self.lifting_5cm_per_step = self.states["lift"]
-        self.lifting_flags[self.lifting_5cm_per_step] = 1
+        self.lifting_flags_instant[self.lifting_5cm_per_step] = 1
         self.success_5cm_per_step = (reward_dict["d_eef_point_goal"] < 0.05) & self.lifting_5cm_per_step
-        self.success_flags[self.success_5cm_per_step] = 1
+        self.success_flags_instant[self.success_5cm_per_step] = 1
 
         self.extras["metrics/success_rate_5cm_per_step"] = torch.mean(self.success_5cm_per_step.float()).item()
         self.extras["metrics/lifting_rate_5cm_per_step"] = torch.mean(self.lifting_5cm_per_step.float()).item()
-        self.extras["metrics/success_rate_5cm_per_ep"] = torch.mean(self.success_flags).item()
-        self.extras["metrics/lifting_rate_5cm_per_ep"] = torch.mean(self.lifting_flags).item()
+        self.extras["metrics/success_rate_5cm_per_ep"] = torch.mean(self.success_flags_instant).item()
+        self.extras["metrics/lifting_rate_5cm_per_ep"] = torch.mean(self.lifting_flags_instant).item()
         self.extras["metrics/collision_rate_per_step"] = torch.mean(self.states["collision"].float()).item()
 
     def set_viewer(self):

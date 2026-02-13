@@ -1,0 +1,56 @@
+# Tabletop grasping config for Franka+LEAP environment
+
+defaults:
+  - LEAPExpBase
+
+name: FrankaLEAPPickTableSide
+
+# if given, will override the device setting in gym. 
+env:
+  numObservations: 52
+  numStates: 97
+  numActions: 22 # delta eef actions 6 (xyz, rpy) + normalized hand joint actions 16
+
+  object_settings:
+    object_grasp_target_z_scale: 0.01 # @ray z scale for the hand-object reward, special for side grasp
+
+  eef_init:
+    limits_xyz_min: [-0.3, -0.37, 0.1]
+    limits_xyz_max: [0.15, -0.1, 0.65]
+    side_distance: 0.45
+    side_distance_noise: 0.1
+    target_quat_noise_deg: 10
+    dir_candidates_per_env: 5
+    side_mode: right
+    pose_bank_size: 4096 # num of poses per object
+    pose_bank_max_rounds: 10 # max rounds to try to find all valid poses
+
+observation:
+  usage:
+    use_z: True
+    use_xy: True
+
+reward:
+  params:
+    target_pos: [0.5, 0.0, 0.3]
+    target_lift_dis: 0.1
+    target_quat_right: [-0.7071067811865475, 0.0, 0.0, 0.7071067811865476]
+    target_quat_left: [0.7071067811865475, 0.0, 0.0, 0.7071067811865476]
+    curl_reaching_threshold: 0.15
+
+  exp:
+    beta_hand_object: 5.0
+    beta_object_goal: 5.0
+    beta_hand_orientation: 5.0
+    beta_lift: 0.0 # set this to 0 to use a 0-1 lift reward
+    beta_curl: 0.05
+
+  weights:
+    w_hand_obj: 1.0
+    w_obj_goal: 4.0
+    w_hand_orientation: 2.0
+    w_lift: 2.0
+    w_curl: 0.5
+    w_actionreg: -0.001
+
+  actionreg_type: "" # "delta_joint_action", "delta_eef_action", "delta_qd"

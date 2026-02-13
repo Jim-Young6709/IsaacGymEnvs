@@ -38,12 +38,15 @@ env:
     assetFileNameFranka: "franka_hand/franka_leap.urdf"
 
   mesh:
-    mesh_dir: "./meshes_69"
+    mesh_dir: "./meshes_69_new"
     obj_list: ["all"]
+
+  table_thickness: 0.05
 
   object_settings:
     xyz_range: [[0.35, -0.2, 0.2], [0.55, 0.2, 0.25]] # xy is center position, z is BOTTOM height
-    scale_range: [0.1, 0.1]
+    scale_range: [1.0, 1.0] # @ray this should match the scale in the urdf
+    object_center_z_scale: 0.5 # @ray normally just 1/2, but might be lower for side grasps
 
   object_wrench:
     enable: True
@@ -84,7 +87,12 @@ env:
   video_logging:
     capture: False
     envs: 4
-    freq: 10000 # record video every 10k sim steps
+    freq: 30000 # @ray measured in sim steps
+
+  # log per object success rate
+  log_per_object_success:
+    capture: False
+    freq: 50000 # @ray measured in sim steps
 
   enable_viser: False
 
@@ -108,7 +116,7 @@ sim:
     bounce_threshold_velocity: 0.2
     max_depenetration_velocity: 1000.0
     default_buffer_size_multiplier: 5.0
-    max_gpu_contact_pairs: 2097152 # 1024*1024*2
+    max_gpu_contact_pairs: 4194304 # 1024*1024*4 @ray increased by 2x
     num_subscenes: ${....num_subscenes}
     contact_collection: 1 # 0: CC_NEVER (don't collect contact info), 1: CC_LAST_SUBSTEP (collect only contacts on last substep), 2: CC_ALL_SUBSTEPS (broken - do not use!)
 
@@ -120,7 +128,14 @@ reward:
     target_pos: [0.5, 0.0, 0.3]
     target_lift_dis: 0.1
     target_quat: [0.707, -0.707, 0.0, 0.0]
+    matching_dis: 0.2
     curl_reaching_threshold: 0.15
+    success_timeout: 2.0
+    lifting_timeout: 2.0
+
+  # @ray checks where the usage is
+  usage:
+    use_curl: True
 
   exp:
     beta_hand_object: 5.0

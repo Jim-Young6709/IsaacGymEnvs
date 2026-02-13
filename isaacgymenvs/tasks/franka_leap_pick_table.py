@@ -3,6 +3,8 @@ Franka + LEAP Hand Pick Env
 """
 
 import time
+import json
+import os
 
 import hydra
 import isaacgym
@@ -16,6 +18,7 @@ from isaacgymenvs.tasks import FrankaLEAP
 from isaacgymenvs.utils.reformat import omegaconf_to_dict
 from omegaconf import DictConfig
 from tqdm import tqdm
+import wandb
 
 
 
@@ -39,7 +42,7 @@ class FrankaLEAPPickTable(FrankaLEAP):
         upper = gymapi.Vec3(spacing, spacing, spacing)
 
         # setup params
-        table_thickness = 0.05
+        table_thickness = self.cfg["env"]["table_thickness"]
         self.cuboid_dims = []  # xyz
         self.cuboid_pos = []
         self.cuboid_quats = []
@@ -73,11 +76,14 @@ class FrankaLEAPPickTable(FrankaLEAP):
 
         # load all meshes first
         all_meshes_list = self.create_all_meshes()
+        self.num_objects = len(all_meshes_list) # @ray record number of objects for per-object success rate tracking
+        self.env_object_ids = torch.zeros((self.num_envs,), dtype=torch.int64, device=self.device) 
 
         # Create environments
         for i in tqdm(range(self.num_envs), desc="Creating Envs"):
             # grasp object
             object_asset, object_start_pose, object_scale, object_id, mesh_id = all_meshes_list[i % len(all_meshes_list)]
+            self.env_object_ids[i] = i % len(all_meshes_list)
 
             # create env instance
             env_ptr = self.gym.create_env(self.sim, lower, upper, num_per_row)
@@ -171,6 +177,7 @@ class FrankaLEAPPickTable(FrankaLEAP):
     def _update_states(self):
         super()._update_states()
 
+        # @ray not just update but also create new keys here
         self.states.update({
             # Table Contact Status, check whether the object is lifted
             "lift": ~self.table_collision,
@@ -181,7 +188,7 @@ class FrankaLEAPPickTable(FrankaLEAP):
         self.table_collision = torch.any(self.contact_forces[:, 30].view(self.num_envs, -1) != 0, dim=1)
 
     def compute_observations(self):
-        self._refresh()
+        self._refresh() # @ray checks table collision and updates states
 
         obs_components = ["q_hand",
                           "eef_finger1_pos_relative", "eef_finger2_pos_relative",
@@ -208,6 +215,8 @@ class FrankaLEAPPickTable(FrankaLEAP):
         return self.obs_buf
 
     def compute_reward(self):
+        # @ray states used are updated in compute_observations(), called right before compute_reward()
+
         self.reset_buf[:] = torch.where((self.progress_buf >= self.max_episode_length - 1), torch.ones_like(self.reset_buf), self.reset_buf)
         self.reset_buf[self.states['object_center_pos'][:, 2] < self.table_surface_height-0.1] = 1
         reward_dict = compute_franka_leap_reward(self.states, self.reward_settings)
@@ -224,15 +233,71 @@ class FrankaLEAPPickTable(FrankaLEAP):
 
         # log metrics
         self.lifting_5cm_per_step = self.states["lift"]
-        self.lifting_flags[self.lifting_5cm_per_step] = 1
+        self.lifting_flags_instant[self.lifting_5cm_per_step] = 1
         self.success_5cm_per_step = (reward_dict["d_eef_point_goal"] < 0.05) & self.lifting_5cm_per_step
-        self.success_flags[self.success_5cm_per_step] = 1
+        self.success_flags_instant[self.success_5cm_per_step] = 1
+        self.success_duration = torch.where(
+            self.success_5cm_per_step,
+            self.success_duration + self.dt,
+            torch.zeros_like(self.success_duration),
+        )
+        self.lifting_duration = torch.where(
+            self.lifting_5cm_per_step,
+            self.lifting_duration + self.dt,
+            torch.zeros_like(self.lifting_duration),
+        )
+        self.success_long_enough = self.success_duration >= self.reward_settings["success_timeout"]
+        self.lifting_long_enough = self.lifting_duration >= self.reward_settings["lifting_timeout"]
+        done_envs = self.reset_buf > 0
 
+        if torch.any(done_envs):
+            done_env_ids = done_envs.nonzero(as_tuple=False).squeeze(-1)
+            done_object_ids = self.env_object_ids[done_env_ids]
+            episode_increments = torch.bincount(done_object_ids, minlength=self.num_objects)
+            success_env_ids = (done_envs & self.success_long_enough).nonzero(as_tuple=False).squeeze(-1)
+            success_object_ids = self.env_object_ids[success_env_ids]
+            success_increments = torch.bincount(success_object_ids, minlength=self.num_objects)
+            self.per_object_episode_counts += episode_increments
+            self.per_object_success_counts += success_increments
+            self.per_object_episode_counts_interval += episode_increments
+            self.per_object_success_counts_interval += success_increments
+
+        # @ray log per-object per-interval success rates locally and a histograom to wandb
+        if self.sim_steps > 0 and (self.sim_steps % self.log_per_object_success_freq == 0):
+            # @ray prevent inf from division by zero if some objects are not in any envs
+            interval_rates = torch.where(
+                self.per_object_episode_counts_interval > 0,
+                self.per_object_success_counts_interval.float() / self.per_object_episode_counts_interval.float(),
+                torch.zeros_like(self.per_object_success_counts_interval, dtype=torch.float32),
+            )
+            if wandb.run is not None:
+                print("logging per-object success rate histogram to wandb")
+                wandb.log({"per_object_success_rate_hist": wandb.Histogram(interval_rates.detach().cpu().numpy(), num_bins=20)},)
+            interval_snapshot = {
+                "sim_steps": int(self.sim_steps),
+                "log_interval_steps": int(self.log_per_object_success_freq),
+                "per_object_success_rates": {
+                    str(obj_id): {
+                        "episodes": int(self.per_object_episode_counts_interval[obj_id].item()),
+                        "successes": int(self.per_object_success_counts_interval[obj_id].item()),
+                        "success_rate": float(interval_rates[obj_id].item()),
+                    }
+                    for obj_id in range(self.num_objects)
+                },
+            }
+            json_path = os.path.join(self.log_per_object_success_dir, f"per_object_success_step{int(self.sim_steps)}.json")
+            with open(json_path, "w") as f:
+                json.dump(interval_snapshot, f, indent=2)
+            self.per_object_episode_counts_interval.zero_()
+            self.per_object_success_counts_interval.zero_()
+
+        self.extras["metrics/success_rate_5cm_per_ep"] = torch.mean(self.success_flags.float()).item()
+        self.extras["metrics/success_rate_5cm_per_ep_instant"] = torch.mean(self.success_flags_instant).item()
         self.extras["metrics/success_rate_5cm_per_step"] = torch.mean(self.success_5cm_per_step.float()).item()
+        self.extras["metrics/lifting_rate_5cm_per_ep"] = torch.mean(self.lifting_flags.float()).item()
+        self.extras["metrics/lifting_rate_5cm_per_ep_instant"] = torch.mean(self.lifting_flags_instant).item()
         self.extras["metrics/lifting_rate_5cm_per_step"] = torch.mean(self.lifting_5cm_per_step.float()).item()
-        self.extras["metrics/success_rate_5cm_per_ep"] = torch.mean(self.success_flags).item()
-        self.extras["metrics/lifting_rate_5cm_per_ep"] = torch.mean(self.lifting_flags).item()
-
+        
         # log memory usage TODO: debug utils, cleanup later
         mem_allocated_GB = float(torch.cuda.memory_allocated() / 1024**3)
         mem_reserved_GB = float(torch.cuda.memory_reserved() / 1024**3)
@@ -270,7 +335,7 @@ def compute_franka_leap_reward(states, reward_settings):
         r_lift = torch.where(states["lift"], 1.0, torch.zeros_like(object_height))
 
     # R3: Object goal distance reward (based on average point matching distance)
-    d_eef_point_goal = states["point_matching_err"]
+    d_eef_point_goal = states["point_matching_err_target"]
     beta_object_goal = reward_settings["beta_object_goal"]
     r_obj_goal = torch.exp(-beta_object_goal * d_eef_point_goal)
     r_obj_goal = torch.where(states["lift"], r_obj_goal, 0.0)
@@ -294,9 +359,16 @@ def compute_franka_leap_reward(states, reward_settings):
     w_curl = reward_settings["w_curl"]
     w_actionreg = reward_settings["w_actionreg"]
 
-    r_total = w_hand_obj*r_hand_obj + w_obj_goal*r_obj_goal + \
-              w_lift*r_lift + w_curl*r_curl + w_actionreg*r_actionreg
+    # R6: Hand 
 
+    use_curl = bool(reward_settings["use_curl"])
+    # @ray 
+    # use activated rewards only
+    # but compute all rewards anyways for logging
+    r_total = w_hand_obj*r_hand_obj + w_obj_goal*r_obj_goal + \
+              w_curl*r_curl * float(use_curl) + \
+              w_lift*r_lift + w_actionreg*r_actionreg
+    
     rewards = {
         "r_hand_obj": w_hand_obj*r_hand_obj,
         "r_lift": w_lift*r_lift,
@@ -331,7 +403,7 @@ def launch_test(cfg: DictConfig):
         t1 = time.time()
         env.reset_idx()
         # env.set_robot_joint_state(env.canonical_joint_config)
-        # env.set_robot_joint_state(env.canonical_grasp_config)
+        env.set_robot_joint_state(env.canonical_grasp_config)
         env.step_sim_multi(1, False)
         env.compute_observations()
 
