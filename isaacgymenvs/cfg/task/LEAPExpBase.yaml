@@ -37,14 +37,14 @@ env:
     assetFileNameFranka: "franka_hand/franka_leap.urdf"
 
   mesh:
-    mesh_dir: "./meshes_69"
+    mesh_dir: "./meshes_69_new"
     obj_list: ["all"]
 
   table_thickness: 0.05
 
   object_settings:
     xyz_range: [[0.35, -0.2, 0.2], [0.55, 0.2, 0.25]] # xy is center position, z is BOTTOM height
-    scale_range: [0.1, 0.1]
+    scale_range: [1.0, 1.0] # @ray this should match the scale in the urdf
     object_center_z_scale: 0.5 # @ray normally just 1/2, but might be lower for side grasps
 
   object_wrench:
@@ -76,7 +76,7 @@ env:
   video_logging:
     capture: False
     envs: 4
-    freq: 10000 # record video every 10k sim steps
+    freq: 30000 # @ray measured in sim steps
 
   # log per object success rate
   log_per_object_success:

@@ -422,19 +422,9 @@ class FrankaLEAP(VecTask):
         target_lift_dis = to_torch(self.cfg["reward"]["params"]["target_lift_dis"], device=self.device)
 
         # @ray for side picks we need to switch between left and right rot targets
-        has_lr_quat = "target_quat_right" in self.cfg["reward"]["params"] and "target_quat_left" in self.cfg["reward"]["params"]
-        if has_lr_quat:
-            target_quat_right = to_torch(self.cfg["reward"]["params"]["target_quat_right"], device=self.device).unsqueeze(0).repeat(self.num_envs, 1)
-            target_quat_right_norm = torch.norm(target_quat_right, dim=1, keepdim=True)
-            target_quat_right = target_quat_right / (target_quat_right_norm + 1e-10)
-            target_quat_left = to_torch(self.cfg["reward"]["params"]["target_quat_left"], device=self.device).unsqueeze(0).repeat(self.num_envs, 1)
-            target_quat_left_norm = torch.norm(target_quat_left, dim=1, keepdim=True)
-            target_quat_left = target_quat_left / (target_quat_left_norm + 1e-10)
-            target_quat = target_quat_right.clone()
-        else:
-            target_quat = to_torch(self.cfg["reward"]["params"]["target_quat"], device=self.device).unsqueeze(0).repeat(self.num_envs, 1)
-            target_quat_norm = torch.norm(target_quat, dim=1, keepdim=True)  # normalize quaternion
-            target_quat = target_quat / (target_quat_norm + 1e-10)
+        target_quat = to_torch(self.cfg["reward"]["params"]["target_quat"], device=self.device).unsqueeze(0).repeat(self.num_envs, 1)
+        target_quat_norm = torch.norm(target_quat, dim=1, keepdim=True)  # normalize quaternion
+        target_quat = target_quat / (target_quat_norm + 1e-10)
 
         # finger indexing: 0-3:index ; 4-7:thumb ; 8-11:middle ; 12-15:ring
         # @ray curl config
@@ -466,15 +456,7 @@ class FrankaLEAP(VecTask):
             "target_lift_dis": target_lift_dis,
             "target_quat": target_quat,
             "target_rot_6d": matrix_to_rotation_6d(quaternion_to_matrix_ig(target_quat)),
-            **(
-                {
-                    "target_quat_right": target_quat_right,
-                    "target_quat_left": target_quat_left,
-                    "target_rot_6d_right": matrix_to_rotation_6d(quaternion_to_matrix_ig(target_quat_right)),
-                    "target_rot_6d_left": matrix_to_rotation_6d(quaternion_to_matrix_ig(target_quat_left)),
-                }
-                if has_lr_quat else {}
-            ),
+
             "curl_reaching_threshold": to_torch(self.cfg["reward"]["params"]["curl_reaching_threshold"], device=self.device),
             "success_timeout": to_torch(self.cfg["reward"]["params"]["success_timeout"], device=self.device),
             "lifting_timeout": to_torch(self.cfg["reward"]["params"]["lifting_timeout"], device=self.device),
@@ -617,27 +599,8 @@ class FrankaLEAP(VecTask):
         mesh_scale = [scale, scale, scale]
         urdf_path, asset_root = self._create_mesh_urdf(mesh_path, scale=mesh_scale)
 
-        # @ray don't get object mapping id every time, we do it in _create_all_meshes instead
-        # # get object mapping id
-        # obj_mapping_path = os.path.join(self.mesh_args["mesh_dir"], "type_mapping.json")
-        # obj_str2int = {}
-        # try:
-        #     with open(obj_mapping_path, "r") as f:
-        #         obj_str2int = json.load(f)
-        #     if not obj_str2int:
-        #         raise ValueError("Object type mapping is empty")
-        # except FileNotFoundError:
-        #     print("Object mapping file not found.")
 
-        # @ray new loading with backwards
-        # old format
-        # ├── apple
-        # │   ├── 1.glb
-        # │   ├── 1.npy
-        # │   ├── 1.obj
-        # │   └── 1.urdf
-        # └── type_mapping.json
-        # new format
+        # @ray urdf format
         # ├── apple_1
         # │   ├── apple_1.glb
         # │   ├── apple_1.json
@@ -646,17 +609,10 @@ class FrankaLEAP(VecTask):
         # │   └── apple_1.urdf
         # └── type_mapping.json
         # object specs including id is in apple_1.json
-        asset_specs_path = Path(mesh_path).with_suffix(".json")
-        # new format
-        if asset_specs_path.exists():
-            # with open(asset_specs_path, 'r') as f:
-            #     asset_specs = json.load(f)
-            asset_mesh_id = Path(mesh_path).parts[-2]
-            asset_obj_id = int(obj_str2int[asset_mesh_id])
-        # old format
-        else:
-            asset_obj_id = int(obj_str2int[Path(mesh_path).parts[-2]])
-            asset_mesh_id = int(Path(mesh_path).parts[-1].split(".")[-2])
+        # asset_specs_path = Path(mesh_path).with_suffix(".json")
+
+        asset_mesh_id = Path(mesh_path).parts[-2]
+        asset_obj_id = int(obj_str2int[asset_mesh_id])
 
         # Create mesh asset
         opts = gymapi.AssetOptions()
@@ -1265,12 +1221,10 @@ class FrankaLEAP(VecTask):
                 writer.append_data(img)
 
         if render_step == 2*self.max_episode_length - 1:
-            # CODEX: close writers at the end of capture window
             for writer in getattr(self, "video_writers", []):
                 if writer is not None:
                     writer.close()
             self.video_writers = []
-            # CODEX: log per-env videos to wandb from disk (no RAM buffering)
             if wandb.run is not None:
                 for idx, env_idx in enumerate(self.video_env_ids):
                     path = os.path.join(
@@ -1336,6 +1290,9 @@ class FrankaLEAP(VecTask):
         if clear_lines:
             self.gym.clear_lines(self.viewer)
         centers = self.states["object_center_pos"].detach().cpu().numpy()
+        grasp_targets = None
+        if "object_grasp_target_pos" in self.states:
+            grasp_targets = self.states["object_grasp_target_pos"].detach().cpu().numpy()
         for i in range(self.num_envs):
             c = centers[i]
             verts_flat = [
@@ -1343,11 +1300,19 @@ class FrankaLEAP(VecTask):
                 c[0], c[1] - half_extent, c[2],  c[0], c[1] + half_extent, c[2],
                 c[0], c[1], c[2] - half_extent,  c[0], c[1], c[2] + half_extent,
             ]
-            colors_flat = [1.0, 0.0, 0.0] * 3
+            colors_flat = [1.0, 0.0, 0.0] * 3  # red: object center
+            if grasp_targets is not None:
+                g = grasp_targets[i]
+                verts_flat.extend([
+                    g[0] - half_extent, g[1], g[2],  g[0] + half_extent, g[1], g[2],
+                    g[0], g[1] - half_extent, g[2],  g[0], g[1] + half_extent, g[2],
+                    g[0], g[1], g[2] - half_extent,  g[0], g[1], g[2] + half_extent,
+                ])
+                colors_flat.extend([0.0, 0.8, 1.0] * 3)  # cyan: grasp target
             self.gym.add_lines(
                 self.viewer,
                 self.envs[i],
-                3,
+                len(verts_flat) // 6,
                 verts_flat,
                 colors_flat
             )
@@ -1356,16 +1321,25 @@ class FrankaLEAP(VecTask):
         if clear_lines:
             self.gym.clear_lines(self.viewer)
         centers = self.states["object_center_pos"].detach().cpu().numpy()
+        grasp_targets = None
+        if "object_grasp_target_pos" in self.states:
+            grasp_targets = self.states["object_grasp_target_pos"].detach().cpu().numpy()
         for i in range(self.num_envs):
             c = centers[i]
             verts_flat = [
                 c[0] - half_extent, c[1], c[2],  c[0] + half_extent, c[1], c[2],
             ]
-            colors_flat = [1.0, 0.0, 0.0]  # red for +X axis
+            colors_flat = [1.0, 0.0, 0.0]  # red: object center x-axis
+            if grasp_targets is not None:
+                g = grasp_targets[i]
+                verts_flat.extend([
+                    g[0] - half_extent, g[1], g[2],  g[0] + half_extent, g[1], g[2],
+                ])
+                colors_flat.extend([0.0, 0.8, 1.0])  # cyan: grasp target x-axis
             self.gym.add_lines(
                 self.viewer,
                 self.envs[i],
-                1,
+                len(verts_flat) // 6,
                 verts_flat,
                 colors_flat
             )

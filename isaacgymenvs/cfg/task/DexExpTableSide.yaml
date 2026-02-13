@@ -7,19 +7,19 @@ name: FrankaLEAPPickTableSide
 
 # if given, will override the device setting in gym. 
 env:
-  numObservations: 49
-  numStates: 94
+  numObservations: 52
+  numStates: 97
   numActions: 22 # delta eef actions 6 (xyz, rpy) + normalized hand joint actions 16
 
+  object_settings:
+    object_grasp_target_z_scale: 0.01 # @ray z scale for the hand-object reward, special for side grasp
+
   eef_init:
-    limits_xyz_min: [-0.3, -0.37, -1.0]
-    limits_xyz_max: [0.15, 0.37, 1.0]
-    side_distance: 0.4
+    limits_xyz_min: [-0.3, -0.37, 0.1]
+    limits_xyz_max: [0.15, -0.1, 0.65]
+    side_distance: 0.45
     side_distance_noise: 0.1
     target_quat_noise_deg: 10
-    dir_y_max: -0.8
-    dir_z_max: 0.75
-    dir_z_min: -0.25
     dir_candidates_per_env: 5
     side_mode: right
     pose_bank_size: 4096 # num of poses per object

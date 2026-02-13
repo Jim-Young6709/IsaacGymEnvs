@@ -335,7 +335,7 @@ def compute_franka_leap_reward(states, reward_settings):
         r_lift = torch.where(states["lift"], 1.0, torch.zeros_like(object_height))
 
     # R3: Object goal distance reward (based on average point matching distance)
-    d_eef_point_goal = states["point_matching_err"]
+    d_eef_point_goal = states["point_matching_err_target"]
     beta_object_goal = reward_settings["beta_object_goal"]
     r_obj_goal = torch.exp(-beta_object_goal * d_eef_point_goal)
     r_obj_goal = torch.where(states["lift"], r_obj_goal, 0.0)
