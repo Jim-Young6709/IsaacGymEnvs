@@ -1,6 +1,7 @@
 """
 Franka + LEAP Hand Pick Env
 """
+
 import time
 import json
 import os
@@ -231,27 +232,6 @@ class FrankaLEAPPickTable(FrankaLEAP):
         self.extras["dis/d_eef_point_goal"] = torch.mean(reward_dict["d_eef_point_goal"]).item()
 
         # log metrics
-        # if self.sim_steps % 100 == 0:
-        #     obj_pos = self.states["object_center_pos"]
-        #     eef_pos = self.states["eef_pos"]
-        #     f1 = self.states["eef_finger1_pos"]
-        #     f2 = self.states["eef_finger2_pos"]
-        #     f3 = self.states["eef_finger3_pos"]
-        #     f4 = self.states["eef_finger4_pos"]
-        #     table_center = torch.tensor([0.5, 0.0, self.table_surface_height[0].item()], device=self.device)
-        #     n = min(2, obj_pos.shape[0])
-        #     for i in range(n):
-        #         eef_d = torch.norm(obj_pos[i] - eef_pos[i]).item()
-        #         f1_d = torch.norm(obj_pos[i] - f1[i]).item()
-        #         f2_d = torch.norm(obj_pos[i] - f2[i]).item()
-        #         f3_d = torch.norm(obj_pos[i] - f3[i]).item()
-        #         f4_d = torch.norm(obj_pos[i] - f4[i]).item()
-        #         table_d = torch.norm(eef_pos[i] - table_center).item()
-        #         print(
-        #             f"[debug] step={int(self.sim_steps)} env={i} "
-        #             f"eef={eef_d:.4f} f1={f1_d:.4f} f2={f2_d:.4f} "
-        #             f"f3={f3_d:.4f} f4={f4_d:.4f} table={table_d:.4f}"
-        #         )
         self.lifting_5cm_per_step = self.states["lift"]
         self.lifting_flags_instant[self.lifting_5cm_per_step] = 1
         self.success_5cm_per_step = (reward_dict["d_eef_point_goal"] < 0.05) & self.lifting_5cm_per_step
@@ -310,15 +290,6 @@ class FrankaLEAPPickTable(FrankaLEAP):
                 json.dump(interval_snapshot, f, indent=2)
             self.per_object_episode_counts_interval.zero_()
             self.per_object_success_counts_interval.zero_()
-        
-        # n = min(2, self.num_envs)
-        # for i in range(n):
-        #     print(
-        #         f"[debug] step={int(self.sim_steps)} env={i} "
-        #         f"success_duration={float(self.success_duration[i]):.4f} "
-        #         f"success_long_enough={bool(success_long_enough[i])} "
-        #         f"done_env={bool(done_envs[i])}"
-        #     )
 
         self.extras["metrics/success_rate_5cm_per_ep"] = torch.mean(self.success_flags.float()).item()
         self.extras["metrics/success_rate_5cm_per_ep_instant"] = torch.mean(self.success_flags_instant).item()
