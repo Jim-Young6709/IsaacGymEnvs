@@ -76,7 +76,8 @@ class FrankaLEAPPickTable(FrankaLEAP):
 
         # load all meshes first
         all_meshes_list = self.create_all_meshes()
-        self.num_objects = len(all_meshes_list) # @ray record number of objects for per-object success rate tracking
+        self.num_objects = min(len(all_meshes_list), self.num_envs) # @ray record number of objects for per-object success rate tracking
+        all_meshes_list = all_meshes_list[:self.num_objects]
         self.env_object_ids = torch.zeros((self.num_envs,), dtype=torch.int64, device=self.device) 
 
         # Create environments
@@ -155,6 +156,13 @@ class FrankaLEAPPickTable(FrankaLEAP):
         self.cuboid_quats = np.array(self.cuboid_quats).reshape(self.num_envs, -1, 4)
 
         self.table_surface_height = torch.tensor([table_start_pose.p.z + table_thickness / 2] * self.num_envs, device=self.device)
+        self.table_rigid_body_idx = torch.zeros(self.num_envs, dtype=torch.int64, device=self.device)
+        for i in range(self.num_envs):
+            rb_names = self.gym.get_actor_rigid_body_names(self.envs[i], self.tables[i])
+            rb_index = self.gym.find_actor_rigid_body_index(
+                self.envs[i], self.tables[i], rb_names[0], gymapi.DOMAIN_ENV
+            )
+            self.table_rigid_body_idx[i] = rb_index
 
         self.cuboid_dims = torch.from_numpy(self.cuboid_dims).to(self.device)
         self.cuboid_pos = torch.from_numpy(self.cuboid_pos).to(self.device)
@@ -168,7 +176,7 @@ class FrankaLEAPPickTable(FrankaLEAP):
         min_xyz = self.object_pcds.min(axis=1).values
         max_xyz = self.object_pcds.max(axis=1).values
         self.mesh_aabb_extents = max_xyz - min_xyz
-        self._object_center_init_state[:, 2] += self.mesh_aabb_extents[:, 2] / 2
+        self._object_center_init_state[:, 2] += self.mesh_aabb_extents[:, 2] * self.object_center_z_scale
 
         # Setup data
         actor_num = 1 + 1 + 1  # robot, table, object
@@ -185,7 +193,8 @@ class FrankaLEAPPickTable(FrankaLEAP):
 
     def check_robot_collision(self):
         super().check_robot_collision()
-        self.table_collision = torch.any(self.contact_forces[:, 30].view(self.num_envs, -1) != 0, dim=1)
+        table_forces = self.contact_forces[torch.arange(self.num_envs, device=self.device), self.table_rigid_body_idx]
+        self.table_collision = torch.any(table_forces.view(self.num_envs, -1) != 0, dim=1)
 
     def compute_observations(self):
         self._refresh() # @ray checks table collision and updates states

@@ -1,29 +1,31 @@
-# Tabletop grasping config for Franka+LEAP environment
+# Top-down box grasping config for Franka+LEAP environment
 
 defaults:
-  - LEAPExpBase
+  - DexMobileExpBase
 
-name: FrankaLEAPPickTableSide
+name: FrankaLEAPMobileDistillationPickSide
 
 # if given, will override the device setting in gym. 
 env:
-  numObservations: 52
-  numStates: 97
-  numActions: 22 # delta eef actions 6 (xyz, rpy) + normalized hand joint actions 16
-
+  scene:
+    table_size_range: [[0.5, 0.6, 0.01], [0.7, 1.2, 0.1]]
+    z_shift_range: [0.01, 0.8]
+  
   object_settings:
     object_grasp_target_z_scale: 0.01 # @ray z scale for the hand-object reward, special for side grasp
 
-  eef_init:
-    limits_xyz_min: [-0.3, -0.37, 0.1]
-    limits_xyz_max: [0.15, -0.1, 0.65]
-    side_distance: 0.45
-    side_distance_noise: 0.1
-    target_quat_noise_deg: 10
-    dir_candidates_per_env: 5
-    side_mode: right
-    pose_bank_size: 4096 # num of poses per object
-    pose_bank_max_rounds: 10 # max rounds to try to find all valid poses
+  robot_init:
+    # TODO: need to ensure the object is visible in initial camera frame, shift y by 0.3 according to vision arm location, also largely decrease ori rand
+    base_init_range: [[-1.0, -0.25, -0.3], [-0.2, 0.25, 0.3]] # [[-0.2, 0.0, 0.0], [-0.2, 0.0, 0.0]] # x, y, yaw
+    switch_pos_offset: [0.0, 0.0, 0.2]
+    switch_tol: 0.2
+
+  numObservations: 49
+  numStates: 94
+  numActions: 22 # delta eef actions 6 (xyz, rpy) + normalized hand joint actions 16
+
+fabric:
+  enable: True
 
 observation:
   usage:

@@ -67,6 +67,11 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         self.reward_settings["beta_hand_orientation"] = to_torch(self.cfg["reward"]["exp"]["beta_hand_orientation"], device=self.device)
         self.reward_settings["w_hand_orientation"] = to_torch(self.cfg["reward"]["weights"]["w_hand_orientation"], device=self.device)
 
+        # @ray to force the hand to grasp on the correct region on the object (in terms of z-axis), we gate the lift and to-goal rewards with a sigmoid based on z-difference 
+        # between the grasp_target's z height and the averaged finger height on obejct. 
+        self.reward_settings["grasp_on_object_z_height_tolerance"] = to_torch(self.cfg["reward"]["params"]["grasp_on_object_z_height_tolerance"], device=self.device)
+        self.reward_settings["grasp_on_object_z_height_slope"] = to_torch(self.cfg["reward"]["params"]["grasp_on_object_z_height_scale"], device=self.device)
+
     def _create_reset_pose_bank(self):
         self.pose_bank_size = int(self.eef_init["pose_bank_size"])
         bank_batch = self.pose_bank_size
@@ -218,8 +223,8 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
     
     def reset_idx(self, env_ids=None):
         super().reset_idx(env_ids)
-        if env_ids is None: # @ray already computed in super()
-            env_ids = torch.arange(self.num_envs, device=self.device)
+        # if env_ids is None: # @ray already computed in super()
+        #     env_ids = torch.arange(self.num_envs, device=self.device)
         num_envs = len(env_ids)
         side_mode = self.eef_init["side_mode"]
         if side_mode == "left":
@@ -422,6 +427,7 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
             # Table Contact Status, check whether the object is lifted
             "lift": ~self.table_collision,
             "object_grasp_target_pos": object_grasp_target_pos, # @ray reward-only grasp target
+            "object_grasp_target_to_eef": object_grasp_target_pos - self._eef_state[:, :3], # @ray for policy observation
         })
 
     def check_robot_collision(self):
@@ -484,6 +490,126 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         if len(verts_flat) == 0:
             return
         self.gym.add_lines(self.viewer, self.envs[env_id], len(verts_flat) // 6, verts_flat, colors_flat)
+
+    # Draws:
+    # 1) object center and grasp target crosses
+    # 2) x_low/x_high bands along object local z-axis (both + and - directions)
+    # 3) projected fingertip points on object z-axis
+    # 4) average absolute fingertip height-error marker used by current sigmoid gate
+    def _draw_object_center_cross(self, half_extent=0.2, clear_lines=True):
+        if clear_lines:
+            self.gym.clear_lines(self.viewer)
+
+        if "object_grasp_target_pos" not in self.states:
+            super()._draw_object_center_cross(half_extent=half_extent, clear_lines=False)
+            return
+
+        centers = self.states["object_center_pos"]
+        grasp_targets = self.states["object_grasp_target_pos"]
+        object_quat = self.states["object_quat"]
+
+        local_z = torch.zeros((self.num_envs, 3), dtype=object_quat.dtype, device=object_quat.device)
+        local_z[:, 2] = 1.0
+        object_z_axis_world = quat_apply(object_quat, local_z)
+        object_z_axis_world = object_z_axis_world / torch.norm(object_z_axis_world, dim=-1, keepdim=True).clamp_min(1e-8)
+
+        finger_positions = torch.stack(
+            [
+                self.states["eef_finger1_pos"],
+                self.states["eef_finger2_pos"],
+                self.states["eef_finger3_pos"],
+                self.states["eef_finger4_pos"],
+            ],
+            dim=1,
+        )  # (N,4,3)
+        fingertip_to_target = finger_positions - grasp_targets.unsqueeze(1)
+        finger_signed_height_err = torch.sum(fingertip_to_target * object_z_axis_world.unsqueeze(1), dim=-1)  # (N,4)
+        d_finger_height_align = torch.mean(torch.abs(finger_signed_height_err), dim=1)  # (N,)
+
+        # CODEX: visualize all envs (same style as base debug helper).
+        x_low = float(self.reward_settings["grasp_on_object_z_height_tolerance"][0].item())
+        x_high = float(self.reward_settings["grasp_on_object_z_height_tolerance"][1].item())
+        err_marker_half = 0.03
+        band_cross_half = 0.02
+
+        centers_np = centers.detach().cpu().numpy()
+        grasp_targets_np = grasp_targets.detach().cpu().numpy()
+        z_axis_np = object_z_axis_world.detach().cpu().numpy()
+        finger_pos_np = finger_positions.detach().cpu().numpy()
+        finger_signed_err_np = finger_signed_height_err.detach().cpu().numpy()
+        d_align_np = d_finger_height_align.detach().cpu().numpy()
+
+        for i in range(self.num_envs):
+            c = centers_np[i]
+            g = grasp_targets_np[i]
+            z_axis = z_axis_np[i]
+
+            verts_flat = []
+            colors_flat = []
+
+            # object center cross (red)
+            verts_flat.extend([
+                c[0] - half_extent, c[1], c[2], c[0] + half_extent, c[1], c[2],
+                c[0], c[1] - half_extent, c[2], c[0], c[1] + half_extent, c[2],
+                c[0], c[1], c[2] - half_extent, c[0], c[1], c[2] + half_extent,
+            ])
+            colors_flat.extend([1.0, 0.0, 0.0] * 3)
+
+            # grasp target cross (cyan)
+            verts_flat.extend([
+                g[0] - half_extent, g[1], g[2], g[0] + half_extent, g[1], g[2],
+                g[0], g[1] - half_extent, g[2], g[0], g[1] + half_extent, g[2],
+                g[0], g[1], g[2] - half_extent, g[0], g[1], g[2] + half_extent,
+            ])
+            colors_flat.extend([0.0, 0.8, 1.0] * 3)
+
+            # CODEX: draw gate bands at +/- x_low (green) and +/- x_high (yellow)
+            for dist, col in ((x_low, [0.0, 1.0, 0.0]), (x_high, [1.0, 1.0, 0.0])):
+                for sign in (-1.0, 1.0):
+                    p = g + sign * dist * z_axis
+                    verts_flat.extend([
+                        p[0] - band_cross_half, p[1], p[2], p[0] + band_cross_half, p[1], p[2],
+                        p[0], p[1] - band_cross_half, p[2], p[0], p[1] + band_cross_half, p[2],
+                        p[0], p[1], p[2] - band_cross_half, p[0], p[1], p[2] + band_cross_half,
+                    ])
+                    colors_flat.extend(col * 3)
+
+            # CODEX: draw projected fingertip points onto object z-axis (magenta).
+            for f_idx in range(4):
+                signed_err = float(finger_signed_err_np[i, f_idx])
+                p_proj = g + signed_err * z_axis
+                verts_flat.extend([
+                    p_proj[0] - band_cross_half, p_proj[1], p_proj[2], p_proj[0] + band_cross_half, p_proj[1], p_proj[2],
+                    p_proj[0], p_proj[1] - band_cross_half, p_proj[2], p_proj[0], p_proj[1] + band_cross_half, p_proj[2],
+                    p_proj[0], p_proj[1], p_proj[2] - band_cross_half, p_proj[0], p_proj[1], p_proj[2] + band_cross_half,
+                ])
+                colors_flat.extend([1.0, 0.0, 1.0] * 3)
+
+                # Link fingertip to projection for easier visual sanity check.
+                fp = finger_pos_np[i, f_idx]
+                verts_flat.extend([fp[0], fp[1], fp[2], p_proj[0], p_proj[1], p_proj[2]])
+                colors_flat.extend([0.7, 0.2, 1.0])
+
+            # CODEX: average absolute error marker used by gate x = mean(abs(err_i)).
+            p_avg_pos = g + float(d_align_np[i]) * z_axis
+            p_avg_neg = g - float(d_align_np[i]) * z_axis
+            verts_flat.extend([p_avg_pos[0], p_avg_pos[1], p_avg_pos[2], p_avg_neg[0], p_avg_neg[1], p_avg_neg[2]])
+            colors_flat.extend([1.0, 0.5, 0.0])  # orange bar through +/- avg_abs_err
+            for p_avg in (p_avg_pos, p_avg_neg):
+                verts_flat.extend([
+                    p_avg[0] - err_marker_half, p_avg[1], p_avg[2], p_avg[0] + err_marker_half, p_avg[1], p_avg[2],
+                    p_avg[0], p_avg[1] - err_marker_half, p_avg[2], p_avg[0], p_avg[1] + err_marker_half, p_avg[2],
+                    p_avg[0], p_avg[1], p_avg[2] - err_marker_half, p_avg[0], p_avg[1], p_avg[2] + err_marker_half,
+                ])
+                colors_flat.extend([1.0, 0.5, 0.0] * 3)
+
+            self.gym.add_lines(
+                self.viewer,
+                self.envs[i],
+                len(verts_flat) // 6,
+                verts_flat,
+                colors_flat,
+            )
     
     # @ray: visualize workspace XYZ limits as a wireframe box (env 0)
     def _draw_workspace_limits_box(self, clear_lines=True):
@@ -566,6 +692,7 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
                           "eef_finger1_pos_relative", "eef_finger2_pos_relative",
                           "eef_finger3_pos_relative", "eef_finger4_pos_relative",
                           "object_to_eef", "object_to_eef_rot_6d",
+                          "object_grasp_target_to_eef",
                           "target_to_eef", "target_to_eef_rot_6d"]
 
         states_components = ["q", "qd",
@@ -573,23 +700,21 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
                              "eef_finger1_pos_relative", "eef_finger2_pos_relative",
                              "eef_finger3_pos_relative", "eef_finger4_pos_relative",
                              "object_to_eef", "object_to_eef_rot_6d",
+                             "object_grasp_target_to_eef",
                              "target_to_eef", "target_to_eef_rot_6d"]
 
         obs_buf = torch.cat([self.states[ob] for ob in obs_components], dim=-1)
         states_buf = torch.cat([self.states[st] for st in states_components], dim=-1)
 
         # @ray optionally append object bbox info
-        if self.cfg["observation"]["usage"]["use_z"]:
-            obj_height = self.mesh_aabb_extents[:, 2:3]
-            obs_buf = torch.cat([obs_buf, obj_height], dim=-1)
-            states_buf = torch.cat([states_buf, obj_height], dim=-1)
         if self.cfg["observation"]["usage"]["use_xy"]:
             obj_xy_bbox = self.mesh_aabb_extents[:, :2]
             obs_buf = torch.cat([obs_buf, obj_xy_bbox], dim=-1)
             states_buf = torch.cat([states_buf, obj_xy_bbox], dim=-1)
-
-        obs_buf = torch.cat([obs_buf, self.mesh_aabb_extents], dim=-1)
-        states_buf = torch.cat([states_buf, self.mesh_aabb_extents], dim=-1)
+        if self.cfg["observation"]["usage"]["use_z"]:
+            obj_height = self.mesh_aabb_extents[:, 2:3]
+            obs_buf = torch.cat([obs_buf, obj_height], dim=-1)
+            states_buf = torch.cat([states_buf, obj_height], dim=-1)
 
         self.obs_buf = obs_buf
         self.states_buf = states_buf
@@ -722,11 +847,44 @@ def compute_franka_leap_reward(states, reward_settings):
     else:
         r_lift = torch.where(states["lift"], 1.0, torch.zeros_like(object_height))
 
+
+    n_env = states["object_quat"].shape[0]
+    local_z = torch.zeros((n_env, 3), dtype=states["object_quat"].dtype, device=states["object_quat"].device)
+    local_z[:, 2] = 1.0
+    object_z_axis_world = quat_apply(states["object_quat"], local_z)
+
+    finger_positions = torch.stack(
+        [
+            states["eef_finger1_pos"],
+            states["eef_finger2_pos"],
+            states["eef_finger3_pos"],
+            states["eef_finger4_pos"],
+        ],
+        dim=1,
+    )
+    target_pos_rep = states["object_grasp_target_pos"].unsqueeze(1)
+    fingertip_to_target = finger_positions - target_pos_rep
+    finger_signed_height_err = torch.sum(fingertip_to_target * object_z_axis_world.unsqueeze(1), dim=-1)
+    d_finger_height_align = torch.mean(torch.abs(finger_signed_height_err), dim=1)
+
+    # @ray sigmoid gate on lift and to-goal reward to force the hand to grasp on the right part of the object
+    # not adding this would result in the hand eargerly converging on grasping the top part of long cylindrical objects, undesirable
+    x = d_finger_height_align
+    x_low = reward_settings["grasp_on_object_z_height_tolerance"][0]
+    x_high = reward_settings["grasp_on_object_z_height_tolerance"][1]
+    s = reward_settings["grasp_on_object_z_height_slope"]
+    x_mid = 0.5 * (x_low + x_high)
+    lift_height_gate = 1.0 - 1.0 / (1.0 + torch.exp(s * (x_mid - x)))
+    r_lift = r_lift * lift_height_gate
+
     # R3: Object goal distance reward (based on average point matching distance)
     d_eef_point_goal_target = states["point_matching_err_target"]
     beta_object_goal = reward_settings["beta_object_goal"]
     r_obj_goal = torch.exp(-beta_object_goal * d_eef_point_goal_target)
     r_obj_goal = torch.where(states["lift"], r_obj_goal, 0.0)
+    # Apply the same grasp-height gate to object-goal reward to reduce top-grasp exploitation.
+    r_obj_goal = r_obj_goal * lift_height_gate
+
 
     # R4: Hand orientation reward (based on average point matching distance)
     d_eef_point_goal_hand = states["point_matching_err_hand"]

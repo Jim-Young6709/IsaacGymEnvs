@@ -1383,13 +1383,10 @@ class FrankaLEAP(VecTask):
         if self.randomize:
             self.apply_randomizations(self.randomization_params)
 
-        if env_ids is None:
-            env_ids = torch.arange(self.num_envs, device=self.device)
+        # if env_ids is None:
+        #     env_ids = torch.arange(self.num_envs, device=self.device)
 
         self._reset_object_state(env_ids) # reset object state
-
-        if env_ids.numel() == 0:
-            return
 
         reset_noise = torch.rand((len(env_ids), 23), device=self.device) # [0, 1]
         reset_noise = 2.0 * (reset_noise - 0.5) # [-1, 1]
@@ -1545,7 +1542,8 @@ class FrankaLEAP(VecTask):
         self.teleport_buf = self.teleport_buf % self.object_teleport_args['n2']
 
         env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
-        self.reset_idx(env_ids)
+        if env_ids.numel() > 0:
+            self.reset_idx(env_ids)
 
         self.compute_observations()
         if self.debug_viz and self.viewer is not None:

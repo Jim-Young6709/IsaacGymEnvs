@@ -25,7 +25,7 @@ import wandb
 
 from typing import Dict
 from pathlib import Path
-from isaacgymenvs.tasks import FrankaLEAPMobile
+from isaacgymenvs.tasks import FrankaLEAPMobileDistillation
 
 
 class DaggerMobile:
@@ -70,7 +70,7 @@ class DaggerMobile:
         # load env
         time_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         run_name = f"{cfg.wandb_name}_{time_str}"
-        def create_isaacgym_env(**kwargs) -> FrankaLEAPMobile:
+        def create_isaacgym_env(**kwargs) -> FrankaLEAPMobileDistillation:
             envs = isaacgymenvs.make(
                 cfg.seed,
                 cfg.task_name,
