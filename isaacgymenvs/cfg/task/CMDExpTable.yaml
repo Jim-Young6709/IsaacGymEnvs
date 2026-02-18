@@ -14,6 +14,10 @@ env:
     assetRoot: "../../assets"
     assetFileNameFranka: "franka_cmd/franka_cmd_left.urdf"
 
+  mesh:
+    mesh_dir: "./meshes_69"
+    obj_list: ["all"]
+
   resetNoiseScale:
     hand: 0.2
     arm: 0.2 # joint angle
