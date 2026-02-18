@@ -606,7 +606,7 @@ class FrankaLEAPMobile(VecTask):
         #     f.write(urdf_str)
         return urdf_rel, mesh_dir
 
-    def _create_mesh(self, mesh_path, pos, scale, quat=[0, 0, 0, 1], fix_base_link=True):
+    def _create_mesh(self, mesh_path, pos, scale, quat=[0, 0, 0, 1], fix_base_link=True, obj_str2int=None):
         """
         Args:
             position (np.ndarray): (3,) xyz position of the mesh center
@@ -620,19 +620,20 @@ class FrankaLEAPMobile(VecTask):
         mesh_scale = [scale, scale, scale]
         urdf_path, asset_root = self._create_mesh_urdf(mesh_path, scale=mesh_scale)
 
-        # get object mapping id
-        obj_mapping_path = os.path.join(self.mesh_args["mesh_dir"], "type_mapping.json")
-        obj_str2int = {}
-        try:
-            with open(obj_mapping_path, "r") as f:
-                obj_str2int = json.load(f)
-            if not obj_str2int:
-                raise ValueError("Object type mapping is empty")
-        except FileNotFoundError:
-            print("Object mapping file not found.")
 
-        asset_obj_id = int(obj_str2int[Path(mesh_path).parts[-2]])
-        asset_mesh_id = int(Path(mesh_path).parts[-1].split(".")[-2])
+        # @ray urdf format
+        # ├── apple_1
+        # │   ├── apple_1.glb
+        # │   ├── apple_1.json
+        # │   ├── apple_1.npy
+        # │   ├── apple_1.obj
+        # │   └── apple_1.urdf
+        # └── type_mapping.json
+        # object specs including id is in apple_1.json
+        # asset_specs_path = Path(mesh_path).with_suffix(".json")
+
+        asset_mesh_id = Path(mesh_path).parts[-2]
+        asset_obj_id = int(obj_str2int[asset_mesh_id])
 
         # Create mesh asset
         opts = gymapi.AssetOptions()
@@ -694,12 +695,22 @@ class FrankaLEAPMobile(VecTask):
                 if obj != "type_mapping.json"
             ]
 
-        mesh_files = [
-            os.path.join(mesh_dir, obj, file)
-            for obj in object_list
-            for file in os.listdir(os.path.join(mesh_dir, obj))
-            if file.endswith(".obj")
-        ]
+        obj_mapping_path = os.path.join(mesh_dir, "type_mapping.json")
+        with open(obj_mapping_path, "r") as f:
+            obj_str2int = json.load(f)
+        object_list = sorted(
+            object_list,
+            key=lambda obj: (0, obj_str2int[obj]) if obj in obj_str2int else (1, obj),
+        )
+
+        mesh_files = []
+        for obj in object_list:
+            obj_dir = os.path.join(mesh_dir, obj)
+            if not os.path.isdir(obj_dir):
+                continue
+            for file in sorted(os.listdir(obj_dir)):
+                if file.endswith(".obj"):
+                    mesh_files.append(os.path.join(obj_dir, file))
 
         meshes = []
         for mesh_file_path in tqdm(mesh_files, desc="Preparing Meshes"):
@@ -711,7 +722,7 @@ class FrankaLEAPMobile(VecTask):
             mesh_pos = np.random.uniform(pos_range[0], pos_range[1])
             mesh_quat = R.random().as_quat()
             asset, start_pose, scale, asset_obj_id, asset_mesh_id = self._create_mesh(
-                mesh_file_path, mesh_pos, mesh_scale, mesh_quat, fix_base_link
+                mesh_file_path, mesh_pos, mesh_scale, mesh_quat, fix_base_link, obj_str2int
             )
             meshes.append((asset, start_pose, scale, asset_obj_id, asset_mesh_id))
 

@@ -23,7 +23,7 @@ def generate_mapping(mesh_dir):
     
     # 2. Assign IDs
     # This creates a dictionary like: {'apple_1': 0, 'apple_2': 1, 'banana_1': 2}
-    mapping = {name: i for i, name in enumerate(folders)}
+    mapping = {name: i+1 for i, name in enumerate(folders)}
 
     print(f"Found {len(mapping)} unique folders.")
     if mapping:
