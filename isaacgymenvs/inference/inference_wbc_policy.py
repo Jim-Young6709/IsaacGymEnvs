@@ -95,6 +95,7 @@ class WBCPolicyTransformer:
         self.model = instantiate(self.ckpt_cfg["model"]).to(self.device)
         self.model = self.model.to(self.device)
         self.has_aux_input = "aux_object_state" in self.ckpt_cfg.model.state_encoders_cfg
+        self.has_aux_prediction = bool(self.ckpt_cfg.model.get("aux_prediction", False))
         self.aux_prediction_mode = str(self.ckpt_cfg.model.get("aux_prediction_mode", "absolute")).lower()
         self.aux_delta_scale = float(self.ckpt_cfg.model.get("aux_delta_scale", 0.01))
         if self.aux_prediction_mode not in ["absolute", "delta"]:
@@ -251,7 +252,7 @@ class WBCPolicyTransformer:
             self.model.eval()
             output = self.model(obs_dict)
             student_actions_chunk = output["action"]
-            if self.model.aux_prediction:
+            if self.has_aux_prediction:
                 aux_pred = self._decode_aux_prediction(output["aux"], obs_dict["aux_object_state"])
                 aux_pred = aux_pred[0, 0, :]
 

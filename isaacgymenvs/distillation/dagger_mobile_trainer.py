@@ -190,14 +190,14 @@ class DaggerMobile:
 
         # aux
         aux_weight = float(self.cfg.model.get("aux_weight", 0.0))
-        self.aux_enable = ("aux_object_state" in self.state_encoders_keys) and (aux_weight > 0.0)
+        self.has_aux_input = "aux_object_state" in self.state_encoders_keys
+        self.has_aux_prediction = aux_weight > 0.0
         self.aux_prediction_mode = str(self.cfg.model.get("aux_prediction_mode", "absolute")).lower()
         self.aux_delta_scale = float(self.cfg.model.get("aux_delta_scale", 0.01))
         if self.aux_prediction_mode not in ["absolute", "delta"]:
             raise ValueError(f"aux_prediction_mode must be 'absolute' or 'delta', got {self.aux_prediction_mode}")
-        self.aux_init_only = bool(self.cfg.dagger.get("aux_init_only", False))
         self.aux_feedback_to_policy = bool(self.cfg.dagger.get("aux_feedback_to_policy", True))
-        self.aux_init_only = self.aux_init_only and (not self.aux_feedback_to_policy) # if not feeding aux feedback to policy, then aux is effectively only used for initialization
+        self.aux_init_only = bool(self.cfg.dagger.get("aux_init_only", False)) and (not self.aux_feedback_to_policy) # if not feeding aux feedback to policy, then aux is effectively only used for initialization
         self.aux_switch_steps = int(self.cfg.dagger.get("aux_feedback_start_steps", 30000))
         self.aux_buffer = torch.zeros(self.env.num_envs, 1, 3, device=self.device)
 
@@ -480,7 +480,7 @@ class DaggerMobile:
         return self._aux_to_2d(aux_pred).unsqueeze(1)
 
     def _use_aux_feedback(self):
-        return self.aux_enable and self.aux_feedback_to_policy and (self.total_steps >= self.aux_switch_steps)
+        return self.has_aux_input and self.has_aux_prediction and self.aux_feedback_to_policy and (self.total_steps >= self.aux_switch_steps)
 
     def _get_aux_target(self, object_center_pos, prev_abs_aux):
         prev_abs_aux_2d = self._aux_to_2d(prev_abs_aux)
@@ -584,11 +584,11 @@ class DaggerMobile:
                 student_model.eval()
                 output = student_model(obs_input_a0)
                 student_actions_chunk = output["action"]
-                if self.aux_enable:
+                if self.has_aux_prediction:
                     self.aux_buffer[:] = self._decode_aux_prediction(output["aux"], obs_input_a0["aux_object_state"])
 
             teacher_preds_buffer = []
-            aux_ref_state = obs_input_a0["aux_object_state"] if self.aux_enable else None
+            aux_ref_state = obs_input_a0["aux_object_state"] if self.has_aux_prediction else None
 
             for action_idx in range(self.chunk_size):
                 # get teacher action
@@ -614,7 +614,7 @@ class DaggerMobile:
                 teacher_actions = torch.clamp(teacher_actions, -self.env.clip_actions, self.env.clip_actions)
                 self.env._pre_physics_step_teacher(teacher_actions)
                 teacher_actions = self.env.teacher_actions_converted.clone()
-                if self.aux_enable:
+                if self.has_aux_prediction:
                     object_center_pos = self._get_object_center_pos_in_base_frame()
                     aux_target = self._get_aux_target(object_center_pos, aux_ref_state)
                     teacher_pred = torch.cat([teacher_actions, aux_target], dim=1) # add aux info, object_xyz_pos
@@ -689,7 +689,7 @@ class DaggerMobile:
                     "mem/reserved_GB": mem_reserved_GB,
                 }
                 wandb_logs.update(input_wandb_logs)
-                if self.aux_enable:
+                if self.has_aux_prediction:
                     aux_wandb_logs = {
                         "train/loss_aux": ave_loss["aux"],
                         "train/loss_action": ave_loss["action"],
@@ -766,7 +766,7 @@ class DaggerMobile:
                 student_model.eval()
                 output = student_model(obs_input_a0)
                 student_actions_chunk = output["action"]
-                if self.aux_enable:
+                if self.has_aux_prediction:
                     self.aux_buffer[:] = self._decode_aux_prediction(output["aux"], obs_input_a0["aux_object_state"])
 
             for action_idx in range(self.chunk_size):
