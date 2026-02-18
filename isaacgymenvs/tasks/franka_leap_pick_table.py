@@ -369,7 +369,6 @@ def compute_franka_leap_reward(states, reward_settings):
     w_actionreg = reward_settings["w_actionreg"]
 
     # R6: Hand 
-
     use_curl = bool(reward_settings["use_curl"])
     # @ray 
     # use activated rewards only

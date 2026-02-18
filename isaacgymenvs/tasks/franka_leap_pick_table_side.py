@@ -69,8 +69,14 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
 
         # @ray to force the hand to grasp on the correct region on the object (in terms of z-axis), we gate the lift and to-goal rewards with a sigmoid based on z-difference 
         # between the grasp_target's z height and the averaged finger height on obejct. 
+        # @ray we add an offset to the grasp_target z_height to match the height of the stacked fingers. 
+        # This is crucial to make reward consistent across objects of varying height.
+        # @ray we also add a floor value to make the gate not 0, otherwise the policy loses incentive to lift early on when its grasp style is not good enough
         self.reward_settings["grasp_on_object_z_height_tolerance"] = to_torch(self.cfg["reward"]["params"]["grasp_on_object_z_height_tolerance"], device=self.device)
-        self.reward_settings["grasp_on_object_z_height_slope"] = to_torch(self.cfg["reward"]["params"]["grasp_on_object_z_height_scale"], device=self.device)
+        self.reward_settings["grasp_on_object_z_height_slope"] = to_torch(self.cfg["reward"]["params"]["grasp_on_object_z_height_slope"], device=self.device)
+        self.reward_settings["grasp_on_object_z_height_offset"] = to_torch(self.cfg["reward"]["params"]["grasp_on_object_z_height_offset"], device=self.device)
+        self.reward_settings["grasp_on_object_z_height_gate_floor"]  = to_torch(self.cfg["reward"]["params"]["grasp_on_object_z_height_gate_floor"], device=self.device)
+        self.reward_settings["grasp_on_object_z_height_gate_enabled"] = to_torch(1.0 if bool(self.cfg["reward"]["params"]["grasp_on_object_z_height_gate_enabled"]) else 0.0, device=self.device)
 
     def _create_reset_pose_bank(self):
         self.pose_bank_size = int(self.eef_init["pose_bank_size"])
@@ -500,10 +506,6 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         if clear_lines:
             self.gym.clear_lines(self.viewer)
 
-        if "object_grasp_target_pos" not in self.states:
-            super()._draw_object_center_cross(half_extent=half_extent, clear_lines=False)
-            return
-
         centers = self.states["object_center_pos"]
         grasp_targets = self.states["object_grasp_target_pos"]
         object_quat = self.states["object_quat"]
@@ -512,6 +514,9 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         local_z[:, 2] = 1.0
         object_z_axis_world = quat_apply(object_quat, local_z)
         object_z_axis_world = object_z_axis_world / torch.norm(object_z_axis_world, dim=-1, keepdim=True).clamp_min(1e-8)
+        # offseted gate target for sigmoid-gate visualization.
+        gate_offset = self.reward_settings["grasp_on_object_z_height_offset"]
+        gate_targets = grasp_targets + gate_offset * object_z_axis_world
 
         finger_positions = torch.stack(
             [
@@ -522,86 +527,78 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
             ],
             dim=1,
         )  # (N,4,3)
-        fingertip_to_target = finger_positions - grasp_targets.unsqueeze(1)
+        fingertip_to_target = finger_positions - gate_targets.unsqueeze(1)
         finger_signed_height_err = torch.sum(fingertip_to_target * object_z_axis_world.unsqueeze(1), dim=-1)  # (N,4)
-        d_finger_height_align = torch.mean(torch.abs(finger_signed_height_err), dim=1)  # (N,)
+        # keep visualization aligned with reward gate metric.
+        # use the exact gate input from reward: x = abs(max(signed_height_err)).
+        top_finger_signed_height = torch.max(finger_signed_height_err, dim=1)[0]  # (N,)
+        d_finger_height_align = torch.abs(top_finger_signed_height)
 
-        # CODEX: visualize all envs (same style as base debug helper).
+        # visualize all envs (same style as base debug helper).
         x_low = float(self.reward_settings["grasp_on_object_z_height_tolerance"][0].item())
         x_high = float(self.reward_settings["grasp_on_object_z_height_tolerance"][1].item())
-        err_marker_half = 0.03
-        band_cross_half = 0.02
+        err_marker_half = 0.2
+        band_cross_half = 0.2
+        thick_eps = 0.006
 
         centers_np = centers.detach().cpu().numpy()
         grasp_targets_np = grasp_targets.detach().cpu().numpy()
+        gate_targets_np = gate_targets.detach().cpu().numpy()
         z_axis_np = object_z_axis_world.detach().cpu().numpy()
         finger_pos_np = finger_positions.detach().cpu().numpy()
         finger_signed_err_np = finger_signed_height_err.detach().cpu().numpy()
         d_align_np = d_finger_height_align.detach().cpu().numpy()
 
+        # helper for thicker debug crosses (add 3 offset copies per axis).
+        def add_thick_cross(verts_list, colors_list, p, cross_half, color_rgb):
+            px, py, pz = float(p[0]), float(p[1]), float(p[2])
+            offsets = ((0.0, 0.0, 0.0), (thick_eps, 0.0, 0.0), (-thick_eps, 0.0, 0.0))
+            for ox, oy, oz in offsets:
+                # x-axis segment
+                verts_list.extend([px - cross_half + ox, py + oy, pz + oz, px + cross_half + ox, py + oy, pz + oz])
+                colors_list.extend(color_rgb)
+                # y-axis segment
+                verts_list.extend([px + ox, py - cross_half + oy, pz + oz, px + ox, py + cross_half + oy, pz + oz])
+                colors_list.extend(color_rgb)
+                # z-axis segment
+                verts_list.extend([px + ox, py + oy, pz - cross_half + oz, px + ox, py + oy, pz + cross_half + oz])
+                colors_list.extend(color_rgb)
+
         for i in range(self.num_envs):
             c = centers_np[i]
             g = grasp_targets_np[i]
+            g_gate = gate_targets_np[i]
             z_axis = z_axis_np[i]
 
             verts_flat = []
             colors_flat = []
 
             # object center cross (red)
-            verts_flat.extend([
-                c[0] - half_extent, c[1], c[2], c[0] + half_extent, c[1], c[2],
-                c[0], c[1] - half_extent, c[2], c[0], c[1] + half_extent, c[2],
-                c[0], c[1], c[2] - half_extent, c[0], c[1], c[2] + half_extent,
-            ])
-            colors_flat.extend([1.0, 0.0, 0.0] * 3)
+            # add_thick_cross(verts_flat, colors_flat, c, half_extent, [1.0, 0.0, 0.0])
 
             # grasp target cross (cyan)
-            verts_flat.extend([
-                g[0] - half_extent, g[1], g[2], g[0] + half_extent, g[1], g[2],
-                g[0], g[1] - half_extent, g[2], g[0], g[1] + half_extent, g[2],
-                g[0], g[1], g[2] - half_extent, g[0], g[1], g[2] + half_extent,
-            ])
-            colors_flat.extend([0.0, 0.8, 1.0] * 3)
+            add_thick_cross(verts_flat, colors_flat, g, half_extent, [0.0, 0.8, 1.0])
+            # offseted gate-target cross (blue).
+            add_thick_cross(verts_flat, colors_flat, g_gate, half_extent, [0.0, 0.2, 1.0])
 
-            # CODEX: draw gate bands at +/- x_low (green) and +/- x_high (yellow)
+            # draw gate bands at +x_low (green) and +x_high (yellow) from gate target.
             for dist, col in ((x_low, [0.0, 1.0, 0.0]), (x_high, [1.0, 1.0, 0.0])):
-                for sign in (-1.0, 1.0):
-                    p = g + sign * dist * z_axis
-                    verts_flat.extend([
-                        p[0] - band_cross_half, p[1], p[2], p[0] + band_cross_half, p[1], p[2],
-                        p[0], p[1] - band_cross_half, p[2], p[0], p[1] + band_cross_half, p[2],
-                        p[0], p[1], p[2] - band_cross_half, p[0], p[1], p[2] + band_cross_half,
-                    ])
-                    colors_flat.extend(col * 3)
+                p = g_gate + dist * z_axis
+                add_thick_cross(verts_flat, colors_flat, p, band_cross_half, col)
 
-            # CODEX: draw projected fingertip points onto object z-axis (magenta).
-            for f_idx in range(4):
-                signed_err = float(finger_signed_err_np[i, f_idx])
-                p_proj = g + signed_err * z_axis
-                verts_flat.extend([
-                    p_proj[0] - band_cross_half, p_proj[1], p_proj[2], p_proj[0] + band_cross_half, p_proj[1], p_proj[2],
-                    p_proj[0], p_proj[1] - band_cross_half, p_proj[2], p_proj[0], p_proj[1] + band_cross_half, p_proj[2],
-                    p_proj[0], p_proj[1], p_proj[2] - band_cross_half, p_proj[0], p_proj[1], p_proj[2] + band_cross_half,
-                ])
-                colors_flat.extend([1.0, 0.0, 1.0] * 3)
+            # draw projected fingertip points onto object z-axis (magenta).
+            # for f_idx in range(4):
+            #     signed_err = float(finger_signed_err_np[i, f_idx])
+            #     p_proj = g + signed_err * z_axis
+            #     add_thick_cross(verts_flat, colors_flat, p_proj, band_cross_half, [1.0, 0.0, 1.0])
 
-                # Link fingertip to projection for easier visual sanity check.
-                fp = finger_pos_np[i, f_idx]
-                verts_flat.extend([fp[0], fp[1], fp[2], p_proj[0], p_proj[1], p_proj[2]])
-                colors_flat.extend([0.7, 0.2, 1.0])
+            #     # Link fingertip to projection for easier visual sanity check.
+            #     fp = finger_pos_np[i, f_idx]
+            #     verts_flat.extend([fp[0], fp[1], fp[2], p_proj[0], p_proj[1], p_proj[2]])
+            #     colors_flat.extend([0.7, 0.2, 1.0])
 
-            # CODEX: average absolute error marker used by gate x = mean(abs(err_i)).
-            p_avg_pos = g + float(d_align_np[i]) * z_axis
-            p_avg_neg = g - float(d_align_np[i]) * z_axis
-            verts_flat.extend([p_avg_pos[0], p_avg_pos[1], p_avg_pos[2], p_avg_neg[0], p_avg_neg[1], p_avg_neg[2]])
-            colors_flat.extend([1.0, 0.5, 0.0])  # orange bar through +/- avg_abs_err
-            for p_avg in (p_avg_pos, p_avg_neg):
-                verts_flat.extend([
-                    p_avg[0] - err_marker_half, p_avg[1], p_avg[2], p_avg[0] + err_marker_half, p_avg[1], p_avg[2],
-                    p_avg[0], p_avg[1] - err_marker_half, p_avg[2], p_avg[0], p_avg[1] + err_marker_half, p_avg[2],
-                    p_avg[0], p_avg[1], p_avg[2] - err_marker_half, p_avg[0], p_avg[1], p_avg[2] + err_marker_half,
-                ])
-                colors_flat.extend([1.0, 0.5, 0.0] * 3)
+            p_gate_x = g_gate + float(d_align_np[i]) * z_axis
+            add_thick_cross(verts_flat, colors_flat, p_gate_x, err_marker_half, [1.0, 0.5, 0.0])  # orange
 
             self.gym.add_lines(
                 self.viewer,
@@ -610,6 +607,7 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
                 verts_flat,
                 colors_flat,
             )
+    
     
     # @ray: visualize workspace XYZ limits as a wireframe box (env 0)
     def _draw_workspace_limits_box(self, clear_lines=True):
@@ -732,6 +730,8 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         self.extras["sep_reward/r_hand_obj"] = torch.mean(reward_dict["r_hand_obj"]).item()
         self.extras["sep_reward/r_obj_goal"] = torch.mean(reward_dict["r_obj_goal"]).item()
         self.extras["sep_reward/r_obj_goal_rot"] = torch.mean(reward_dict["r_obj_goal_rot"]).item()
+        self.extras["sep_reward/lift_height_gate"] = torch.mean(reward_dict["lift_height_gate"]).item()
+        self.extras["sep_reward/lift_height_gate_soft"] = torch.mean(reward_dict["lift_height_gate_soft"]).item()
         self.extras["sep_reward/r_lift"] = torch.mean(reward_dict["r_lift"]).item()
         self.extras["sep_reward/r_curl"] = torch.mean(reward_dict["r_curl"]).item()
         self.extras["sep_reward/r_actionreg"] = torch.mean(reward_dict["r_actionreg"]).item()
@@ -862,10 +862,17 @@ def compute_franka_leap_reward(states, reward_settings):
         ],
         dim=1,
     )
-    target_pos_rep = states["object_grasp_target_pos"].unsqueeze(1)
+    gate_offset = reward_settings["grasp_on_object_z_height_offset"]
+    gate_target_pos = states["object_grasp_target_pos"] + gate_offset * object_z_axis_world
+    target_pos_rep = gate_target_pos.unsqueeze(1)
     fingertip_to_target = finger_positions - target_pos_rep
     finger_signed_height_err = torch.sum(fingertip_to_target * object_z_axis_world.unsqueeze(1), dim=-1)
-    d_finger_height_align = torch.mean(torch.abs(finger_signed_height_err), dim=1)
+    # @ray use max signed height to find heighest finger
+    # force this finger to be within a certain height range on the object by passing its absolute height to a sigmoid
+    # this prevents competing rewards between lift+goal vs. grasp style, since the hand need to place its fingers correctly and thus cannot eargly exploit the lift with a bad style
+    # also, the absolute height prevents the policy from overlapping its fingers on the grasp_target to exploit the reward after it learns a good style, thus we retain the good style throughout training
+    top_finger_signed_height = torch.max(finger_signed_height_err, dim=1)[0]
+    d_finger_height_align = torch.abs(top_finger_signed_height)
 
     # @ray sigmoid gate on lift and to-goal reward to force the hand to grasp on the right part of the object
     # not adding this would result in the hand eargerly converging on grasping the top part of long cylindrical objects, undesirable
@@ -875,7 +882,17 @@ def compute_franka_leap_reward(states, reward_settings):
     s = reward_settings["grasp_on_object_z_height_slope"]
     x_mid = 0.5 * (x_low + x_high)
     lift_height_gate = 1.0 - 1.0 / (1.0 + torch.exp(s * (x_mid - x)))
-    r_lift = r_lift * lift_height_gate
+    gate_floor = reward_settings["grasp_on_object_z_height_gate_floor"]
+    lift_height_gate_soft = gate_floor + (1.0 - gate_floor) * lift_height_gate
+
+    gate_enabled = bool(reward_settings["grasp_on_object_z_height_gate_enabled"])
+    if gate_enabled:
+        lift_height_gate_apply = lift_height_gate_soft
+    else:
+        lift_height_gate_apply = torch.ones_like(lift_height_gate_soft)
+    
+    r_lift_before_gate = r_lift.clone()
+    r_lift = r_lift * lift_height_gate_apply
 
     # R3: Object goal distance reward (based on average point matching distance)
     d_eef_point_goal_target = states["point_matching_err_target"]
@@ -883,8 +900,17 @@ def compute_franka_leap_reward(states, reward_settings):
     r_obj_goal = torch.exp(-beta_object_goal * d_eef_point_goal_target)
     r_obj_goal = torch.where(states["lift"], r_obj_goal, 0.0)
     # Apply the same grasp-height gate to object-goal reward to reduce top-grasp exploitation.
-    r_obj_goal = r_obj_goal * lift_height_gate
-
+    r_obj_goal = r_obj_goal * lift_height_gate_apply
+    # print(
+    #     "[reward_debug] x0=", x[0],
+    #     "x_low=", x_low,
+    #     "x_high=", x_high,
+    #     "x_mid=", x_mid,
+    #     "s=", s,
+    #     "gate0=", lift_height_gate[0],
+    #     "r_lift_before0=", r_lift_before_gate[0],
+    #     "r_lift_after0=", r_lift[0],
+    # )
 
     # R4: Hand orientation reward (based on average point matching distance)
     d_eef_point_goal_hand = states["point_matching_err_hand"]
@@ -933,6 +959,8 @@ def compute_franka_leap_reward(states, reward_settings):
         "d_lift": object_height,
         "d_eef_point_goal": d_eef_point_goal_target,
         "d_eef_point_goal_rot": d_eef_point_goal_hand,
+        "lift_height_gate": lift_height_gate,
+        "lift_height_gate_soft": lift_height_gate_soft,
     }
 
     return rewards

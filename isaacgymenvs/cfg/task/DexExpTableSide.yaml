@@ -36,8 +36,11 @@ reward:
     target_lift_dis: 0.1
     target_quat_right: [-0.7071067811865475, 0.0, 0.0, 0.7071067811865476]
     target_quat_left: [0.7071067811865475, 0.0, 0.0, 0.7071067811865476]
-    grasp_on_object_z_height_tolerance: [0.05, 0.2]
-    grasp_on_object_z_height_scale: 80.
+    grasp_on_object_z_height_tolerance: [0.005, 0.01]
+    grasp_on_object_z_height_slope: 3000
+    grasp_on_object_z_height_offset: 0.05
+    grasp_on_object_z_height_gate_floor: 0.1
+    grasp_on_object_z_height_gate_enabled: True
     curl_reaching_threshold: 0.15
 
   exp:
