@@ -104,7 +104,7 @@ Example:
 * Dummy file:
   `/home/rayliu/grogu/IsaacGymEnvs/isaacgymenvs/tasks/franka_leap_dummy.py`
 
-All changes must be clearly marked with comments:
+All changes, including inline edits and deletions, must be clearly marked with comments:
 
 ```python
 # CODEX

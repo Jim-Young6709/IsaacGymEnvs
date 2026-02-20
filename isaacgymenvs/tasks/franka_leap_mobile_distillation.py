@@ -75,6 +75,21 @@ class FrankaLEAPMobileDistillation(VecTask):
 
         self.max_objects_per_env = 1
 
+        self.log_per_object_success = self.cfg["env"]["log_per_object_success"]["capture"]
+        self.log_per_object_success_freq = int(self.cfg["env"]["log_per_object_success"]["freq"])
+        run_name = None
+        if wandb.run is not None and wandb.run.name is not None:
+            run_name = str(wandb.run.name)
+        elif "experiment" in self.cfg:
+            run_name = str(self.cfg["experiment"])
+        else:
+            run_name = "run"
+        run_stamp = time.strftime("%m-%d-%H-%M-%S")
+        run_dir = f"{run_name}_{run_stamp}"
+        self.log_per_object_success_dir = os.path.join("logs", "per_object_success", run_dir)
+        self.log_per_object_success_artifact = f"per_object_success_{run_dir}"
+        os.makedirs(self.log_per_object_success_dir, exist_ok=True)
+
         self.randomize = self.cfg["task"]["randomize"]
         self.randomization_params = self.cfg["task"]["randomization_params"]
 
@@ -197,10 +212,29 @@ class FrankaLEAPMobileDistillation(VecTask):
         self.ik_regularization_config = self.canonical_joint_config[:, :10]
         self.delta_joint_actions = torch.zeros((self.num_envs, self.num_robot_dofs), device=self.device, dtype=torch.float) # Current delta actions to be deployed
         self.delta_eef_actions = torch.zeros((self.num_envs, self.num_robot_dofs-1), device=self.device, dtype=torch.float) # Current delta actions to be deployed at the end effector
-        self.success_flags = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device) # 1 if success condition has been achieved at any step, 0 otherwise
+
+        # @ray per step success tracking
         self.success_5cm_per_step = torch.zeros((self.num_envs,), dtype=torch.bool, device=self.device) # success within 5cm threshold
-        self.lifting_flags = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device)
         self.lifting_5cm_per_step = torch.zeros((self.num_envs,), dtype=torch.bool, device=self.device)
+        # @ray instantaneous success tracking, true if condition met at current step
+        self.success_flags_instant = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device) # 1 if success condition has been achieved at any step, 0 otherwise
+        self.lifting_flags_instant = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device)
+        # @ray time-based success tracking, true if condition met for a duration
+        # @ray note that lifting here checks not for collision, as random wrenches make this noisy, but for a 5cm lift above table
+        self.success_duration = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device) # number of seconds in success region, resets to 0 if object drops
+        self.lifting_duration = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device) 
+        self.success_long_enough = torch.zeros((self.num_envs,), dtype=torch.bool, device=self.device) # true if success duration > threshold in any part of an episode, note that this does not reset until episode end
+        self.lifting_long_enough = torch.zeros((self.num_envs,), dtype=torch.bool, device=self.device)
+        self.success_flags = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device) # 1 if success condition has been achieved during the episode, 0 otherwise
+        self.lifting_flags = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device)
+
+        # @ray 
+        # per object success rate tracking
+        # need to be post init to get num_objects
+        self.per_object_episode_counts = torch.zeros((self.num_objects,), dtype=torch.int64, device=self.device)
+        self.per_object_success_counts = torch.zeros((self.num_objects,), dtype=torch.int64, device=self.device)
+        self.per_object_episode_counts_interval = torch.zeros((self.num_objects,), dtype=torch.int64, device=self.device)
+        self.per_object_success_counts_interval = torch.zeros((self.num_objects,), dtype=torch.int64, device=self.device)
 
         self.static_scene_pcd_t0 = self.static_pcds.clone()
 
@@ -236,12 +270,12 @@ class FrankaLEAPMobileDistillation(VecTask):
         quad_a = (1 - quad_c) / ( (tele_n2 - quad_b)**2 )
         self.teleport_probs[tele_n1:] = quad_a*(indexing + 1 - quad_b)**2 + quad_c
         self.teleport_buf = torch.zeros((self.num_envs,), dtype=torch.int, device=self.device)
-        # Codex
         # Latched until consumed by distillation logic, so resets across chunked steps are preserved.
         self.object_reset_mask = torch.zeros((self.num_envs,), dtype=torch.bool, device=self.device)
-        # Codex
         # Pending resets are promoted after one post-physics pass so downstream logic reads post-reset state.
         self.object_reset_pending_mask = torch.zeros((self.num_envs,), dtype=torch.bool, device=self.device)
+
+        self.goal_target_locked = torch.zeros((self.num_envs,), dtype=torch.bool, device=self.device)
 
     def _build_joint_mapping(self):
         env_ptr = self.envs[0]
@@ -408,7 +442,14 @@ class FrankaLEAPMobileDistillation(VecTask):
         self.switch_pos_offset = torch.tensor(self.cfg['env']['robot_init']['switch_pos_offset'], device=self.device)
         self.switch_tol = self.cfg['env']['robot_init']['switch_tol']
 
-        self._setup_fabric_switching_target()
+        # Initialize per-env switching target state via child implementation.
+        object_center_pos = self._object_state[:, :3].clone()
+        local_offset = torch.zeros([self.num_envs, 3], dtype=torch.float, device=self.device)
+        local_offset[:, 2] = self.mesh_aabb_extents[:, 2] * self.object_center_z_scale
+        object_rot_mat = quaternion_to_matrix_ig(self._object_state[:, 3:7])
+        rotated_offset = torch.matmul(object_rot_mat, local_offset.unsqueeze(-1)).squeeze(-1)
+        object_center_pos += rotated_offset
+        self._update_fabric_switching_target(object_center_pos)
 
     def init_data(self, actor_num):
         # Setup sim handles
@@ -489,7 +530,10 @@ class FrankaLEAPMobileDistillation(VecTask):
             "target_lift_dis": target_lift_dis,
             "target_quat": target_quat,
             "target_rot_6d": matrix_to_rotation_6d(quaternion_to_matrix_ig(target_quat)),
+
             "curl_reaching_threshold": to_torch(self.cfg["reward"]["params"]["curl_reaching_threshold"], device=self.device),
+            "success_timeout": to_torch(self.cfg["reward"]["params"]["success_timeout"], device=self.device),
+            "lifting_timeout": to_torch(self.cfg["reward"]["params"]["lifting_timeout"], device=self.device),
             "object_init_height": self.mesh_aabb_extents[:, 2] * self.object_center_z_scale + self.table_surface_height, # @ray default center is 1/2 z height
             "grasp_finger_dof_pos": self.grasp_finger_dof_pos,
 
@@ -504,6 +548,9 @@ class FrankaLEAPMobileDistillation(VecTask):
             "w_colli": to_torch(self.cfg["reward"]["weights"]["w_colli"], device=self.device),
             "w_curl": to_torch(self.cfg["reward"]["weights"]["w_curl"], device=self.device),
             "w_actionreg": to_torch(self.cfg["reward"]["weights"]["w_actionreg"], device=self.device),
+
+            # @ray what rewards to use, for running ablations
+            "use_curl": to_torch(self.cfg["reward"]["usage"]["use_curl"], device=self.device),
         }
 
 
@@ -743,6 +790,11 @@ class FrankaLEAPMobileDistillation(VecTask):
         # @ray table height randomization
         z_shift_range = self.cfg["env"]["scene"]["z_shift_range"] # this shifts the table height, not just the safety box
         self.z_shift = torch.rand(self.num_envs, device=self.device) * (z_shift_range[1] - z_shift_range[0]) + z_shift_range[0]
+        # if self.num_envs >= 1:
+        #     self.z_shift[0] = float(z_shift_range[0])
+        # if self.num_envs >= 2:
+        #     self.z_shift[1] = float(z_shift_range[1])
+
         table_size_range = torch.tensor(self.cfg["env"]["scene"]["table_size_range"], device=self.device)
         self.table_size = torch.rand(self.num_envs, 3, device=self.device) * (table_size_range[1] - table_size_range[0]) + table_size_range[0]
 
@@ -797,6 +849,7 @@ class FrankaLEAPMobileDistillation(VecTask):
         for i in tqdm(range(self.num_envs), desc="Creating Envs"):
             # grasp object
             object_asset, object_start_pose, object_scale, object_id, mesh_id = all_meshes_list[i % len(all_meshes_list)]
+            self.env_object_ids[i] = i % len(all_meshes_list)
 
             # create env instance
             env_ptr = self.gym.create_env(self.sim, lower, upper, num_per_row)
@@ -1153,7 +1206,7 @@ class FrankaLEAPMobileDistillation(VecTask):
         return self.fabric_q
 
     @abstractmethod
-    def _setup_fabric_switching_target(self):
+    def _update_fabric_switching_target(self, object_center_pos):
         self.switching_target_pos = ...
         self.switching_target_quat = ...
 
@@ -1179,6 +1232,7 @@ class FrankaLEAPMobileDistillation(VecTask):
         # update arm eef state
         eef_rot_mat = quaternion_to_matrix_ig(self._eef_state[:, 3:7])
         eef_rot_6d = matrix_to_rotation_6d(eef_rot_mat)
+        eef_rot_mat_t = eef_rot_mat.transpose(1, 2)
 
         # update object state
         object_center_pos = self._object_state[:, :3].clone()
@@ -1198,12 +1252,35 @@ class FrankaLEAPMobileDistillation(VecTask):
         target_rot_mat_in_eef_frame = torch.matmul(eef_rot_mat.transpose(1, 2), target_rot_mat)
         target_to_eef_rot_6d = matrix_to_rotation_6d(target_rot_mat_in_eef_frame)
 
-        point_matching_err = self._get_eef_point_matching_err(
+        # Position deltas converted from world axes to EEF-frame axes.
+        eef_pos = self._eef_state[:, :3]
+        finger1_rel_world = self._eef_finger1_state[:, :3] - eef_pos
+        finger2_rel_world = self._eef_finger2_state[:, :3] - eef_pos
+        finger3_rel_world = self._eef_finger3_state[:, :3] - eef_pos
+        finger4_rel_world = self._eef_finger4_state[:, :3] - eef_pos
+        object_to_eef_world = object_center_pos - eef_pos
+        target_to_eef_world = self.reward_settings["target_pos"] - eef_pos
+        finger1_rel_eef = torch.matmul(eef_rot_mat_t, finger1_rel_world.unsqueeze(-1)).squeeze(-1)
+        finger2_rel_eef = torch.matmul(eef_rot_mat_t, finger2_rel_world.unsqueeze(-1)).squeeze(-1)
+        finger3_rel_eef = torch.matmul(eef_rot_mat_t, finger3_rel_world.unsqueeze(-1)).squeeze(-1)
+        finger4_rel_eef = torch.matmul(eef_rot_mat_t, finger4_rel_world.unsqueeze(-1)).squeeze(-1)
+        object_to_eef = torch.matmul(eef_rot_mat_t, object_to_eef_world.unsqueeze(-1)).squeeze(-1)
+        target_to_eef = torch.matmul(eef_rot_mat_t, target_to_eef_world.unsqueeze(-1)).squeeze(-1)
+
+        # @ray we don't need pos and rot error except for side grasp table
+        # probably should refactor to use separate update states later
+        point_matching_err_target = self._get_eef_point_matching_err(
             curent_eef_pos7=self._eef_state[:, :7],
-            target_eef_pos7=torch.cat([self.reward_settings["target_pos"], self.reward_settings["target_quat"]], dim=-1)
+            target_eef_pos7=torch.cat([self.reward_settings["target_pos"], self.reward_settings["target_quat"]], dim=-1),
+        )
+        hand_eef_pos7_rot = torch.cat([self._eef_state[:, :3], self.reward_settings["target_quat"]], dim=-1)
+        point_matching_err_hand = self._get_eef_point_matching_err(
+            curent_eef_pos7=self._eef_state[:, :7],
+            target_eef_pos7=hand_eef_pos7_rot,
         )
 
         if self.enable_fabric:
+            self._update_fabric_switching_target(object_center_pos)
             # update fabric switching state
             switching_matching_err = self._get_eef_point_matching_err(
                 curent_eef_pos7=self._eef_state[:, :7],
@@ -1211,6 +1288,7 @@ class FrankaLEAPMobileDistillation(VecTask):
             )
             self.fabric_switch_enable[switching_matching_err < self.switch_tol] = False
             self.fabric_switch_enable[self.progress_buf == 0] = True
+            # print("[fabrics enable]: ", self.fabric_switch_enable)
 
             # update camera pose and franka base pose
             current_joint_pos_fabric = torch.zeros_like(self.fabric_q, device=self.device)
@@ -1234,11 +1312,11 @@ class FrankaLEAPMobileDistillation(VecTask):
 
         lift_5cm = object_center_pos[:, 2] - self._object_center_init_state[:, 2] > 0.05
 
-        self.obj_pos_target[~lift_5cm, :2] = object_center_pos[~lift_5cm, :2]  # x, y
         self.obj_pos_target[:, 2] = self.table_surface_height + self.reward_settings['target_lift_dis']
-
-        self.switching_target_pos = object_center_pos.clone()
-        self.switching_target_pos += self.switch_pos_offset
+        unlocked = ~self.goal_target_locked
+        self.obj_pos_target[unlocked, :2] = object_center_pos[unlocked, :2]
+        newly_locked = unlocked & lift_5cm
+        self.goal_target_locked[newly_locked] = True
 
         # update states
         self.states.update({
@@ -1258,10 +1336,10 @@ class FrankaLEAPMobileDistillation(VecTask):
             "eef_finger4_pos": self._eef_finger4_state[:, :3],
 
             # Fingertip positions relative to hand base (palm_center)
-            "eef_finger1_pos_relative": self._eef_finger1_state[:, :3] - self._eef_state[:, :3],
-            "eef_finger2_pos_relative": self._eef_finger2_state[:, :3] - self._eef_state[:, :3],
-            "eef_finger3_pos_relative": self._eef_finger3_state[:, :3] - self._eef_state[:, :3],
-            "eef_finger4_pos_relative": self._eef_finger4_state[:, :3] - self._eef_state[:, :3],
+            "eef_finger1_pos_relative": finger1_rel_eef,
+            "eef_finger2_pos_relative": finger2_rel_eef,
+            "eef_finger3_pos_relative": finger3_rel_eef,
+            "eef_finger4_pos_relative": finger4_rel_eef,
 
             # Object
             "object_quat": self._object_state[:, 3:7],
@@ -1270,11 +1348,12 @@ class FrankaLEAPMobileDistillation(VecTask):
             "object_pos": self._object_state[:, :3],
 
             # Task related
-            "object_to_eef": object_center_pos - self._eef_state[:, :3],
+            "object_to_eef": object_to_eef,
             "object_to_eef_rot_6d": object_to_eef_rot_6d,
-            "target_to_eef": self.reward_settings["target_pos"] - self._eef_state[:, :3],
+            "target_to_eef": target_to_eef,
             "target_to_eef_rot_6d": target_to_eef_rot_6d,
-            "point_matching_err": point_matching_err,
+            "point_matching_err_target": point_matching_err_target,
+            "point_matching_err_hand": point_matching_err_hand, # @ray separates pos and rot error
 
             # recorded actions
             "actionreg": actionreg,
@@ -1307,11 +1386,11 @@ class FrankaLEAPMobileDistillation(VecTask):
         quat_t = target_eef_pos7[:, 3:] # (B, 4)
 
         local_pts = torch.tensor(
-            [[0.1, 0., 0.],
-            [-0.1, 0., 0.],
+            [[0.2, 0., 0.],
+            [-0.2, 0., 0.],
             [0., 0., 0.],
-            [0., 0.1, 0.],
-            [0., -0.1, 0.]],
+            [0., 0.2, 0.],
+            [0., -0.2, 0.]],
             dtype=curent_eef_pos7.dtype,
             device=curent_eef_pos7.device
         )
@@ -1622,32 +1701,44 @@ class FrankaLEAPMobileDistillation(VecTask):
 
     def _pre_physics_step_teacher(self, actions):
         """
+        @ray
+        In the distillation training script, we always call teacher model for actions regardless of fabrics switch logic.
+        Given teacher model actions as input, the switch logic happens here:
+            1) if self.fabrics_switch_enable=True, use fabrics for motion planning and override teacher actions
+            1) else, convert teacher eef frame actions back to world frame and use ik to solve for joint angles to update robot
+        For the camera arm, always use fabrics to focus on the object center
+
+
         Args:
-            actions (torch.Tensor): normalized delta joint angles (num_selected_envs, 7+4*4)
+            actions (torch.Tensor): normalized delta joint angles (num_selected_envs, 7+4*4), actions from the teacher model
         """
         if self.eef_actions:
+            # @ray convert eef actions to world-frame then solve ik to get joint space teacher actions
             self.delta_eef_actions = actions.clone()
-            pos_actions = actions[:, 0:3] * self.action_scale["eef_pos"] * self.dt
-            ctrl_target_eef_pos = self.states['eef_pos'] + pos_actions
+            # Teacher actions are in EEF-local frame: rotate position deltas to world.
+            pos_actions_local = actions[:, 0:3] * self.action_scale["eef_pos"] * self.dt
+            eef_rot_mat = quaternion_to_matrix_ig(self.states["eef_quat"])
+            pos_actions_world = torch.matmul(eef_rot_mat, pos_actions_local.unsqueeze(-1)).squeeze(-1)
+            ctrl_target_eef_pos = self.states["eef_pos"] + pos_actions_world
 
-            # Interpret actions as target rot (axis-angle) displacements
-            rot_actions = actions[:, 3:6] * self.action_scale["eef_rot"] * self.dt
-            angle = torch.norm(rot_actions, p=2, dim=-1)
-            axis = rot_actions / angle.unsqueeze(-1)
-            rot_actions_quat = quat_from_angle_axis(angle, axis)
+            # Rotation deltas are also local to the current EEF.
+            rot_actions_local = actions[:, 3:6] * self.action_scale["eef_rot"] * self.dt
+            angle = torch.norm(rot_actions_local, p=2, dim=-1)
+            axis = rot_actions_local / angle.unsqueeze(-1).clamp_min(1.0e-8)
+            rot_actions_quat_local = quat_from_angle_axis(angle, axis)
 
             # clamp tiny rotations to avoid numerical issues
-            rot_actions_quat = torch.where(
+            rot_actions_quat_local = torch.where(
                 angle.unsqueeze(-1).repeat(1, 4) > 1.0e-6,
-                rot_actions_quat,
+                rot_actions_quat_local,
                 torch.tensor([0.0, 0.0, 0.0, 1.0], device=self.device).repeat(
                     self.num_envs, 1
                 ),
             )
-            ctrl_target_eef_quat = quat_mul(
-                rot_actions_quat, self.states['eef_quat'] # xyzw format
-            )
+            # Local-frame composition: q_target = q_current * q_delta_local.
+            ctrl_target_eef_quat = quat_mul(self.states["eef_quat"], rot_actions_quat_local)
 
+            # @ray compute fabrics 
             if self.enable_fabric:
                 fabric_target_eef_pos = self.switching_target_pos
                 fabric_target_eef_quat = self.switching_target_quat
@@ -1667,6 +1758,8 @@ class FrankaLEAPMobileDistillation(VecTask):
             hand_actions = actions[:, 6:] * self.action_scale["leap"] * self.dt
             delta_hand_joint_actions_unnormalized = self.unnormalize_robot_joints(hand_actions, robot="leap", delta=True)
         else:
+            # @ray shouldn't happen since we use eef control now for allt teachers
+            assert False
             arm_actions = actions[:, 3:10] * self.action_scale["franka"] * self.dt
             hand_actions = actions[:, 10:26] * self.action_scale["leap"] * self.dt
             delta_arm_joint_actions_unnormalized = self.unnormalize_robot_joints(arm_actions, robot="franka", delta=True)
@@ -1681,6 +1774,7 @@ class FrankaLEAPMobileDistillation(VecTask):
         )
 
         if self.enable_fabric:
+            # @ray use fabrics actions to override teacher actions when switch enables
             teacher_actions_abs[self.fabric_switch_enable, :10] = abs_full_joint_actions_fabric[self.fabric_switch_enable, :10]
             teacher_actions_abs[self.fabric_switch_enable, 10:26] = self.canonical_joint_config[self.fabric_switch_enable, 10:26]
             teacher_actions_abs[:, 26:] = abs_full_joint_actions_fabric[:, 10:]
@@ -1693,7 +1787,7 @@ class FrankaLEAPMobileDistillation(VecTask):
             base_delta_actions_baseframe = se2_transform(base_delta_actions_worldframe, -self.states['q'][:, 2])
             base_actions_vel_baseframe = base_delta_actions_baseframe / self.dt # numerical difference for joint velocity
 
-            # NOTE: here we want to keep everything ranging in [-1, 1], only leap part is guaranteed, franka & arx is an empirical approximation cause their actions are from eef_converted & fabrics
+            # NOTE: here we want to keep everything ranging in [-1, 1], only leap part is guaranteed, franka & arx is an empirical approximation cuz their actions are from eef_converted & fabrics
             if self.delta_franka_action:
                 franka_actions_normalized = self.normalize_robot_joints(delta_actions[:, 3:10], robot="franka", delta=True) / self.action_scale["franka"] / self.dt
             else:
@@ -1713,6 +1807,9 @@ class FrankaLEAPMobileDistillation(VecTask):
             self.teacher_actions_converted[:, 3:10] = franka_actions_normalized
             self.teacher_actions_converted[:, 10:26] = leap_actions_normalized
             self.teacher_actions_converted[:, 26:] = arx_actions_normalized
+        else:
+            # @ray shouldn't happen, this env is exclusively for distillation
+            assert False
 
         return teacher_actions_abs
 
@@ -1764,7 +1861,6 @@ class FrankaLEAPMobileDistillation(VecTask):
 
             env_ids = torch.unique(torch.cat([env_ids, apply_teleport_env_ids], dim=0))
 
-        # Codex
         if env_ids.numel() > 0:
             self.object_reset_pending_mask[env_ids] = True
 
@@ -1819,7 +1915,6 @@ class FrankaLEAPMobileDistillation(VecTask):
             self._apply_object_wrench()
 
     def post_physics_step(self):
-        # Codex
         # Promote pending reset events one sim step later, matching when set_*_tensor_indexed changes are observed.
         if torch.any(self.object_reset_pending_mask):
             self.object_reset_mask |= self.object_reset_pending_mask
@@ -1930,10 +2025,20 @@ class FrankaLEAPMobileDistillation(VecTask):
             self.fabric_qd[env_ids, :] = torch.zeros_like(self.fabric_q[env_ids])
             self.fabric_qdd[env_ids, :] = torch.zeros_like(self.fabric_q[env_ids])
 
-        self.success_flags[env_ids] = 0
-        self.lifting_flags[env_ids] = 0
+        self.success_flags_instant[env_ids] = 0
+        self.lifting_flags_instant[env_ids] = 0
+        # @ray have to update in reset_idx instead of compute_reward otherwise the duration will be overwritten to 0
+        self.success_flags[env_ids] = self.success_long_enough[env_ids].float()
+        self.lifting_flags[env_ids] = self.lifting_long_enough[env_ids].float()
+        self.success_duration[env_ids] = 0
+        self.lifting_duration[env_ids] = 0
+        self.success_long_enough[env_ids] = False
+        self.lifting_long_enough[env_ids] = False
         self.progress_buf[env_ids] = 0
         self.reset_buf[env_ids] = 0
+
+        self.goal_target_locked[env_ids] = False
+
 
         if self.object_wrench_args["enable"]:
             self.object_applied_forces[env_ids] = 0.0
@@ -2028,13 +2133,30 @@ class FrankaLEAPMobileDistillation(VecTask):
     def video_logger(self):
         render_step = self.sim_steps % self.video_logging["freq"]
         if render_step == 0:
-            self.video_ims = []
+            # Match franka_leap logging: one writer per env.
+            self.video_writers = []
+            self.video_step_start = self.sim_steps + 1 - self.max_episode_length
+            self.video_env_ids = list(range(self.video_logging["envs"]))
+            for env_idx in self.video_env_ids:
+                filename = os.path.join(
+                    self.video_dir,
+                    f"viz_step{self.video_step_start}_env{env_idx}.mp4"
+                )
+                try:
+                    writer = imageio.get_writer(filename, fps=60, format="ffmpeg")
+                except Exception as exc:
+                    print(f"[video_logger] ffmpeg writer unavailable, skipping video: {exc}")
+                    writer = None
+                self.video_writers.append(writer)
 
         if render_step < self.max_episode_length * 2:
             camera_renders = self.get_camera_render()
             ims = np.array(camera_renders)[:, 0, :, :, :3]
 
-            for env_idx in range(ims.shape[0]):
+            for idx, env_idx in enumerate(self.video_env_ids):
+                writer = self.video_writers[idx]
+                if writer is None:
+                    continue
                 # Convert to uint8 and correct color format for OpenCV
                 img = ims[env_idx].astype(np.uint8).copy()
                 
@@ -2048,26 +2170,32 @@ class FrankaLEAPMobileDistillation(VecTask):
                 # Add black text
                 cv2.putText(img, f'Env: {env_idx}  Step: {render_step}', (20, 35),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 0, 0), 2)
-                ims[env_idx] = img
-            self.video_ims.append(ims)
+                writer.append_data(img)
 
         if render_step == 2*self.max_episode_length - 1:
-            render_step_start = self.sim_steps + 1 - self.max_episode_length
-            filename = os.path.join(self.video_dir, f"viz_step{render_step_start}.mp4")
-            frames = np.asarray(self.video_ims) # (num_frames, num_envs, height, width, channels)
-            frames = frames.transpose(1, 0, 2, 3, 4) # (num_envs, num_frames, height, width, channels)
-            frames = frames.reshape(-1, frames.shape[2], frames.shape[3], frames.shape[4])  # (num_envs * num_frames, height, width, channels)
-            with imageio.get_writer(filename, fps=60) as writer:
-                for frame in frames:
-                    writer.append_data(frame)
+            for writer in getattr(self, "video_writers", []):
+                if writer is not None:
+                    writer.close()
+            self.video_writers = []
 
             if wandb.run is not None:
-                # note this wandb log has to coordinate with the distillation logs, commit=True should be set there
-                if self.distillation_mode:
-                    wandb.log({"visualization/video": wandb.Video(os.path.join(self.video_dir, f"viz_step{render_step_start}.mp4"))}, step=self.distillation_steps)
-                else:
-                    wandb.log({"visualization/video": wandb.Video(os.path.join(self.video_dir, f"viz_step{render_step_start}.mp4"))}, commit=True)
-
+                # Keep distillation step alignment while matching per-env video format.
+                for idx, env_idx in enumerate(self.video_env_ids):
+                    path = os.path.join(
+                        self.video_dir,
+                        f"viz_step{self.video_step_start}_env{env_idx}.mp4"
+                    )
+                    if self.distillation_mode:
+                        wandb.log(
+                            {f"visualization/video_env_{env_idx}": wandb.Video(path)},
+                            step=self.distillation_steps,
+                            commit=(idx == len(self.video_env_ids) - 1),
+                        )
+                    else:
+                        wandb.log(
+                            {f"visualization/video_env_{env_idx}": wandb.Video(path)},
+                            commit=(idx == len(self.video_env_ids) - 1),
+                        )
     # debugging utils
     def step_sim_multi(self, num_steps=1, render_pcd=True):
         """
@@ -2238,7 +2366,7 @@ def launch_test(cfg: DictConfig):
     graphics_device_id = 0
     virtual_screen_capture = False
     force_render = False
-    env = FrankaLEAP(cfg_task, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render)
+    env = FrankaLEAPMobileDistillation(cfg_task, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render)
     env.reset()
 
     for i in tqdm(range(1000)):

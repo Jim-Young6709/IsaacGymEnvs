@@ -59,7 +59,7 @@ pcd_encoders_cfg:
   local_pcd_t:
     type: "pointnet"  # Options: ["mlp", "pointnet"]
     num_output_tokens: 128  # Number of tokens for target point cloud
-    num_points: [1024, 1024] # cylindrical local pcd + spherical eef local pcd
+    num_points: [1024, 1024, 0] # cylindrical local pcd + spherical eef local pcd
     use_pcd: true
   # local_scene_pcd_t:
   #   type: "pointnet"  # Options: ["mlp", "pointnet"]

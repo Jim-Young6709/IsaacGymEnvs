@@ -4,6 +4,8 @@ TODO:1. clean up
 """
 
 import time
+import json
+import os
 
 import hydra
 import isaacgym
@@ -17,8 +19,7 @@ from isaacgymenvs.tasks import FrankaLEAPMobileDistillation
 from isaacgymenvs.utils.reformat import omegaconf_to_dict
 from omegaconf import DictConfig
 from tqdm import tqdm
-
-
+import wandb
 
 class FrankaLEAPMobileDistillationPickTop(FrankaLEAPMobileDistillation):
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
@@ -32,10 +33,8 @@ class FrankaLEAPMobileDistillationPickTop(FrankaLEAPMobileDistillation):
             force_render=force_render
         )
  
-    def _setup_fabric_switching_target(self):
-        self.switching_target_pos = self._object_state[:, :3].clone()
-        self.switching_target_pos += self.switch_pos_offset
-        self.switching_target_pos[:, 2] += self.mesh_aabb_extents[:, 2] / 2
+    def _update_fabric_switching_target(self, object_center_pos):
+        self.switching_target_pos = object_center_pos + self.switch_pos_offset
         rot_local_x_180 = torch.tensor([[1.0, 0.0, 0.0, 0.0]]*self.num_envs, device=self.device)  # 180 degrees around local x-axis
         self.switching_target_quat = rot_local_x_180 # default hand orientation is facing up, so need to rotate 180
     
@@ -68,6 +67,8 @@ class FrankaLEAPMobileDistillationPickTop(FrankaLEAPMobileDistillation):
         return self.obs_buf
     
     def compute_reward(self):
+        # @ray states used are updated in compute_observations(), called right before compute_reward()
+
         self.reset_buf[:] = torch.where((self.progress_buf >= self.max_episode_length - 1), torch.ones_like(self.reset_buf), self.reset_buf)
         self.reset_buf[self.states['object_center_pos'][:, 2] < self.table_surface_height-0.1] = 1
 
@@ -86,16 +87,80 @@ class FrankaLEAPMobileDistillationPickTop(FrankaLEAPMobileDistillation):
 
         # log metrics
         self.lifting_5cm_per_step = self.states["lift"]
-        self.lifting_flags[self.lifting_5cm_per_step] = 1
+        self.lifting_flags_instant[self.lifting_5cm_per_step] = 1
         self.success_5cm_per_step = (reward_dict["d_eef_point_goal"] < 0.05) & self.lifting_5cm_per_step
-        self.success_flags[self.success_5cm_per_step] = 1
+        self.success_flags_instant[self.success_5cm_per_step] = 1
+        self.success_duration = torch.where(
+            self.success_5cm_per_step,
+            self.success_duration + self.dt,
+            torch.zeros_like(self.success_duration),
+        )
+        self.lifting_duration = torch.where(
+            self.lifting_5cm_per_step,
+            self.lifting_duration + self.dt,
+            torch.zeros_like(self.lifting_duration),
+        )
+        self.success_long_enough = self.success_duration >= self.reward_settings["success_timeout"]
+        self.lifting_long_enough = self.lifting_duration >= self.reward_settings["lifting_timeout"]
+        done_envs = self.reset_buf > 0
 
+        if torch.any(done_envs):
+            done_env_ids = done_envs.nonzero(as_tuple=False).squeeze(-1)
+            done_object_ids = self.env_object_ids[done_env_ids]
+            episode_increments = torch.bincount(done_object_ids, minlength=self.num_objects)
+            success_env_ids = (done_envs & self.success_long_enough).nonzero(as_tuple=False).squeeze(-1)
+            success_object_ids = self.env_object_ids[success_env_ids]
+            success_increments = torch.bincount(success_object_ids, minlength=self.num_objects)
+            self.per_object_episode_counts += episode_increments
+            self.per_object_success_counts += success_increments
+            self.per_object_episode_counts_interval += episode_increments
+            self.per_object_success_counts_interval += success_increments
+
+        # @ray log per-object per-interval success rates locally and a histograom to wandb
+        if self.sim_steps > 0 and (self.sim_steps % self.log_per_object_success_freq == 0):
+            # @ray prevent inf from division by zero if some objects are not in any envs
+            interval_rates = torch.where(
+                self.per_object_episode_counts_interval > 0,
+                self.per_object_success_counts_interval.float() / self.per_object_episode_counts_interval.float(),
+                torch.zeros_like(self.per_object_success_counts_interval, dtype=torch.float32),
+            )
+            if wandb.run is not None:
+                print("logging per-object success rate histogram to wandb")
+                wandb.log({"per_object_success_rate_hist": wandb.Histogram(interval_rates.detach().cpu().numpy(), num_bins=20)},)
+            interval_snapshot = {
+                "sim_steps": int(self.sim_steps),
+                "log_interval_steps": int(self.log_per_object_success_freq),
+                "per_object_success_rates": {
+                    str(obj_id): {
+                        "episodes": int(self.per_object_episode_counts_interval[obj_id].item()),
+                        "successes": int(self.per_object_success_counts_interval[obj_id].item()),
+                        "success_rate": float(interval_rates[obj_id].item()),
+                    }
+                    for obj_id in range(self.num_objects)
+                },
+            }
+            json_path = os.path.join(self.log_per_object_success_dir, f"per_object_success_step{int(self.sim_steps)}.json")
+            with open(json_path, "w") as f:
+                json.dump(interval_snapshot, f, indent=2)
+            if wandb.run is not None:
+                artifact = wandb.Artifact(self.log_per_object_success_artifact, type="per_object_success")
+                artifact.add_file(json_path)
+                wandb.log_artifact(artifact)
+            self.per_object_episode_counts_interval.zero_()
+            self.per_object_success_counts_interval.zero_()
+
+        self.extras["metrics/success_rate_5cm_per_ep"] = torch.mean(self.success_flags.float()).item()
+        self.extras["metrics/success_rate_5cm_per_ep_instant"] = torch.mean(self.success_flags_instant).item()
         self.extras["metrics/success_rate_5cm_per_step"] = torch.mean(self.success_5cm_per_step.float()).item()
+        self.extras["metrics/lifting_rate_5cm_per_ep"] = torch.mean(self.lifting_flags.float()).item()
+        self.extras["metrics/lifting_rate_5cm_per_ep_instant"] = torch.mean(self.lifting_flags_instant).item()
         self.extras["metrics/lifting_rate_5cm_per_step"] = torch.mean(self.lifting_5cm_per_step.float()).item()
-        self.extras["metrics/success_rate_5cm_per_ep"] = torch.mean(self.success_flags).item()
-        self.extras["metrics/lifting_rate_5cm_per_ep"] = torch.mean(self.lifting_flags).item()
-        self.extras["metrics/collision_rate_per_step"] = torch.mean(self.states["collision"].float()).item()
 
+        # log memory usage TODO: debug utils, cleanup later
+        mem_allocated_GB = float(torch.cuda.memory_allocated() / 1024**3)
+        mem_reserved_GB = float(torch.cuda.memory_reserved() / 1024**3)
+        self.extras["mem/allocated_GB"] = mem_allocated_GB
+        self.extras["mem/reserved_GB"] = mem_reserved_GB
 
 @torch.jit.script
 def compute_franka_leap_reward(states, reward_settings):
@@ -128,7 +193,7 @@ def compute_franka_leap_reward(states, reward_settings):
         r_lift = torch.where(states["lift"], 1.0, torch.zeros_like(object_height))
 
     # R3: Object goal distance reward (based on average point matching distance)
-    d_eef_point_goal = states["point_matching_err"]
+    d_eef_point_goal = states["point_matching_err_target"]
     beta_object_goal = reward_settings["beta_object_goal"]
     r_obj_goal = torch.exp(-beta_object_goal * d_eef_point_goal)
     r_obj_goal = torch.where(states["lift"], r_obj_goal, 0.0)
@@ -156,9 +221,13 @@ def compute_franka_leap_reward(states, reward_settings):
     w_colli = reward_settings["w_colli"]
     w_actionreg = reward_settings["w_actionreg"]
 
+    use_curl = bool(reward_settings["use_curl"])
+    # @ray 
+    # use activated rewards only
+    # but compute all rewards anyways for logging
     r_total = w_hand_obj*r_hand_obj + w_obj_goal*r_obj_goal + \
-              w_lift*r_lift + w_curl*r_curl + \
-              w_colli*r_colli + w_actionreg*r_actionreg
+              w_curl*r_curl * float(use_curl) + \
+              w_lift*r_lift + w_colli*r_colli + w_actionreg*r_actionreg
 
     rewards = {
         "r_hand_obj": w_hand_obj*r_hand_obj,
@@ -188,7 +257,7 @@ def launch_test(cfg: DictConfig):
     graphics_device_id = 0
     virtual_screen_capture = False
     force_render = False
-    env = FrankaLEAPMobilePickTable(cfg_task, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render)
+    env = FrankaLEAPMobileDistillationPickTop(cfg_task, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render)
     env.reset()
 
     for i in tqdm(range(1000)):

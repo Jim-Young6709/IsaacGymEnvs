@@ -44,8 +44,8 @@ multi_gpu: False
 wandb_activate: False
 wandb_group: ''
 wandb_name: ${train.params.config.name}
-wandb_entity: 'jimyoung6709'
-wandb_project: 'Dex_dagger'
+wandb_entity: "daedalus2060-carnegie-mellon-university"
+wandb_project: "dexgym"
 wandb_tags: []
 wandb_logcode_dir: '' 
 
@@ -70,7 +70,7 @@ dagger:
   eval_freq: 10
 
   teacher_forcing:
-    enable: False
+    enable: True
     warmup_episodes: 10
     scheduling_episodes: 10 # after warmup episodes, linearly decay teacher forcing envs to 0 over these many episodes
 
