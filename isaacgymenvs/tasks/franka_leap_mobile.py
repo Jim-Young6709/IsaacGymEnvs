@@ -995,6 +995,7 @@ class FrankaLEAPMobile(VecTask):
     def _update_states(self):
         # update arm eef state
         eef_rot_mat = quaternion_to_matrix_ig(self._eef_state[:, 3:7])
+        eef_rot_mat_T = eef_rot_mat.transpose(1, 2)
         eef_rot_6d = matrix_to_rotation_6d(eef_rot_mat)
 
         # update object state
@@ -1007,13 +1008,29 @@ class FrankaLEAPMobile(VecTask):
 
         object_rot_6d = matrix_to_rotation_6d(object_rot_mat)
 
-        object_rot_mat_in_eef_frame = torch.matmul(eef_rot_mat.transpose(1, 2), object_rot_mat)
+        object_rot_mat_in_eef_frame = torch.matmul(eef_rot_mat_T, object_rot_mat)
         object_to_eef_rot_6d = matrix_to_rotation_6d(object_rot_mat_in_eef_frame)
 
         # update target state
         target_rot_mat = quaternion_to_matrix_ig(self.reward_settings["target_quat"])
-        target_rot_mat_in_eef_frame = torch.matmul(eef_rot_mat.transpose(1, 2), target_rot_mat)
+        target_rot_mat_in_eef_frame = torch.matmul(eef_rot_mat_T, target_rot_mat)
         target_to_eef_rot_6d = matrix_to_rotation_6d(target_rot_mat_in_eef_frame)
+
+        # get world frame pos / delta pos, and convert them to eef frame
+        eef_pos = self._eef_state[:, :3]
+        eef_finger1_pos_relative_world = self._eef_finger1_state[:, :3] - eef_pos
+        eef_finger2_pos_relative_world = self._eef_finger2_state[:, :3] - eef_pos
+        eef_finger3_pos_relative_world = self._eef_finger3_state[:, :3] - eef_pos
+        eef_finger4_pos_relative_world = self._eef_finger4_state[:, :3] - eef_pos
+        object_to_eef_world = object_center_pos - eef_pos
+        target_to_eef_world = self.reward_settings["target_pos"] - eef_pos
+
+        eef_finger1_pos_relative = torch.matmul(eef_rot_mat_T, eef_finger1_pos_relative_world.unsqueeze(-1)).squeeze(-1)
+        eef_finger2_pos_relative = torch.matmul(eef_rot_mat_T, eef_finger2_pos_relative_world.unsqueeze(-1)).squeeze(-1)
+        eef_finger3_pos_relative = torch.matmul(eef_rot_mat_T, eef_finger3_pos_relative_world.unsqueeze(-1)).squeeze(-1)
+        eef_finger4_pos_relative = torch.matmul(eef_rot_mat_T, eef_finger4_pos_relative_world.unsqueeze(-1)).squeeze(-1)
+        object_to_eef = torch.matmul(eef_rot_mat_T, object_to_eef_world.unsqueeze(-1)).squeeze(-1)
+        target_to_eef = torch.matmul(eef_rot_mat_T, target_to_eef_world.unsqueeze(-1)).squeeze(-1)
 
         point_matching_err = self._get_eef_point_matching_err(
             curent_eef_pos7=self._eef_state[:, :7],
@@ -1067,10 +1084,10 @@ class FrankaLEAPMobile(VecTask):
             "eef_finger4_pos": self._eef_finger4_state[:, :3],
 
             # Fingertip positions relative to hand base (palm_center)
-            "eef_finger1_pos_relative": self._eef_finger1_state[:, :3] - self._eef_state[:, :3],
-            "eef_finger2_pos_relative": self._eef_finger2_state[:, :3] - self._eef_state[:, :3],
-            "eef_finger3_pos_relative": self._eef_finger3_state[:, :3] - self._eef_state[:, :3],
-            "eef_finger4_pos_relative": self._eef_finger4_state[:, :3] - self._eef_state[:, :3],
+            "eef_finger1_pos_relative": eef_finger1_pos_relative,
+            "eef_finger2_pos_relative": eef_finger2_pos_relative,
+            "eef_finger3_pos_relative": eef_finger3_pos_relative,
+            "eef_finger4_pos_relative": eef_finger4_pos_relative,
 
             # Object
             "object_quat": self._object_state[:, 3:7],
@@ -1079,9 +1096,9 @@ class FrankaLEAPMobile(VecTask):
             "object_pos": self._object_state[:, :3],
 
             # Task related
-            "object_to_eef": object_center_pos - self._eef_state[:, :3],
+            "object_to_eef": object_to_eef,
             "object_to_eef_rot_6d": object_to_eef_rot_6d,
-            "target_to_eef": self.reward_settings["target_pos"] - self._eef_state[:, :3],
+            "target_to_eef": target_to_eef,
             "target_to_eef_rot_6d": target_to_eef_rot_6d,
             "point_matching_err": point_matching_err,
 
@@ -1429,26 +1446,26 @@ class FrankaLEAPMobile(VecTask):
         """
         if self.eef_actions:
             self.delta_eef_actions = actions.clone()
-            pos_actions = actions[:, 0:3] * self.action_scale["eef_pos"] * self.dt
-            ctrl_target_eef_pos = self.states['eef_pos'] + pos_actions
+            # Interpret position deltas in EEF-local frame and rotate to world.
+            pos_actions_local = actions[:, 0:3] * self.action_scale["eef_pos"] * self.dt
+            eef_rot_mat = quaternion_to_matrix_ig(self.states["eef_quat"])
+            pos_actions_world = torch.matmul(eef_rot_mat, pos_actions_local.unsqueeze(-1)).squeeze(-1)
+            ctrl_target_eef_pos = self.states["eef_pos"] + pos_actions_world
 
-            # Interpret actions as target rot (axis-angle) displacements
-            rot_actions = actions[:, 3:6] * self.action_scale["eef_rot"] * self.dt
-            angle = torch.norm(rot_actions, p=2, dim=-1)
-            axis = rot_actions / angle.unsqueeze(-1)
-            rot_actions_quat = quat_from_angle_axis(angle, axis)
+            # Interpret rotation deltas as target rot (axis-angle) displacements in EEF-local frame.
+            rot_actions_local = actions[:, 3:6] * self.action_scale["eef_rot"] * self.dt
+            angle = torch.norm(rot_actions_local, p=2, dim=-1)
+            axis = rot_actions_local / angle.unsqueeze(-1).clamp_min(1.0e-8)
+            rot_actions_quat_local = quat_from_angle_axis(angle, axis)
 
             # clamp tiny rotations to avoid numerical issues
-            rot_actions_quat = torch.where(
+            rot_actions_quat_local = torch.where(
                 angle.unsqueeze(-1).repeat(1, 4) > 1.0e-6,
-                rot_actions_quat,
-                torch.tensor([0.0, 0.0, 0.0, 1.0], device=self.device).repeat(
-                    self.num_envs, 1
-                ),
+                rot_actions_quat_local,
+                torch.tensor([0.0, 0.0, 0.0, 1.0], device=self.device).repeat(self.num_envs, 1),
             )
-            ctrl_target_eef_quat = quat_mul(
-                rot_actions_quat, self.states['eef_quat'] # xyzw format
-            )
+            # Local-frame composition: q_target = q_current * q_delta_local.
+            ctrl_target_eef_quat = quat_mul(self.states["eef_quat"], rot_actions_quat_local) # xyzw format
 
             if self.enable_fabric:
                 fabric_target_eef_pos = self.switching_target_pos
