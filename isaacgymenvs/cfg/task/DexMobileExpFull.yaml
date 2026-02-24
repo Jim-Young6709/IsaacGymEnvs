@@ -10,6 +10,7 @@ env:
   scene:
     hdf5_path: "./static_scenes/2box100.hdf5"
     batch_idx: 0
+    safety_box_tol: 0.1 # in meters, when object is randomly sampled in the safety box region, keep it at certain distance from the region boundaries
 
   robot_init:
     # TODO: need to ensure the object is visible in initial camera frame, shift y by 0.3 according to vision arm location, also largely decrease ori rand

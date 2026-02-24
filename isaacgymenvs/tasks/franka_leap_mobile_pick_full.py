@@ -90,13 +90,14 @@ class FrankaLEAPMobilePickFull(FrankaLEAPMobile):
 
         self.mesh_aabb_extents = None  # xyz, axis-aligned bounding box full extents
         self.table_surface_height = torch.zeros((self.num_envs,), device=self.device)
-        self.obj_pos_range = torch.zeros((self.num_envs, 4), device=self.device) # x-min, x-max, y-min, y-max
+        self.obj_reset_pos_range = torch.zeros((self.num_envs, 4), device=self.device) # x-min, x-max, y-min, y-max
         self.obj_pos_target = torch.zeros((self.num_envs, 3), device=self.device) # x, y, z
+        self.box_tol = self.cfg["env"]["scene"]["safety_box_tol"]
 
-        self.obj_pos_range[:, 0] = - self.box_dims[:, 0] / 2
-        self.obj_pos_range[:, 1] =   self.box_dims[:, 0] / 2
-        self.obj_pos_range[:, 2] = - self.box_dims[:, 1] / 2
-        self.obj_pos_range[:, 3] =   self.box_dims[:, 1] / 2
+        self.obj_reset_pos_range[:, 0] = - self.box_dims[:, 0] / 2 + self.box_tol
+        self.obj_reset_pos_range[:, 1] =   self.box_dims[:, 0] / 2 - self.box_tol
+        self.obj_reset_pos_range[:, 2] = - self.box_dims[:, 1] / 2 + self.box_tol
+        self.obj_reset_pos_range[:, 3] =   self.box_dims[:, 1] / 2 - self.box_tol
         self.table_surface_height = self.box_pos[:, 2]
 
         # setup robot (franka + leap)
@@ -256,11 +257,13 @@ class FrankaLEAPMobilePickFull(FrankaLEAPMobile):
         self.mesh_aabb_extents = max_xyz - min_xyz
         self._object_center_init_state[:, 2] += self.mesh_aabb_extents[:, 2] / 2
 
-        # refine obj_rand_pos_range based on mesh AABB
-        self.obj_pos_range[:, 0] += self.mesh_aabb_extents[:, 0] / 2
-        self.obj_pos_range[:, 1] -= self.mesh_aabb_extents[:, 0] / 2
-        self.obj_pos_range[:, 2] += self.mesh_aabb_extents[:, 1] / 2
-        self.obj_pos_range[:, 3] -= self.mesh_aabb_extents[:, 1] / 2
+        # refine obj_reset_pos_range based on mesh AABB
+        self.obj_reset_pos_range[:, 0] += self.mesh_aabb_extents[:, 0] / 2
+        self.obj_reset_pos_range[:, 1] -= self.mesh_aabb_extents[:, 0] / 2
+        self.obj_reset_pos_range[:, 2] += self.mesh_aabb_extents[:, 1] / 2
+        self.obj_reset_pos_range[:, 3] -= self.mesh_aabb_extents[:, 1] / 2
+        self.obj_reset_center_xy = self.box_pos[:, :2].clone()
+        self.obj_reset_center_quat = self.box_quats.clone()
 
         # Setup data
         actor_num = 1 + self.max_obstacles + 1  # robot, obstacles, object

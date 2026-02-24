@@ -69,12 +69,15 @@ class FrankaLEAPMobilePickTable(FrankaLEAPMobile):
 
         self.obj_pos_target = torch.zeros((self.num_envs, 3), device=self.device) # x, y, z
 
-        obj_xyz_range = self.cfg["env"]["object_settings"]["xyz_range"]
-        self.obj_pos_range = torch.zeros((self.num_envs, 4), device=self.device) # x-min, x-max, y-min, y-max
-        self.obj_pos_range[:, 0] = obj_xyz_range[0][0] # x-min
-        self.obj_pos_range[:, 1] = obj_xyz_range[1][0] # x-max
-        self.obj_pos_range[:, 2] = obj_xyz_range[0][1] # y-min
-        self.obj_pos_range[:, 3] = obj_xyz_range[1][1] # y-max
+        obj_reset_pos_range = self.cfg["env"]["object_settings"]["obj_reset_pos_range"]
+        self.obj_reset_center_xy = torch.tensor(self.cfg["env"]["object_settings"]["obj_reset_center_xy"], device=self.device).repeat(self.num_envs, 1)
+        self.obj_reset_center_quat = torch.tensor(self.cfg["env"]["object_settings"]["obj_reset_center_quat"], device=self.device).repeat(self.num_envs, 1)
+        self.obj_reset_pos_range = torch.zeros((self.num_envs, 4), device=self.device) # x-min, x-max, y-min, y-max
+        # Convert configured global XY range to range relative to box center.
+        self.obj_reset_pos_range[:, 0] = obj_reset_pos_range[0][0] # x-min
+        self.obj_reset_pos_range[:, 1] = obj_reset_pos_range[1][0] # x-max
+        self.obj_reset_pos_range[:, 2] = obj_reset_pos_range[0][1] # y-min
+        self.obj_reset_pos_range[:, 3] = obj_reset_pos_range[1][1] # y-max
 
         # setup robot (franka + leap)
         robot_dof_props = self._create_franka_leap()

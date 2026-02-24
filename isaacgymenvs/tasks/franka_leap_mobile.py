@@ -668,11 +668,10 @@ class FrankaLEAPMobile(VecTask):
 
         # sample random size, pos and ori
         scale_range = self.cfg["env"]["object_settings"]["scale_range"]
-        pos_range = self.cfg["env"]["object_settings"]["xyz_range"]
 
         mesh_scale = np.random.uniform(scale_range[0], scale_range[1])
-        mesh_pos = np.random.uniform(pos_range[0], pos_range[1])
-        mesh_quat = R.random().as_quat()  # [x, y, z, w]
+        mesh_pos = np.array([1.0, 0.0, 2.0])
+        mesh_quat = np.array([0.0, 0.0, 0.0, 1.0])  # xyzw
 
         return self._create_mesh(sampled_mesh_path, mesh_pos, mesh_scale, mesh_quat, fix_base_link)
 
@@ -716,11 +715,10 @@ class FrankaLEAPMobile(VecTask):
         for mesh_file_path in tqdm(mesh_files, desc="Preparing Meshes"):
             # sample random size, pos and ori
             scale_range = self.cfg["env"]["object_settings"]["scale_range"]
-            pos_range = self.cfg["env"]["object_settings"]["xyz_range"]
 
             mesh_scale = np.random.uniform(scale_range[0], scale_range[1])
-            mesh_pos = np.random.uniform(pos_range[0], pos_range[1])
-            mesh_quat = R.random().as_quat()
+            mesh_pos = np.array([1.0, 0.0, 2.0])
+            mesh_quat = np.array([0.0, 0.0, 0.0, 1.0])  # xyzw
             asset, start_pose, scale, asset_obj_id, asset_mesh_id = self._create_mesh(
                 mesh_file_path, mesh_pos, mesh_scale, mesh_quat, fix_base_link, obj_str2int
             )
@@ -1591,17 +1589,19 @@ class FrankaLEAPMobile(VecTask):
         num_resets = len(env_ids)
         sampled_object_state = torch.zeros(num_resets, 13, device=self.device)
 
-        # Sampling is "centered" around middle of table
+        # obj_reset_pos_range is always interpreted as XY range relative to box center, in box local frame.
         reset_pos = torch.zeros(num_resets, 3, device=self.device)
-        reset_pos[:, :2] = torch.rand(num_resets, 2, device=self.device) * (self.obj_pos_range[env_ids][:, [1,3]] - self.obj_pos_range[env_ids][:, [0,2]]) + self.obj_pos_range[env_ids][:, [0,2]]
+        relative_xy = torch.rand(num_resets, 2, device=self.device) * (
+            self.obj_reset_pos_range[env_ids][:, [1, 3]] - self.obj_reset_pos_range[env_ids][:, [0, 2]]
+        ) + self.obj_reset_pos_range[env_ids][:, [0, 2]]
+        relative_pos_local = torch.zeros(num_resets, 3, device=self.device)
+        relative_pos_local[:, :2] = relative_xy
+        relative_pos_world = quat_apply(self.obj_reset_center_quat[env_ids], relative_pos_local)
+        reset_pos[:, :2] = relative_pos_world[:, :2] + self.obj_reset_center_xy[env_ids]
         reset_pos[:, 2] = self.table_surface_height[env_ids]
 
-        sampled_object_state[:, 6] = 1.0
-        # theta = torch.rand(num_resets, device=self.device) * 2 * torch.pi  # random angle [0, 2π)
-        # # quat = [0.0, 0.0, torch.sin(theta/2), torch.cos(theta/2)]
-        # sampled_object_state[:, 5] = torch.sin(theta/2)
-        # sampled_object_state[:, 6] = torch.cos(theta/2)
         sampled_object_state[:, :3] = reset_pos
+        sampled_object_state[:, 3:7] = self.obj_reset_center_quat[env_ids]
         self._object_state[env_ids] = sampled_object_state
         self._object_center_init_state[env_ids] = reset_pos
         self._object_center_init_state[env_ids, 2] += self.mesh_aabb_extents[env_ids, 2] / 2
@@ -1994,7 +1994,9 @@ class FrankaLEAPMobile(VecTask):
         self.table_size = ...
         self.table_surface_height = ...
         self.mesh_aabb_extents = ...
-        self.obj_pos_range = ...
+        self.obj_reset_pos_range = ...
+        self.obj_reset_center_xy = ...
+        self.obj_reset_center_quat = ...
         self.envs = ...
 
     @abstractmethod
