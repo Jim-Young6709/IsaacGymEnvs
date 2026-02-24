@@ -11,6 +11,12 @@ env:
     hdf5_path: "./static_scenes/2box100.hdf5"
     batch_idx: 0
 
+  robot_init:
+    # TODO: need to ensure the object is visible in initial camera frame, shift y by 0.3 according to vision arm location, also largely decrease ori rand
+    base_init_range: [[-1.0, -0.25, -0.3], [-0.2, 0.25, 0.3]] # [[-0.2, 0.0, 0.0], [-0.2, 0.0, 0.0]] # x, y, yaw
+    switch_pos_offset: [0.0, 0.0, 0.2]
+    switch_tol: 0.2
+
   numObservations: 49
   numStates: 94
   numActions: 22 # delta eef actions 6 (xyz, rpy) + normalized hand joint actions 16
