@@ -54,10 +54,20 @@ class FrankaLEAPMobilePickFull(FrankaLEAPMobile):
             self.obstacle_configs.append(obstacle_config)
             self.max_obstacles = max(len(obstacle_config[0]), self.max_obstacles)
             self.compartments.append(demo['compartment_states'][0])
-            # self.init_robot_states.append(demo['init_robot_states'])
+            if 'init_robot_states' in demo:
+                self.init_robot_states.append(demo['init_robot_states'][0])
 
         self.compartments = torch.tensor(self.compartments, device=self.device) # (num_envs, 10), 10 = 3 (xyz dims) + 3 (xyz pos) + 4 (xyzw quat)
-        # self.init_robot_states = torch.tensor(self.init_robot_states, device=self.device) # (num_envs, num_dofs)
+
+        # if no init_robot_states provided, will use randomized init states later
+        if len(self.init_robot_states) > 0:
+            self.init_robot_states = torch.tensor(self.init_robot_states, device=self.device) # (num_envs, num_dofs)
+
+    def _post_init_buffers(self):
+        super()._post_init_buffers()
+        # overwrite the canonical joint config with init_robot_states
+        if len(self.init_robot_states) > 0:
+            self.canonical_joint_config = self.init_robot_states.clone()
 
     def _setup_fabric_switching_target(self):
         self.switching_target_pos = self._object_state[:, :3].clone()
