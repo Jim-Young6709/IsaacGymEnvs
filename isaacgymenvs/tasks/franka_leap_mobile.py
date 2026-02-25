@@ -1156,7 +1156,7 @@ class FrankaLEAPMobile(VecTask):
     def check_robot_collision(self):
         # TODO: figure out arm & hand collision
         self.gym.refresh_net_contact_force_tensor(self.sim)
-        self.scene_collision = torch.where(
+        self.env_collision = torch.where(
             torch.norm(torch.sum(self.contact_forces[:, :58, :], dim=1), dim=1) > 1.0, 1.0, 0.0
         )  # the first 58 elements belong to base + franka + leap + arx
         self.collision = torch.where(

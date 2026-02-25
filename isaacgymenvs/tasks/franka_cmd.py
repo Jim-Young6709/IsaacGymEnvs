@@ -716,7 +716,7 @@ class FrankaCMD(VecTask):
     def check_robot_collision(self):
         # TODO: figure out arm & hand collision
         self.gym.refresh_net_contact_force_tensor(self.sim)
-        self.scene_collision = torch.where(
+        self.env_collision = torch.where(
             torch.norm(torch.sum(self.contact_forces[:, :30, :], dim=1), dim=1) > 1.0, 1.0, 0.0
         )  # the first 30 elements belong to franka + cmd
         self.collision = torch.where(
