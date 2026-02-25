@@ -931,7 +931,7 @@ class FrankaLEAPMobile(VecTask):
         }
         return
 
-    def compute_fabric_action(self, eef_target):
+    def compute_fabric_action(self, eef_target, gaze_target=None):
         # timestep: ideally 1/60 but something as low as 1/20 may work. The larger the dt, the more
         # unstable fabric may become.
         # speed_scalar: Anything over 3.5 seems to make the fabric unstable. 
@@ -950,7 +950,8 @@ class FrankaLEAPMobile(VecTask):
         self.fabric_qd[:, :10] = qd_delta[:, :10].clone()
         self.fabric_qd[:, 10:] = qd_delta[:, 26:].clone()
 
-        gaze_target = self.states['object_center_pos'].clone()
+        if gaze_target is None:
+            gaze_target = self.states['object_center_pos'].clone()
 
         self.franka_fabric.set_features(
             eef_target,
@@ -1437,7 +1438,7 @@ class FrankaLEAPMobile(VecTask):
             gymapi.ENV_SPACE,  # ENV_SPACE (world) or LOCAL_SPACE
         )
 
-    def _pre_physics_step_teacher(self, actions):
+    def _pre_physics_step_teacher(self, actions, gaze_target=None):
         """
         Args:
             actions (torch.Tensor): normalized delta joint angles (num_selected_envs, 7+4*4)
@@ -1469,7 +1470,7 @@ class FrankaLEAPMobile(VecTask):
                 fabric_target_eef_pos = self.switching_target_pos
                 fabric_target_eef_quat = self.switching_target_quat
                 fabric_eef_target = torch.cat((fabric_target_eef_pos, fabric_target_eef_quat), dim=-1)
-                abs_full_joint_actions_fabric = self.compute_fabric_action(fabric_eef_target)
+                abs_full_joint_actions_fabric = self.compute_fabric_action(fabric_eef_target, gaze_target)
 
             delta_arm_joint_actions_unnormalized = torch.zeros((self.num_envs, 10), device=self.device)
             delta_arm_joint_actions_unnormalized[:, 3:10] = eef_ctrl.compute_dof_pos_delta(
