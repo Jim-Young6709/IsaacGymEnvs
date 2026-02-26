@@ -9,6 +9,7 @@ import isaacgymenvs
 import numpy as np
 import torch
 from omegaconf import DictConfig
+from tqdm import tqdm
 
 
 class PresampleTableMultiEnvStates:
@@ -146,7 +147,7 @@ class PresampleTableMultiEnvStates:
         output_path = os.path.join(self.output_hdf5_dir, self.output_hdf5_name)
 
         with h5py.File(output_path, "w") as f:
-            for env_idx in range(self.num_envs):
+            for env_idx in tqdm(range(self.num_envs), desc="Saving env states"):
                 demo_group = f.create_group(f"demo_{env_idx}")
                 demo_data = self._build_demo(env_idx)
                 for key, value in demo_data.items():
