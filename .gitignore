@@ -40,3 +40,4 @@ dagger_ckpts_archive/
 /isaacgymenvs/ref
 *.zip
 /build
+/presampled_envs
