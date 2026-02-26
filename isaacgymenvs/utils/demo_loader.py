@@ -19,7 +19,11 @@ class DemoLoader:
         """Load the HDF5 file and get total number of demos"""
         try:
             self.hdf5_file = h5py.File(file_path, 'r')
-            self.demos = self.hdf5_file['data']
+            if 'data' in self.hdf5_file:
+                self.demos = self.hdf5_file['data']
+            else:
+                self.demos = self.hdf5_file
+
             self.total_demos = len(self.demos)
             print(f"Loaded HDF5 file with {self.total_demos} demonstrations")
             return True
@@ -49,10 +53,10 @@ class DemoLoader:
             try:
                 # TODO: Support multiple configs in one env, ideally have one valid config for each support volume, or can even just load cuboids
                 # Get all necessary data from the demo
-                demo_data = {
-                    'states': self.demos[f"{demo_key}/states"][:],
-                    'compartment_states': self.demos[f"{demo_key}/compartment_states"][:],
-                }
+                demo_data = {}
+                for key in ['states', 'compartment_states', 'init_robot_states']:
+                    if key in self.demos[demo_key].keys():
+                        demo_data[key] = self.demos[f"{demo_key}/{key}"][:]
                 batch_data.append(demo_data)
             except Exception as e:
                 print(f"Error loading demo {demo_idx}: {e}")

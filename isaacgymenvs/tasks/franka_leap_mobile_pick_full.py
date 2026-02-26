@@ -55,7 +55,7 @@ class FrankaLEAPMobilePickFull(FrankaLEAPMobile):
             self.max_obstacles = max(len(obstacle_config[0]), self.max_obstacles)
             self.compartments.append(demo['compartment_states'][0])
             if 'init_robot_states' in demo:
-                self.init_robot_states.append(demo['init_robot_states'][0])
+                self.init_robot_states.append(demo['init_robot_states'])
 
         self.compartments = torch.tensor(self.compartments, device=self.device) # (num_envs, 10), 10 = 3 (xyz dims) + 3 (xyz pos) + 4 (xyzw quat)
 
