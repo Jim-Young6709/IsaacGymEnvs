@@ -1503,7 +1503,7 @@ class FrankaLEAPMobile(VecTask):
 
         if self.enable_fabric:
             teacher_actions_abs[self.fabric_switch_enable, :10] = abs_full_joint_actions_fabric[self.fabric_switch_enable, :10]
-            teacher_actions_abs[self.fabric_switch_enable, 10:26] = self.default_reset_joint_config[self.fabric_switch_enable, 10:26]
+            teacher_actions_abs[self.fabric_switch_enable, 10:26] = self.canonical_joint_config[self.fabric_switch_enable, 10:26]
             teacher_actions_abs[:, 26:] = abs_full_joint_actions_fabric[:, 10:]
 
         if self.distillation_mode:
