@@ -171,8 +171,11 @@ class FrankaLEAP(VecTask):
                     self.hand_default
                 ] * self.num_envs
             ).to(self.device)
-        self.ik_regularization_config = self.canonical_joint_config[:, :7]
 
+        if not hasattr(self, 'default_reset_joint_config'):
+            self.default_reset_joint_config = self.canonical_joint_config.clone()
+
+        self.ik_regularization_config = self.canonical_joint_config[:, :7]
         self.delta_joint_actions = torch.zeros((self.num_envs, self.num_robot_dofs), device=self.device, dtype=torch.float) # Current delta actions to be deployed
         self.delta_eef_actions = torch.zeros((self.num_envs, self.num_robot_dofs-1), device=self.device, dtype=torch.float) # Current delta actions to be deployed at the end effector
 
@@ -1414,12 +1417,12 @@ class FrankaLEAP(VecTask):
 
         if self.reset_noise_scale["leap"] is None:
             reset_noise[:, 7:] = self.unnormalize_robot_joints(reset_noise[:, 7:], robot="hand", delta=False)
-            reset_noise[:, 7:] -= self.canonical_joint_config[env_ids, 7:]
+            reset_noise[:, 7:] -= self.default_reset_joint_config[env_ids, 7:]
         else:
             reset_noise[:, 7:] *= self.reset_noise_scale["leap"]
 
         reset_joint_config = tensor_clamp(
-            self.canonical_joint_config[env_ids] + reset_noise,
+            self.default_reset_joint_config[env_ids] + reset_noise,
             self.robot_dof_lower_limits,
             self.robot_dof_upper_limits,
         )

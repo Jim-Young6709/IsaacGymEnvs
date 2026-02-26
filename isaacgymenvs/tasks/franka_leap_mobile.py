@@ -187,6 +187,9 @@ class FrankaLEAPMobile(VecTask):
             ).to(self.device)
             self.canonical_joint_config[:, :3] = base_init_pose
 
+        if not hasattr(self, 'default_reset_joint_config'):
+            self.default_reset_joint_config = self.canonical_joint_config.clone()
+
         self.ik_regularization_config = self.canonical_joint_config[:, :10]
         self.delta_joint_actions = torch.zeros((self.num_envs, self.num_robot_dofs), device=self.device, dtype=torch.float) # Current delta actions to be deployed
         self.delta_eef_actions = torch.zeros((self.num_envs, self.num_robot_dofs-1), device=self.device, dtype=torch.float) # Current delta actions to be deployed at the end effector
@@ -1500,7 +1503,7 @@ class FrankaLEAPMobile(VecTask):
 
         if self.enable_fabric:
             teacher_actions_abs[self.fabric_switch_enable, :10] = abs_full_joint_actions_fabric[self.fabric_switch_enable, :10]
-            teacher_actions_abs[self.fabric_switch_enable, 10:26] = self.canonical_joint_config[self.fabric_switch_enable, 10:26]
+            teacher_actions_abs[self.fabric_switch_enable, 10:26] = self.default_reset_joint_config[self.fabric_switch_enable, 10:26]
             teacher_actions_abs[:, 26:] = abs_full_joint_actions_fabric[:, 10:]
 
         if self.distillation_mode:
@@ -1730,14 +1733,14 @@ class FrankaLEAPMobile(VecTask):
 
         if self.reset_noise_scale["leap"] is None:
             reset_noise[:, 10:26] = self.unnormalize_robot_joints(reset_noise[:, 10:26], robot="leap", delta=False)
-            reset_noise[:, 10:26] -= self.canonical_joint_config[env_ids, 10:26]
+            reset_noise[:, 10:26] -= self.default_reset_joint_config[env_ids, 10:26]
         else:
             reset_noise[:, 10:26] *= self.reset_noise_scale["leap"]
 
         reset_noise[:, 26:32] *= self.reset_noise_scale["arx"]
 
         reset_joint_config = tensor_clamp(
-            self.canonical_joint_config[env_ids] + reset_noise,
+            self.default_reset_joint_config[env_ids] + reset_noise,
             self.robot_dof_lower_limits,
             self.robot_dof_upper_limits,
         )
