@@ -159,7 +159,7 @@ class PresampleTableMultiEnvStates:
         print(f"Saved {self.num_envs} demos to {output_path}")
 
 
-@hydra.main(config_name="pre_sample_env_states_table_multi.yaml", config_path="../cfg")
+@hydra.main(config_name="pre_sample_scene_states_table_multi.yaml", config_path="../cfg")
 def main(cfg: DictConfig):
     saver = PresampleTableMultiEnvStates(cfg=cfg)
     saver.save()
