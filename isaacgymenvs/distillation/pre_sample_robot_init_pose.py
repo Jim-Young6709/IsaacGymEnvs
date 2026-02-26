@@ -193,13 +193,13 @@ class PresampleInitPose:
 
             if torch.all(validation_mask):
                 print("All envs have collision free initial pose!")
-                self.env.canonical_joint_config[:] = final_init_pose.clone()
+                self.env.default_reset_joint_config[:] = final_init_pose.clone()
                 break
 
         if self.cfg.presample.assume_obj_in_view_t0:
             self.adjust_vision_arm_pose()
-            self.env.canonical_joint_config[:, 26:32] = self.env.states['q'][:, 26:32].clone()
-            self.env.canonical_joint_config[:, 26:32] += (torch.rand((self.env.num_envs, 6), device=self.device) - 0.5) * 2 * self.cfg_arx_noise
+            self.env.default_reset_joint_config[:, 26:32] = self.env.states['q'][:, 26:32].clone()
+            self.env.default_reset_joint_config[:, 26:32] += (torch.rand((self.env.num_envs, 6), device=self.device) - 0.5) * 2 * self.cfg_arx_noise
             self.env.reset_idx()
 
     def adjust_vision_arm_pose(self, gaze_err_tol_deg=5.0):
@@ -293,7 +293,7 @@ class PresampleInitPose:
         for i in range(self.env.num_envs):
             if final_success_flag[i]:
                 env_i_states = self.env.batch[i]
-                env_i_states['init_robot_states'] = self.env.canonical_joint_config[i].cpu().numpy()
+                env_i_states['init_robot_states'] = self.env.default_reset_joint_config[i].cpu().numpy()
                 init_states.append(env_i_states)
 
         output_path = os.path.join(self.output_hdf5_dir, self.output_hdf5_name)

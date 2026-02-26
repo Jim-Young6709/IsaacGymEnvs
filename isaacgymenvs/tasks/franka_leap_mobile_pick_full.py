@@ -67,7 +67,7 @@ class FrankaLEAPMobilePickFull(FrankaLEAPMobile):
         super()._post_init_buffers()
         # overwrite the canonical joint config with init_robot_states
         if len(self.init_robot_states) > 0:
-            self.canonical_joint_config = self.init_robot_states.clone()
+            self.default_reset_joint_config = self.init_robot_states.clone()
 
     def _setup_fabric_switching_target(self):
         self.switching_target_pos = self._object_state[:, :3].clone()
