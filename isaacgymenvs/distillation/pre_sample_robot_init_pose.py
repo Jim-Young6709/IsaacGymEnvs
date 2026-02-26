@@ -302,12 +302,19 @@ class PresampleInitPose:
 
     def save_batch_as_hdf5(self, batch_data, output_path, final_success_rate):
         """Save a batch of demonstrations to a new HDF5 file"""
+        dir_name, file_name = os.path.split(output_path)
+        name, ext = os.path.splitext(file_name)
+        output_path = os.path.join(
+            dir_name,
+            f"{name}_sr_{final_success_rate:.4f}_num_{len(batch_data)}{ext}",
+        )
         with h5py.File(output_path, 'w') as f:
             for idx, data in enumerate(batch_data):
                 demo_group = f.create_group(f"demo_{idx}")
                 for key in data.keys():
                     demo_group.create_dataset(key, data=data[key])
             f.attrs['presample_success_rate'] = final_success_rate
+            f.attrs['num_valid_samples'] = len(batch_data)
         print(f"Batch saved to {output_path} with sampling success rate {final_success_rate:.2f}")
 
 @hydra.main(config_name="pre_sample_robot_init_pose.yaml", config_path="../cfg")

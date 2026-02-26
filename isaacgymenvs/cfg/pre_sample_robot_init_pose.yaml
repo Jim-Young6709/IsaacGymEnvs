@@ -65,7 +65,7 @@ presample:
   steps_per_episode: ${task.env.episodeLength}
 
   assume_obj_in_view_t0: True
-  output_hdf5_dir: ./presampled_envs
+  output_hdf5_dir: ./presampled_envs/completed
   output_hdf5_name: presampled_init_poses.hdf5
 
 # set default task and default training config based on task
