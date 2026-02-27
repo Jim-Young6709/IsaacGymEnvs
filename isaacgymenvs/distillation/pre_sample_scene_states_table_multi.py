@@ -19,7 +19,6 @@ class PresampleTableMultiEnvStates:
         self.num_envs = self._resolve_num_envs()
         self.output_hdf5_dir = cfg.presample.output_hdf5_dir
         self.output_hdf5_name = cfg.presample.output_hdf5_name
-        self.include_init_robot_states = cfg.presample.include_init_robot_states
 
         self.env = self._create_env()
         self.env.reset()
