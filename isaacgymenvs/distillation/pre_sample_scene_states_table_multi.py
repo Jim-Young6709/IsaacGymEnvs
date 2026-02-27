@@ -145,10 +145,6 @@ class PresampleTableMultiEnvStates:
             "compartment_states": compartment_states,
         }
 
-        if self.include_init_robot_states and hasattr(self.env, "canonical_joint_config"):
-            init_robot_states = self._to_numpy(self.env.canonical_joint_config[env_idx]).astype(np.float32)
-            demo["init_robot_states"] = init_robot_states
-
         return demo
 
     def save(self):
@@ -164,7 +160,6 @@ class PresampleTableMultiEnvStates:
 
             f.attrs["task_name"] = str(self.cfg.task_name)
             f.attrs["num_envs"] = int(self.num_envs)
-            f.attrs["include_init_robot_states"] = bool(self.include_init_robot_states)
 
         print(f"Saved {self.num_envs} demos to {output_path}")
 

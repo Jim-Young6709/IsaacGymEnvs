@@ -48,7 +48,6 @@ headless: True
 presample:
   output_hdf5_dir: ./presampled_envs/scene_only
   output_hdf5_name: table_multi.hdf5
-  include_init_robot_states: True
 
 # set default task and default training config based on task
 defaults:
