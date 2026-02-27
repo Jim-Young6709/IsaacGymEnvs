@@ -9,9 +9,10 @@ TABLE_HEIGHT_RANGES=(
   "0.0 0.1"
   "0.0 0.8"
 )
-NUM_ENVS_LIST=(9)
+NUM_ENVS_LIST=(1024)
 
 SEED=1
+TASK_NAME="table_multi"
 TEACHER_CKPT="./ckpts/exp_table_Feb23.pth"
 SCENE_DIR="./presampled_envs/scene_only"
 HEADLESS="True"
@@ -29,7 +30,7 @@ for num_envs in "${NUM_ENVS_LIST[@]}"; do
     fi
 
     sample_idx=$((range_idx + 1))
-    hdf5_name="table_multi_${height_tag}tableheight_${num_envs}_idx${sample_idx}.hdf5"
+    hdf5_name="${TASK_NAME}_${height_tag}tableheight_${num_envs}_idx${sample_idx}.hdf5"
     scene_hdf5_path="${SCENE_DIR}/${hdf5_name}"
 
     python isaacgymenvs/presampling/pre_sample_scene_states_table_multi.py \
