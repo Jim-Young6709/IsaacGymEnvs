@@ -32,12 +32,12 @@ for num_envs in "${NUM_ENVS_LIST[@]}"; do
     hdf5_name="table_multi_${height_tag}tableheight_${num_envs}.hdf5"
     scene_hdf5_path="${SCENE_DIR}/${hdf5_name}"
 
-    python isaacgymenvs/distillation/pre_sample_scene_states_table_multi.py \
+    python isaacgymenvs/presampling/pre_sample_scene_states_table_multi.py \
       num_envs="${num_envs}" task.env.scene.z_shift_range="[${z_min},${z_max}]" \
       presample.output_hdf5_name="${hdf5_name}"
 
     if [[ "$SCENE_GEN_ONLY" == "False" ]]; then
-        python isaacgymenvs/distillation/pre_sample_robot_init_pose.py \
+        python isaacgymenvs/presampling/pre_sample_robot_init_pose.py \
         task="${TASK}" num_envs="${num_envs}" seed="${SEED}" \
         teacher.ckpt="${TEACHER_CKPT}" \
         task.env.scene.hdf5_path="${scene_hdf5_path}" \
