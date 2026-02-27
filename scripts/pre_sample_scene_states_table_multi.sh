@@ -17,7 +17,7 @@ TEACHER_CKPT="./ckpts/exp_table_Feb23.pth"
 SCENE_DIR="./presampled_envs/scene_only"
 ENABLE_VISER="False"
 HEADLESS="True"
-SCENE_GEN_ONLY="True"
+SCENE_GEN_ONLY="False"
 
 for num_envs in "${NUM_ENVS_LIST[@]}"; do
   for range in "${TABLE_HEIGHT_RANGES[@]}"; do
