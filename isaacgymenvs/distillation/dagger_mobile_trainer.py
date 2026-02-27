@@ -41,6 +41,7 @@ class DaggerMobile:
             self.global_rank = int(os.getenv("RANK", "0"))
             self.world_size = int(os.getenv("WORLD_SIZE", "1"))   
 
+            cfg.task.env.scene.batch_idx = self.global_rank
             cfg.sim_device = f"cuda:{self.local_rank}"
             cfg.rl_device = f"cuda:{self.local_rank}"
             torch.cuda.set_device(self.local_rank)
