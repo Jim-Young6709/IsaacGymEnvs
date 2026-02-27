@@ -11,6 +11,7 @@ TABLE_HEIGHT_RANGES=(
 )
 NUM_ENVS_LIST=(1024)
 
+BASE_INIT_RANGE="[[-1.0, -0.25, -0.3], [-0.2, 0.25, 0.3]]"
 SEED=1
 TASK_NAME="table_multi"
 TEACHER_CKPT="./ckpts/exp_table_Feb23.pth"
@@ -43,6 +44,7 @@ for num_envs in "${NUM_ENVS_LIST[@]}"; do
         teacher.ckpt="${TEACHER_CKPT}" \
         task.env.scene.hdf5_path="${scene_hdf5_path}" \
         presample.output_hdf5_name="${hdf5_name}" \
+        presample.rand_cfg.base_init_range="${BASE_INIT_RANGE}" \
         headless="${HEADLESS}"
     fi
   done
