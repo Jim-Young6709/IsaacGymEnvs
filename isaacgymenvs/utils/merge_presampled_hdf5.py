@@ -64,7 +64,9 @@ def merge_hdf5_files(input_specs, output_path):
     if not input_specs:
         raise ValueError("No input HDF5 files provided.")
 
-    output_dir = os.path.dirname(output_path)
+    output_dir, file_name = os.path.split(output_path)
+    name, ext = os.path.splitext(file_name)
+
     if output_dir:
         os.makedirs(output_dir, exist_ok=True)
 
@@ -86,6 +88,12 @@ def merge_hdf5_files(input_specs, output_path):
     random.shuffle(all_demos)
 
     merged_demo_count = len(all_demos)
+    merged_success_rate = total_weighted_success / total_weight if total_weight > 0 else float("nan")
+
+    output_path = os.path.join(
+        output_dir,
+        f"{name}_sr_{merged_success_rate:.4f}_num_{merged_demo_count}{ext}",
+    )
 
     with h5py.File(output_path, "w") as dst_file:
         for idx, demo_data in enumerate(all_demos):
@@ -101,7 +109,6 @@ def merge_hdf5_files(input_specs, output_path):
         dst_file.attrs["num_source_files"] = len(input_paths)
         dst_file.attrs["source_files"] = np.array(input_paths, dtype=h5py.string_dtype("utf-8"))
 
-    merged_success_rate = total_weighted_success / total_weight if total_weight > 0 else float("nan")
     print(
         f"Merged {len(input_paths)} files with {merged_demo_count} demos into {output_path}. "
         f"presample_success_rate={merged_success_rate:.6f}"
