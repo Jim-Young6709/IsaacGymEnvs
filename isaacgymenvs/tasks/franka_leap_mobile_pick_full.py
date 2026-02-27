@@ -63,6 +63,10 @@ class FrankaLEAPMobilePickFull(FrankaLEAPMobile):
         if len(self.init_robot_states) > 0:
             self.init_robot_states = torch.tensor(self.init_robot_states, device=self.device) # (num_envs, num_dofs)
 
+        print("-----------------------------------------------------------")
+        print(f"Loaded scene from {hdf5_path}, batch_idx: {self.batch_idx}, num_demos_in_batch: {len(self.batch)}")
+        print("-----------------------------------------------------------")
+
     def _post_init_buffers(self):
         super()._post_init_buffers()
         # overwrite the canonical joint config with init_robot_states
