@@ -41,4 +41,4 @@ dagger_ckpts_archive/
 *.zip
 /build
 /presampled_envs/scene_only
-/presampled_envs/completed/archieve
+/presampled_envs/completed/
