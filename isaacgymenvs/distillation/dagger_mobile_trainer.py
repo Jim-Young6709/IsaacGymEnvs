@@ -10,7 +10,7 @@ from collections import OrderedDict
 from isaacgymenvs.utils.rotation_conversions import quaternion_to_matrix_ig
 from isaacgymenvs.utils.pcd_utils import downsample_pcd_batched, crop_local_pcd, visualize_pcd
 from isaacgymenvs.utils.training_utils import *
-from isaacgymenvs.utils.simulate_depth_cam import simulate_depth_cam_render_from_pose
+from isaacgymenvs.utils.simulate_depth_cam_compile import simulate_depth_cam_render_from_pose
 
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP

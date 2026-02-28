@@ -39,7 +39,8 @@ from isaacgymenvs.utils.reformat import omegaconf_to_dict
 from isaacgymenvs.utils.rotation_conversions import quaternion_to_matrix_ig, matrix_to_rotation_6d, se2_transform
 from isaacgymenvs.utils.pcd_utils import transform_pcds_to_world, compute_scene_oracle_pcd, FrankaLeapSampler, GlorbotSampler
 from isaacgymenvs.utils.viser_visualizer import ViserVisualizer
-from isaacgymenvs.utils.simulate_depth_cam import simulate_depth_cam_render_from_pose
+from isaacgymenvs.utils.simulate_depth_cam_compile import simulate_depth_cam_render_from_pose
+from isaacgymenvs.utils.simulate_lidar_compile import simulate_lidar_render_from_pose
 from omegaconf import DictConfig
 from tqdm import tqdm
 import random
@@ -1052,7 +1053,7 @@ class FrankaLEAPMobile(VecTask):
             current_joint_pos_fabric = torch.zeros_like(self.fabric_q, device=self.device)
             current_joint_pos_fabric[:, :10] = self._q[:, :10].clone()
             current_joint_pos_fabric[:, 10:] = self._q[:, 26:].clone()
-            glorbot_fk = self.franka_fabric.forward_kinematics(["camera_link", "panda_link0"], current_joint_pos_fabric) # (num_envs, num_links, xyz+xyzw)
+            glorbot_fk = self.franka_fabric.forward_kinematics(["camera_link", "lidar", "panda_link0"], current_joint_pos_fabric) # (num_envs, num_links, xyz+xyzw)
 
         # update point clouds
         object_pcds_world = transform_pcds_to_world(self.object_pcds, self._object_state[:, :7])
@@ -1111,7 +1112,8 @@ class FrankaLEAPMobile(VecTask):
         if self.enable_fabric:
             self.states.update({
                 "camera_pose7": glorbot_fk[:, 0, :],  # camera_link, xyz + xyzw
-                "franka_base_pose7": glorbot_fk[:, 1, :],  # panda_link0, xyz + xyzw
+                "lidar_pose7": glorbot_fk[:, 1, :],  # lidar, xyz + xyzw
+                "franka_base_pose7": glorbot_fk[:, 2, :],  # panda_link0, xyz + xyzw
             })
 
     def _get_eef_point_matching_err(self, curent_eef_pos7: torch.Tensor, target_eef_pos7: torch.Tensor):
@@ -1973,9 +1975,25 @@ class FrankaLEAPMobile(VecTask):
             camera_pose=current_camera_pose,
             num_points=4096,
         )
+
+        lidar_link_pose = self.states["lidar_pose7"][env_id:env_id+1]
+        sim_lidar_pcd, logs = simulate_lidar_render_from_pose(
+            pcd=pcd_full,
+            lidar_pose=lidar_link_pose,
+            num_points=5000,
+            num_azimuth=512,
+            num_polar=128,
+            suppress_bins=2,
+            jitter_std_m=0.001,
+        )
+
         self.viser_visualizer.update_point_cloud(
             point_cloud_type="rendered_points",
             point_cloud=sim_depth_pcd[0].cpu().numpy()
+        )
+        self.viser_visualizer.update_point_cloud(
+            point_cloud_type="rendered_lidar_points",
+            point_cloud=sim_lidar_pcd[0].cpu().numpy()
         )
         self.viser_visualizer.update_point_cloud(
             point_cloud_type="obj_point_t",

@@ -66,6 +66,14 @@ class ViserVisualizer:
             precision="float16",
             visible=True,
         )
+        self._point_cloud_handle["rendered_lidar_points"] = self.server.scene.add_point_cloud(
+            name="/rendered_lidar_points",
+            points=np.zeros((0, 3), dtype=np.float16),
+            colors=(179, 195, 247),
+            point_size=0.01/3,
+            precision="float16",
+            visible=True,
+        )
         self._point_cloud_handle["full_points"] = self.server.scene.add_point_cloud(
             name="/full_points",
             points=np.zeros((0, 3), dtype=np.float16),
