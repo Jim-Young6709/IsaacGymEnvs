@@ -169,36 +169,54 @@ class FrankaLEAPMobilePickFull(FrankaLEAPMobile):
             num_cubes = len(cuboid_dims)
             # Create obstacles
             for j in range(self.max_obstacles):
-                if j < num_cubes:
-                    # Create obstacle with actual size and position
+                if j == 0:
+                    # first cuboid is always the table, create actor and store table params
                     obstacle_asset, obstacle_pose = self._create_cube(
                         pos=cuboid_centers[j].tolist(),
                         size=cuboid_dims[j].tolist(),
                         quat=cuboid_quats[j].tolist()
                     )
-                    if self.enable_fabric:
-                        self._create_fabric_cube(
-                            pos=cuboid_centers[j].tolist(),
-                            size=cuboid_dims[j].tolist(),
-                            quat=cuboid_quats[j].tolist(),
-                            env_id=i,
-                        )
-                else:
-                    # Create minimal placeholder obstacles far away
-                    obstacle_asset, obstacle_pose = self._create_cube(
-                        pos=[0., 0., -100.0],
-                        size=[0.001, 0.001, 0.001],
-                        quat=[0, 0, 0, 1]
-                    )
 
-                if j == 0:
-                    # first cuboid is always the table, create actor and store table params
                     obstacle_actor = self.gym.create_actor(
                         env_ptr, obstacle_asset, obstacle_pose, "table", i, 1, 0
                     )
                     self.table_pos.append(cuboid_centers[j].tolist())
                     self.table_size.append(cuboid_dims[j].tolist())
+                    if self.enable_fabric:
+                        surface_height = cuboid_centers[j][2] + cuboid_dims[j][2] / 2
+                        fabric_table_center = cuboid_centers[j].copy()
+                        fabric_table_center[2] = surface_height / 2
+                        fabric_table_dims = cuboid_dims[j].copy()
+                        fabric_table_dims[2] = surface_height
+                        self._create_fabric_cube(
+                            pos=fabric_table_center.tolist(),
+                            size=fabric_table_dims.tolist(),
+                            quat=cuboid_quats[j].tolist(),
+                            env_id=i,
+                        )
                 else:
+                    if j < num_cubes:
+                        # Create obstacle with actual size and position
+                        obstacle_asset, obstacle_pose = self._create_cube(
+                            pos=cuboid_centers[j].tolist(),
+                            size=cuboid_dims[j].tolist(),
+                            quat=cuboid_quats[j].tolist()
+                        )
+                        if self.enable_fabric:
+                            self._create_fabric_cube(
+                                pos=cuboid_centers[j].tolist(),
+                                size=cuboid_dims[j].tolist(),
+                                quat=cuboid_quats[j].tolist(),
+                                env_id=i,
+                            )
+                    else:
+                        # Create minimal placeholder obstacles far away
+                        obstacle_asset, obstacle_pose = self._create_cube(
+                            pos=[0., 0., -100.0],
+                            size=[0.001, 0.001, 0.001],
+                            quat=[0, 0, 0, 1]
+                        )
+
                     obstacle_actor = self.gym.create_actor(
                         env_ptr,
                         obstacle_asset,
