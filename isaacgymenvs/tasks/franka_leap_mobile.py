@@ -1507,6 +1507,7 @@ class FrankaLEAPMobile(VecTask):
             teacher_actions_abs[self.fabric_switch_enable, :10] = abs_full_joint_actions_fabric[self.fabric_switch_enable, :10]
             teacher_actions_abs[self.fabric_switch_enable, 10:26] = self.canonical_joint_config[self.fabric_switch_enable, 10:26]
             teacher_actions_abs[:, 26:] = abs_full_joint_actions_fabric[:, 10:]
+            teacher_actions_abs[:, 1] = abs_full_joint_actions_fabric[:, 1] # always use fabric's base y action regardless of the switching status
 
         if self.distillation_mode:
             # get teacher actions for student to regress on
