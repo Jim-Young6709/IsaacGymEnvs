@@ -187,6 +187,7 @@ class FrankaLEAPMobilePickFull(FrankaLEAPMobile):
                         fabric_table_center = cuboid_centers[j].copy()
                         fabric_table_center[2] = surface_height / 2
                         fabric_table_dims = cuboid_dims[j].copy()
+                        fabric_table_dims[1] *= 2 # double the table in y direction, so fabric doesn't move side ways
                         fabric_table_dims[2] = surface_height
                         self._create_fabric_cube(
                             pos=fabric_table_center.tolist(),
