@@ -11,6 +11,7 @@ from isaacgymenvs.utils.rotation_conversions import quaternion_to_matrix_ig
 from isaacgymenvs.utils.pcd_utils import downsample_pcd_batched, crop_local_pcd, visualize_pcd
 from isaacgymenvs.utils.training_utils import *
 from isaacgymenvs.utils.simulate_depth_cam_compile import simulate_depth_cam_render_from_pose
+from isaacgymenvs.utils.simulate_lidar_compile import simulate_lidar_render_from_pose
 
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -283,7 +284,7 @@ class DaggerMobile:
         franka_base_rot_mat = quaternion_to_matrix_ig(franka_base_quat)
         rot_global2base = franka_base_rot_mat.transpose(1, 2) # (num_envs, 3, 3)
 
-        obs['full_pcd_t'] = torch.cat([obs["full_scene_pcd_t"], obs["robot_pcd_t"]], dim=1)
+        obs['gt_pcd_t'] = torch.cat([obs["full_scene_pcd_t"], obs["robot_pcd_t"]], dim=1) # ground truth pcd, sampled from mesh surfaces
 
         if self.env.pcd_spec_dict['simulate_depth_cam']:
             num_full_pcd_points = self.env.pcd_spec_dict['num_static_points'] + \
@@ -292,7 +293,7 @@ class DaggerMobile:
 
             camera_pose7 = self.env.states['camera_pose7'].clone() # (num_envs, 7)
             sim_depth_pcd, sim_depth_render_logs = simulate_depth_cam_render_from_pose(
-                pcd=obs['full_pcd_t'],
+                pcd=obs['gt_pcd_t'],
                 camera_pose=camera_pose7,
                 num_points=num_full_pcd_points,
             )
@@ -301,6 +302,8 @@ class DaggerMobile:
                 wandb_logs.update(sim_depth_render_logs)
 
             obs['full_pcd_t'] = sim_depth_pcd
+        else:
+            obs['full_pcd_t'] = obs['gt_pcd_t']
 
         # Viser debug utils
         # env_id = self.env.viser_visualizer.env_id
