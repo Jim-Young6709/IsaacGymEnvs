@@ -1965,10 +1965,6 @@ class FrankaLEAPMobile(VecTask):
         robot_pcd_t = self.robot_pcd_sampler.sample(self.states['q'][env_id:env_id+1], self.torchurdf_to_isaac_idx)
         pcd_full = torch.cat([pcd_full_scene, robot_pcd_t], dim=1)
 
-        self.viser_visualizer.update_point_cloud(
-            point_cloud_type="full_points", 
-            point_cloud=pcd_full[0].cpu().numpy()
-        )
         # (1, 7)
         current_camera_pose = self.states["camera_pose7"][env_id:env_id+1]
         sim_depth_pcd, logs = simulate_depth_cam_render_from_pose(
@@ -1988,8 +1984,18 @@ class FrankaLEAPMobile(VecTask):
             jitter_std_m=0.001,
         )
 
+        rendered_full_pcd = torch.cat([sim_depth_pcd, sim_lidar_pcd], dim=1)
+
         self.viser_visualizer.update_point_cloud(
-            point_cloud_type="rendered_points",
+            point_cloud_type="full_points", 
+            point_cloud=pcd_full[0].cpu().numpy()
+        )
+        self.viser_visualizer.update_point_cloud(
+            point_cloud_type="rendered_full_points",
+            point_cloud=rendered_full_pcd[0].cpu().numpy()
+        )
+        self.viser_visualizer.update_point_cloud(
+            point_cloud_type="rendered_cam_points",
             point_cloud=sim_depth_pcd[0].cpu().numpy()
         )
         self.viser_visualizer.update_point_cloud(

@@ -58,10 +58,26 @@ class ViserVisualizer:
 
         # ---------------------- predefined point clouds ----------------------
         self._point_cloud_handle = dict()
-        self._point_cloud_handle["rendered_points"] = self.server.scene.add_point_cloud(
-            name="/rendered_points",
+        self._point_cloud_handle["full_points"] = self.server.scene.add_point_cloud(
+            name="/full_points",
+            points=np.zeros((0, 3), dtype=np.float16),
+            colors=(100, 100, 100),
+            point_size=0.01/4,
+            precision="float16",
+            visible=True,
+        )
+        self._point_cloud_handle["rendered_full_points"] = self.server.scene.add_point_cloud(
+            name="/rendered_full_points",
             points=np.zeros((0, 3), dtype=np.float16),
             colors=(79, 195, 247),
+            point_size=0.01/3,
+            precision="float16",
+            visible=True,
+        )
+        self._point_cloud_handle["rendered_cam_points"] = self.server.scene.add_point_cloud(
+            name="/rendered_cam_points",
+            points=np.zeros((0, 3), dtype=np.float16),
+            colors=(255, 0, 0),
             point_size=0.01/3,
             precision="float16",
             visible=True,
@@ -69,16 +85,8 @@ class ViserVisualizer:
         self._point_cloud_handle["rendered_lidar_points"] = self.server.scene.add_point_cloud(
             name="/rendered_lidar_points",
             points=np.zeros((0, 3), dtype=np.float16),
-            colors=(179, 195, 247),
+            colors=(0, 255, 0),
             point_size=0.01/3,
-            precision="float16",
-            visible=True,
-        )
-        self._point_cloud_handle["full_points"] = self.server.scene.add_point_cloud(
-            name="/full_points",
-            points=np.zeros((0, 3), dtype=np.float16),
-            colors=(100, 100, 100),
-            point_size=0.01/4,
             precision="float16",
             visible=True,
         )
@@ -93,23 +101,7 @@ class ViserVisualizer:
         self._point_cloud_handle["seg_static_object_t0"] = self.server.scene.add_point_cloud(
             name="/seg_static_object_t0",
             points=np.zeros((0, 3), dtype=np.float16),
-            colors=(0, 255, 0),
-            point_size=0.01/4,
-            precision="float16",
-            visible=True,
-        )
-        self._point_cloud_handle["seg_static_obsacles_t0"] = self.server.scene.add_point_cloud(
-            name="/seg_static_obsacles_t0",
-            points=np.zeros((0, 3), dtype=np.float16),
-            colors=(0, 0, 255),
-            point_size=0.01/4,
-            precision="float16",
-            visible=True,
-        )
-        self._point_cloud_handle["hand_pcd_t"] = self.server.scene.add_point_cloud(
-            name="/hand_pcd_t",
-            points=np.zeros((0, 3), dtype=np.float16),
-            colors=(255, 100, 100),
+            colors=(100, 255, 100),
             point_size=0.01/4,
             precision="float16",
             visible=True,
@@ -119,14 +111,6 @@ class ViserVisualizer:
             points=np.zeros((0, 3), dtype=np.float16),
             colors=(0, 0, 0),
             point_size=0.01,
-            precision="float16",
-            visible=True,
-        )
-        self._point_cloud_handle["local_point_t"] = self.server.scene.add_point_cloud(
-            name="/local_point_t",
-            points=np.zeros((0, 3), dtype=np.float16),
-            colors=(255, 0, 0),
-            point_size=0.01/4,
             precision="float16",
             visible=True,
         )
