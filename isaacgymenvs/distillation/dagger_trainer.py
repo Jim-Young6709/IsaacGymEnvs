@@ -57,7 +57,8 @@ class Dagger:
         self.reaching_reset_threshold = cfg.dagger.reaching_reset_threshold
         self.device = cfg['sim_device']
         self.seed = cfg.seed
-        self.exp_name = cfg.experiment
+        base_exp_name = str(cfg.experiment) if str(cfg.experiment) != "" else str(cfg.train.params.config.name)
+        self.exp_name = base_exp_name + '_{date:%d-%H-%M-%S}'.format(date=datetime.now())
         set_seed_and_precision(self.seed)
 
         self.learning_rate = cfg.dagger.learning_rate
@@ -437,4 +438,3 @@ class Dagger:
                 print("\n")
             
             self.episode += 1
-

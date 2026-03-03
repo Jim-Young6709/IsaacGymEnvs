@@ -70,6 +70,7 @@ class FrankaLEAPPickTable(FrankaLEAP):
         max_agg_shapes = num_robot_shapes + 1 + 1  # 1 for table, 1 for object
 
         self.robots = []
+        self.tables = []
         self.objects = []
         self.envs = []
         self._object_center_init_state = torch.zeros((self.num_envs, 3), device=self.device)
@@ -109,7 +110,7 @@ class FrankaLEAPPickTable(FrankaLEAP):
                 pos=[0.5, 0.0, -table_thickness/2],
                 size=[0.7, 1.2, table_thickness],
             )
-            self.gym.create_actor(
+            table_actor = self.gym.create_actor(
                 env_ptr, table_asset, table_start_pose, "table", i, 1, 0
             )
 
@@ -128,6 +129,7 @@ class FrankaLEAPPickTable(FrankaLEAP):
             # Store the created env pointers
             self.envs.append(env_ptr)
             self.robots.append(robot_actor)
+            self.tables.append(table_actor)
             self.objects.append(self._object_id)
 
             # Precompute static and object point cloud

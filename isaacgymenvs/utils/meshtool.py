@@ -14,9 +14,9 @@ import pyqtgraph.opengl as gl
 
 
 # ========= CONFIG ========= #
-MESH_ROOT = "/home/rayliu/IsaacGymEnvs/meshes"
-OUTPUT_ROOT = "/home/rayliu/IsaacGymEnvs/meshes_sorted"
-REF_PATH = "/home/rayliu/IsaacGymEnvs/meshes_debug/apple"
+MESH_ROOT = "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long"
+OUTPUT_ROOT = "/home/rayliu/grogu/IsaacGymEnvs/meshes_side"
+REF_PATH = "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/beer_can_1"
 
 CATEGORY_DIRS = {
     "regular": "regular",
@@ -496,10 +496,10 @@ class MeshToolApp(QtWidgets.QWidget):
         # Slider/Spin
         scale_row = QtWidgets.QHBoxLayout()
         self.scale_spin = QtWidgets.QDoubleSpinBox()
-        self.scale_spin.setRange(0.1, 3.0); self.scale_spin.setSingleStep(0.025); self.scale_spin.setValue(1.0)
+        self.scale_spin.setRange(0.01, 3.0); self.scale_spin.setSingleStep(0.01); self.scale_spin.setValue(1.0)
         
         self.scale_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
-        self.scale_slider.setRange(10, 300); self.scale_slider.setValue(100)
+        self.scale_slider.setRange(1, 300); self.scale_slider.setValue(100)
         
         scale_row.addWidget(QtWidgets.QLabel("Scale:"))
         scale_row.addWidget(self.scale_spin)

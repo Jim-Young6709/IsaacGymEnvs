@@ -32,6 +32,9 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
         # ]
         # cfg["env"]["object_settings"]["xyz_range"] = [avg_xyz, avg_xyz]
         self.object_grasp_target_z_scale = float(cfg["env"]["object_settings"]["object_grasp_target_z_scale"])
+        self.use_center_tracking_switch_target = False  # CODEX
+        # Use teacher side-distance noise as switching tolerance band for side grasp handover.
+        self.switch_tol = float(cfg["env"]["eef_init"]["side_distance_noise"])
         super().__init__(
             cfg=cfg,
             rl_device=rl_device,
@@ -41,11 +44,9 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
             virtual_screen_capture=virtual_screen_capture,
             force_render=force_render
         )
-        # Use teacher side-distance noise as switching tolerance band for side grasp handover.
-        self.switch_tol = float(self.eef_init["side_distance_noise"])
+        
 
     def reset_idx(self, env_ids=None):
-        input_env_ids = env_ids
         super().reset_idx(env_ids)
         if env_ids is None:
             env_ids = torch.arange(self.num_envs, device=self.device)
@@ -57,10 +58,13 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
         if torch.any(object_reset_mask):
             self.reward_settings["target_pos"][object_reset_mask, :2] = self._object_center_init_state[object_reset_mask, :2]
 
-        # TODO: @ray right-side-only behavior.
-        self.side_is_left[env_ids] = False
+        self.pre_teacher_stage_reached[env_ids] = False
+        self.switch_target_quat_latched[env_ids] = False  # CODEX
+        self.switching_eef_init_pos[env_ids] = self._eef_state[env_ids, :3]  # CODEX
+        if self.use_center_tracking_switch_target:  # CODEX
+            self.side_is_left[env_ids] = True  # CODEX: center-tracking mode is left-only by design.
 
-        self._set_reward_target_quat_from_side_mask(env_ids)
+        # self._set_reward_target_quat_from_side_mask(env_ids)
 
     def _set_reward_target_quat_from_side_mask(self, env_ids):
         if env_ids.numel() == 0:
@@ -75,27 +79,81 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
         )
  
     def _update_fabric_switching_target(self, object_center_pos):
-        # Fixed right-side switching target:
-        # position = object_center + [0, -side_distance, 0], quat = target_quat_right.
-        self.side_is_left[:] = False
+        if self.use_center_tracking_switch_target:  # CODEX
+            # CODEX: latch switch target pose once and keep fixed during fabric.
+            self.switching_target_z_offset = 0.0  # CODEX
+            self.pre_teacher_stage_reached[:] = False  # CODEX
+
+            if self.enable_fabric:  # CODEX
+                unlatch_ids = (~self.switch_target_quat_latched).nonzero(as_tuple=False).squeeze(-1)  # CODEX
+                if unlatch_ids.numel() > 0:  # CODEX
+                    eef_pos = self.switching_eef_init_pos[unlatch_ids]  # CODEX
+                    center_offset = torch.zeros((unlatch_ids.numel(), 3), device=self.device, dtype=object_center_pos.dtype)  # CODEX
+                    center_offset[:, 2] = 0.1  # CODEX
+                    obj_pos = object_center_pos[unlatch_ids] + center_offset  # CODEX
+                    desired_dir = obj_pos - eef_pos  # CODEX
+                    desired_dir_xy = desired_dir.clone()  # CODEX
+                    desired_dir_xy[:, 2] = 0.0  # CODEX
+                    desired_dir_xy = desired_dir_xy / torch.norm(desired_dir_xy, dim=-1, keepdim=True).clamp_min(1e-6)  # CODEX
+
+                    # CODEX: yaw-only alignment around world Z so palm stays parallel to table.
+                    ref_dir_xy = torch.zeros((unlatch_ids.numel(), 3), device=self.device, dtype=desired_dir_xy.dtype)  # CODEX
+                    ref_dir_xy[:, 1] = -1.0  # CODEX: left-side canonical reference direction in XY.
+                    cross_z = (ref_dir_xy[:, 0] * desired_dir_xy[:, 1] - ref_dir_xy[:, 1] * desired_dir_xy[:, 0]).unsqueeze(-1)  # CODEX
+                    dot_xy = torch.sum(ref_dir_xy[:, :2] * desired_dir_xy[:, :2], dim=-1, keepdim=True)  # CODEX
+                    yaw = torch.atan2(cross_z, dot_xy)  # CODEX
+                    half_yaw = 0.5 * yaw  # CODEX
+                    q_align = torch.zeros((unlatch_ids.numel(), 4), device=self.device, dtype=desired_dir_xy.dtype)  # CODEX
+                    q_align[:, 2:3] = torch.sin(half_yaw)  # CODEX
+                    q_align[:, 3:4] = torch.cos(half_yaw)  # CODEX
+                    base_quat_left = self.target_quat_left.repeat(unlatch_ids.numel(), 1)  # CODEX
+                    latched_quat = quat_mul(q_align, base_quat_left)  # CODEX
+                    latched_quat = latched_quat / torch.norm(latched_quat, dim=-1, keepdim=True).clamp_min(1e-8)  # CODEX
+                    self.switching_target_quat_latched_value[unlatch_ids] = latched_quat  # CODEX
+                    self.switching_target_pos_latched_value[unlatch_ids] = obj_pos  # CODEX
+                    self.switch_target_quat_latched[unlatch_ids] = True  # CODEX
+
+                self.switching_target_quat = self.switching_target_quat_latched_value  # CODEX
+                self.switching_target_pos = self.switching_target_pos_latched_value  # CODEX
+            else:  # CODEX
+                center_offset = torch.zeros_like(object_center_pos)  # CODEX
+                center_offset[:, 2] = 0.1  # CODEX
+                self.switching_target_pos = object_center_pos.clone() + center_offset  # CODEX
+                self.switching_target_quat = self.target_quat_left.repeat(self.num_envs, 1)  # CODEX
+
+            # CODEX: radius-based trigger around object center.
+            center_radius = float(self.eef_init["side_distance"])  # CODEX
+            self.switch_activate_radius = torch.full((self.num_envs,), center_radius, device=self.device, dtype=object_center_pos.dtype)  # CODEX
+            return  # CODEX
+        
+        # CODEX: single-stage switching target (directly use pre-teacher target).
         side_distance = float(self.eef_init["side_distance"])
+        self.switching_target_z_offset = 0.1
         side_offset = torch.zeros((self.num_envs, 3), device=self.device, dtype=object_center_pos.dtype)
-        side_offset[:, 1] = -side_distance
-        self.switching_target_pos = object_center_pos + side_offset
-        self.switching_target_pos[:, 2] += 0.1
-        self.switching_target_quat = self.target_quat_right.repeat(self.num_envs, 1)
+        side_offset[:, 1] = side_distance
+        side_offset[:, 2] = self.switching_target_z_offset
+        pre_teacher_target_pos = object_center_pos + side_offset
+        pre_teacher_target_quat = self.target_quat_left.repeat(self.num_envs, 1)
 
-        # rot_local_x_180 = torch.tensor(
-        #     [[1.0, 0.0, 0.0, 0.0]] * self.num_envs,
-        #     device=self.device,
-        #     dtype=direction.dtype,
-        # )
-        # self.switching_target_quat = rot_local_x_180
+        self.pre_teacher_stage_reached[:] = True  # CODEX
+        self.switching_target_pos = pre_teacher_target_pos  # CODEX
+        self.switching_target_quat = pre_teacher_target_quat  # CODEX
 
+        # Keep the larger switching hysteresis radii.
+        switch_radius = torch.norm(self.switching_target_pos - object_center_pos, dim=-1)
+        self.switch_activate_radius = switch_radius + float(self.eef_init["side_distance_noise"])
+        self.switch_keep_radius = self.switch_activate_radius + 0.10
 
     def init_data(self, actor_num):
         super().init_data(actor_num)
         self.side_is_left = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
+        self.pre_teacher_stage_reached = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
+        self.switch_target_quat_latched = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)  # CODEX
+        self.switching_eef_init_pos = torch.zeros((self.num_envs, 3), device=self.device, dtype=torch.float)  # CODEX
+        self.switching_target_quat_latched_value = torch.zeros((self.num_envs, 4), device=self.device, dtype=torch.float)  # CODEX
+        self.switching_target_pos_latched_value = torch.zeros((self.num_envs, 3), device=self.device, dtype=torch.float)  # CODEX
+        self.pre_teacher_stage1_x_offset = -0.3
+        self.pre_teacher_stage1_tol = self.switch_tol*2
 
         # Teacher-consistent target position semantics:
         # use fixed cfg reward target_pos instead of parent dynamic obj_pos_target.
@@ -132,7 +190,8 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
 
         # Initialize right-side-only target quaternions for all envs.
         all_env_ids = torch.arange(self.num_envs, device=self.device)
-        self.side_is_left[:] = False
+        # TODO: @ray left-side-only behavior.
+        self.side_is_left[:] = True
         self._set_reward_target_quat_from_side_mask(all_env_ids)
 
 
@@ -140,10 +199,57 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
         super().post_physics_step()
         # Visualize switching target frame for debugging in viewer mode.
         if self.debug_viz:
+            # self.gym.clear_lines(self.viewer)
+            # debug_env_id = 1  # CODEX
+            # self._draw_base_init_pose_grid(env_id=debug_env_id, clear_lines=False)
+            # self._draw_switching_target_pose(env_id=debug_env_id, axis_len=0.10, clear_lines=False)
+            # self._draw_eef_quat_at_teacher_target_pose(env_id=debug_env_id, axis_len=0.095, clear_lines=False)  # CODEX
+            # self._draw_teacher_target_pose(env_id=debug_env_id, axis_len=0.08, clear_lines=False)
+            #self._draw_object_grasp_center(env_id=0, cross_len=0.2, clear_lines=False)
+            # self._draw_observation_rays_from_eef(env_id=debug_env_id, clear_lines=False)  # CODEX
+            pass
+
+    def _draw_base_init_pose_grid(self, env_id=0, clear_lines=False, num_div_x=8, num_div_y=6):
+        if self.viewer is None:
+            return
+        if clear_lines:
             self.gym.clear_lines(self.viewer)
-            self._draw_switching_target_pose(env_id=0, axis_len=0.10, clear_lines=False)
-            self._draw_object_grasp_center(env_id=0, cross_len=0.2, clear_lines=False)
-            self._draw_observation_rays_from_eef(env_id=0, clear_lines=False)
+
+        base_init_range = self.cfg["env"]["robot_init"]["base_init_range"]
+        x_min, y_min, _ = base_init_range[0]
+        x_max, y_max, _ = base_init_range[1]
+
+        # Match reset sampling convention where Y is shifted by box position.
+        y_shift = 0.0
+        if hasattr(self, "box_pos"):
+            y_shift = float(self.box_pos[env_id, 1].item())
+        y_min += y_shift
+        y_max += y_shift
+
+        z = float(self.table_surface_height[env_id].item()) + 0.01
+        num_div_x = max(1, int(num_div_x))
+        num_div_y = max(1, int(num_div_y))
+
+        verts = []
+        colors = []
+
+        for i in range(num_div_x + 1):
+            t = i / float(num_div_x)
+            x = x_min + t * (x_max - x_min)
+            verts.extend([x, y_min, z, x, y_max, z])
+            is_border = (i == 0) or (i == num_div_x)
+            c = [1.0, 1.0, 1.0] if is_border else [0.7, 0.7, 0.7]
+            colors.extend(c)
+
+        for j in range(num_div_y + 1):
+            t = j / float(num_div_y)
+            y = y_min + t * (y_max - y_min)
+            verts.extend([x_min, y, z, x_max, y, z])
+            is_border = (j == 0) or (j == num_div_y)
+            c = [1.0, 1.0, 1.0] if is_border else [0.7, 0.7, 0.7]
+            colors.extend(c)
+
+        self.gym.add_lines(self.viewer, self.envs[env_id], len(verts) // 6, verts, colors)
 
     def _draw_switching_target_pose(self, env_id=0, axis_len=0.10, clear_lines=False):
         if self.viewer is None:
@@ -173,6 +279,68 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
         colors.extend([0.0, 1.0, 0.0])
         verts.extend([float(p0[0]), float(p0[1]), float(p0[2]), float(pz[0]), float(pz[1]), float(pz[2])])
         colors.extend([0.0, 0.0, 1.0])
+
+        self.gym.add_lines(self.viewer, self.envs[env_id], 3, verts, colors)
+
+    def _draw_eef_quat_at_teacher_target_pose(self, env_id=0, axis_len=0.095, clear_lines=False):  # CODEX
+        # CODEX: overlay live EEF orientation at teacher-target position for direct visual alignment check.
+        if self.viewer is None:  # CODEX
+            return  # CODEX
+        if clear_lines:  # CODEX
+            self.gym.clear_lines(self.viewer)  # CODEX
+
+        pos = self.reward_settings["target_pos"][env_id]  # CODEX
+        quat = self._eef_state[env_id:env_id + 1, 3:7]  # CODEX
+        rot = quaternion_to_matrix_ig(quat)[0]  # CODEX
+
+        x_axis = rot[:, 0]  # CODEX
+        y_axis = rot[:, 1]  # CODEX
+        z_axis = rot[:, 2]  # CODEX
+
+        p0 = pos  # CODEX
+        px = pos + axis_len * x_axis  # CODEX
+        py = pos + axis_len * y_axis  # CODEX
+        pz = pos + axis_len * z_axis  # CODEX
+
+        verts = []  # CODEX
+        colors = []  # CODEX
+        # CODEX: orange/cyan/purple so this EEF overlay is distinguishable from target frames.
+        verts.extend([float(p0[0]), float(p0[1]), float(p0[2]), float(px[0]), float(px[1]), float(px[2])])  # CODEX
+        colors.extend([1.0, 0.6, 0.0])  # CODEX
+        verts.extend([float(p0[0]), float(p0[1]), float(p0[2]), float(py[0]), float(py[1]), float(py[2])])  # CODEX
+        colors.extend([0.0, 1.0, 1.0])  # CODEX
+        verts.extend([float(p0[0]), float(p0[1]), float(p0[2]), float(pz[0]), float(pz[1]), float(pz[2])])  # CODEX
+        colors.extend([0.8, 0.2, 1.0])  # CODEX
+
+        self.gym.add_lines(self.viewer, self.envs[env_id], 3, verts, colors)  # CODEX
+
+    def _draw_teacher_target_pose(self, env_id=0, axis_len=0.08, clear_lines=False):
+        # Draw the actual teacher target pose used in observations/reward_settings.
+        if clear_lines:
+            self.gym.clear_lines(self.viewer)
+
+        pos = self.reward_settings["target_pos"][env_id]
+        quat = self.reward_settings["target_quat"][env_id:env_id + 1]
+        rot = quaternion_to_matrix_ig(quat)[0]
+
+        x_axis = rot[:, 0]
+        y_axis = rot[:, 1]
+        z_axis = rot[:, 2]
+
+        p0 = pos
+        px = pos + axis_len * x_axis
+        py = pos + axis_len * y_axis
+        pz = pos + axis_len * z_axis
+
+        verts = []
+        colors = []
+        # Brighter RGB so teacher target frame is distinguishable from switching target frame.
+        verts.extend([float(p0[0]), float(p0[1]), float(p0[2]), float(px[0]), float(px[1]), float(px[2])])
+        colors.extend([1.0, 0.3, 0.3])
+        verts.extend([float(p0[0]), float(p0[1]), float(p0[2]), float(py[0]), float(py[1]), float(py[2])])
+        colors.extend([0.3, 1.0, 0.3])
+        verts.extend([float(p0[0]), float(p0[1]), float(p0[2]), float(pz[0]), float(pz[1]), float(pz[2])])
+        colors.extend([0.3, 0.7, 1.0])
 
         self.gym.add_lines(self.viewer, self.envs[env_id], 3, verts, colors)
 
@@ -264,12 +432,21 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
         object_grasp_target_to_eef = self.states["object_grasp_target_to_eef"][env_id]
         target_to_eef = self.states["target_to_eef"][env_id]
 
-        # These two vectors are in world axes and point from EEF to object center / grasp target.
-        object_center_pos = eef_pos + object_to_eef
-        object_grasp_target_pos = eef_pos + object_grasp_target_to_eef
+        if self.teacher_use_eef_frame:
+            # Observation vectors are in EEF frame; rotate back to world for debug drawing.
+            eef_rot_mat = quaternion_to_matrix_ig(self.states["eef_quat"][env_id:env_id + 1])[0] 
+            object_center_pos = eef_pos + torch.matmul(eef_rot_mat, object_to_eef.unsqueeze(-1)).squeeze(-1) 
+            object_grasp_target_pos = eef_pos + torch.matmul(eef_rot_mat, object_grasp_target_to_eef.unsqueeze(-1)).squeeze(-1) 
+            target_pos = eef_pos + torch.matmul(eef_rot_mat, target_to_eef.unsqueeze(-1)).squeeze(-1) 
+        else: 
+            # CODEX
+            # Legacy world-frame observation vectors.
+            object_center_pos = eef_pos + object_to_eef 
+            object_grasp_target_pos = eef_pos + object_grasp_target_to_eef 
+            target_pos = eef_pos + target_to_eef 
 
-        # Reward target position reconstructed from observation vector.
-        target_pos = eef_pos + target_to_eef
+        # # Reward target position reconstructed from observation vector.
+        # target_pos = eef_pos + torch.matmul(eef_rot_mat, target_to_eef.unsqueeze(-1)).squeeze(-1)
 
         verts = []
         colors = []
@@ -292,8 +469,23 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
             float(target_pos[0]), float(target_pos[1]), float(target_pos[2]),
         ])
         colors.extend([0.0, 1.0, 1.0])
+        cyan_thickness = 0.004
+        cyan_offsets = [
+            torch.tensor([ cyan_thickness, 0.0, 0.0], device=self.device),
+            torch.tensor([-cyan_thickness, 0.0, 0.0], device=self.device),
+            torch.tensor([0.0,  cyan_thickness, 0.0], device=self.device),
+            torch.tensor([0.0, -cyan_thickness, 0.0], device=self.device),
+        ]
+        for off in cyan_offsets:
+            p0 = eef_pos + off
+            p1 = target_pos + off
+            verts.extend([
+                float(p0[0]), float(p0[1]), float(p0[2]),
+                float(p1[0]), float(p1[1]), float(p1[2]),
+            ])
+            colors.extend([0.0, 1.0, 1.0])
 
-        self.gym.add_lines(self.viewer, self.envs[env_id], 2, verts, colors)
+        self.gym.add_lines(self.viewer, self.envs[env_id], len(verts) // 6, verts, colors)
 
         # Draw a magenta cross at the reward target endpoint for visibility.
         cross_len = 0.03
@@ -317,44 +509,131 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
 
     def _update_states(self):
         super()._update_states()
-
         # Side-grasp switching override:
-        # 1) activate teacher when EEF is within tolerance of fixed switching target position;
-        # 2) keep teacher active while EEF remains within side_distance+tol from object center;
-        # 3) if outside keep radius, re-enable fabric (except freshly reset envs).
+        # 1) Activate teacher when EEF pose is within switch_tol of switching target pose.
+        # 2) Keep teacher active while EEF remains within side_distance + side_distance_noise of object center.
+        # 3) Reset-step envs always stay on fabric.
+        activated_now = torch.zeros((self.num_envs,), dtype=torch.bool, device=self.device)
         if self.enable_fabric:
             eef_pos = self._eef_state[:, :3]
             obj_center = self.states["object_center_pos"]
             radial_dist = torch.norm(eef_pos - obj_center, dim=-1)
-            dist_to_switch_target = torch.norm(eef_pos - self.switching_target_pos, dim=-1)
-            tol = float(self.eef_init["side_distance_noise"])
-            keep_radius = float(self.eef_init["side_distance"]) + tol + 0.05
+
+            # CODEX: full pose matching for switch gate (includes position and orientation).
+            switching_matching_err = self._get_eef_point_matching_err(
+                curent_eef_pos7=self._eef_state[:, :7],
+                target_eef_pos7=torch.cat([self.switching_target_pos, self.switching_target_quat], dim=-1),  # CODEX
+            )
 
             teacher_active_prev = ~self.fabric_switch_enable
-            activate_now = dist_to_switch_target <= tol
+            if self.use_center_tracking_switch_target:  # CODEX
+                # CODEX: require both proximity and pose alignment before teacher handover.
+                activate_now = (radial_dist <= self.switch_activate_radius) & (switching_matching_err <= self.switch_tol)  # CODEX
+            else:  # CODEX
+                activate_now = (switching_matching_err <= self.switch_tol)  # CODEX
+            keep_radius = float(self.eef_init["side_distance"]) + float(self.eef_init["side_distance_noise"])
             keep_active = teacher_active_prev & (radial_dist <= keep_radius)
             teacher_active = (activate_now | keep_active) & (self.progress_buf > 0)
+
+
             self.fabric_switch_enable[:] = ~teacher_active
             self.fabric_switch_enable[self.progress_buf == 0] = True
-        
+            activated_now = (~teacher_active_prev) & teacher_active
+
+        # if self.enable_fabric:  # CODEX
+        #     # CODEX: TEMP DEBUG OVERRIDE - keep fabric always active (disable teacher activation).
+        #     self.fabric_switch_enable[:] = True  # CODEX
+        #     activated_now[:] = False  # CODEX
+
+        # Keep reward target updates exactly as before: update target pose on activation edge only.
+        active_ids = activated_now.nonzero(as_tuple=False).squeeze(-1)
+        if active_ids.numel() > 0:
+            obj_center_active = self.states["object_center_pos"][active_ids]
+            eef_pos_active = self._eef_state[active_ids, :3]
+            desired_dir = obj_center_active - eef_pos_active
+            desired_dir = desired_dir / torch.norm(desired_dir, dim=-1, keepdim=True).clamp_min(1e-6)  # CODEX
+
+            self.reward_settings["target_pos"][active_ids, :2] = obj_center_active[:, :2]
+
+            left_mask = self.side_is_left[active_ids]
+            num_active = active_ids.numel()
+            base_quat_right = self.target_quat_right.repeat(num_active, 1)
+            base_quat_left = self.target_quat_left.repeat(num_active, 1)
+            if self.use_center_tracking_switch_target:  # CODEX
+                # CODEX: center-tracking mode is strictly left-canonical for teacher target orientation.
+                self.side_is_left[active_ids] = True
+                left_mask = torch.ones_like(left_mask, dtype=torch.bool)
+                base_quat = base_quat_left
+            else:
+                base_quat = torch.where(left_mask.unsqueeze(-1), base_quat_left, base_quat_right)
+
+            ref_dir = torch.zeros((num_active, 3), device=self.device, dtype=desired_dir.dtype)
+            ref_dir[:, 1] = torch.where(
+                left_mask,
+                -torch.ones_like(left_mask, dtype=desired_dir.dtype),
+                torch.ones_like(left_mask, dtype=desired_dir.dtype),
+            )
+            # CODEX: full directional alignment (teacher checkpoint convention).
+            cross = torch.cross(ref_dir, desired_dir, dim=-1)  # CODEX
+            dot = torch.sum(ref_dir * desired_dir, dim=-1, keepdim=True)  # CODEX
+            q_align = torch.cat([cross, 1.0 + dot], dim=-1)  # CODEX
+            q_align = q_align / torch.norm(q_align, dim=-1, keepdim=True).clamp_min(1e-6)  # CODEX
+            target_quat_active = quat_mul(q_align, base_quat)  # CODEX
+            target_quat_active = target_quat_active / torch.norm(target_quat_active, dim=-1, keepdim=True).clamp_min(1e-8)
+
+            self.reward_settings["target_quat"][active_ids] = target_quat_active
+            self.reward_settings["target_rot_6d"][active_ids] = matrix_to_rotation_6d(
+                quaternion_to_matrix_ig(target_quat_active)
+            )
+            eef_pos_active = self._eef_state[active_ids, :3]
+            target_to_eef_world_active = self.reward_settings["target_pos"][active_ids] - eef_pos_active
+            eef_rot_mat_active = quaternion_to_matrix_ig(self._eef_state[active_ids, 3:7])
+            eef_rot_mat_t_active = eef_rot_mat_active.transpose(1, 2)
+            if self.teacher_use_eef_frame:
+                target_to_eef_active = torch.matmul(
+                    eef_rot_mat_t_active, target_to_eef_world_active.unsqueeze(-1)
+                ).squeeze(-1)
+            else:
+                target_to_eef_active = target_to_eef_world_active
+
+            target_rot_mat_active = quaternion_to_matrix_ig(target_quat_active)
+            target_rot_mat_in_eef_active = torch.matmul(eef_rot_mat_t_active, target_rot_mat_active)
+            target_to_eef_rot_6d_active = matrix_to_rotation_6d(target_rot_mat_in_eef_active)
+
+            self.states["target_to_eef"][active_ids] = target_to_eef_active
+            self.states["target_to_eef_rot_6d"][active_ids] = target_to_eef_rot_6d_active
+
         object_grasp_target_pos = self._object_state[:, :3].clone()
         local_offset = torch.zeros([self.num_envs, 3], dtype=torch.float, device=self.device)
         local_offset[:, 2] = self.mesh_aabb_extents[:, 2] * self.object_grasp_target_z_scale
         object_rot_mat = quaternion_to_matrix_ig(self._object_state[:, 3:7])
         rotated_offset = torch.matmul(object_rot_mat, local_offset.unsqueeze(-1)).squeeze(-1)
         object_grasp_target_pos += rotated_offset
-
+        object_grasp_target_to_eef_world = object_grasp_target_pos - self._eef_state[:, :3] 
+        if self.teacher_use_eef_frame:
+            eef_rot_mat = quaternion_to_matrix_ig(self._eef_state[:, 3:7])
+            eef_rot_mat_t = eef_rot_mat.transpose(1, 2)
+            object_grasp_target_to_eef = torch.matmul( # CODEX
+                eef_rot_mat_t, object_grasp_target_to_eef_world.unsqueeze(-1) 
+            ).squeeze(-1) 
+        else: 
+            object_grasp_target_to_eef = object_grasp_target_to_eef_world 
 
         # @ray not just update but also create new keys here
+        # Binary grasp-side indicator for policy observation: 1=left, 0=right.
+        grasp_side = self.side_is_left.to(dtype=object_grasp_target_to_eef.dtype).unsqueeze(-1)
         self.states.update({
             "object_grasp_target_pos": object_grasp_target_pos, # @ray reward-only grasp target
-            "object_grasp_target_to_eef": object_grasp_target_pos - self._eef_state[:, :3], # @ray for policy observation
+            "object_grasp_target_to_eef":  object_grasp_target_to_eef, # @ray for policy observation
+            "grasp_side": grasp_side,
         })
+
     
     def compute_observations(self):
         self._refresh() # @ray checks table collision and updates states
 
         obs_components = ["q_hand",
+                          "grasp_side",
                           "eef_finger1_pos_relative", "eef_finger2_pos_relative",
                           "eef_finger3_pos_relative", "eef_finger4_pos_relative",
                           "object_to_eef", "object_to_eef_rot_6d",
@@ -362,6 +641,7 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
                           "target_to_eef", "target_to_eef_rot_6d"]
 
         states_components = ["q", "qd",
+                             "grasp_side",
                              "eef_pos", "eef_rot_6d", "eef_vel",
                              "eef_finger1_pos_relative", "eef_finger2_pos_relative",
                              "eef_finger3_pos_relative", "eef_finger4_pos_relative",
@@ -384,6 +664,31 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
 
         self.obs_buf = obs_buf
         self.states_buf = states_buf
+        
+
+        # def _dump_rel_obs(env_id=0, tag=""):
+        #     o = self.obs_buf[env_id].detach().cpu()
+        #     blocks = {
+        #         "grasp_side": o[16:17],
+        #         "object_to_eef": o[29:32],
+        #         "object_to_eef_rot6": o[32:38],
+        #         "object_grasp_target_to_eef": o[38:41],
+        #         "target_to_eef": o[41:44],
+        #         "target_to_eef_rot6": o[44:50],
+        #         "bbox_xyz": o[50:53],  # if use_xy/use_z are enabled
+        #     }
+        #     print(f"\n[{tag}] env={env_id} step={int(self.sim_steps)}")
+        #     for k, v in blocks.items():
+        #         print(f"{k:28s} {v.numpy()}")
+        # _dump_rel_obs(env_id=0, tag="DISTILL")
+        # keys = [
+        #     "q", "object_to_eef", "object_to_eef_rot_6d",
+        #     "object_grasp_target_to_eef",
+        #     "target_to_eef", "target_to_eef_rot_6d",
+        # ]
+        # for k in keys:
+        #     print(k, self.states[k][0].detach().cpu().numpy())
+
 
         return self.obs_buf
 
@@ -416,18 +721,21 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
         self.lifting_flags_instant[self.lifting_5cm_per_step] = 1
         self.success_5cm_per_step = (reward_dict["d_eef_point_goal"] < 0.05) & self.lifting_5cm_per_step
         self.success_flags_instant[self.success_5cm_per_step] = 1
+        success_timeout_steps = self.reward_settings["success_timeout_steps"]
+        lifting_timeout_steps = self.reward_settings["lifting_timeout_steps"]
         self.success_duration = torch.where(
             self.success_5cm_per_step,
-            self.success_duration + self.dt,
+            self.success_duration + 1,
             torch.zeros_like(self.success_duration),
         )
         self.lifting_duration = torch.where(
             self.lifting_5cm_per_step,
-            self.lifting_duration + self.dt,
+            self.lifting_duration + 1,
             torch.zeros_like(self.lifting_duration),
         )
-        self.success_long_enough = self.success_duration >= self.reward_settings["success_timeout"]
-        self.lifting_long_enough = self.lifting_duration >= self.reward_settings["lifting_timeout"]
+        # Latch success/lifting once achieved anywhere in an episode.
+        self.success_long_enough = self.success_long_enough | (self.success_duration >= success_timeout_steps)
+        self.lifting_long_enough = self.lifting_long_enough | (self.lifting_duration >= lifting_timeout_steps)
         done_envs = self.reset_buf > 0
 
         if torch.any(done_envs):
@@ -437,22 +745,31 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
             success_env_ids = (done_envs & self.success_long_enough).nonzero(as_tuple=False).squeeze(-1)
             success_object_ids = self.env_object_ids[success_env_ids]
             success_increments = torch.bincount(success_object_ids, minlength=self.num_objects)
+            lifting_env_ids = (done_envs & self.lifting_long_enough).nonzero(as_tuple=False).squeeze(-1)
+            lifting_object_ids = self.env_object_ids[lifting_env_ids]
+            lifting_increments = torch.bincount(lifting_object_ids, minlength=self.num_objects)
             self.per_object_episode_counts += episode_increments
             self.per_object_success_counts += success_increments
+            self.per_object_lifting_counts += lifting_increments
             self.per_object_episode_counts_interval += episode_increments
             self.per_object_success_counts_interval += success_increments
+            self.per_object_lifting_counts_interval += lifting_increments
 
         # @ray log per-object per-interval success rates locally and a histograom to wandb
         if self.sim_steps > 0 and (self.sim_steps % self.log_per_object_success_freq == 0):
             # @ray prevent inf from division by zero if some objects are not in any envs
-            interval_rates = torch.where(
+            success_interval_rates = torch.where(
                 self.per_object_episode_counts_interval > 0,
                 self.per_object_success_counts_interval.float() / self.per_object_episode_counts_interval.float(),
                 torch.zeros_like(self.per_object_success_counts_interval, dtype=torch.float32),
             )
+            lifting_interval_rates = torch.where(
+                self.per_object_episode_counts_interval > 0,
+                self.per_object_lifting_counts_interval.float() / self.per_object_episode_counts_interval.float(),
+                torch.zeros_like(self.per_object_lifting_counts_interval, dtype=torch.float32),
+            )
             if wandb.run is not None:
-                print("logging per-object success rate histogram to wandb")
-                wandb.log({"per_object_success_rate_hist": wandb.Histogram(interval_rates.detach().cpu().numpy(), num_bins=20)},)
+                wandb.log({"per_object_success_rate_hist": wandb.Histogram(success_interval_rates.detach().cpu().numpy(), num_bins=20)},)
             interval_snapshot = {
                 "sim_steps": int(self.sim_steps),
                 "log_interval_steps": int(self.log_per_object_success_freq),
@@ -460,7 +777,12 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
                     str(obj_id): {
                         "episodes": int(self.per_object_episode_counts_interval[obj_id].item()),
                         "successes": int(self.per_object_success_counts_interval[obj_id].item()),
-                        "success_rate": float(interval_rates[obj_id].item()),
+                        "lifting": int(self.per_object_lifting_counts_interval[obj_id].item()),
+                        "success_rate": float(success_interval_rates[obj_id].item()),
+                        "lifting_rate": float(lifting_interval_rates[obj_id].item()),
+                        "episodes_total": int(self.per_object_episode_counts[obj_id].item()),
+                        "successes_total": int(self.per_object_success_counts[obj_id].item()),
+                        "lifting_successes_total": int(self.per_object_lifting_counts[obj_id].item()),
                     }
                     for obj_id in range(self.num_objects)
                 },
@@ -474,13 +796,21 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
                 wandb.log_artifact(artifact)
             self.per_object_episode_counts_interval.zero_()
             self.per_object_success_counts_interval.zero_()
+            self.per_object_lifting_counts_interval.zero_()
 
-        self.extras["metrics/success_rate_5cm_per_ep"] = torch.mean(self.success_flags.float()).item()
+        # Episode success rates from reset-event counters (length-invariant).
+        total_eps = max(int(self.per_object_episode_counts.sum().item()), 1)
+        success_eps = int(self.per_object_success_counts.sum().item())
+        lifting_eps = int(self.per_object_lifting_counts.sum().item())
+        self.extras["metrics/success_rate_5cm_per_ep"] = float(success_eps) / float(total_eps)
         self.extras["metrics/success_rate_5cm_per_ep_instant"] = torch.mean(self.success_flags_instant).item()
         self.extras["metrics/success_rate_5cm_per_step"] = torch.mean(self.success_5cm_per_step.float()).item()
-        self.extras["metrics/lifting_rate_5cm_per_ep"] = torch.mean(self.lifting_flags.float()).item()
+        self.extras["metrics/lifting_rate_5cm_per_ep"] = float(lifting_eps) / float(total_eps)
         self.extras["metrics/lifting_rate_5cm_per_ep_instant"] = torch.mean(self.lifting_flags_instant).item()
         self.extras["metrics/lifting_rate_5cm_per_step"] = torch.mean(self.lifting_5cm_per_step.float()).item()
+        self.extras["metrics/episode_count_total"] = total_eps
+        self.extras["metrics/success_episode_count_total"] = success_eps
+        self.extras["metrics/lifting_episode_count_total"] = lifting_eps
 
         # log memory usage TODO: debug utils, cleanup later
         mem_allocated_GB = float(torch.cuda.memory_allocated() / 1024**3)
@@ -645,7 +975,6 @@ def launch_test(cfg: DictConfig):
     env.reset()
 
     for i in tqdm(range(1000)):
-        t1 = time.time()
         env.reset_idx()
         # env.set_robot_joint_state(env.canonical_joint_config)
         # env.set_robot_joint_state(env.canonical_grasp_config)
@@ -658,7 +987,6 @@ def launch_test(cfg: DictConfig):
         fk_ori_err1 = (ee_pos[:, 3:] - env.states['eef_quat']) > 1e-4
         fk_ori_err2 = (ee_pos[:, 3:] + env.states['eef_quat']) > 1e-4
         fk_ori_err = torch.any(fk_ori_err1 & fk_ori_err2)
-        print(f"FK pos error: {fk_pos_err}, FK ori error: {fk_ori_err}")
 
         q_config = env.get_joint_from_ee(ee_pos)
         ee_pos_resolve = env.get_ee_from_joint(q_config)
@@ -666,11 +994,8 @@ def launch_test(cfg: DictConfig):
         ik_quat_err1 = (ee_pos_resolve[:, 3:] - env.states['eef_quat']) > 1e-4
         ik_quat_err2 = (ee_pos_resolve[:, 3:] + env.states['eef_quat']) > 1e-4
         ik_quat_err = torch.any(ik_quat_err1 & ik_quat_err2)
-        print(f"IK pos error: {ik_pos_err}, IK ori error: {ik_quat_err}")
 
         import ipdb ; ipdb.set_trace()
-        t2 = time.time()
-        print(f"Reset time: {t2 - t1}")
         env.render()
 
 

@@ -158,7 +158,7 @@ pcd_spec:
   num_object_points: 512
   num_distractor_points: 2048
   num_local_points: 512 # TODO: clean up later
-  simulate_depth_cam: False
+  simulate_depth_cam: True
 
 
 # Domain Randomization

@@ -78,6 +78,9 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         self.reward_settings["grasp_on_object_z_height_gate_floor"]  = to_torch(self.cfg["reward"]["params"]["grasp_on_object_z_height_gate_floor"], device=self.device)
         self.reward_settings["grasp_on_object_z_height_gate_enabled"] = to_torch(1.0 if bool(self.cfg["reward"]["params"]["grasp_on_object_z_height_gate_enabled"]) else 0.0, device=self.device)
 
+        self.reward_settings["w_obj_goal_base"] = self.reward_settings["w_obj_goal"].clone()
+        self.reward_settings["w_lift_base"] = self.reward_settings["w_lift"].clone()
+
     def _create_reset_pose_bank(self):
         self.pose_bank_size = int(self.eef_init["pose_bank_size"])
         bank_batch = self.pose_bank_size
@@ -114,8 +117,14 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
                 # 1) sample candidate points on a sphere shell centered around the object, with radius = side_distance + noise
                 # 2) filter candidates that are outside workspace limits, a xyz bounding box
                 # 3) solve for ik, if failure retry, if repeated retries still result in failure, errors
-                limits_min = torch.tensor(self.eef_init["limits_xyz_min"], device=self.device)
-                limits_max = torch.tensor(self.eef_init["limits_xyz_max"], device=self.device)
+                limits_min_rel = torch.tensor(self.eef_init["limits_xyz_min"], device=self.device)
+                limits_max_rel = torch.tensor(self.eef_init["limits_xyz_max"], device=self.device)
+                if left_side:
+                    # Mirror Y bounds for left-side sampling.
+                    y_min_r = limits_min_rel[1].clone()
+                    y_max_r = limits_max_rel[1].clone()
+                    limits_min_rel[1] = -y_max_r
+                    limits_max_rel[1] = -y_min_r
                 # @ray HACK assumes fixed object start position at table center
                 table_center = torch.tensor(
                     [
@@ -124,12 +133,33 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
                         self.table_surface_height[rep_env_id].item(),
                     ],
                     device=self.device)
-                limits_min = table_center + limits_min
-                limits_max = table_center + limits_max
+                limits_min = table_center + limits_min_rel
+                limits_max = table_center + limits_max_rel
                 side_distance = float(self.eef_init["side_distance"])
                 side_distance_noise = float(self.eef_init["side_distance_noise"])
                 target_quat_noise_deg = float(self.eef_init["target_quat_noise_deg"])
                 target_quat_noise_rad = float(np.deg2rad(target_quat_noise_deg))
+
+                # Orientation sampling mode for IK target quaternions:
+                # - "facing_object": canonical side quat aligned to object-facing direction (default)
+                # - "random_full": uniform random quaternion
+                target_quat_sampling_mode = str(self.eef_init["target_quat_sampling_mode"])
+                if target_quat_sampling_mode not in ("facing_object", "random_full"):
+                    raise ValueError(
+                        f"Unsupported eef_init.target_quat_sampling_mode={target_quat_sampling_mode}. "
+                        f"Expected one of: facing_object, random_full."
+                    )
+            
+                phi_range_deg = self.eef_init["phi_range_deg"]
+                phi_start_deg = float(phi_range_deg[0])
+                phi_end_deg = float(phi_range_deg[1])
+                if left_side:
+                    phi_start_deg, phi_end_deg = -phi_end_deg, -phi_start_deg
+                phi_start_deg = phi_start_deg % 360.0
+                phi_end_deg = phi_end_deg % 360.0
+                phi_sweep_deg = (phi_end_deg - phi_start_deg) % 360.0
+
+
                 center = self._object_center_init_state[rep_env_id]
                 while int(self.pose_bank_count[group_id].item()) < self.pose_bank_size:
                     rounds += 1
@@ -146,12 +176,19 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
                         # Sample directions on the unit sphere.
                         cos_theta = torch.rand(batch_size, device=self.device) * 2.0 - 1.0
                         theta = torch.acos(torch.clamp(cos_theta, -1.0, 1.0))
-                        if left_side:
-                            # left fan: [-overlap, +pi/2]
-                            phi = torch.rand(batch_size, device=self.device) * torch.pi
+                        # TODO @ray lifted the constraint on left/right hemisphere, should add a change to flip the xyz ,limits for left
+                        # if left_side:
+                        #     # left fan: [-overlap, +pi/2]
+                        #     phi = torch.rand(batch_size, device=self.device) * torch.pi
+                        # else:
+                        #     # right fan: [-pi/2, +overlap]
+                        #     phi = -torch.pi + torch.rand(batch_size, device=self.device) * torch.pi
+                        if phi_range_deg is not None:
+                            u = torch.rand(batch_size, device=self.device)
+                            phi_deg = (phi_start_deg + u * phi_sweep_deg) % 360.0
+                            phi = phi_deg * (torch.pi / 180.0)
                         else:
-                            # right fan: [-pi/2, +overlap]
-                            phi = -torch.pi + torch.rand(batch_size, device=self.device) * torch.pi
+                            phi = -torch.pi + torch.rand(batch_size, device=self.device) * (2 * torch.pi)
                             
                         dirs = torch.stack(
                             [torch.sin(theta) * torch.cos(phi), torch.sin(theta) * torch.sin(phi), torch.cos(theta)],
@@ -177,17 +214,32 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
                     desired_dir = desired_dir / torch.norm(desired_dir, dim=-1, keepdim=True)
                     ref_dir = torch.zeros((n, 3), device=self.device, dtype=eef_pos.dtype)
                     ref_dir[:, 1] = -1.0 if left_side else 1.0
-                    cross = torch.cross(ref_dir, desired_dir, dim=-1)
-                    dot = torch.sum(ref_dir * desired_dir, dim=-1, keepdim=True)
-                    q_align = torch.cat([cross, 1.0 + dot], dim=-1)
-                    q_align = q_align / torch.norm(q_align, dim=-1, keepdim=True)
-                    target_quat = quat_mul(q_align, base_quat)
+
+                    if target_quat_sampling_mode == "random_full":
+                        # Uniform random quaternion in xyzw format.
+                        u1 = torch.rand((n,), device=self.device, dtype=eef_pos.dtype)
+                        u2 = torch.rand((n,), device=self.device, dtype=eef_pos.dtype)
+                        u3 = torch.rand((n,), device=self.device, dtype=eef_pos.dtype)
+                        two_pi = 2.0 * torch.pi
+                        qx = torch.sqrt(1.0 - u1) * torch.sin(two_pi * u2)
+                        qy = torch.sqrt(1.0 - u1) * torch.cos(two_pi * u2)
+                        qz = torch.sqrt(u1) * torch.sin(two_pi * u3)
+                        qw = torch.sqrt(u1) * torch.cos(two_pi * u3)
+                        target_quat = torch.stack([qx, qy, qz, qw], dim=-1)
+                    else:
+                        # Canonical side quat + alignment toward object center.
+                        cross = torch.cross(ref_dir, desired_dir, dim=-1)
+                        dot = torch.sum(ref_dir * desired_dir, dim=-1, keepdim=True)
+                        q_align = torch.cat([cross, 1.0 + dot], dim=-1)
+                        q_align = q_align / torch.norm(q_align, dim=-1, keepdim=True)
+                        target_quat = quat_mul(q_align, base_quat)
                     if target_quat_noise_rad > 0.0:
                         noise_axis = torch.randn((n, 3), device=self.device, dtype=eef_pos.dtype)
                         noise_axis = noise_axis / torch.norm(noise_axis, dim=-1, keepdim=True).clamp_min(1e-8)
                         noise_angle = (torch.rand((n,), device=self.device, dtype=eef_pos.dtype) * 2.0 - 1.0) * target_quat_noise_rad
                         q_noise = quat_from_angle_axis(noise_angle, noise_axis)
                         target_quat = quat_mul(q_noise, target_quat)
+
                     target_quat = target_quat / torch.norm(target_quat, dim=-1, keepdim=True)
                     # @ray reward target uses only XY-facing yaw on top of canonical side-flat quaternion.
                     desired_dir_xy = desired_dir.clone()
@@ -215,7 +267,7 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
                     arm_q = torch.cat(arm_q_chunks, dim=0)
                     ok = torch.cat(success_chunks, dim=0).bool().reshape(-1)
                     arm_ok = arm_q[ok]
-                    quat_ok = target_quat[ok]
+                    quat_ok = reward_quat[ok]
                     num_ok = int(arm_ok.shape[0])
                     count = int(self.pose_bank_count[group_id].item())
                     take = min(self.pose_bank_size - count, num_ok)
@@ -229,8 +281,11 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
     
     def reset_idx(self, env_ids=None):
         super().reset_idx(env_ids)
-        # if env_ids is None: # @ray already computed in super()
-        #     env_ids = torch.arange(self.num_envs, device=self.device)
+
+        if env_ids is None:
+            env_ids = torch.arange(self.num_envs, device=self.device)
+        if env_ids.numel() == 0:
+            return
         num_envs = len(env_ids)
         side_mode = self.eef_init["side_mode"]
         if side_mode == "left":
@@ -248,11 +303,25 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         self.reward_settings["target_quat"][env_ids] = target_quat
         self.reward_settings["target_rot_6d"][env_ids] = matrix_to_rotation_6d(quaternion_to_matrix_ig(target_quat))
 
+        # Pose-bank-only reset sampling.
         obj_ids = self.env_object_ids[env_ids].long()
         group_ids = obj_ids * 2 + left_mask.long()
         chosen = torch.randint(0, self.pose_bank_size, (num_envs,), device=self.device)
         joint_config = self.pose_bank_joint[group_ids, chosen]
         target_quat = self.pose_bank_quat[group_ids, chosen]
+
+        # Optional hand-joint perturbation at reset (radians, uniform in [-noise, noise]).
+        hand_joint_reset_noise_deg = float(self.eef_init["hand_joint_reset_noise"])
+        hand_joint_reset_noise = float(np.deg2rad(hand_joint_reset_noise_deg))
+        if hand_joint_reset_noise > 0.0:
+            base = joint_config[:, 7:23]
+            lower = self.robot_dof_lower_limits[7:23].unsqueeze(0)
+            upper = self.robot_dof_upper_limits[7:23].unsqueeze(0)
+            # Sample uniformly in the feasible interval directly (avoid sample-then-clip bias).
+            sample_low = torch.max(base - hand_joint_reset_noise, lower)
+            sample_high = torch.min(base + hand_joint_reset_noise, upper)
+            u = torch.rand((num_envs, 16), device=self.device)
+            joint_config[:, 7:23] = sample_low + u * (sample_high - sample_low)
 
         self.reward_settings["target_quat"][env_ids] = target_quat
         self.reward_settings["target_rot_6d"][env_ids] = matrix_to_rotation_6d(quaternion_to_matrix_ig(target_quat))
@@ -265,7 +334,7 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
             # self._draw_object_xy_range_grid(clear_lines=False)
             self._draw_eef_candidate_points(clear_lines=False)
             self._draw_object_center_cross(clear_lines=False)
-            # self._draw_workspace_limits_box(clear_lines=False)
+            self._draw_workspace_limits_box(clear_lines=False)
             # self._draw_ik_reachability_grid(clear_lines=False)
             pass
 
@@ -341,6 +410,8 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
                 self.gym.begin_aggregate(env_ptr, max_agg_bodies, max_agg_shapes, True)
 
             # Create table
+            # NOTE
+            # @ray intentioanlly move it away from base a bit
             table_asset, table_start_pose = self._create_cube(
                 pos=[0.5, 0.0, -table_thickness/2],
                 size=[0.7, 1.2, table_thickness],
@@ -428,12 +499,20 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         rotated_offset = torch.matmul(object_rot_mat, local_offset.unsqueeze(-1)).squeeze(-1)
         object_grasp_target_pos += rotated_offset
 
+        eef_rot_mat = quaternion_to_matrix_ig(self._eef_state[:, 3:7])
+        eef_rot_mat_t = eef_rot_mat.transpose(1, 2)
+        object_grasp_target_to_eef_world = object_grasp_target_pos - self._eef_state[:, :3]
+        object_grasp_target_to_eef = torch.matmul(
+            eef_rot_mat_t, object_grasp_target_to_eef_world.unsqueeze(-1)
+        ).squeeze(-1)
+
         # @ray not just update but also create new keys here
         self.states.update({
             # Table Contact Status, check whether the object is lifted
             "lift": ~self.table_collision,
             "object_grasp_target_pos": object_grasp_target_pos, # @ray reward-only grasp target
-            "object_grasp_target_to_eef": object_grasp_target_pos - self._eef_state[:, :3], # @ray for policy observation
+            "object_grasp_target_to_eef": object_grasp_target_to_eef, # @ray for policy observation
+            "grasp_side_binary": self.side_is_left.float().unsqueeze(-1),
         })
 
     def check_robot_collision(self):
@@ -614,15 +693,26 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         if clear_lines:
             self.gym.clear_lines(self.viewer)
         env_id = 0
-        limits_min = self.eef_init["limits_xyz_min"]
-        limits_max = self.eef_init["limits_xyz_max"]
+        # CODEX
+        # Match debug box with actual left/right sampling bounds.
+        limits_min_rel = torch.tensor(self.eef_init["limits_xyz_min"], device=self.device, dtype=torch.float32)
+        limits_max_rel = torch.tensor(self.eef_init["limits_xyz_max"], device=self.device, dtype=torch.float32)
         center = [
             float(self.cuboid_pos[env_id, 0, 0].item()),
             float(self.cuboid_pos[env_id, 0, 1].item()),
             float(self.table_surface_height[env_id].item()),
         ]
-        x_min, y_min, z_min = [center[0] + limits_min[0], center[1] + limits_min[1], center[2] + limits_min[2]]
-        x_max, y_max, z_max = [center[0] + limits_max[0], center[1] + limits_max[1], center[2] + limits_max[2]]
+        # CODEX
+        limits_min = torch.tensor(center, device=self.device, dtype=torch.float32) + limits_min_rel
+        limits_max = torch.tensor(center, device=self.device, dtype=torch.float32) + limits_max_rel
+        if bool(self.side_is_left[env_id].item()):
+            center_y = float(center[1])
+            y_min_r = float(limits_min[1].item())
+            y_max_r = float(limits_max[1].item())
+            limits_min[1] = 2.0 * center_y - y_max_r
+            limits_max[1] = 2.0 * center_y - y_min_r
+        x_min, y_min, z_min = [float(limits_min[0].item()), float(limits_min[1].item()), float(limits_min[2].item())]
+        x_max, y_max, z_max = [float(limits_max[0].item()), float(limits_max[1].item()), float(limits_max[2].item())]
         verts = [
             [x_min, y_min, z_min], [x_max, y_min, z_min],
             [x_max, y_min, z_min], [x_max, y_max, z_min],
@@ -687,6 +777,7 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         self._refresh() # @ray checks table collision and updates states
 
         obs_components = ["q_hand",
+                          "grasp_side_binary",
                           "eef_finger1_pos_relative", "eef_finger2_pos_relative",
                           "eef_finger3_pos_relative", "eef_finger4_pos_relative",
                           "object_to_eef", "object_to_eef_rot_6d",
@@ -694,6 +785,7 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
                           "target_to_eef", "target_to_eef_rot_6d"]
 
         states_components = ["q", "qd",
+                             "grasp_side_binary",
                              "eef_pos", "eef_rot_6d", "eef_vel",
                              "eef_finger1_pos_relative", "eef_finger2_pos_relative",
                              "eef_finger3_pos_relative", "eef_finger4_pos_relative",
@@ -724,6 +816,24 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
 
         self.reset_buf[:] = torch.where((self.progress_buf >= self.max_episode_length - 1), torch.ones_like(self.reset_buf), self.reset_buf)
         self.reset_buf[self.states['object_center_pos'][:, 2] < self.table_surface_height-0.1] = 1
+
+        # Lift/goal curriculum (hardcoded here by request; edit these values directly).
+        # Curriculum with delayed start:
+        # 1) hold start scale for `curri_delay_steps`
+        # 2) linearly ramp for `curri_steps`
+        curri_enable = False
+        curri_start_scale = 1.0
+        curri_end_scale = 10.0
+        curri_delay_steps = 50_000
+        curri_steps = 200_000
+        if curri_enable:
+            curri_progress_steps = max(float(self.sim_steps) - float(curri_delay_steps), 0.0)
+            curri_t = min(curri_progress_steps / float(max(curri_steps, 1)), 1.0)
+            curri_scale = curri_start_scale + (curri_end_scale - curri_start_scale) * curri_t
+        else:
+            curri_scale = 1.0
+        self.reward_settings["w_obj_goal"] = self.reward_settings["w_obj_goal_base"] * curri_scale
+        self.reward_settings["w_lift"] = self.reward_settings["w_lift_base"] * curri_scale
         reward_dict = compute_franka_leap_reward(self.states, self.reward_settings)
 
         self.rew_buf[:] = reward_dict["r_total"]

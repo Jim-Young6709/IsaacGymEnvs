@@ -18,6 +18,8 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 import yaml
 import os
 import time
+import numbers
+import csv
 
 from rl_games.algos_torch import torch_ext
 from rl_games.algos_torch.model_builder import ModelBuilder
@@ -62,7 +64,8 @@ class DaggerMobile:
         self.chunk_size = cfg.chunk_size
         self.device = cfg['sim_device']
         self.seed = cfg.seed
-        self.exp_name = cfg.experiment
+        base_exp_name = str(cfg.experiment) if str(cfg.experiment) != "" else str(cfg.train.params.config.name)
+        self.exp_name = base_exp_name + '_{date:%d-%H-%M-%S}'.format(date=datetime.now())
         set_seed_and_precision(self.seed)
 
         self.learning_rate = cfg.dagger.learning_rate
@@ -102,6 +105,14 @@ class DaggerMobile:
         self.env.delta_franka_action = self.cfg.action_space.delta_franka_action
         self.env.delta_leap_action = self.cfg.action_space.delta_leap_action
         self.env.delta_arx_action = self.cfg.action_space.delta_arx_action
+        # @ray we override success/lifting with early termination logic
+        reset_window_steps = int(self.reaching_reset_threshold)
+        self.env.reward_settings["success_timeout_steps"] = torch.full(
+            (self.env.num_envs,), reset_window_steps, dtype=torch.int32, device=self.device
+        )
+        self.env.reward_settings["lifting_timeout_steps"] = torch.full(
+            (self.env.num_envs,), reset_window_steps, dtype=torch.int32, device=self.device
+        )
 
         # load teacher
         self.value_size = 1 # not sure why, but seems most cases its 1
@@ -156,6 +167,17 @@ class DaggerMobile:
         os.makedirs(self.save_dir, exist_ok=True)
 
         self.eval_freq = self.cfg.dagger.eval_freq
+        # Memory-debug probes (WandB): logs CUDA memory by training stage.
+        self.mem_debug_enable = False
+        self.mem_debug_freq = 10
+        # Local mem-probe logging (works even when wandb is disabled).
+        self.mem_local_log_enable = True
+        self.mem_local_log_path = Path("logs") / f"mem_probe_{self.exp_name}.csv"
+        self.mem_local_log_path.parent.mkdir(parents=True, exist_ok=True)
+        self._mem_local_csv_writer = None
+        self._mem_local_csv_file = None
+        self._prev_mem_prelog_alloc_gb = None
+        self._prev_mem_prelog_res_gb = None
 
         if self.multi_gpu:            
             self.use_wandb = (self.cfg.wandb_activate and self.global_rank == 0)
@@ -192,6 +214,43 @@ class DaggerMobile:
         self.aux_enable = "aux_object_state" in self.state_encoders_keys
         self.aux_switch_steps = 30000
         self.aux_buffer = torch.zeros(self.env.num_envs, 1, 3, device=self.device)
+
+    def _sanitize_wandb_logs(self, logs: Dict) -> Dict:
+        out = {}
+        for k, v in logs.items():
+            if isinstance(v, torch.Tensor):
+                if v.numel() == 1:
+                    out[k] = float(v.detach().item())
+            elif isinstance(v, np.ndarray):
+                if v.size == 1:
+                    out[k] = float(v.reshape(-1)[0])
+            elif isinstance(v, numbers.Number):
+                out[k] = float(v)
+        return out
+
+    def _cuda_mem_stats_gb(self, prefix: str) -> Dict:
+        if (not torch.cuda.is_available()) or ("cuda" not in str(self.device)):
+            return {}
+        torch.cuda.synchronize()
+        return {
+            f"{prefix}/allocated_GB": float(torch.cuda.memory_allocated() / 1024**3),
+            f"{prefix}/reserved_GB": float(torch.cuda.memory_reserved() / 1024**3),
+            f"{prefix}/max_allocated_GB": float(torch.cuda.max_memory_allocated() / 1024**3),
+            f"{prefix}/max_reserved_GB": float(torch.cuda.max_memory_reserved() / 1024**3),
+        }
+
+    def _append_mem_probe_local(self, row: Dict):
+        if not self.mem_local_log_enable:
+            return
+        row = self._sanitize_wandb_logs(row)
+        if self._mem_local_csv_writer is None:
+            self._mem_local_csv_file = open(self.mem_local_log_path, "a", newline="")
+            fieldnames = list(row.keys())
+            self._mem_local_csv_writer = csv.DictWriter(self._mem_local_csv_file, fieldnames=fieldnames)
+            if self._mem_local_csv_file.tell() == 0:
+                self._mem_local_csv_writer.writeheader()
+        self._mem_local_csv_writer.writerow(row)
+        self._mem_local_csv_file.flush()
 
     # teacher loading utils
     def load_param_dict(self, cfg_path) -> Dict:
@@ -313,7 +372,6 @@ class DaggerMobile:
         # )
 
         if "local_pcd_t" in self.pcd_encoders_keys:
-            # Codex
             num_points = self.cfg.model.pcd_encoders_cfg["local_pcd_t"]["num_points"] # [num cylindrical points, num spherical eef points, num spherical aux points]
             local_ranges = self.local_pcd_range
             local_eef_spherical_range = local_ranges[1]
@@ -326,7 +384,7 @@ class DaggerMobile:
             # local eef pcd in global frame
             obs["local_eef_pcd_t"] = eef_spherical_local_pcd_t + eef_pos.unsqueeze(1) # back to global frame for now, will be converted to franka base frame later
 
-            # Codex: aux-centered local pcd in global frame
+            # aux-centered local pcd in global frame
             aux_crop_origin = eef_pos
             if "aux_object_state" in self.state_encoders_keys:
                 noisy_object_center_pos = self.env.states["object_center_pos"].clone()
@@ -411,7 +469,6 @@ class DaggerMobile:
                 obs_student["full_pcd_t"] = downsample_pcd_batched(obs["full_pcd_t"], num_points_full_pcd_t)
 
         if "local_pcd_t" in self.pcd_encoders_keys:
-            # Codex
             num_points = self.cfg.model.pcd_encoders_cfg["local_pcd_t"]["num_points"] # [num cylindrical points, num spherical eef points, num spherical aux points]
             cylindrical_local_pcd_t, cylindrical_crop_logs = crop_local_pcd(obs['full_pcd_t'], self.local_pcd_range[0], num_points[0], is_cylindrical=True) # (num_envs, num_local_points, 3)
             obs_student["local_pcd_t"] = torch.cat([cylindrical_local_pcd_t, obs["local_eef_pcd_t"], obs["local_aux_pcd_t"]], dim=1)
@@ -420,9 +477,7 @@ class DaggerMobile:
                 wandb_logs.update(cylindrical_crop_logs)
                 wandb_logs.update(eef_spherical_crop_logs)
                 wandb_logs.update({
-                    # Codex
                     "local_spherical_crop_aux/avg_num_valid_points": aux_spherical_crop_logs["local_spherical_crop/avg_num_valid_points"],
-                    # Codex
                     "local_spherical_crop_aux/min_num_valid_points": aux_spherical_crop_logs["local_spherical_crop/min_num_valid_points"],
                 })
 
@@ -443,7 +498,6 @@ class DaggerMobile:
 
         return obs_student, wandb_logs
 
-    # Codex
     def _get_object_center_pos_in_base_frame(self):
         object_center_pos = self.env.states["object_center_pos"].clone()
 
@@ -473,6 +527,21 @@ class DaggerMobile:
         for _ in tqdm(range(self.steps_per_episode), desc=f"Training {self.episode+1}/{self.total_episodes}", \
             ncols=None, dynamic_ncols=True, disable=(self.multi_gpu and self.global_rank != 0) ):
             self.total_steps += 1
+            mem_probe_logs = {}
+            do_mem_probe = self.mem_debug_enable and (self.total_steps % self.mem_debug_freq == 0)
+            if do_mem_probe and torch.cuda.is_available() and ("cuda" in str(self.device)):
+                torch.cuda.reset_peak_memory_stats()
+                start_stats = self._cuda_mem_stats_gb("mem_probe/start")
+                mem_probe_logs.update(start_stats)
+                # Cross-step gap: growth between previous iteration pre-log and current start.
+                start_alloc = start_stats.get("mem_probe/start/allocated_GB", None)
+                start_res = start_stats.get("mem_probe/start/reserved_GB", None)
+                if (
+                    start_alloc is not None and start_res is not None and
+                    self._prev_mem_prelog_alloc_gb is not None and self._prev_mem_prelog_res_gb is not None
+                ):
+                    mem_probe_logs["mem_probe/cross_gap_alloc_GB"] = float(start_alloc - self._prev_mem_prelog_alloc_gb)
+                    mem_probe_logs["mem_probe/cross_gap_res_GB"] = float(start_res - self._prev_mem_prelog_res_gb)
 
             # get obs t_a0 for student, q_hand, rel_pcd
             q_robot = self.env.states['q'].clone() # (num_envs, 32)
@@ -495,6 +564,8 @@ class DaggerMobile:
                 ("hand_pcd_t", hand_pcd_t),
             ])
             obs_input_a0, input_wandb_logs = self.preprocess_inputs(obs_dict_a0)
+            if do_mem_probe:
+                mem_probe_logs.update(self._cuda_mem_stats_gb("mem_probe/after_preprocess"))
 
             # prepare state inputs
             q_arm_manip = self.env.states['q'][:, 3:10].clone() # (num_envs, 7)
@@ -518,7 +589,6 @@ class DaggerMobile:
                 point_base_frame = torch.bmm(point_shifted, rot_global2base) # (num_envs, N, 3), bmm is like matmul but specifically made for batches of 2D matrices (input has to be 3D), faster than matmul
                 obs_input_a0["objxyz_t0"] = point_base_frame[:, 0, :] # (num_envs, 3)
             if "aux_object_state" in self.state_encoders_keys:
-                # Codex
                 noisy_object_center_pos = self._get_object_center_pos_in_base_frame()
                 # add noise (-0.05m ~ 0.05m)
                 noisy_object_center_pos = noisy_object_center_pos + 0.1 * ( torch.rand(self.env.num_envs, 3, device=self.device) - 0.5 )
@@ -527,7 +597,6 @@ class DaggerMobile:
                     obs_input_a0["aux_object_state"] = noisy_object_center_pos
                 else:
                     aux_object_state = self.aux_buffer.clone()
-                    # Codex
                     if hasattr(self.env, "object_reset_mask") and torch.any(self.env.object_reset_mask):
                         if aux_object_state.ndim == 3:
                             aux_object_state[self.env.object_reset_mask, 0, :] = noisy_object_center_pos[self.env.object_reset_mask]
@@ -535,7 +604,6 @@ class DaggerMobile:
                             aux_object_state[self.env.object_reset_mask, :] = noisy_object_center_pos[self.env.object_reset_mask]
                     obs_input_a0["aux_object_state"] = aux_object_state
 
-                # Codex
                 if hasattr(self.env, "object_reset_mask"):
                     self.env.object_reset_mask[:] = False
 
@@ -553,6 +621,8 @@ class DaggerMobile:
                 student_actions_chunk = output["action"]
                 if self.aux_enable:
                     self.aux_buffer[:] = output["aux"].clone()
+            if do_mem_probe:
+                mem_probe_logs.update(self._cuda_mem_stats_gb("mem_probe/after_student_infer"))
 
             teacher_preds_buffer = []
 
@@ -578,8 +648,24 @@ class DaggerMobile:
                 else:
                     teacher_actions = action
                 teacher_actions = torch.clamp(teacher_actions, -self.env.clip_actions, self.env.clip_actions)
-                self.env._pre_physics_step_teacher(teacher_actions)
+                # CODEX+
+                # Compute teacher absolute targets and converted student-space targets.
+                teacher_actions_abs = self.env._pre_physics_step_teacher(teacher_actions)
                 teacher_actions = self.env.teacher_actions_converted.clone()
+                # CODEX+
+                # Debug parity check: converted->student decode should reconstruct teacher abs hand joints.
+                if num_teacher_forcing_envs > 0:
+                    with torch.no_grad():
+                        decoded_abs = self.env._pre_physics_step_student(teacher_actions)
+                        hand_abs_teacher = teacher_actions_abs[:, 10:26]
+                        hand_abs_decoded = decoded_abs[:, 10:26]
+                        hand_abs_err = torch.abs(hand_abs_teacher - hand_abs_decoded)
+                        tf_idx_t = torch.as_tensor(teacher_forcing_env_idx, device=hand_abs_err.device, dtype=torch.long)
+                        tf_err = hand_abs_err[tf_idx_t]
+                        tf_mean = float(tf_err.mean().item()) if tf_err.numel() > 0 else 0.0
+                        tf_max = float(tf_err.max().item()) if tf_err.numel() > 0 else 0.0
+                        env0_mean = float(hand_abs_err[0].mean().item())
+                        env0_max = float(hand_abs_err[0].max().item())
                 if "aux_object_state" in self.state_encoders_keys:
                     object_center_pos = self._get_object_center_pos_in_base_frame()
                     teacher_pred = torch.cat([teacher_actions, object_center_pos], dim=1) # add aux info, object_xyz_pos
@@ -602,12 +688,20 @@ class DaggerMobile:
                     if (count_reaching >= self.reaching_reset_threshold).any():
                         reached_reset_flags = (count_reaching >= self.reaching_reset_threshold)
                         reset_ids = torch.where(reached_reset_flags)[0]
+                        # Finalize episode counters before env post_physics_step reset clears duration/latch states.
+                        self.env.finalize_episode_metrics_before_reset(
+                            reset_ids,
+                            mark_success=True,
+                            mark_lifting=True,
+                        )
                         self.env.reset_buf[reset_ids] = 1
                         count_reaching[reached_reset_flags] = 0
 
                 # sync distillation steps for wandb video logging
                 self.env.distillation_steps = self.total_steps
                 self.env.step(step_actions)
+                if do_mem_probe and action_idx == self.chunk_size - 1:
+                    mem_probe_logs.update(self._cuda_mem_stats_gb("mem_probe/after_env_step"))
 
                 # count continuous reaching success
                 count_reaching += self.env.success_5cm_per_step
@@ -633,6 +727,8 @@ class DaggerMobile:
                 loss["total"].backward()
                 torch.nn.utils.clip_grad_norm_(self.student_model.parameters(), max_norm=self.max_grad_norm) 
                 self.optimizer.step()
+                if do_mem_probe and i == n_batches - 1:
+                    mem_probe_logs.update(self._cuda_mem_stats_gb("mem_probe/after_backward_step"))
 
                 for key in loss.keys():
                     ave_loss[key] += loss[key].item()
@@ -653,15 +749,34 @@ class DaggerMobile:
                     "mem/allocated_GB": mem_allocated_GB,
                     "mem/reserved_GB": mem_reserved_GB,
                 }
-                wandb_logs.update(input_wandb_logs)
+                wandb_logs.update(self._sanitize_wandb_logs(input_wandb_logs))
                 if "aux_object_state" in self.state_encoders_keys:
                     aux_wandb_logs = {
                         "train/loss_aux": ave_loss["aux"],
                         "train/loss_action": ave_loss["action"],
                     }
                     wandb_logs.update(aux_wandb_logs)
+                if do_mem_probe:
+                    prelog_stats = self._cuda_mem_stats_gb("mem_probe/pre_log")
+                    mem_probe_logs.update(prelog_stats)
+                    self._prev_mem_prelog_alloc_gb = prelog_stats.get("mem_probe/pre_log/allocated_GB", None)
+                    self._prev_mem_prelog_res_gb = prelog_stats.get("mem_probe/pre_log/reserved_GB", None)
+                    wandb_logs.update(mem_probe_logs)
 
-                wandb.log(wandb_logs, step=self.total_steps)
+                wandb.log(self._sanitize_wandb_logs(wandb_logs), step=self.total_steps)
+                if do_mem_probe:
+                    print(f"[wandb][mem] step={self.total_steps} logged mem_probe metrics")
+            elif do_mem_probe:
+                prelog_stats = self._cuda_mem_stats_gb("mem_probe/pre_log")
+                mem_probe_logs.update(prelog_stats)
+                self._prev_mem_prelog_alloc_gb = prelog_stats.get("mem_probe/pre_log/allocated_GB", None)
+                self._prev_mem_prelog_res_gb = prelog_stats.get("mem_probe/pre_log/reserved_GB", None)
+
+            if do_mem_probe:
+                local_row = {"step": float(self.total_steps), "episode": float(self.episode)}
+                local_row.update(mem_probe_logs)
+                self._append_mem_probe_local(local_row)
+                print(f"[local][mem] step={self.total_steps} wrote {self.mem_local_log_path}")
 
         return ave_loss
 
@@ -669,6 +784,11 @@ class DaggerMobile:
         self.env.reset_idx()
         self.env.compute_observations()
         self.env.abs_actions[:] = self.env.states['q'].clone()
+        if self.env.video_logging["capture"]:
+            self.env.train_video_active = False
+            self.env.eval_video_active = True
+            self.env.eval_video_total_steps = int(self.steps_per_episode * self.chunk_size)
+            self.env.eval_video_step_idx = 0
 
         for _ in tqdm(range(self.steps_per_episode), desc="Evaluating", \
             ncols=None, dynamic_ncols=True, disable=(self.multi_gpu and self.global_rank != 0) ):
@@ -777,24 +897,41 @@ class DaggerMobile:
         self.env.abs_actions[:] = self.env.states['q'].clone()
 
         eval_wandb_logs = {
-            "metrics/eval_success_rate_5cm_final_step": self.env.extras["metrics/success_rate_5cm_per_step"],
-            "metrics/eval_success_rate_5cm_per_ep": self.env.extras["metrics/success_rate_5cm_per_ep"],
-            "metrics/eval_lifting_rate_5cm_final_step": self.env.extras["metrics/lifting_rate_5cm_per_step"],
-            "metrics/eval_lifting_rate_5cm_per_ep": self.env.extras["metrics/lifting_rate_5cm_per_ep"],
+                "eval/eval_success_rate_5cm_per_step": self.env.extras["metrics/success_rate_5cm_per_step"],
+                "eval/eval_success_rate_5cm_per_ep_instant": self.env.extras["metrics/success_rate_5cm_per_ep_instant"],
+                "eval/eval_success_rate_5cm_per_ep": self.env.extras["metrics/success_rate_5cm_per_ep"],
+                "eval/eval_lifting_rate_5cm_per_step": self.env.extras["metrics/lifting_rate_5cm_per_step"],
+                "eval/eval_lifting_rate_5cm_per_ep_instant": self.env.extras["metrics/lifting_rate_5cm_per_ep_instant"],
+                "eval/eval_lifting_rate_5cm_per_ep": self.env.extras["metrics/lifting_rate_5cm_per_ep"],
         }
+
+        # Log eval metrics directly to avoid dependence on outer merged logging paths.
+        if self.use_wandb:
+            eval_payload = self._sanitize_wandb_logs(eval_wandb_logs)
+            eval_payload["eval/triggered"] = 1.0
+            eval_payload["episode"] = float(self.episode)
+            wandb.log(eval_payload, step=self.total_steps)
+            print(f"[wandb][eval] step={self.total_steps} episode={self.episode} logged eval metrics")
 
         return eval_wandb_logs
 
     def train(self):
         while self.episode < self.total_episodes:
-            metrics = {}
+            train_metrics = {}
+            eval_metrics = None
 
             start_time = time.time()
             remaining_episodes = self.total_episodes - self.episode
+            eval_policy = (self.eval_freq > 0) and (self.episode % self.eval_freq == 0)
+
+            # Start training-video capture before training rollout begins.
+            if self.env.video_logging["capture"] and eval_policy:
+                self.env.eval_video_active = False
+                self.env.train_video_active = True
+                self.env.train_video_total_steps = int(self.steps_per_episode * self.chunk_size)
+                self.env.train_video_step_idx = 0
 
             train_loss = self.train_episode()
-
-            eval_policy = (self.eval_freq > 0) and (self.episode % self.eval_freq == 0)
             if eval_policy:
                 eval_wandb_logs = self.eval()
 
@@ -802,22 +939,30 @@ class DaggerMobile:
                 episode_time = time.time() - start_time
                 estimated_finish_time = start_time + episode_time * remaining_episodes
 
-                metrics["train/loss_episode"] = train_loss
-                metrics["time/episode_time"] = episode_time
-                metrics["episode"] = self.episode
-                metrics["train/teacher_forcing_prop"] = self.teacher_forcing_prop
-                metrics.update(self.env.extras)
+                train_metrics["train/loss_episode"] = train_loss
+                train_metrics["time/episode_time"] = episode_time
+                train_metrics["episode"] = self.episode
+                train_metrics["train/teacher_forcing_prop"] = self.teacher_forcing_prop
+                train_metrics.update(self._sanitize_wandb_logs(self.env.extras))
                 if eval_policy:
-                    metrics.update(eval_wandb_logs)
+                    eval_metrics = eval_wandb_logs.copy()
+                    eval_metrics["episode"] = self.episode
 
                 if self.use_wandb:
-                    wandb.log(metrics, step=self.total_steps)
-
+                    wandb_payload = dict(train_metrics)
+                    if eval_metrics is not None:
+                        wandb_payload.update(eval_metrics)
+                    wandb.log(self._sanitize_wandb_logs(wandb_payload), step=self.total_steps)
                 # TODO: add args: save ckpt? frequency?
-                self.save_checkpoint(self.episode, metrics["metrics/success_rate_5cm_per_ep"], metrics.get("metrics/eval_lifting_rate_5cm_per_ep", None))
+                eval_lifting = eval_metrics.get("eval/eval_lifting_rate_5cm_per_ep", None) if eval_metrics is not None else None
+                self.save_checkpoint(self.episode, train_metrics["metrics/success_rate_5cm_per_ep"], eval_lifting)
+
+                log_metrics = dict(train_metrics)
+                if eval_metrics is not None:
+                    log_metrics.update(eval_metrics)
 
                 colorprint(f"Episode {self.episode + 1}/{self.total_episodes} completed in {timedelta(seconds=int(episode_time))}", color="magenta")
-                for metric, value in metrics.items():
+                for metric, value in log_metrics.items():
                     if type(value) == float:
                         colorprint(f"{metric}: {value:.4f}", color="green")
                 colorprint(f"Average episodes per hour: {1/episode_time*3600:.2f}")

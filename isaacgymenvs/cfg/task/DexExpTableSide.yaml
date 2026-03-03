@@ -7,23 +7,38 @@ name: FrankaLEAPPickTableSide
 
 # if given, will override the device setting in gym. 
 env:
-  numObservations: 52
-  numStates: 97
+  numObservations: 53
+  numStates: 98
   numActions: 22 # delta eef actions 6 (xyz, rpy) + normalized hand joint actions 16
 
   object_settings:
-    object_grasp_target_z_scale: 0.01 # @ray z scale for the hand-object reward, special for side grasp
+    xyz_range:  [[0.35, -0.2, 0.2], [0.55, 0.2, 0.25]] # [[0.55, -0.2, 0.2], [0.75, 0.2, 0.25]] # xy is center position, z is BOTTOM height
+    object_grasp_target_z_scale: 0.25 # @ray z scale for the hand-object reward, special for side grasp
 
   eef_init:
-    limits_xyz_min: [-0.3, -0.37, 0.1]
-    limits_xyz_max: [0.15, -0.1, 0.65]
-    side_distance: 0.45
-    side_distance_noise: 0.1
-    target_quat_noise_deg: 10
+    limits_xyz_min:  [-0.25, -0.5, 0.20] #[-0.25, -0.2, 0.2]  #[-0.3, -0.37, 0.1]
+    limits_xyz_max: [0.3, 0.2, 0.45] #[0.1, 0.2, 0.45]  #[0.15, -0.1, 0.65]
+    phi_range_deg:  [ -120, -60] # [120, -120]  # @ray set to None for 360deg
+    side_distance: 0.35
+    side_distance_noise: 0.15
+    target_quat_noise_deg: 30
     dir_candidates_per_env: 5
-    side_mode: right
-    pose_bank_size: 4096 # num of poses per object
+    side_mode: both
+    pose_bank_size: 8192 # num of poses per object
     pose_bank_max_rounds: 10 # max rounds to try to find all valid poses
+
+    target_quat_sampling_mode: facing_object # random_full
+
+    hand_joint_reset_noise: 60
+
+  # @ray need to increase object wrench to encourage better grasp style
+  object_wrench:
+    enable: True
+    activation_dis: 0.15 # in meters (apply forces within this range / when object is lifted)
+    max_linear_force: 5.0 # in Newtons
+    torsional_radius: 0.01 # in meters
+    trigger_duration: 1.0 # seconds, this will time sim_dt to get the number of trigger steps
+    curri_steps: 1 # curriculum steps, now default to 1 which is no curri
 
 observation:
   usage:
@@ -36,7 +51,7 @@ reward:
     target_lift_dis: 0.1
     target_quat_right: [-0.7071067811865475, 0.0, 0.0, 0.7071067811865476]
     target_quat_left: [0.7071067811865475, 0.0, 0.0, 0.7071067811865476]
-    grasp_on_object_z_height_tolerance: [0.005, 0.01]
+    grasp_on_object_z_height_tolerance: [0.015, 0.03]
     grasp_on_object_z_height_slope: 3000
     grasp_on_object_z_height_offset: 0.05
     grasp_on_object_z_height_gate_floor: 0.1
@@ -44,7 +59,7 @@ reward:
     curl_reaching_threshold: 0.15
 
   exp:
-    beta_hand_object: 5.0
+    beta_hand_object: 6.0
     beta_object_goal: 5.0
     beta_hand_orientation: 5.0
     beta_lift: 0.0 # set this to 0 to use a 0-1 lift reward

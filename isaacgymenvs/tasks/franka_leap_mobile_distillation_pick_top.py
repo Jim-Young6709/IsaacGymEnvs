@@ -90,18 +90,23 @@ class FrankaLEAPMobileDistillationPickTop(FrankaLEAPMobileDistillation):
         self.lifting_flags_instant[self.lifting_5cm_per_step] = 1
         self.success_5cm_per_step = (reward_dict["d_eef_point_goal"] < 0.05) & self.lifting_5cm_per_step
         self.success_flags_instant[self.success_5cm_per_step] = 1
+
+        # Use step-based streak counters for duration logic.
+        success_timeout_steps = self.reward_settings["success_timeout_steps"]
+        lifting_timeout_steps = self.reward_settings["lifting_timeout_steps"]
         self.success_duration = torch.where(
             self.success_5cm_per_step,
-            self.success_duration + self.dt,
+            self.success_duration + 1,
             torch.zeros_like(self.success_duration),
         )
         self.lifting_duration = torch.where(
             self.lifting_5cm_per_step,
-            self.lifting_duration + self.dt,
+            self.lifting_duration + 1,
             torch.zeros_like(self.lifting_duration),
         )
-        self.success_long_enough = self.success_duration >= self.reward_settings["success_timeout"]
-        self.lifting_long_enough = self.lifting_duration >= self.reward_settings["lifting_timeout"]
+        # Latch success/lifting once achieved anywhere in an episode.
+        self.success_long_enough = self.success_long_enough | (self.success_duration >= success_timeout_steps)
+        self.lifting_long_enough = self.lifting_long_enough | (self.lifting_duration >= lifting_timeout_steps)
         done_envs = self.reset_buf > 0
 
         if torch.any(done_envs):
@@ -111,22 +116,33 @@ class FrankaLEAPMobileDistillationPickTop(FrankaLEAPMobileDistillation):
             success_env_ids = (done_envs & self.success_long_enough).nonzero(as_tuple=False).squeeze(-1)
             success_object_ids = self.env_object_ids[success_env_ids]
             success_increments = torch.bincount(success_object_ids, minlength=self.num_objects)
+            lifting_env_ids = (done_envs & self.lifting_long_enough).nonzero(as_tuple=False).squeeze(-1)
+            lifting_object_ids = self.env_object_ids[lifting_env_ids]
+            lifting_increments = torch.bincount(lifting_object_ids, minlength=self.num_objects)
             self.per_object_episode_counts += episode_increments
             self.per_object_success_counts += success_increments
+            self.per_object_lifting_counts += lifting_increments
             self.per_object_episode_counts_interval += episode_increments
             self.per_object_success_counts_interval += success_increments
+            self.per_object_lifting_counts_interval += lifting_increments
+
 
         # @ray log per-object per-interval success rates locally and a histograom to wandb
         if self.sim_steps > 0 and (self.sim_steps % self.log_per_object_success_freq == 0):
             # @ray prevent inf from division by zero if some objects are not in any envs
-            interval_rates = torch.where(
+            success_interval_rates = torch.where(
                 self.per_object_episode_counts_interval > 0,
                 self.per_object_success_counts_interval.float() / self.per_object_episode_counts_interval.float(),
                 torch.zeros_like(self.per_object_success_counts_interval, dtype=torch.float32),
             )
+            lifting_interval_rates = torch.where(
+                self.per_object_episode_counts_interval > 0,
+                self.per_object_lifting_counts_interval.float() / self.per_object_episode_counts_interval.float(),
+                torch.zeros_like(self.per_object_lifting_counts_interval, dtype=torch.float32),
+            )
             if wandb.run is not None:
                 print("logging per-object success rate histogram to wandb")
-                wandb.log({"per_object_success_rate_hist": wandb.Histogram(interval_rates.detach().cpu().numpy(), num_bins=20)},)
+                wandb.log({"per_object_success_rate_hist": wandb.Histogram(success_interval_rates.detach().cpu().numpy(), num_bins=20)},)
             interval_snapshot = {
                 "sim_steps": int(self.sim_steps),
                 "log_interval_steps": int(self.log_per_object_success_freq),
@@ -134,7 +150,12 @@ class FrankaLEAPMobileDistillationPickTop(FrankaLEAPMobileDistillation):
                     str(obj_id): {
                         "episodes": int(self.per_object_episode_counts_interval[obj_id].item()),
                         "successes": int(self.per_object_success_counts_interval[obj_id].item()),
-                        "success_rate": float(interval_rates[obj_id].item()),
+                        "lifting_successes": int(self.per_object_lifting_counts_interval[obj_id].item()),
+                        "success_rate": float(success_interval_rates[obj_id].item()),
+                        "lifting_rate": float(lifting_interval_rates[obj_id].item()),
+                        "episodes_total": int(self.per_object_episode_counts[obj_id].item()),
+                        "successes_total": int(self.per_object_success_counts[obj_id].item()),
+                        "lifting_successes_total": int(self.per_object_lifting_counts[obj_id].item()),
                     }
                     for obj_id in range(self.num_objects)
                 },
@@ -148,13 +169,21 @@ class FrankaLEAPMobileDistillationPickTop(FrankaLEAPMobileDistillation):
                 wandb.log_artifact(artifact)
             self.per_object_episode_counts_interval.zero_()
             self.per_object_success_counts_interval.zero_()
+            self.per_object_lifting_counts_interval.zero_()
 
-        self.extras["metrics/success_rate_5cm_per_ep"] = torch.mean(self.success_flags.float()).item()
+        # Episode success rates from reset-event counters (length-invariant).
+        total_eps = max(int(self.per_object_episode_counts.sum().item()), 1)
+        success_eps = int(self.per_object_success_counts.sum().item())
+        lifting_eps = int(self.per_object_lifting_counts.sum().item())
+        self.extras["metrics/success_rate_5cm_per_ep"] = float(success_eps) / float(total_eps)
         self.extras["metrics/success_rate_5cm_per_ep_instant"] = torch.mean(self.success_flags_instant).item()
         self.extras["metrics/success_rate_5cm_per_step"] = torch.mean(self.success_5cm_per_step.float()).item()
-        self.extras["metrics/lifting_rate_5cm_per_ep"] = torch.mean(self.lifting_flags.float()).item()
+        self.extras["metrics/lifting_rate_5cm_per_ep"] = float(lifting_eps) / float(total_eps)
         self.extras["metrics/lifting_rate_5cm_per_ep_instant"] = torch.mean(self.lifting_flags_instant).item()
         self.extras["metrics/lifting_rate_5cm_per_step"] = torch.mean(self.lifting_5cm_per_step.float()).item()
+        self.extras["metrics/episode_count_total"] = total_eps
+        self.extras["metrics/success_episode_count_total"] = success_eps
+        self.extras["metrics/lifting_episode_count_total"] = lifting_eps
 
         # log memory usage TODO: debug utils, cleanup later
         mem_allocated_GB = float(torch.cuda.memory_allocated() / 1024**3)

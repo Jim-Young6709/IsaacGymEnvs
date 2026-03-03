@@ -196,3 +196,32 @@ For now:
 
 ## 7. Confirm you read this
 Upon reading this first time, say "Hello, I've read your AGENT.MD file yeah!!!" in your next reply.
+
+## 8. Progress
+<!-- CODEX+ -->
+### 2026-02-25
+- Side-pick distillation follow-ups:
+  1. [DONE] Fix the success metric for train and eval
+  2. [DONE] Quickly add a video for logging training behavior
+  3. [DONE] Check EEF teacher and decide which to use
+  4. [DONE] Change fabric motion planning + correct action scale
+  5. [DONE] Future task: make `per_ep_instant` delayed/latching at reset (same logging style as `per_ep`) instead of immediate snapshot logging
+- Success metric findings (distillation):
+  - Current env `per_ep` / `per_ep_instant` are snapshot/latch style and can be misleading with variable episode lengths.
+  - Trainer early reset uses integer step streak (`count_reaching >= reaching_reset_threshold`), while env success uses float duration (`success_duration >= success_timeout`).
+  - Even after setting `success_timeout = reaching_reset_threshold * dt * controlFrequencyInv`, boundary precision can undercount success at reset (trainer sees success, env `per_ep` may still be false at exact threshold).
+  - Recommended fix: align success criterion to step-count logic in env logging path (or use an epsilon / slightly lower timeout) so trainer reset criterion and env success metric use the same event definition.
+- ~~Potential leak from non-scalar `env.extras` logging (`time_outs`)~~ [DONE: removed `time_outs` from extras; current extras/logged metrics are scalarized]
+
+### 2026-02-25 (New TODOs)
+- 1. Change teacher reward:
+  - start at 0.1 and gradually increase
+  - add stronger wrench
+  - see if we can do this to the sigmoid gated reward
+- 2. Implement multi-teacher specs
+- 3. Trim RL init poses
+- 4. Train left grasp and right grasp, based on an input to the policy
+- 5. Random init quaternion and pose
+- 6. Make target pose change
+- 7. Make hand quaternion change based on object pose
+- 8. Debug memory issue (still exists)
