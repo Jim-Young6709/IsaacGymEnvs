@@ -320,25 +320,6 @@ class DaggerMobile:
         else:
             obs['full_pcd_t'] = obs['gt_pcd_t']
 
-        # Viser debug utils
-        # env_id = self.env.viser_visualizer.env_id
-        # self.env.viser_visualizer.update_point_cloud(
-        #     point_cloud_type="rendered_points",
-        #     point_cloud=obs['full_pcd_t'][env_id].cpu().numpy()
-        # )
-        # self.env.viser_visualizer.update_point_cloud(
-        #     point_cloud_type="hand_pcd_t",
-        #     point_cloud=obs["hand_pcd_t"][env_id].cpu().numpy()
-        # )
-        # self.env.viser_visualizer.update_point_cloud(
-        #     point_cloud_type="seg_static_obsacles_t0",
-        #     point_cloud=obs["static_scene_pcd_t0"][env_id].cpu().numpy()
-        # )
-        # self.env.viser_visualizer.update_point_cloud(
-        #     point_cloud_type="seg_static_object_t0",
-        #     point_cloud=obs["object_pcd_t0"][env_id].cpu().numpy()
-        # )
-
         if "local_pcd_t" in self.pcd_encoders_keys:
             # Codex
             num_points = self.cfg.model.pcd_encoders_cfg["local_pcd_t"]["num_points"] # [num cylindrical points, num spherical eef points, num spherical aux points]
@@ -371,51 +352,12 @@ class DaggerMobile:
             aux_spherical_local_pcd_t, aux_spherical_crop_logs = crop_local_pcd(aux_full_pcd_shifted, local_aux_spherical_range, num_points[2], is_cylindrical=False) # (num_envs, num_local_points, 3)
             obs["local_aux_pcd_t"] = aux_spherical_local_pcd_t + aux_crop_origin.unsqueeze(1)
 
-        # env_id = self.env.viser_visualizer.env_id
-        # self.env.viser_visualizer.update_point_cloud(
-        #     point_cloud_type="rendered_points",
-        #     point_cloud=obs['full_pcd_t'][env_id].cpu().numpy()
-        # )
-        # self.env.viser_visualizer.update_point_cloud(
-        #     point_cloud_type="hand_pcd_t",
-        #     point_cloud=obs["local_eef_pcd_t"][env_id].cpu().numpy()
-        # )
-        # self.env.viser_visualizer.update_point_cloud(
-        #     point_cloud_type="seg_static_obsacles_t0",
-        #     point_cloud=obs["local_aux_pcd_t"][env_id].cpu().numpy()
-        # )
-        # self.env.viser_visualizer.update_point_cloud(
-        #     point_cloud_type="obj_point_t",
-        #     point_cloud=aux_crop_origin[env_id].reshape(1, 3).cpu().numpy()
-        # )
-
         # convert all pcd to franka base frame
         for key in obs.keys():
             if "pcd" in key:
                 pcd_shifted = obs[key] - franka_base_pos.unsqueeze(1) # (num_envs, N, 3)
                 pcd_base_frame = torch.bmm(pcd_shifted, rot_global2base) # (num_envs, N, 3), bmm is like matmul but specifically made for batches of 2D matrices, faster than matmul
                 obs[key] = pcd_base_frame
-
-        # Viser debug utils
-        # env_id = self.env.viser_visualizer.env_id
-        # self.env.viser_visualizer.update_point_cloud(
-        #     point_cloud_type="rendered_points",
-        #     point_cloud=obs['full_pcd_t'][env_id].cpu().numpy()
-        # )
-        # self.env.viser_visualizer.update_point_cloud(
-        #     point_cloud_type="hand_pcd_t",
-        #     point_cloud=obs["hand_pcd_t"][env_id].cpu().numpy()
-        # )
-        # self.env.viser_visualizer.update_point_cloud(
-        #     point_cloud_type="seg_static_obsacles_t0",
-        #     point_cloud=obs["static_scene_pcd_t0"][env_id].cpu().numpy()
-        # )
-        # self.env.viser_visualizer.update_point_cloud(
-        #     point_cloud_type="seg_static_object_t0",
-        #     point_cloud=obs["object_pcd_t0"][env_id].cpu().numpy()
-        # )
-        # self.env.viser_visualizer.wheel_odom_frame.position = franka_base_pos[env_id].cpu().numpy()
-        # self.env.viser_visualizer.wheel_odom_frame.wxyz = franka_base_quat[env_id, [3, 0, 1, 2]].cpu().numpy()
 
         obs_student = OrderedDict()
 
@@ -457,16 +399,6 @@ class DaggerMobile:
             obs_student["local_scene_pcd_t"], crop_logs = crop_local_pcd(obs["full_scene_pcd_t"], self.local_pcd_range[0], self.cfg.model.pcd_encoders_cfg["local_pcd_t"]["num_points"][0], is_cylindrical=True)
             if self.use_wandb:
                 wandb_logs.update(crop_logs)
-
-        # Viser debug utils
-        # vis_local_pcd_t = obs_student['local_pcd_t'].clone()
-        # vis_local_pcd_t = torch.bmm(vis_local_pcd_t, rot_global2base.transpose(1, 2)) # (num_envs, N, 3), bmm is like matmul but specifically made for batches of 2D matrices, faster than matmul
-        # vis_local_pcd_t = vis_local_pcd_t + franka_base_pos.unsqueeze(1) # (num_envs, N, 3)
-
-        # self.env.viser_visualizer.update_point_cloud(
-        #     point_cloud_type="local_point_t",
-        #     point_cloud=vis_local_pcd_t[env_id].cpu().numpy()
-        # )
 
         # for viser visualization
         # env_id = self.env.viser_visualizer.env_id
