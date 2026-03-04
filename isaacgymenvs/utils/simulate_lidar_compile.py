@@ -365,7 +365,7 @@ def simulate_lidar_render_from_pose(
     lidar_pose: torch.Tensor,  # (B,7): [x,y,z,qx,qy,qz,qw], world_T_lidar, +Z hemisphere
     num_points: int = 10000,
     num_azimuth: int = 512,
-    num_polar: int = 128,
+    num_polar: int = 512,
     near_m: float = 0.1,
     far_m: Optional[float] = 30.0,
     suppress_bins: int = 2,

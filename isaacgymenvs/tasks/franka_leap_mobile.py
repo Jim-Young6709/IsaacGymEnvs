@@ -826,8 +826,8 @@ class FrankaLEAPMobile(VecTask):
             sphere_pos = []
 
             # ground plane
-            cuboid_dims.append([2.0, 3.0, 0.001])
-            cuboid_pos.append([0.0, 0.0, -0.0005])
+            cuboid_dims.append([4.0, 6.0, 0.001])
+            cuboid_pos.append([-1.0, 0.0, -0.0005])
             cuboid_quats.append([0.0, 0.0, 0.0, 1.0])
 
             # adding distractor pos range when: side/under/behind the table

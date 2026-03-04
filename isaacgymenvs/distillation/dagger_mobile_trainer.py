@@ -276,6 +276,7 @@ class DaggerMobile:
         return checkpoint["train_success_rate_ep"]
 
     def preprocess_inputs(self, obs):
+        # TODO(Jim): need a deep cleanup here
         wandb_logs = {}
 
         # franka base states
@@ -286,10 +287,11 @@ class DaggerMobile:
 
         obs['gt_pcd_t'] = torch.cat([obs["full_scene_pcd_t"], obs["robot_pcd_t"]], dim=1) # ground truth pcd, sampled from mesh surfaces
 
-        if self.env.pcd_spec_dict['simulate_depth_cam']:
+        if self.env.pcd_spec_dict['simulate_sensor_pcd']:
             num_full_pcd_points = self.env.pcd_spec_dict['num_static_points'] + \
                                   self.env.pcd_spec_dict['num_robot_points'] + \
-                                  self.env.pcd_spec_dict['num_object_points']
+                                  self.env.pcd_spec_dict['num_object_points'] + \
+                                  self.env.pcd_spec_dict['num_distractor_points']
 
             camera_pose7 = self.env.states['camera_pose7'].clone() # (num_envs, 7)
             sim_depth_pcd, sim_depth_render_logs = simulate_depth_cam_render_from_pose(
@@ -298,10 +300,23 @@ class DaggerMobile:
                 num_points=num_full_pcd_points,
             )
 
+            # lidar pcd
+            lidar_pose7 = self.env.states["lidar_pose7"].clone() # (num_envs, 7)
+            sim_lidar_pcd, sim_lidar_render_logs = simulate_lidar_render_from_pose(
+                pcd=obs['gt_pcd_t'],
+                lidar_pose=lidar_pose7,
+                num_points=num_full_pcd_points,
+                num_azimuth=512,
+                num_polar=512,
+                suppress_bins=2,
+                jitter_std_m=0.001,
+            )
+
             if self.use_wandb:
                 wandb_logs.update(sim_depth_render_logs)
+                wandb_logs.update(sim_lidar_render_logs)
 
-            obs['full_pcd_t'] = sim_depth_pcd
+            obs['full_pcd_t'] = torch.cat([sim_depth_pcd, sim_lidar_pcd], dim=1)
         else:
             obs['full_pcd_t'] = obs['gt_pcd_t']
 
@@ -414,7 +429,7 @@ class DaggerMobile:
 
         if "full_pcd_t" in self.pcd_encoders_keys:
             num_points_full_pcd_t = self.cfg.model.pcd_encoders_cfg["full_pcd_t"]["num_points"]
-            if self.env.pcd_spec_dict['simulate_depth_cam']:
+            if self.env.pcd_spec_dict['simulate_sensor_pcd']:
                 full_pcd_t = obs["full_pcd_t"][:, :num_points_full_pcd_t]
                 # replace nan values as 0s
                 full_pcd_t_zero_padding = torch.nan_to_num(full_pcd_t, nan=0.0)
@@ -451,6 +466,29 @@ class DaggerMobile:
         # self.env.viser_visualizer.update_point_cloud(
         #     point_cloud_type="local_point_t",
         #     point_cloud=vis_local_pcd_t[env_id].cpu().numpy()
+        # )
+
+        # for viser visualization
+        # env_id = self.env.viser_visualizer.env_id
+        # self.env.viser_visualizer.update_point_cloud(
+        #     point_cloud_type="full_points", 
+        #     point_cloud=obs['gt_pcd_t'][env_id].cpu().numpy()
+        # )
+        # self.env.viser_visualizer.update_point_cloud(
+        #     point_cloud_type="rendered_full_points",
+        #     point_cloud=obs['full_pcd_t'][env_id].cpu().numpy()
+        # )
+        # self.env.viser_visualizer.update_point_cloud(
+        #     point_cloud_type="rendered_cam_points",
+        #     point_cloud=sim_depth_pcd[env_id].cpu().numpy()
+        # )
+        # self.env.viser_visualizer.update_point_cloud(
+        #     point_cloud_type="rendered_lidar_points",
+        #     point_cloud=sim_lidar_pcd[env_id].cpu().numpy()
+        # )
+        # self.env.viser_visualizer.update_point_cloud(
+        #     point_cloud_type="policy_input_points",
+        #     point_cloud=obs_student["local_pcd_t"][env_id].cpu().numpy()
         # )
 
         return obs_student, wandb_logs

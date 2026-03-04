@@ -422,7 +422,7 @@ class GlorbotSampler:
         self.device = device
         self.tidybot_links = [
             'front_panel', 'back_panel', 'left_panel', 'right_panel', 'top_panel',
-            # 'tidybot2_base_link', 'lidar', 'imu', 'franka_control_box',
+            'tidybot2_base_link', 'franka_control_box', #'lidar', 'imu', 
             # 'front_right_steer_link', 'front_right_drive_link', 'front_left_steer_link', 'front_left_drive_link', 
             # 'back_left_steer_link', 'back_left_drive_link', 'back_right_steer_link', 'back_right_drive_link',
         ]

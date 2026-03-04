@@ -90,6 +90,14 @@ class ViserVisualizer:
             precision="float16",
             visible=True,
         )
+        self._point_cloud_handle["policy_input_points"] = self.server.scene.add_point_cloud(
+            name="/policy_input_points",
+            points=np.zeros((0, 3), dtype=np.float16),
+            colors=(0, 0, 255),
+            point_size=0.01/3,
+            precision="float16",
+            visible=True,
+        )
         self._point_cloud_handle["seg_distractor_t0"] = self.server.scene.add_point_cloud(
             name="/seg_distractor_t0",
             points=np.zeros((0, 3), dtype=np.float16),
