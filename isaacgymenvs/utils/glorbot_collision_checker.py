@@ -4,6 +4,7 @@ Spherical collision checker for the 32-DoF mobile manipulator (Glorbot/Tidybot +
 """
 
 import argparse
+import time
 import numpy as np
 import torch
 
@@ -446,6 +447,99 @@ def test_visualize_spheres(
     return centers, radii
 
 
+def test_filter_pointcloud_outside_spheres(
+    urdf_path: str,
+    batch_size: int = 512,
+    num_points: int = 8192,
+    num_trials: int = 20,
+    warmup_trials: int = 5,
+    pointcloud_bound: float = 1.2,
+    device=None,
+):
+    """
+    Benchmark/filter test for `filter_pointcloud_outside_spheres`.
+
+    Randomly samples:
+      - pointclouds: uniform in [-pointcloud_bound, pointcloud_bound], shape (B, N, 3)
+      - joint angles: uniform in [-1, 1], shape (B, 32)
+
+    Prints timing and filtering statistics.
+    """
+    checker = GlorbotCollisionChecker(urdf_path=urdf_path, device=device)
+    dev = checker.device if isinstance(checker.device, torch.device) else torch.device(checker.device)
+    dof = len(checker.DEFAULT_JOINT_ORDER)
+
+    def _sample_inputs():
+        pcd = (
+            (torch.rand(batch_size, num_points, 3, device=dev, dtype=torch.float32) * 2.0) - 1.0
+        ) * pointcloud_bound
+        q = (torch.rand(batch_size, dof, device=dev, dtype=torch.float32) * 2.0) - 1.0
+        return pcd, q
+
+    # Warmup
+    for _ in range(max(warmup_trials, 0)):
+        pcd, q = _sample_inputs()
+        _ = checker.filter_pointcloud_outside_spheres(
+            pointclouds=pcd,
+            joint_angles=q,
+        )
+    if dev.type == "cuda":
+        torch.cuda.synchronize(dev)
+
+    # Timed trials
+    elapsed = []
+    kept_ratios = []
+    for _ in range(max(num_trials, 1)):
+        pcd, q = _sample_inputs()
+        if dev.type == "cuda":
+            torch.cuda.synchronize(dev)
+        t0 = time.perf_counter()
+        filtered = checker.filter_pointcloud_outside_spheres(
+            pointclouds=pcd,
+            joint_angles=q,
+        )
+        if dev.type == "cuda":
+            torch.cuda.synchronize(dev)
+        t1 = time.perf_counter()
+        elapsed.append(t1 - t0)
+
+        kept_mask = ~torch.isnan(filtered[..., 0])
+        kept_ratios.append(kept_mask.float().mean().item())
+
+    elapsed = np.asarray(elapsed, dtype=np.float64)
+    kept_ratios = np.asarray(kept_ratios, dtype=np.float64)
+    total_points = batch_size * num_points
+
+    print("[glorbot_collision_checker] Filter test complete")
+    print(f"  device: {dev}")
+    print(
+        f"  config: B={batch_size}, N={num_points}, total_points_per_trial={total_points}, "
+        f"trials={max(num_trials, 1)}, warmup={max(warmup_trials, 0)}, sdf_cutoff={0.02}"
+    )
+    print(
+        f"  time (ms): mean={elapsed.mean()*1000:.3f}, std={elapsed.std()*1000:.3f}, "
+        f"min={elapsed.min()*1000:.3f}, max={elapsed.max()*1000:.3f}"
+    )
+    print(
+        f"  throughput: {total_points/elapsed.mean():.1f} points/s "
+        f"(~{(total_points/elapsed.mean())/1e6:.3f} Mpoints/s)"
+    )
+    print(
+        f"  kept ratio: mean={kept_ratios.mean():.4f}, min={kept_ratios.min():.4f}, "
+        f"max={kept_ratios.max():.4f}"
+    )
+
+    return {
+        "time_s": elapsed,
+        "kept_ratio": kept_ratios,
+        "device": str(dev),
+        "batch_size": batch_size,
+        "num_points": num_points,
+        "num_trials": max(num_trials, 1),
+        "warmup_trials": max(warmup_trials, 0),
+    }
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Visualize Glorbot collision spheres.")
     parser.add_argument("--urdf_path", type=str, required=True, help="Path to robot URDF.")
@@ -477,7 +571,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--device",
         type=str,
-        default=None,
+        default="cuda",
         choices=[None, "cpu", "cuda"],
         help="Computation device.",
     )
@@ -486,18 +580,49 @@ if __name__ == "__main__":
         action="store_true",
         help="Disable Open3D viewer window.",
     )
+    parser.add_argument(
+        "--test_filter",
+        action="store_true",
+        help="Run random batched filter_pointcloud_outside_spheres timing test.",
+    )
+    parser.add_argument("--batch_size", type=int, default=512, help="Batch size for --test_filter.")
+    parser.add_argument("--num_points", type=int, default=8192, help="Num points for --test_filter.")
+    parser.add_argument("--num_trials", type=int, default=100, help="Timed trials for --test_filter.")
+    parser.add_argument(
+        "--warmup_trials",
+        type=int,
+        default=5,
+        help="Warmup trials (not timed) for --test_filter.",
+    )
+    parser.add_argument(
+        "--pointcloud_bound",
+        type=float,
+        default=1.2,
+        help="Uniform sampling bound for random pointclouds: [-b, b].",
+    )
     args = parser.parse_args()
 
     ja = None
     if args.joint_angles is not None and len(args.joint_angles) > 0:
         ja = torch.tensor(args.joint_angles, dtype=torch.float32)
 
-    test_visualize_spheres(
-        urdf_path=args.urdf_path,
-        joint_angles=ja,
-        device=args.device,
-        samples_per_sphere=args.samples_per_sphere,
-        sphere_noise=args.sphere_noise,
-        save_ply_path=args.save_ply,
-        show=(not args.no_show),
-    )
+    if args.test_filter:
+        test_filter_pointcloud_outside_spheres(
+            urdf_path=args.urdf_path,
+            batch_size=args.batch_size,
+            num_points=args.num_points,
+            num_trials=args.num_trials,
+            warmup_trials=args.warmup_trials,
+            pointcloud_bound=args.pointcloud_bound,
+            device=args.device,
+        )
+    else:
+        test_visualize_spheres(
+            urdf_path=args.urdf_path,
+            joint_angles=ja,
+            device=args.device,
+            samples_per_sphere=args.samples_per_sphere,
+            sphere_noise=args.sphere_noise,
+            save_ply_path=args.save_ply,
+            show=(not args.no_show),
+        )
