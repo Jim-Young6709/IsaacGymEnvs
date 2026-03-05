@@ -436,7 +436,7 @@ class GlorbotSampler:
             'thumb_temp_base', 'pip_4', 'dip_4', 'fingertip_4', 
         ]
         self.arx_links = [
-            # 'x5_base_link', 'link1', 'link2', 'link3', 'link4', 'link5', 'x5_camera_link',
+            'x5_base_link', 'link1', 'link2', 'link3', 'link4', 'link5', 'x5_camera_link',
         ]
 
         # Allowed link names
@@ -541,7 +541,7 @@ class GlorbotSampler:
 
     def sample(self, joint_angles, joint_mapping_list=None, num_points=None, hand_only=False):
         """
-        joint_angles: (B, 23) joint config
+        joint_angles: (B, 32) joint config
         joint_mapping_list: list[int], optional mapping to torch_urdf ordering
         returns: (B, num_points, 3) world-frame pointcloud
         """

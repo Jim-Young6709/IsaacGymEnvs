@@ -41,6 +41,7 @@ from isaacgymenvs.utils.pcd_utils import transform_pcds_to_world, compute_scene_
 from isaacgymenvs.utils.viser_visualizer import ViserVisualizer
 from isaacgymenvs.utils.simulate_depth_cam_compile import simulate_depth_cam_render_from_pose
 from isaacgymenvs.utils.simulate_lidar_compile import simulate_lidar_render_from_pose
+from isaacgymenvs.utils.glorbot_collision_checker import GlorbotCollisionChecker
 from omegaconf import DictConfig
 from tqdm import tqdm
 import random
@@ -326,6 +327,10 @@ class FrankaLEAPMobile(VecTask):
             urdf_path=full_robot_asset_path,
             device=self.device,
             num_points=self.pcd_spec_dict["num_robot_points"],
+        )
+        self.robot_spherical_representation = GlorbotCollisionChecker(
+            urdf_path=full_robot_asset_path,
+            device=self.device,
         )
 
         # load FrankaLEAP asset

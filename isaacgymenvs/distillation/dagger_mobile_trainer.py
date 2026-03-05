@@ -302,7 +302,7 @@ class DaggerMobile:
 
             # lidar pcd
             lidar_pose7 = self.env.states["lidar_pose7"].clone() # (num_envs, 7)
-            sim_lidar_pcd, sim_lidar_render_logs = simulate_lidar_render_from_pose(
+            sim_lidar_pcd_raw, sim_lidar_render_logs = simulate_lidar_render_from_pose(
                 pcd=obs['gt_pcd_t'],
                 lidar_pose=lidar_pose7,
                 num_points=num_full_pcd_points,
@@ -310,6 +310,12 @@ class DaggerMobile:
                 num_polar=512,
                 suppress_bins=2,
                 jitter_std_m=0.001,
+            )
+
+            # exclude robot pcd in the lidar pcd (cause in real world the robot lidar pcd is super messy and we are removing it)
+            sim_lidar_pcd = self.env.robot_spherical_representation.filter_pointcloud_outside_spheres(
+                pointclouds=sim_lidar_pcd_raw,
+                joint_angles=self.env.states['q'].clone(),
             )
 
             if self.use_wandb:
