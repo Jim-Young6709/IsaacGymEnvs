@@ -49,20 +49,11 @@ class GlorbotCollisionChecker:
         "x5_joint6",
     ]
 
-    # Collision model names for LEAP links sometimes differ from URDF link names.
-    DEFAULT_LINK_ALIASES = {
-        "palm_center": "palm_lower",
-        "mcp_joint_1": "mcp_1",
-        "mcp_joint_2": "mcp_2",
-        "mcp_joint_3": "mcp_3",
-    }
-
     def __init__(
         self,
         urdf_path: str,
         device,
         input_joint_names=None,
-        link_aliases=None,
     ):
         self.device = device
         self.robot = TorchURDF.load(urdf_path, lazy_load_meshes=True, device=self.device)
@@ -74,14 +65,7 @@ class GlorbotCollisionChecker:
         )
         self.robot_joint_names = [joint.name for joint in self.robot.actuated_joints]
         self.default_joint_mapping = self._build_joint_mapping()
-
-        self.link_aliases = dict(self.DEFAULT_LINK_ALIASES)
-        if link_aliases is not None:
-            self.link_aliases.update(link_aliases)
-
         self.collision_model = self.get_collision_model()
-        # Backward-compatible alias with your original variable name.
-        self.franka_collision_model = self.collision_model
 
         self._link_to_geometry = {}
         self._link_visual_origin_inv = {}
@@ -136,10 +120,9 @@ class GlorbotCollisionChecker:
         sphere_radii = []
         missing_links = []
 
-        for src_link_name, spheres in self.collision_model.items():
-            link_name = self.link_aliases.get(src_link_name, src_link_name)
+        for link_name, spheres in self.collision_model.items():
             if link_name not in self._link_to_geometry:
-                missing_links.append((src_link_name, link_name))
+                missing_links.append((link_name, link_name))
                 continue
 
             if link_name not in link_to_idx:
@@ -156,7 +139,6 @@ class GlorbotCollisionChecker:
             missing_str = ", ".join([f"{src}->{resolved}" for src, resolved in missing_links])
             raise ValueError(
                 f"Collision model references missing URDF links: {missing_str}. "
-                "Use link_aliases to remap names."
             )
 
         self._fk_links = link_names
@@ -288,17 +270,16 @@ class GlorbotCollisionChecker:
             ([0.016, -0.025, 0.025], 0.03),
             ([0.016, 0.025, -0.025], 0.03),
         ]
-
-        model["palm_center"] = [
-            ([0.018, 0.0, 0.01], 0.035),
-            ([0.018, -0.035, 0.01], 0.035),
-            ([0.018, 0.035, 0.01], 0.035),
-            ([-0.015, -0.025, 0.01], 0.032),
-            ([-0.015, 0.025, 0.01], 0.032),
+        model["palm_lower"] = [
+            ([-0.04, -0.035, 0.01], 0.035),
+            ([-0.04, -0.070, 0.01], 0.035),
+            ([-0.04,  0.0, 0.01], 0.035),
+            ([-0.070, -0.060, 0.01], 0.032),
+            ([-0.070, -0.010, 0.01], 0.032),
         ]
 
         for i in [1, 2, 3]:
-            model[f"mcp_joint_{i}"] = [([-0.025, 0.04, 0.015], 0.025)]
+            model[f"mcp_{i}"] = [([-0.025, 0.04, 0.015], 0.025)]
             model[f"pip_{i}"] = [([0.01, 0.0, -0.01], 0.02)]
             model[f"dip_{i}"] = [([0.01, -0.035, 0.015], 0.02)]
             model[f"fingertip_{i}"] = [([0.0, -0.035, 0.015], 0.02)]
@@ -363,7 +344,7 @@ class GlorbotCollisionChecker:
         self,
         pointclouds: torch.Tensor,
         joint_angles: torch.Tensor,
-        sdf_cutoff: float = 0.01,
+        sdf_cutoff: float = 0.02,
         joint_mapping_list=None,
         pad_value: float = torch.nan,
     ):
