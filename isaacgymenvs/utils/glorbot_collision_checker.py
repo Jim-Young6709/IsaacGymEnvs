@@ -348,6 +348,7 @@ class GlorbotCollisionChecker:
         sdf_cutoff: float = 0.02,
         joint_mapping_list=None,
         pad_value: float = torch.nan,
+        max_points_per_process: int = 5000,
     ):
         """
         Filter out points that are inside the robot sphere model (sdf < 0).
@@ -357,6 +358,8 @@ class GlorbotCollisionChecker:
             joint_angles: (B, 32) in input joint order.
             joint_mapping_list: optional index mapping to URDF joint order.
             pad_value: value used in padded output mode.
+            max_points_per_process: optional chunk size over N. If set and N is larger,
+                                    process pointcloud in chunks and concatenate.
 
         Returns:
             filtered pointcloud, and optionally mask/sdf.
@@ -369,11 +372,24 @@ class GlorbotCollisionChecker:
                 f"joint batch={spheres.centers.shape[0]}."
             )
 
-        sdf = spheres.sdf(pointclouds)  # (B, N)
-        outside_mask = sdf >= sdf_cutoff
+        B, N, _ = pointclouds.shape
+        if N <= max_points_per_process:
+            sdf = spheres.sdf(pointclouds)  # (B, N)
+            outside_mask = sdf >= sdf_cutoff
+            filtered = pointclouds.clone()
+            filtered[~outside_mask] = pad_value
+        else:
+            chunks = []
+            for start_idx in range(0, N, max_points_per_process):
+                end_idx = min(start_idx + max_points_per_process, N)
+                pointcloud_chunk = pointclouds[:, start_idx:end_idx, :]
+                sdf_chunk = spheres.sdf(pointcloud_chunk)  # (B, n_chunk)
+                outside_mask_chunk = sdf_chunk >= sdf_cutoff
+                filtered_chunk = pointcloud_chunk.clone()
+                filtered_chunk[~outside_mask_chunk] = pad_value
+                chunks.append(filtered_chunk)
+            filtered = torch.cat(chunks, dim=1)
 
-        filtered = pointclouds.clone()
-        filtered[~outside_mask] = pad_value
         filtered = filtered.to(pointclouds.device, dtype=pointclouds.dtype)
 
         return filtered

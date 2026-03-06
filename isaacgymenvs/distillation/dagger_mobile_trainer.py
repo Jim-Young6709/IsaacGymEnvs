@@ -53,6 +53,8 @@ class DaggerMobile:
                 cfg.task.env.video_logging.capture = False # note the actual video logging flag is in task env, not in general cfg.capture_video
                 cfg.graphics_device_id = -1
 
+            cfg.seed = max(cfg.seed, 1) * (self.global_rank + 1)
+
         self.cfg = cfg
         self.total_episodes = cfg.dagger.total_episodes
         self.steps_per_episode = int(cfg.dagger.steps_per_episode / cfg.chunk_size)
