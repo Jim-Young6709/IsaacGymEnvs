@@ -292,6 +292,7 @@ class DaggerMobile:
                                   self.env.pcd_spec_dict['num_robot_points'] + \
                                   self.env.pcd_spec_dict['num_object_points'] + \
                                   self.env.pcd_spec_dict['num_distractor_points']
+            num_full_pcd_points = min(10000, num_full_pcd_points)
 
             camera_pose7 = self.env.states['camera_pose7'].clone() # (num_envs, 7)
             sim_depth_pcd, sim_depth_render_logs = simulate_depth_cam_render_from_pose(
@@ -307,7 +308,7 @@ class DaggerMobile:
                 lidar_pose=lidar_pose7,
                 num_points=num_full_pcd_points,
                 num_azimuth=512,
-                num_polar=512,
+                num_polar=128,
                 suppress_bins=2,
                 jitter_std_m=0.001,
             )
