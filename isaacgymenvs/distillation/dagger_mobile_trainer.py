@@ -404,11 +404,6 @@ class DaggerMobile:
                     "local_spherical_crop_aux/min_num_valid_points": aux_spherical_crop_logs["local_spherical_crop/min_num_valid_points"],
                 })
 
-        elif "local_scene_pcd_t" in self.pcd_encoders_keys: # TODO: this is kinda outdated
-            obs_student["local_scene_pcd_t"], crop_logs = crop_local_pcd(obs["full_scene_pcd_t"], self.local_pcd_range[0], self.cfg.model.pcd_encoders_cfg["local_pcd_t"]["num_points"][0], is_cylindrical=True)
-            if self.use_wandb:
-                wandb_logs.update(crop_logs)
-
         # for viser visualization
         # env_id = self.env.viser_visualizer.env_id
         # self.env.viser_visualizer.update_point_cloud(
