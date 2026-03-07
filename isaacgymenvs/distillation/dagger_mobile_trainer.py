@@ -370,23 +370,10 @@ class DaggerMobile:
 
         obs_student = OrderedDict()
 
-        if "full_scene_pcd_t0" in self.pcd_encoders_keys:
-            obs["full_scene_pcd_t0"] = torch.cat([obs["static_scene_pcd_t0"], obs["object_pcd_t0"]], dim=1)
-
         for key in self.pcd_encoders_keys:
-            if key in ["static_scene_pcd_t0", "object_pcd_t0", "full_scene_pcd_t0", "full_scene_pcd_t", "robot_pcd_t", "hand_pcd_t"]:
+            if key in ["robot_pcd_t", "hand_pcd_t"]:
                 num_points_key = self.cfg.model.pcd_encoders_cfg[key]["num_points"]
                 obs_student[key] = downsample_pcd_batched(obs[key], num_points_key)
-
-        if "full_pcd_t" in self.pcd_encoders_keys:
-            num_points_full_pcd_t = self.cfg.model.pcd_encoders_cfg["full_pcd_t"]["num_points"]
-            if self.env.pcd_spec_dict['simulate_sensor_pcd']:
-                full_pcd_t = obs["full_pcd_t"][:, :num_points_full_pcd_t]
-                # replace nan values as 0s
-                full_pcd_t_zero_padding = torch.nan_to_num(full_pcd_t, nan=0.0)
-                obs_student["full_pcd_t"] = full_pcd_t_zero_padding
-            else:
-                obs_student["full_pcd_t"] = downsample_pcd_batched(obs["full_pcd_t"], num_points_full_pcd_t)
 
         if "local_pcd_t" in self.pcd_encoders_keys:
             # Codex
