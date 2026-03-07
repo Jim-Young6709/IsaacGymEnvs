@@ -305,6 +305,7 @@ def crop_local_pcd(
     local_range: torch.float,
     num_local_points: torch.int,
     is_cylindrical: bool = False,
+    x_direction_cutoff: torch.float = -0.5,
 ):
     """
     Crop the point cloud to a local region around the origin with 0 padding.
@@ -323,6 +324,10 @@ def crop_local_pcd(
         dist = torch.norm(masked_pcds, dim=-1)
     mask = dist < local_range # nan < X always returns false, so if there are nan values in pcd input, it get automatically filtered out
     masked_pcds[~mask] = float("nan")
+
+    if x_direction_cutoff is not None:
+        x_dir_mask = masked_pcds[:, :, 0] > x_direction_cutoff
+        masked_pcds[~x_dir_mask] = float("nan")
 
     # sort to get all the valid points
     is_valid = mask.int()
