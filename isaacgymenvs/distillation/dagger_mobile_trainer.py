@@ -550,13 +550,6 @@ class DaggerMobile:
                 if hasattr(self.env, "object_reset_mask"):
                     self.env.object_reset_mask[:] = False
 
-            # Viser debug utils
-            # env_id = self.env.viser_visualizer.env_id
-            # self.env.viser_visualizer.update_point_cloud(
-            #     point_cloud_type="obj_point_t",
-            #     point_cloud=obs_input_a0["objxyz_t0"][env_id].reshape(1, 3).cpu().numpy()
-            # )
-
             with torch.no_grad():
                 student_model = self.student_model.module if self.multi_gpu else self.student_model
                 student_model.eval()
@@ -732,13 +725,6 @@ class DaggerMobile:
                 else:
                     obs_input_a0["aux_object_state"] = self._get_object_center_pos_in_base_frame(use_initial_frame=self.aux_init_only)
 
-            # Viser debug utils
-            # env_id = self.env.viser_visualizer.env_id
-            # self.env.viser_visualizer.update_point_cloud(
-            #     point_cloud_type="obj_point_t",
-            #     point_cloud=obs_input_a0["objxyz_t0"][env_id].reshape(1, 3).cpu().numpy()
-            # )
-
             with torch.no_grad():
                 student_model = self.student_model.module if self.multi_gpu else self.student_model
                 student_model.eval()
@@ -748,32 +734,8 @@ class DaggerMobile:
                     self.aux_buffer[:] = self._decode_aux_prediction(output["aux"], obs_input_a0["aux_object_state"])
 
             for action_idx in range(self.chunk_size):
-                # # get teacher action
-                # teacher_obs = self.env.obs_buf.clone()
-                # batch_dict = {
-                #     "is_train": False,
-                #     "obs": teacher_obs,
-                #     "prev_actions": None,
-                # }
-
-                # is_deterministic = True
-
-                # with torch.no_grad():
-                #     res_dict = self.teacher_model(batch_dict)
-
-                # mu = res_dict['mus']
-                # action = res_dict['actions']
-                # self.states = res_dict['rnn_states']
-                # if is_deterministic:
-                #     teacher_actions = mu
-                # else:
-                #     teacher_actions = action
-                # teacher_actions = torch.clamp(teacher_actions, -self.env.clip_actions, self.env.clip_actions)
-                # self.env._pre_physics_step_teacher(teacher_actions)
-                # teacher_actions = self.env.teacher_actions_converted.clone()
-
                 student_actions = student_actions_chunk[:, action_idx, :]
-                step_actions = student_actions # for debugging purposes, this can be changed to teacher_actions to see teacher performance
+                step_actions = student_actions
                 # step with student actions
                 step_actions = torch.clamp(step_actions, -self.env.clip_actions, self.env.clip_actions)
 
@@ -829,7 +791,6 @@ class DaggerMobile:
                 if self.use_wandb:
                     wandb.log(metrics, step=self.total_steps)
 
-                # TODO: add args: save ckpt? frequency?
                 self.save_checkpoint(self.episode, metrics["metrics/success_rate_5cm_per_ep"], metrics.get("metrics/eval_lifting_rate_5cm_per_ep", None))
 
                 colorprint(f"Episode {self.episode + 1}/{self.total_episodes} completed in {timedelta(seconds=int(episode_time))}", color="magenta")
