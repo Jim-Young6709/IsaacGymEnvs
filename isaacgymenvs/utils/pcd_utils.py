@@ -305,19 +305,27 @@ def crop_local_pcd(
     local_range: torch.float,
     num_local_points: torch.int,
     is_cylindrical: bool = False,
+    crop_center: torch.Tensor = None,
     x_direction_cutoff: torch.float = -0.5,
+    log_name: str = "",
 ):
     """
     Crop the point cloud to a local region around the origin with 0 padding.
     Args:
         pcd: (B, N, 3) tensor
-        range: float, the radius of the local region
+        local_range: float, the radius of the local region
+        crop_center: (B, 3)
     """
     B, N, _ = pcd.shape
     device = pcd.device
 
+    if crop_center is None:
+        crop_center = torch.zeros((B, 3), device=pcd.device, dtype=pcd.dtype)
+    crop_center = crop_center.unsqueeze(1)
+    pcd_centered = pcd - crop_center
+
     # get local pcd
-    masked_pcds = shuffle_pcd(pcd)
+    masked_pcds = shuffle_pcd(pcd_centered)
     if is_cylindrical:
         dist = torch.norm(masked_pcds[..., :2], dim=-1)
     else:
@@ -341,14 +349,17 @@ def crop_local_pcd(
 
     crop_type = "cylindrical" if is_cylindrical else "spherical"
     logs = {
-        f"local_{crop_type}_crop/avg_num_valid_points": avg_num_valid_points.item(),
-        f"local_{crop_type}_crop/min_num_valid_points": min_num_valid_points.item(),
+        f"{log_name}_local_{crop_type}_crop/avg_num_valid_points": avg_num_valid_points.item(),
+        f"{log_name}_local_{crop_type}_crop/min_num_valid_points": min_num_valid_points.item(),
     }
 
     # replace nan values as 0s
     local_pcd_zero_padding = torch.nan_to_num(pcd_local_nan_padding, nan=0.0)
 
-    return local_pcd_zero_padding, logs
+    # shift the pcd back, TODO: note now the padded zeros will get shifted to the crop center, not sure if this is a good idea
+    cropped_pcd = local_pcd_zero_padding + crop_center
+
+    return cropped_pcd, logs
 
 
 def transform_pointcloud(pc, T):
