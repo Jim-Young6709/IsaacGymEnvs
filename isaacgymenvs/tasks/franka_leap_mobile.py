@@ -997,9 +997,8 @@ class FrankaLEAPMobile(VecTask):
         # Refresh states
         self.check_robot_collision()
         self._update_states()
-        # now viser visualizer is getting updated in distillation code
-        # if self.enable_viser:
-        #     self._update_viser_visualizer()
+        if self.enable_viser:
+            self._update_viser_visualizer()
 
     def _update_states(self):
         # update arm eef state
@@ -1965,63 +1964,65 @@ class FrankaLEAPMobile(VecTask):
         self.viser_visualizer.set_joint_positions(
             self.states['q'][env_id].cpu().numpy(),
         )
-        # (1, N, 3)
-        pcd_full_scene = self.combined_pcds[env_id:env_id+1] 
-        # (1, M, 3)
-        robot_pcd_t = self.robot_pcd_sampler.sample(self.states['q'][env_id:env_id+1], self.torchurdf_to_isaac_idx)
-        pcd_full = torch.cat([pcd_full_scene, robot_pcd_t], dim=1)
 
-        # (1, 7)
-        current_camera_pose = self.states["camera_pose7"][env_id:env_id+1]
-        sim_depth_pcd, logs = simulate_depth_cam_render_from_pose(
-            pcd=pcd_full,
-            camera_pose=current_camera_pose,
-            num_points=4096,
-        )
+        # pcds are now getting updated in distillation part
+        # # (1, N, 3)
+        # pcd_full_scene = self.combined_pcds[env_id:env_id+1] 
+        # # (1, M, 3)
+        # robot_pcd_t = self.robot_pcd_sampler.sample(self.states['q'][env_id:env_id+1], self.torchurdf_to_isaac_idx)
+        # pcd_full = torch.cat([pcd_full_scene, robot_pcd_t], dim=1)
 
-        lidar_link_pose = self.states["lidar_pose7"][env_id:env_id+1]
-        sim_lidar_pcd, logs = simulate_lidar_render_from_pose(
-            pcd=pcd_full,
-            lidar_pose=lidar_link_pose,
-            num_points=5000,
-            num_azimuth=512,
-            num_polar=128,
-            suppress_bins=2,
-            jitter_std_m=0.001,
-        )
+        # # (1, 7)
+        # current_camera_pose = self.states["camera_pose7"][env_id:env_id+1]
+        # sim_depth_pcd, logs = simulate_depth_cam_render_from_pose(
+        #     pcd=pcd_full,
+        #     camera_pose=current_camera_pose,
+        #     num_points=4096,
+        # )
 
-        rendered_full_pcd = torch.cat([sim_depth_pcd, sim_lidar_pcd], dim=1)
+        # lidar_link_pose = self.states["lidar_pose7"][env_id:env_id+1]
+        # sim_lidar_pcd, logs = simulate_lidar_render_from_pose(
+        #     pcd=pcd_full,
+        #     lidar_pose=lidar_link_pose,
+        #     num_points=5000,
+        #     num_azimuth=512,
+        #     num_polar=128,
+        #     suppress_bins=2,
+        #     jitter_std_m=0.001,
+        # )
 
-        self.viser_visualizer.update_point_cloud(
-            point_cloud_type="full_points", 
-            point_cloud=pcd_full[0].cpu().numpy()
-        )
-        self.viser_visualizer.update_point_cloud(
-            point_cloud_type="rendered_full_points",
-            point_cloud=rendered_full_pcd[0].cpu().numpy()
-        )
-        self.viser_visualizer.update_point_cloud(
-            point_cloud_type="rendered_cam_points",
-            point_cloud=sim_depth_pcd[0].cpu().numpy()
-        )
-        self.viser_visualizer.update_point_cloud(
-            point_cloud_type="rendered_lidar_points",
-            point_cloud=sim_lidar_pcd[0].cpu().numpy()
-        )
-        self.viser_visualizer.update_point_cloud(
-            point_cloud_type="obj_point_t",
-            point_cloud=self.states['object_pos'][env_id].reshape(1, 3).cpu().numpy()
-        )
-        if self.object_pcd_t0 is not None:
-            self.viser_visualizer.update_point_cloud(
-                point_cloud_type="seg_static_object_t0",
-                point_cloud=self.object_pcd_t0[env_id].cpu().numpy()
-            )
-        if self.distractor_settings["enable"]:
-            self.viser_visualizer.update_point_cloud(
-                point_cloud_type="seg_distractor_t0",
-                point_cloud=self.distractor_pcds[env_id].cpu().numpy()
-            )
+        # rendered_full_pcd = torch.cat([sim_depth_pcd, sim_lidar_pcd], dim=1)
+
+        # self.viser_visualizer.update_point_cloud(
+        #     point_cloud_type="full_points", 
+        #     point_cloud=pcd_full[0].cpu().numpy()
+        # )
+        # self.viser_visualizer.update_point_cloud(
+        #     point_cloud_type="rendered_full_points",
+        #     point_cloud=rendered_full_pcd[0].cpu().numpy()
+        # )
+        # self.viser_visualizer.update_point_cloud(
+        #     point_cloud_type="rendered_cam_points",
+        #     point_cloud=sim_depth_pcd[0].cpu().numpy()
+        # )
+        # self.viser_visualizer.update_point_cloud(
+        #     point_cloud_type="rendered_lidar_points",
+        #     point_cloud=sim_lidar_pcd[0].cpu().numpy()
+        # )
+        # self.viser_visualizer.update_point_cloud(
+        #     point_cloud_type="obj_point_t",
+        #     point_cloud=self.states['object_pos'][env_id].reshape(1, 3).cpu().numpy()
+        # )
+        # if self.object_pcd_t0 is not None:
+        #     self.viser_visualizer.update_point_cloud(
+        #         point_cloud_type="seg_static_object_t0",
+        #         point_cloud=self.object_pcd_t0[env_id].cpu().numpy()
+        #     )
+        # if self.distractor_settings["enable"]:
+        #     self.viser_visualizer.update_point_cloud(
+        #         point_cloud_type="seg_distractor_t0",
+        #         point_cloud=self.distractor_pcds[env_id].cpu().numpy()
+        #     )
 
     @abstractmethod
     def _create_envs(self, spacing, num_per_row):
