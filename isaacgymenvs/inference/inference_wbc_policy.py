@@ -11,6 +11,7 @@ from isaacgymenvs.inference.inference_utils import *
 
 TRANSFORMER_CONFIGS = {
     "seed": 42,
+    # "ckpt_path": "dagger_ckpts/grogu_ckpts/Feb28_wbc_tablemulti_newfabric_resetnoise_auxdelta_1024_0_1024_expFeb23.pt",
     "ckpt_path": "dagger_ckpts/grogu_ckpts/Mar7_wbc_tablemulti_resetnoise_auxdelta_2048_0_1024_expFeb23_40960distractor.pt",
 }
 
@@ -98,7 +99,7 @@ class WBCPolicyTransformer:
         self.model = instantiate(self.ckpt_cfg["model"]).to(self.device)
         self.model = self.model.to(self.device)
         self.has_aux_input = "aux_object_state" in self.ckpt_cfg.model.state_encoders_cfg
-        self.has_aux_prediction = bool(self.ckpt_cfg.model.get("aux_prediction", False))
+        self.has_aux_prediction = bool(self.ckpt_cfg.model.get("aux_weight", 0.0) > 0)
         self.aux_prediction_mode = str(self.ckpt_cfg.model.get("aux_prediction_mode", "absolute")).lower()
         self.aux_delta_scale = float(self.ckpt_cfg.model.get("aux_delta_scale", 0.01))
         if self.aux_prediction_mode not in ["absolute", "delta"]:
