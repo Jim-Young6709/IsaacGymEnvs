@@ -11,7 +11,7 @@ from isaacgymenvs.inference.inference_utils import *
 
 TRANSFORMER_CONFIGS = {
     "seed": 42,
-    "ckpt_path": "dagger_ckpts/grogu_ckpts/Feb9_wbc_tablemulti_aux_1024_0_1024_expJan22.pt",
+    "ckpt_path": "dagger_ckpts/grogu_ckpts/Mar7_wbc_tablemulti_resetnoise_auxdelta_2048_0_1024_expFeb23_40960distractor.pt",
 }
 
 
@@ -26,8 +26,9 @@ class WBCPolicyTransformer:
             success_rate_ep = self.load_checkpoint(load_checkpoint_path)
             colorprint(f"Loading ckpt from {load_checkpoint_path}: success_rate_ep={success_rate_ep}", color="magenta")
 
+        self.depth_pcd_ratio = self.ckpt_cfg["task"]["pcd_spec"].get("depth_pcd_ratio", 1.0)
         self.local_pcd_range = self.ckpt_cfg["dagger"]["local_pcd_range"]
-        self.num_local_points = 1024
+        self.num_local_points = 1024 # TODO: this var is outdated, cleanup later
         self.clip_actions = self.ckpt_cfg["task"]["env"]["clipActions"]
         self.action_scale = self.ckpt_cfg["task"]["env"]["actionScale"]
         # convert to python dict
@@ -74,7 +75,9 @@ class WBCPolicyTransformer:
         # Generate random point cloud in EEF frame (N, 3)
         N = self.num_local_points*2  
         # Random point cloud in [0, 1)
-        full_pcd_eef_frame_t = torch.rand(N, 3, device=self.device) 
+        depth_pcd_frankabase_frame_t = torch.rand(N, 3, device=self.device)
+        lidar_pcd_frankabase_frame_t = torch.rand(N, 3, device=self.device)
+
         # Generate random hand configuration (16,)
         q_hand = torch.rand(16, device=self.device)  # In [0, 1)
         q_arm_manip = torch.rand(7, device=self.device)  # In [0, 1)
@@ -85,7 +88,7 @@ class WBCPolicyTransformer:
         else:
             aux_inputs = None
 
-        return full_pcd_eef_frame_t, torch.zeros(3, device=self.device), q_hand, q_arm_manip, q_arm_vision, aux_inputs
+        return depth_pcd_frankabase_frame_t, lidar_pcd_frankabase_frame_t, torch.zeros(3, device=self.device), q_hand, q_arm_manip, q_arm_vision, aux_inputs
 
     def load_checkpoint(self, checkpoint_path):
         checkpoint = torch.load(checkpoint_path, map_location=self.device)
@@ -207,43 +210,46 @@ class WBCPolicyTransformer:
         """
 
         if "local_pcd_t" in self.ckpt_cfg["model"]["pcd_encoders_cfg"]:
-            # Codex
-            num_points = self.ckpt_cfg["model"]["pcd_encoders_cfg"]["local_pcd_t"]["num_points"] # [num cylindrical points, num spherical eef points, num spherical aux points]
-            num_cyl = int(num_points[0])
-            num_eef = int(num_points[1]) if len(num_points) > 1 else 0
-            num_aux = int(num_points[2]) if len(num_points) > 2 else 0
+            num_points = torch.tensor(self.ckpt_cfg["model"]["pcd_encoders_cfg"]["local_pcd_t"]["num_points"], device=self.device, dtype=torch.int) # [num cylindrical points, num spherical eef points, num spherical aux points]
+            num_points_dict = {}
+            num_points_dict['depth'] = (num_points * self.depth_pcd_ratio).to(torch.int)
+            num_points_dict['lidar'] = num_points - num_points_dict['depth']
+
             local_ranges = self.local_pcd_range
-            local_cyl_range = float(local_ranges[0])
-            local_eef_range = float(local_ranges[1]) if len(local_ranges) > 1 else float(local_ranges[0])
-            local_aux_range = float(local_ranges[2]) if len(local_ranges) > 2 else local_eef_range
+            local_pcd_parts = []
 
-            cylindrical_local_pcd_t, _ = crop_local_pcd(
-                obs_dict['full_pcd_frankabase_frame_t'],
-                local_cyl_range,
-                num_cyl,
-                is_cylindrical=True,
-            ) # (num_envs, num_local_points, 3)
-            spherical_local_pcd_t, _ = crop_local_pcd(
-                obs_dict['full_pcd_frankabase_frame_t'] - obs_dict['eef_xyz_frankabase_frame_t'],
-                local_eef_range,
-                num_eef,
-                is_cylindrical=False,
-            ) # (num_envs, num_local_points, 3)
-            spherical_local_pcd_t = spherical_local_pcd_t + obs_dict['eef_xyz_frankabase_frame_t']
+            for key in ['depth', 'lidar']:
+                if num_points_dict[key][1] > 0:
+                    eef_spherical_local_pcd_t, eef_spherical_crop_logs = crop_local_pcd(
+                        pcd=obs_dict[f'{key}_pcd_t'],
+                        local_range=local_ranges[1],
+                        num_local_points=num_points_dict[key][1],
+                        is_cylindrical=False,
+                        crop_center=obs_dict['eef_xyz_frankabase_frame_t'],
+                        log_name=f"eef{key}",
+                    ) # (num_envs, num_local_points, 3)
+                    local_pcd_parts.append(eef_spherical_local_pcd_t)
 
-            local_pcd_parts = [cylindrical_local_pcd_t, spherical_local_pcd_t]
+                if num_points_dict[key][2] > 0 and self.has_aux_input:
+                    aux_spherical_local_pcd_t, aux_spherical_crop_logs = crop_local_pcd(
+                        pcd=obs_dict[f'{key}_pcd_t'],
+                        local_range=local_ranges[2],
+                        num_local_points=num_points_dict[key][2],
+                        is_cylindrical=False,
+                        crop_center=obs_dict["aux_object_state"],
+                        log_name=f"aux{key}",
+                    ) # (num_envs, num_local_points, 3)
+                    local_pcd_parts.append(aux_spherical_local_pcd_t)
 
-            # Codex
-            if num_aux > 0 and self.has_aux_input:
-                aux_origin = obs_dict["aux_object_state"]
-                aux_spherical_local_pcd_t, _ = crop_local_pcd(
-                    obs_dict['full_pcd_frankabase_frame_t'] - aux_origin,
-                    local_aux_range,
-                    num_aux,
-                    is_cylindrical=False,
-                ) # (num_envs, num_local_points, 3)
-                aux_spherical_local_pcd_t = aux_spherical_local_pcd_t + aux_origin
-                local_pcd_parts.append(aux_spherical_local_pcd_t)
+                if num_points_dict[key][0] > 0:
+                    base_cylindrical_local_pcd_t, base_cylindrical_crop_logs = crop_local_pcd(
+                        pcd=obs_dict[f'{key}_pcd_t'],
+                        local_range=local_ranges[0],
+                        num_local_points=num_points_dict[key][0],
+                        is_cylindrical=True,
+                        log_name=f"base{key}",
+                    ) # (num_envs, num_local_points, 3)
+                    local_pcd_parts.append(base_cylindrical_local_pcd_t)
 
             obs_dict["local_pcd_t"] = torch.cat(local_pcd_parts, dim=1)
 
@@ -262,7 +268,7 @@ class WBCPolicyTransformer:
         step_actions = torch.clamp(student_actions, -self.clip_actions, self.clip_actions)
         return step_actions, aux_pred, obs_dict
 
-    def get_action(self, full_pcd_frankabase_frame_t, eef_xyz_frankabase_frame_t, q_hand, q_arm_manip, q_arm_vision, aux_inputs=None):
+    def get_action(self, depth_pcd_frankabase_frame_t, lidar_pcd_frankabase_frame_t, eef_xyz_frankabase_frame_t, q_hand, q_arm_manip, q_arm_vision, aux_inputs=None):
         """
         get the final action for execution
 
@@ -276,11 +282,12 @@ class WBCPolicyTransformer:
         """
 
         # reformatting inputs
-        assert full_pcd_frankabase_frame_t.dim() == 2 \
-            and full_pcd_frankabase_frame_t.size(0) >= self.num_local_points \
-            and full_pcd_frankabase_frame_t.size(1) == 3
+        assert depth_pcd_frankabase_frame_t.dim() == 2 \
+            and depth_pcd_frankabase_frame_t.size(0) >= self.num_local_points \
+            and depth_pcd_frankabase_frame_t.size(1) == 3
         # (1, N, 3)
-        full_pcd_frankabase_frame_t_b = full_pcd_frankabase_frame_t.unsqueeze(0).to(self.device)
+        depth_pcd_frankabase_frame_t_b = depth_pcd_frankabase_frame_t.unsqueeze(0).to(self.device)
+        lidar_pcd_frankabase_frame_t_b = lidar_pcd_frankabase_frame_t.unsqueeze(0).to(self.device) if lidar_pcd_frankabase_frame_t is not None else None
         eef_xyz_frankabase_frame_t_b = eef_xyz_frankabase_frame_t.unsqueeze(0).to(self.device)  # (1, 3)
         if self.has_aux_input:
             if aux_inputs is None:
@@ -298,7 +305,8 @@ class WBCPolicyTransformer:
         q_arm_vision_b = self.normalize_robot_joints(q_arm_vision.unsqueeze(0).to(self.device), robot="arx", delta=False) # (1, 7)
 
         obs_dict = OrderedDict([
-            ("full_pcd_frankabase_frame_t", full_pcd_frankabase_frame_t_b),
+            ("depth_pcd_t", depth_pcd_frankabase_frame_t_b),
+            ("lidar_pcd_t", lidar_pcd_frankabase_frame_t_b),
             ("eef_xyz_frankabase_frame_t", eef_xyz_frankabase_frame_t_b),
             ("aux_object_state", aux_inputs_b),
             ("q_arm_manip", q_arm_manip_b),
