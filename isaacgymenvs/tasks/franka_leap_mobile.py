@@ -997,8 +997,9 @@ class FrankaLEAPMobile(VecTask):
         # Refresh states
         self.check_robot_collision()
         self._update_states()
-        if self.enable_viser:
-            self._update_viser_visualizer()
+        # now viser visualizer is getting updated in distillation code
+        # if self.enable_viser:
+        #     self._update_viser_visualizer()
 
     def _update_states(self):
         # update arm eef state

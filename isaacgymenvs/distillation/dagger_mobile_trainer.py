@@ -406,27 +406,28 @@ class DaggerMobile:
             )
 
         # for viser visualization
-        # env_id = self.env.viser_visualizer.env_id
-        # self.env.viser_visualizer.update_point_cloud(
-        #     point_cloud_type="full_points", 
-        #     point_cloud=obs['gt_pcd_t'][env_id].cpu().numpy()
-        # )
-        # self.env.viser_visualizer.update_point_cloud(
-        #     point_cloud_type="rendered_full_points",
-        #     point_cloud=obs['full_pcd_t'][env_id].cpu().numpy()
-        # )
-        # self.env.viser_visualizer.update_point_cloud(
-        #     point_cloud_type="rendered_cam_points",
-        #     point_cloud=sim_depth_pcd[env_id].cpu().numpy()
-        # )
-        # self.env.viser_visualizer.update_point_cloud(
-        #     point_cloud_type="rendered_lidar_points",
-        #     point_cloud=sim_lidar_pcd[env_id].cpu().numpy()
-        # )
-        # self.env.viser_visualizer.update_point_cloud(
-        #     point_cloud_type="policy_input_points",
-        #     point_cloud=obs["local_pcd_t"][env_id].cpu().numpy()
-        # )
+        if self.env.enable_viser:
+            env_id = self.env.viser_visualizer.env_id
+            self.env.viser_visualizer.update_point_cloud(
+                point_cloud_type="full_points", 
+                point_cloud=obs['gt_pcd_t'][env_id].cpu().numpy()
+            )
+            self.env.viser_visualizer.update_point_cloud(
+                point_cloud_type="rendered_full_points",
+                point_cloud=obs['full_pcd_t'][env_id].cpu().numpy()
+            )
+            self.env.viser_visualizer.update_point_cloud(
+                point_cloud_type="rendered_cam_points",
+                point_cloud=sim_depth_pcd[env_id].cpu().numpy()
+            )
+            self.env.viser_visualizer.update_point_cloud(
+                point_cloud_type="rendered_lidar_points",
+                point_cloud=sim_lidar_pcd[env_id].cpu().numpy()
+            )
+            self.env.viser_visualizer.update_point_cloud(
+                point_cloud_type="policy_input_points",
+                point_cloud=obs["local_pcd_t"][env_id].cpu().numpy()
+            )
 
         # convert all pcd to franka base frame
         for key in obs.keys():
