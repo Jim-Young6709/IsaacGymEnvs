@@ -325,38 +325,30 @@ class DaggerMobile:
                 wandb_logs.update(sim_depth_render_logs)
                 wandb_logs.update(sim_lidar_render_logs)
 
+            obs['depth_pcd_t'] = sim_depth_pcd
+            obs['lidar_pcd_t'] = sim_lidar_pcd
             obs['full_pcd_t'] = torch.cat([sim_depth_pcd, sim_lidar_pcd], dim=1)
         else:
             obs['full_pcd_t'] = obs['gt_pcd_t']
 
         if "local_pcd_t" in self.pcd_encoders_keys:
-            # Codex
-            num_points = self.cfg.model.pcd_encoders_cfg["local_pcd_t"]["num_points"] # [num cylindrical points, num spherical eef points, num spherical aux points]
-            local_ranges = self.local_pcd_range
-            local_eef_spherical_range = local_ranges[1]
-            local_aux_spherical_range = local_ranges[2]
+            # get cropping params
+            num_points = torch.tensor(self.cfg.model.pcd_encoders_cfg["local_pcd_t"]["num_points"], device=self.device, dtype=torch.int) # [num cylindrical points, num spherical eef points, num spherical aux points]
+            depth_pcd_ratio = 0.5 # hardcoded to 0.5 for now
+            num_points_dict = {}
+            num_points_dict['depth'] = (num_points * depth_pcd_ratio).to(torch.int)
+            num_points_dict['lidar'] = num_points - num_points_dict['depth']
 
-            # get full pcd in eef frame (only xyz shifted, not rotated)
+            local_ranges = self.local_pcd_range # [base cylindrical crop range, eef spherical crop range, aux spherical crop range]
             eef_pos = self.env.states['eef_pos'] # (num_envs, 3)
-            eef_spherical_local_pcd_t, eef_spherical_crop_logs = crop_local_pcd(
-                pcd=obs['full_pcd_t'],
-                local_range=local_eef_spherical_range,
-                num_local_points=num_points[1],
-                is_cylindrical=False,
-                crop_center=eef_pos,
-                log_name="eef",
-            ) # (num_envs, num_local_points, 3)
-
-            # local eef pcd in global frame
-            obs["local_eef_pcd_t"] = eef_spherical_local_pcd_t
-
-            # Codex: aux-centered local pcd in global frame
+            # get aux origin
             aux_crop_origin = eef_pos
             if "aux_object_state" in self.state_encoders_keys:
                 noisy_object_center_pos = self.env.states["object_center_pos"].clone()
                 # add noise (-0.05m ~ 0.05m)
                 noisy_object_center_pos = noisy_object_center_pos + 0.1 * ( torch.rand(self.env.num_envs, 3, device=self.device) - 0.5 )
                 if not self._use_aux_feedback():
+                    # TODO: now we are having two different randomization for aux pcd and aux input to the policy, this should be fixed
                     aux_crop_origin = noisy_object_center_pos
                 else:
                     aux_crop_origin = self.aux_buffer.clone()
@@ -365,47 +357,53 @@ class DaggerMobile:
                     if hasattr(self.env, "object_reset_mask") and torch.any(self.env.object_reset_mask):
                         aux_crop_origin[self.env.object_reset_mask] = noisy_object_center_pos[self.env.object_reset_mask]
 
-            aux_spherical_local_pcd_t, aux_spherical_crop_logs = crop_local_pcd(
-                pcd=obs['full_pcd_t'],
-                local_range=local_aux_spherical_range,
-                num_local_points=num_points[2],
-                is_cylindrical=False,
-                crop_center=aux_crop_origin,
-                log_name="aux",
-            ) # (num_envs, num_local_points, 3)
+            for key in ['depth', 'lidar']:
+                eef_spherical_local_pcd_t, eef_spherical_crop_logs = crop_local_pcd(
+                    pcd=obs[f'{key}_pcd_t'],
+                    local_range=local_ranges[1],
+                    num_local_points=num_points_dict[key][1],
+                    is_cylindrical=False,
+                    crop_center=eef_pos,
+                    log_name=f"eef{key}",
+                ) # (num_envs, num_local_points, 3)
+                obs[f"local_eef{key}_pcd_t"] = eef_spherical_local_pcd_t # local eef pcd in global frame
 
-            # local aux pcd in global frame
-            obs["local_aux_pcd_t"] = aux_spherical_local_pcd_t
+                aux_spherical_local_pcd_t, aux_spherical_crop_logs = crop_local_pcd(
+                    pcd=obs[f'{key}_pcd_t'],
+                    local_range=local_ranges[2],
+                    num_local_points=num_points_dict[key][2],
+                    is_cylindrical=False,
+                    crop_center=aux_crop_origin,
+                    log_name=f"aux{key}",
+                ) # (num_envs, num_local_points, 3)
+                obs[f"local_aux{key}_pcd_t"] = aux_spherical_local_pcd_t # local aux pcd in global frame
 
-        # convert all pcd to franka base frame
-        for key in obs.keys():
-            if "pcd" in key:
-                pcd_shifted = obs[key] - franka_base_pos.unsqueeze(1) # (num_envs, N, 3)
-                pcd_base_frame = torch.bmm(pcd_shifted, rot_global2base) # (num_envs, N, 3), bmm is like matmul but specifically made for batches of 2D matrices, faster than matmul
-                obs[key] = pcd_base_frame
+                base_cylindrical_local_pcd_t, base_cylindrical_crop_logs = crop_local_pcd(
+                    pcd=obs[f'{key}_pcd_t'],
+                    local_range=local_ranges[0],
+                    num_local_points=num_points_dict[key][0],
+                    is_cylindrical=True,
+                    crop_center=franka_base_pos,
+                    log_name=f"base{key}",
+                ) # (num_envs, num_local_points, 3)
+                obs[f"local_base{key}_pcd_t"] = base_cylindrical_local_pcd_t # local base pcd in global frame
 
-        obs_student = OrderedDict()
+                if self.use_wandb:
+                    wandb_logs.update(eef_spherical_crop_logs)
+                    wandb_logs.update(aux_spherical_crop_logs)
+                    wandb_logs.update(base_cylindrical_crop_logs)
 
-        for key in self.pcd_encoders_keys:
-            if key in ["robot_pcd_t", "hand_pcd_t"]:
-                num_points_key = self.cfg.model.pcd_encoders_cfg[key]["num_points"]
-                obs_student[key] = downsample_pcd_batched(obs[key], num_points_key)
-
-        if "local_pcd_t" in self.pcd_encoders_keys:
-            # Codex
-            num_points = self.cfg.model.pcd_encoders_cfg["local_pcd_t"]["num_points"] # [num cylindrical points, num spherical eef points, num spherical aux points]
-            cylindrical_local_pcd_t, cylindrical_crop_logs = crop_local_pcd(obs['full_pcd_t'], self.local_pcd_range[0], num_points[0], is_cylindrical=True, log_name="base") # (num_envs, num_local_points, 3)
-            obs_student["local_pcd_t"] = torch.cat([cylindrical_local_pcd_t, obs["local_eef_pcd_t"], obs["local_aux_pcd_t"]], dim=1)
-
-            if self.use_wandb:
-                wandb_logs.update(cylindrical_crop_logs)
-                wandb_logs.update(eef_spherical_crop_logs)
-                wandb_logs.update({
-                    # Codex
-                    "local_spherical_crop_aux/avg_num_valid_points": aux_spherical_crop_logs["local_spherical_crop/avg_num_valid_points"],
-                    # Codex
-                    "local_spherical_crop_aux/min_num_valid_points": aux_spherical_crop_logs["local_spherical_crop/min_num_valid_points"],
-                })
+            obs["local_pcd_t"] = torch.cat(
+                [
+                    obs["local_basedepth_pcd_t"],
+                    obs["local_baselidar_pcd_t"],
+                    obs["local_eefdepth_pcd_t"],
+                    obs["local_eeflidar_pcd_t"],
+                    obs["local_auxdepth_pcd_t"],
+                    obs["local_auxlidar_pcd_t"],
+                ],
+                dim=1,
+            )
 
         # for viser visualization
         # env_id = self.env.viser_visualizer.env_id
@@ -427,8 +425,25 @@ class DaggerMobile:
         # )
         # self.env.viser_visualizer.update_point_cloud(
         #     point_cloud_type="policy_input_points",
-        #     point_cloud=obs_student["local_pcd_t"][env_id].cpu().numpy()
+        #     point_cloud=obs["local_pcd_t"][env_id].cpu().numpy()
         # )
+
+        # convert all pcd to franka base frame
+        for key in obs.keys():
+            if "pcd" in key:
+                pcd_shifted = obs[key] - franka_base_pos.unsqueeze(1) # (num_envs, N, 3)
+                pcd_base_frame = torch.bmm(pcd_shifted, rot_global2base) # (num_envs, N, 3), bmm is like matmul but specifically made for batches of 2D matrices, faster than matmul
+                obs[key] = pcd_base_frame
+
+        obs_student = OrderedDict()
+
+        for key in self.pcd_encoders_keys:
+            if key in ["robot_pcd_t", "hand_pcd_t"]:
+                num_points_key = self.cfg.model.pcd_encoders_cfg[key]["num_points"]
+                obs_student[key] = downsample_pcd_batched(obs[key], num_points_key)
+
+        if "local_pcd_t" in self.pcd_encoders_keys:
+            obs_student['local_pcd_t'] = obs['local_pcd_t']
 
         return obs_student, wandb_logs
 
