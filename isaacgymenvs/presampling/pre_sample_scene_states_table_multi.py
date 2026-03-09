@@ -111,14 +111,15 @@ class PresampleTableMultiEnvStates:
         cuboid_pos = self._to_numpy(self.env.cuboid_pos[env_idx]).reshape(-1, 3).astype(np.float32)
         cuboid_quats = self._to_numpy(self.env.cuboid_quats[env_idx]).reshape(-1, 4).astype(np.float32)
 
-        if cuboid_dims.shape[0] > 1:
-            table_x_min = cuboid_pos[0, 0] - 0.5 * cuboid_dims[0, 0]
-            other_x_min = cuboid_pos[1:, 0] - 0.5 * cuboid_dims[1:, 0]
-            invalid = other_x_min < table_x_min
-            if np.any(invalid):
-                cuboid_dims[1:][invalid] = np.array([0.001, 0.001, 0.001], dtype=np.float32)
-                cuboid_pos[1:][invalid] = np.array([0.0, 0.0, -100.0], dtype=np.float32)
-                cuboid_quats[1:][invalid] = np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float32)
+        # TODO: comment out for now, maybe no longer needed
+        # if cuboid_dims.shape[0] > 1:
+        #     table_x_min = cuboid_pos[0, 0] - 0.5 * cuboid_dims[0, 0]
+        #     other_x_min = cuboid_pos[1:, 0] - 0.5 * cuboid_dims[1:, 0]
+        #     invalid = other_x_min < table_x_min
+        #     if np.any(invalid):
+        #         cuboid_dims[1:][invalid] = np.array([0.001, 0.001, 0.001], dtype=np.float32)
+        #         cuboid_pos[1:][invalid] = np.array([0.0, 0.0, -100.0], dtype=np.float32)
+        #         cuboid_quats[1:][invalid] = np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float32)
 
         scene_pcd_params = self._build_scene_pcd_params(
             cuboid_dims=cuboid_dims,

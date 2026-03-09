@@ -181,7 +181,7 @@ class FrankaLEAPMobile(VecTask):
                     [0.0, -0.25*np.pi, 0.0, -0.75*np.pi, 0.0, 0.5*np.pi, 0.0] + \
                     # [0.0, 0.0, 0.0, -0.5 * np.pi, 0.0, 0.5 * np.pi, 0.0] + \
                     [0.0, 0.0, 0.0, 0.0,
-                     0.0, 0.0, 0.0, 0.0,
+                     0.0, 0.0, 1.0, 0.57,
                      0.0, 0.0, 0.0, 0.0,
                      0.0, 0.0, 0.0, 0.0,] + \
                     [0.0, 1.0, 2.0, -1.0, 0.0, 0.0]
@@ -1512,7 +1512,7 @@ class FrankaLEAPMobile(VecTask):
             teacher_actions_abs[self.fabric_switch_enable, :10] = abs_full_joint_actions_fabric[self.fabric_switch_enable, :10]
             teacher_actions_abs[self.fabric_switch_enable, 10:26] = self.canonical_joint_config[self.fabric_switch_enable, 10:26]
             teacher_actions_abs[:, 26:] = abs_full_joint_actions_fabric[:, 10:]
-            teacher_actions_abs[:, 1] = abs_full_joint_actions_fabric[:, 1] # always use fabric's base y action regardless of the switching status
+            teacher_actions_abs[:, :2] = abs_full_joint_actions_fabric[:, :2] # always use fabric's base action regardless of the switching status
 
         if self.distillation_mode:
             # get teacher actions for student to regress on
