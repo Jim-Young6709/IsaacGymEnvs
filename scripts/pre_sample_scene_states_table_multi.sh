@@ -3,11 +3,8 @@ set -euo pipefail
 
 # Set these two variables only.
 TABLE_HEIGHT_RANGES=(
-  "0.0 0.0"
-  "0.0 0.0"
-  "0.0 0.1"
-  "0.7 0.8"
-  "0.8 0.8"
+  "0.0 0.8"
+  "0.0 0.8"
   "0.0 0.8"
   "0.0 0.8"
   "0.0 0.8"
@@ -21,9 +18,9 @@ TABLE_HEIGHT_RANGES=(
 )
 NUM_ENVS_LIST=(1024)
 
-BASE_INIT_RANGE="[[-0.3, -0.5, -0.3], [-0.2, 0.5, 0.3]]"
+BASE_INIT_RANGE="[[-1.0, -0.5, -1.5], [-0.2, 0.5, 1.5]]"
 SEED=1
-TASK_NAME="table_multi_close"
+TASK_NAME="table_multi_Mar9"
 TEACHER_CKPT="./ckpts/exp_table_Feb23.pth"
 SCENE_DIR="./presampled_envs/scene_only"
 HEADLESS="True"
@@ -46,6 +43,7 @@ for num_envs in "${NUM_ENVS_LIST[@]}"; do
 
     python isaacgymenvs/presampling/pre_sample_scene_states_table_multi.py \
       num_envs="${num_envs}" task.env.scene.z_shift_range="[${z_min},${z_max}]" \
+      task.env.scene.mobile_obstacles.cuboids.num=1 \
       presample.output_hdf5_name="${hdf5_name}"
 
     if [[ "$SCENE_GEN_ONLY" == "False" ]]; then
@@ -55,7 +53,7 @@ for num_envs in "${NUM_ENVS_LIST[@]}"; do
         task.env.scene.hdf5_path="${scene_hdf5_path}" \
         presample.output_hdf5_name="${hdf5_name}" \
         presample.rand_cfg.base_init_range="${BASE_INIT_RANGE}" \
-        headless="${HEADLESS}"
+        headless=True
     fi
   done
 done
