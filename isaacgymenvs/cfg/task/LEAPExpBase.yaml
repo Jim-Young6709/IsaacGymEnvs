@@ -72,7 +72,7 @@ env:
       skip_prob: 0.3 # probability to skip adding distractors for a local region (under/side/behind the table)
       full_prob: 0.2 # probability to spawn a single large box that fully occupies the local distractor region
       table_extend: 0.5 # extended dims along table edges for distractors at the side/back
-      free_space_distractor_max_height: 1.0 # max z_height for distractors in free space, note this is not the actual height
+      free_space_distractor_max_height: 1.7 # max z_height for distractors in free space, note this is not the actual height
       num_distractors_per_region_range: [1, 4] # low & high inclusive
       cuboid_size_range: [[0.1, 0.1, 0.4], [0.4, 0.4, 0.8]]
       cylinder_size_range: [[0.1, 0.4], [0.2, 0.8]] # radius & height of the cylinder
