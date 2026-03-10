@@ -110,7 +110,7 @@ class PresampleTableMultiEnvStates:
 
         return scene_pcd_params
 
-    def _create_distractor_objects(self):
+    def _create_distractor_objects(self, env_idx):
         """
         create distractor objects under/behind/side the table to approximate real world setting
         since the robot will never interact with these objects, we only create pcd for them rather than actually spawning them in sim
@@ -191,49 +191,49 @@ class PresampleTableMultiEnvStates:
         table_size = self.env.table_size.cpu().numpy()
         table_extend = self.env.distractor_settings["params"]["table_extend"]
         max_z_height = self.env.distractor_settings["params"]["free_space_distractor_max_height"]
-        for i in range(self.num_envs):
-            # init lists
-            cuboid_dims = []  # xyz
-            cuboid_pos = []
-            cuboid_quats = [] # xyzw
 
-            cylinder_radii = []
-            cylinder_heights = []
-            cylinder_pos = []
-            cylinder_quats = []
+        # init lists
+        cuboid_dims = []  # xyz
+        cuboid_pos = []
+        cuboid_quats = [] # xyzw
 
-            sphere_radii = []
-            sphere_pos = []
+        cylinder_radii = []
+        cylinder_heights = []
+        cylinder_pos = []
+        cylinder_quats = []
 
-            # adding distractor pos range when: side/under/behind the table
-            table_x_min = table_pos[i][0] - table_size[i][0] / 2
-            table_x_max = table_pos[i][0] + table_size[i][0] / 2
-            table_y_min = table_pos[i][1] - table_size[i][1] / 2
-            table_y_max = table_pos[i][1] + table_size[i][1] / 2
-            table_z_min = table_pos[i][2] - table_size[i][2] / 2
+        sphere_radii = []
+        sphere_pos = []
 
-            distractor_pos_range_list = [
-                [ # side 1
-                    [table_x_min, table_y_min - table_extend, 0.0],
-                    [table_x_max + table_extend, table_y_min, max_z_height],
-                ],
-                [ # side 2
-                    [table_x_min, table_y_max, 0.0],
-                    [table_x_max + table_extend, table_y_max + table_extend, max_z_height],
-                ],
-                [ # behind
-                    [table_x_max, table_y_min, 0.0],
-                    [table_x_max + table_extend, table_y_max, max_z_height],
-                ],
-                [ # under
-                    [table_x_min, table_y_min, 0.0],
-                    [table_x_min + table_extend, table_y_max, table_z_min], # bias towards the front part of the table
-                ],
-            ]
+        # adding distractor pos range when: side/under/behind the table
+        table_x_min = table_pos[env_idx][0] - table_size[env_idx][0] / 2
+        table_x_max = table_pos[env_idx][0] + table_size[env_idx][0] / 2
+        table_y_min = table_pos[env_idx][1] - table_size[env_idx][1] / 2
+        table_y_max = table_pos[env_idx][1] + table_size[env_idx][1] / 2
+        table_z_min = table_pos[env_idx][2] - table_size[env_idx][2] / 2
 
-            # under the table
-            for subregion_distractor_pos_range in distractor_pos_range_list:
-                _sample_random_distractors(subregion_distractor_pos_range)
+        distractor_pos_range_list = [
+            [ # side 1
+                [table_x_min, table_y_min - table_extend, 0.0],
+                [table_x_max + table_extend, table_y_min, max_z_height],
+            ],
+            [ # side 2
+                [table_x_min, table_y_max, 0.0],
+                [table_x_max + table_extend, table_y_max + table_extend, max_z_height],
+            ],
+            [ # behind
+                [table_x_max, table_y_min, 0.0],
+                [table_x_max + table_extend, table_y_max, max_z_height],
+            ],
+            [ # under
+                [table_x_min, table_y_min, 0.0],
+                [table_x_min + table_extend, table_y_max, table_z_min], # bias towards the front part of the table
+            ],
+        ]
+
+        # under the table
+        for subregion_distractor_pos_range in distractor_pos_range_list:
+            _sample_random_distractors(subregion_distractor_pos_range)
 
         return (
             cuboid_dims,
@@ -272,11 +272,12 @@ class PresampleTableMultiEnvStates:
             distractor_cylinder_quats,
             distractor_sphere_radii,
             distractor_sphere_pos,
-        ) = self._create_distractor_objects()
+        ) = self._create_distractor_objects(env_idx)
 
-        cuboid_dims = np.concatenate([cuboid_dims, distractor_cuboid_dims], axis=0)
-        cuboid_pos = np.concatenate([cuboid_pos, distractor_cuboid_pos], axis=0)
-        cuboid_quats = np.concatenate([cuboid_quats, distractor_cuboid_quats], axis=0)
+        if len(distractor_cuboid_dims) > 0:
+            cuboid_dims = np.concatenate([cuboid_dims, distractor_cuboid_dims], axis=0)
+            cuboid_pos = np.concatenate([cuboid_pos, distractor_cuboid_pos], axis=0)
+            cuboid_quats = np.concatenate([cuboid_quats, distractor_cuboid_quats], axis=0)
 
         scene_pcd_params = self._build_scene_pcd_params(
             cuboid_dims=cuboid_dims,
