@@ -18,6 +18,10 @@ env:
     switch_pos_offset: [0.0, 0.0, 0.2]
     switch_tol: 0.2
 
+  distractor_settings:
+    params:
+      skip_prob: 1.0 # in full env all the distractors are actually loaded as obstacles, so only need to add the ground
+
   # no reset noise cause we are loading presampled init poses
   resetNoiseScale:
     leap: 0.0
@@ -27,6 +31,13 @@ env:
   numObservations: 49
   numStates: 94
   numActions: 22 # delta eef actions 6 (xyz, rpy) + normalized hand joint actions 16
+
+pcd_spec:
+  num_static_points: 20480
+  num_robot_points: 10240
+  num_object_points: 5120
+  num_distractor_points: 20480
+  simulate_sensor_pcd: True
 
 fabric:
   enable: True
