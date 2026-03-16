@@ -1,0 +1,49 @@
+{
+  "label": "dumpster_2",
+  "base_name": "dumpster_2",
+  "full_name": "dumpster_2_dumpster_2",
+  "category": "long",
+  "scale": 1.08,
+  "initial_urdf_scale": [
+    1.0,
+    1.0,
+    1.0
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.06173991,
+      0.06817945,
+      0.09546065
+    ],
+    "volume": 0.00032165402539037144,
+    "max_dim": 0.09546065
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.0666791028,
+      0.073633806,
+      0.103097502
+    ],
+    "volume": 0.0004051914356325556,
+    "max_dim": 0.103097502
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/dumpster_2/dumpster_2.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/dumpster_2/dumpster_2.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/dumpster_2/dumpster_2.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/dumpster_2/dumpster_2.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/dumpster_2_dumpster_2/dumpster_2_dumpster_2.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/dumpster_2_dumpster_2/dumpster_2_dumpster_2.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/dumpster_2_dumpster_2/dumpster_2_dumpster_2.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/dumpster_2_dumpster_2/dumpster_2_dumpster_2.urdf"
+    }
+  }
+}

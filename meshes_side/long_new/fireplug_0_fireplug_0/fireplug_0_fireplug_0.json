@@ -1,0 +1,49 @@
+{
+  "label": "fireplug_0",
+  "base_name": "fireplug_0",
+  "full_name": "fireplug_0_fireplug_0",
+  "category": "long",
+  "scale": 1.19,
+  "initial_urdf_scale": [
+    1.0,
+    1.0,
+    1.0
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.07405715,
+      0.08092909000000001,
+      0.13950791
+    ],
+    "volume": 0.0003793412214319813,
+    "max_dim": 0.13950791
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.0881280085,
+      0.09630561709999999,
+      0.16601441290000002
+    ],
+    "volume": 0.000639250273367096,
+    "max_dim": 0.16601441290000002
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/fireplug_0/fireplug_0.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/fireplug_0/fireplug_0.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/fireplug_0/fireplug_0.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/fireplug_0/fireplug_0.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/fireplug_0_fireplug_0/fireplug_0_fireplug_0.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/fireplug_0_fireplug_0/fireplug_0_fireplug_0.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/fireplug_0_fireplug_0/fireplug_0_fireplug_0.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/fireplug_0_fireplug_0/fireplug_0_fireplug_0.urdf"
+    }
+  }
+}

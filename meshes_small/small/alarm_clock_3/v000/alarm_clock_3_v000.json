@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "alarm_clock_3",
+  "base_name": "alarm_clock_3",
+  "full_name": "alarm_clock_3",
+  "category": "small",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-03-15 02:20:54",
+  "transform": {
+    "dilate_x": 0.7099999999999997,
+    "dilate_y": 1.2100000000000002,
+    "dilate_z": 0.5199999999999996,
+    "dilate_x_min": 0.47999999999999954,
+    "dilate_x_max": 0.94,
+    "dilate_y_min": 0.7399999999999998,
+    "dilate_y_max": 1.6800000000000006,
+    "dilate_z_min": 0.47999999999999954,
+    "dilate_z_max": 0.5599999999999996,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 0.47999999999999954,
+      "max": 0.94
+    },
+    "y": {
+      "min": 0.7399999999999998,
+      "max": 1.6800000000000006
+    },
+    "z": {
+      "min": 0.47999999999999954,
+      "max": 0.5599999999999996
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.07988498999999999,
+        0.07421748,
+        0.09819727
+      ],
+      "volume": 0.00025680908915961577,
+      "max_dim": 0.09819727
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.056718342899999975,
+        0.08980315080000001,
+        0.05106258039999996
+      ],
+      "volume": 0.00011472483801845334,
+      "max_dim": 0.08980315080000001
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/alarm_clock_3/v000/alarm_clock_3_v000.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/alarm_clock_3/v000/alarm_clock_3_v000.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/alarm_clock_3/v000/alarm_clock_3_v000.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/alarm_clock_3/v000/alarm_clock_3_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/alarm_clock_3/alarm_clock_3.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/alarm_clock_3/alarm_clock_3.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/alarm_clock_3/alarm_clock_3.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/alarm_clock_3/alarm_clock_3.urdf"
+    }
+  }
+}

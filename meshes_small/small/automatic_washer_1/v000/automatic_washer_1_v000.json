@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "automatic_washer_1",
+  "base_name": "automatic_washer_1",
+  "full_name": "automatic_washer_1",
+  "category": "small",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-03-15 02:29:30",
+  "transform": {
+    "dilate_x": 0.8099999999999998,
+    "dilate_y": 1.08,
+    "dilate_z": 0.5399999999999996,
+    "dilate_x_min": 0.47999999999999954,
+    "dilate_x_max": 1.1400000000000001,
+    "dilate_y_min": 0.6399999999999997,
+    "dilate_y_max": 1.5200000000000005,
+    "dilate_z_min": 0.37999999999999945,
+    "dilate_z_max": 0.6999999999999997,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 0.47999999999999954,
+      "max": 1.1400000000000001
+    },
+    "y": {
+      "min": 0.6399999999999997,
+      "max": 1.5200000000000005
+    },
+    "z": {
+      "min": 0.37999999999999945,
+      "max": 0.6999999999999997
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.05967787,
+        0.07606931,
+        0.07484973
+      ],
+      "volume": 0.0003290229121875122,
+      "max_dim": 0.07606931
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.04833907469999999,
+        0.08215485480000001,
+        0.04041885419999997
+      ],
+      "volume": 0.00015542779153408312,
+      "max_dim": 0.08215485480000001
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/automatic_washer_1/v000/automatic_washer_1_v000.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/automatic_washer_1/v000/automatic_washer_1_v000.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/automatic_washer_1/v000/automatic_washer_1_v000.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/automatic_washer_1/v000/automatic_washer_1_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/automatic_washer_1/automatic_washer_1.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/automatic_washer_1/automatic_washer_1.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/automatic_washer_1/automatic_washer_1.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/automatic_washer_1/automatic_washer_1.urdf"
+    }
+  }
+}

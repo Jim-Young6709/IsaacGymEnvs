@@ -1,0 +1,49 @@
+{
+  "label": "garbage_4",
+  "base_name": "garbage_4",
+  "full_name": "garbage_4_garbage_4",
+  "category": "long",
+  "scale": 1.2,
+  "initial_urdf_scale": [
+    1.0,
+    1.0,
+    1.0
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.06012162,
+      0.05615395,
+      0.11487671
+    ],
+    "volume": 0.00035443537782833834,
+    "max_dim": 0.11487671
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.072145944,
+      0.06738474,
+      0.137852052
+    ],
+    "volume": 0.0006124643328873686,
+    "max_dim": 0.137852052
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/garbage_4/garbage_4.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/garbage_4/garbage_4.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/garbage_4/garbage_4.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/garbage_4/garbage_4.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/garbage_4_garbage_4/garbage_4_garbage_4.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/garbage_4_garbage_4/garbage_4_garbage_4.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/garbage_4_garbage_4/garbage_4_garbage_4.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/garbage_4_garbage_4/garbage_4_garbage_4.urdf"
+    }
+  }
+}

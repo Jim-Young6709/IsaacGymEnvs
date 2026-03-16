@@ -1,0 +1,49 @@
+{
+  "label": "cider",
+  "base_name": "4",
+  "full_name": "cider_4",
+  "category": "long",
+  "scale": 0.13,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.41629697,
+      0.41629699,
+      0.99999997
+    ],
+    "volume": 0.092145607153344,
+    "max_dim": 0.99999997
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.0541186061,
+      0.0541186087,
+      0.1299999961
+    ],
+    "volume": 0.00020244389891589678,
+    "max_dim": 0.1299999961
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/cider/4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/cider/4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/cider/4.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_side/long/cider_4/cider_4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_side/long/cider_4/cider_4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_side/long/cider_4/cider_4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_side/long/cider_4/cider_4.urdf"
+    }
+  }
+}

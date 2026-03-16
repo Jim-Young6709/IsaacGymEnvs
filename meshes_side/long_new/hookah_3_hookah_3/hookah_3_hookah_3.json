@@ -1,0 +1,49 @@
+{
+  "label": "hookah_3",
+  "base_name": "hookah_3",
+  "full_name": "hookah_3_hookah_3",
+  "category": "long",
+  "scale": 1.32,
+  "initial_urdf_scale": [
+    1.0,
+    1.0,
+    1.0
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.06218641,
+      0.06230023,
+      0.14995157
+    ],
+    "volume": 0.00024220371104732822,
+    "max_dim": 0.14995157
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.0820860612,
+      0.0822363036,
+      0.19793607240000002
+    ],
+    "volume": 0.0005570607848901014,
+    "max_dim": 0.19793607240000002
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/hookah_3/hookah_3.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/hookah_3/hookah_3.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/hookah_3/hookah_3.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/hookah_3/hookah_3.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/hookah_3_hookah_3/hookah_3_hookah_3.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/hookah_3_hookah_3/hookah_3_hookah_3.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/hookah_3_hookah_3/hookah_3_hookah_3.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/hookah_3_hookah_3/hookah_3_hookah_3.urdf"
+    }
+  }
+}

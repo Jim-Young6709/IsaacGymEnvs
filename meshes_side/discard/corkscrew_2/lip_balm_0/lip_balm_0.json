@@ -1,0 +1,49 @@
+{
+  "label": "lip_balm",
+  "base_name": "0",
+  "full_name": "lip_balm_0",
+  "category": "long",
+  "scale": 0.17,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.2892684,
+      0.2803139,
+      0.99973592
+    ],
+    "volume": 0.06616138831228703,
+    "max_dim": 0.99973592
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.049175628000000006,
+      0.047653363000000004,
+      0.1699551064
+    ],
+    "volume": 0.0003250509007782663,
+    "max_dim": 0.1699551064
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/lip_balm/0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/lip_balm/0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/lip_balm/0.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/lip_balm_0/lip_balm_0.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/lip_balm_0/lip_balm_0.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/lip_balm_0/lip_balm_0.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/lip_balm_0/lip_balm_0.urdf"
+    }
+  }
+}

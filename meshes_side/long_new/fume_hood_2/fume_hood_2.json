@@ -1,0 +1,49 @@
+{
+  "label": "fume_hood",
+  "base_name": "2",
+  "full_name": "fume_hood_2",
+  "category": "long",
+  "scale": 0.09,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.83551146,
+      0.5865917700000001,
+      0.9833007
+    ],
+    "volume": 0.3082282671408786,
+    "max_dim": 0.9833007
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.0751960314,
+      0.0527932593,
+      0.088497063
+    ],
+    "volume": 0.00022469840674570044,
+    "max_dim": 0.088497063
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/fume_hood/2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/fume_hood/2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/fume_hood/2.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/fume_hood_2/fume_hood_2.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/fume_hood_2/fume_hood_2.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/fume_hood_2/fume_hood_2.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/fume_hood_2/fume_hood_2.urdf"
+    }
+  }
+}

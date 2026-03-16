@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "apple_3",
+  "base_name": "apple_3",
+  "full_name": "apple_3",
+  "category": "small",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-03-15 02:24:13",
+  "transform": {
+    "dilate_x": 0.5599999999999996,
+    "dilate_y": 0.8599999999999999,
+    "dilate_z": 0.5099999999999996,
+    "dilate_x_min": 0.37999999999999945,
+    "dilate_x_max": 0.7399999999999998,
+    "dilate_y_min": 0.5599999999999996,
+    "dilate_y_max": 1.1600000000000001,
+    "dilate_z_min": 0.37999999999999945,
+    "dilate_z_max": 0.6399999999999997,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 0.37999999999999945,
+      "max": 0.7399999999999998
+    },
+    "y": {
+      "min": 0.5599999999999996,
+      "max": 1.1600000000000001
+    },
+    "z": {
+      "min": 0.37999999999999945,
+      "max": 0.6399999999999997
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.10631195,
+        0.10832208,
+        0.09885324
+      ],
+      "volume": 0.0005986367414900199,
+      "max_dim": 0.10832208
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.05953469199999996,
+        0.09315698879999998,
+        0.050415152399999955
+      ],
+      "volume": 0.0001470347618978125,
+      "max_dim": 0.09315698879999998
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/apple_3/v000/apple_3_v000.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/apple_3/v000/apple_3_v000.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/apple_3/v000/apple_3_v000.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/apple_3/v000/apple_3_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/apple_3/apple_3.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/apple_3/apple_3.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/apple_3/apple_3.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/apple_3/apple_3.urdf"
+    }
+  }
+}

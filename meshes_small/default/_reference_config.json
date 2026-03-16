@@ -1,0 +1,14 @@
+{
+  "category": "default",
+  "timestamp": "2026-03-14 15:01:12",
+  "min": {
+    "x_dim": 0.025,
+    "y_dim": 0.045,
+    "height": 0.035
+  },
+  "max": {
+    "x_dim": 0.075,
+    "y_dim": 0.125,
+    "height": 0.05
+  }
+}

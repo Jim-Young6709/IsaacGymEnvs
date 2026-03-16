@@ -1,0 +1,49 @@
+{
+  "label": "olive_oil_2",
+  "base_name": "olive_oil_2",
+  "full_name": "olive_oil_2_olive_oil_2",
+  "category": "long",
+  "scale": 1.26,
+  "initial_urdf_scale": [
+    1.0,
+    1.0,
+    1.0
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.05297125,
+      0.05297126,
+      0.20993879
+    ],
+    "volume": 5.3594890457117536e-05,
+    "max_dim": 0.20993879
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.066743775,
+      0.06674378759999999,
+      0.26452287539999997
+    ],
+    "volume": 0.00010720993259304701,
+    "max_dim": 0.26452287539999997
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/olive_oil_2/olive_oil_2.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/olive_oil_2/olive_oil_2.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/olive_oil_2/olive_oil_2.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/olive_oil_2/olive_oil_2.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/olive_oil_2_olive_oil_2/olive_oil_2_olive_oil_2.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/olive_oil_2_olive_oil_2/olive_oil_2_olive_oil_2.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/olive_oil_2_olive_oil_2/olive_oil_2_olive_oil_2.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/olive_oil_2_olive_oil_2/olive_oil_2_olive_oil_2.urdf"
+    }
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "label": "bolt",
+  "base_name": "1",
+  "full_name": "bolt_1",
+  "category": "long",
+  "scale": 1.48,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.05107810300000001,
+      0.051078102,
+      0.097876254
+    ],
+    "volume": 0.00017267630550627913,
+    "max_dim": 0.097876254
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.07559559244000001,
+      0.07559559096,
+      0.14485685592
+    ],
+    "volume": 0.0005597806657798116,
+    "max_dim": 0.14485685592
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/bolt/1.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/bolt/1.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/bolt/1.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/bolt/1.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_side/long/bolt_1/bolt_1.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_side/long/bolt_1/bolt_1.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_side/long/bolt_1/bolt_1.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_side/long/bolt_1/bolt_1.urdf"
+    }
+  }
+}

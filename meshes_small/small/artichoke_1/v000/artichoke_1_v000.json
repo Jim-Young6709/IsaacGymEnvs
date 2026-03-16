@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "artichoke_1",
+  "base_name": "artichoke_1",
+  "full_name": "artichoke_1",
+  "category": "small",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-03-15 02:28:02",
+  "transform": {
+    "dilate_x": 0.7199999999999998,
+    "dilate_y": 1.5300000000000005,
+    "dilate_z": 0.8999999999999999,
+    "dilate_x_min": 0.47999999999999954,
+    "dilate_x_max": 0.96,
+    "dilate_y_min": 0.96,
+    "dilate_y_max": 2.100000000000001,
+    "dilate_z_min": 0.7999999999999998,
+    "dilate_z_max": 1.0,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 0.47999999999999954,
+      "max": 0.96
+    },
+    "y": {
+      "min": 0.96,
+      "max": 2.100000000000001
+    },
+    "z": {
+      "min": 0.7999999999999998,
+      "max": 1.0
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.088505,
+        0.06737272,
+        0.05370392
+      ],
+      "volume": 0.00013674665432220073,
+      "max_dim": 0.088505
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.06372359999999998,
+        0.10308026160000003,
+        0.048333528
+      ],
+      "volume": 0.0001355761029612027,
+      "max_dim": 0.10308026160000003
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/artichoke_1/v000/artichoke_1_v000.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/artichoke_1/v000/artichoke_1_v000.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/artichoke_1/v000/artichoke_1_v000.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/artichoke_1/v000/artichoke_1_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/artichoke_1/artichoke_1.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/artichoke_1/artichoke_1.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/artichoke_1/artichoke_1.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/artichoke_1/artichoke_1.urdf"
+    }
+  }
+}

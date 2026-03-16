@@ -1,0 +1,49 @@
+{
+  "label": "gelatin",
+  "base_name": "4",
+  "full_name": "gelatin_4",
+  "category": "long",
+  "scale": 1.0,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.07127244,
+      0.071729926,
+      0.10008389499999999
+    ],
+    "volume": 0.0002926787061114617,
+    "max_dim": 0.10008389499999999
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.07127244,
+      0.071729926,
+      0.10008389499999999
+    ],
+    "volume": 0.0002926787061114617,
+    "max_dim": 0.10008389499999999
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/gelatin/4.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/gelatin/4.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/gelatin/4.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/gelatin/4.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/gelatin_4/gelatin_4.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/gelatin_4/gelatin_4.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/gelatin_4/gelatin_4.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/gelatin_4/gelatin_4.urdf"
+    }
+  }
+}

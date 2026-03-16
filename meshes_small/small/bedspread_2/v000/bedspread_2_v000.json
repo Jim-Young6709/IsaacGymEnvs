@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "bedspread_2",
+  "base_name": "bedspread_2",
+  "full_name": "bedspread_2",
+  "category": "small",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-03-15 02:57:28",
+  "transform": {
+    "dilate_x": 0.8799999999999999,
+    "dilate_y": 0.7999999999999998,
+    "dilate_z": 0.8899999999999999,
+    "dilate_x_min": 0.5799999999999996,
+    "dilate_x_max": 1.1800000000000002,
+    "dilate_y_min": 0.49999999999999956,
+    "dilate_y_max": 1.1,
+    "dilate_z_min": 0.7799999999999998,
+    "dilate_z_max": 1.0,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 0.5799999999999996,
+      "max": 1.1800000000000002
+    },
+    "y": {
+      "min": 0.49999999999999956,
+      "max": 1.1
+    },
+    "z": {
+      "min": 0.7799999999999998,
+      "max": 1.0
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.06080290000000001,
+        0.09974440000000001,
+        0.05362704
+      ],
+      "volume": 0.0003217603130772813,
+      "max_dim": 0.09974440000000001
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.053506552,
+        0.07979551999999998,
+        0.047728065599999994
+      ],
+      "volume": 0.00020160214176170123,
+      "max_dim": 0.07979551999999998
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/bedspread_2/v000/bedspread_2_v000.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/bedspread_2/v000/bedspread_2_v000.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/bedspread_2/v000/bedspread_2_v000.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/bedspread_2/v000/bedspread_2_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/bedspread_2/bedspread_2.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/bedspread_2/bedspread_2.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/bedspread_2/bedspread_2.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/bedspread_2/bedspread_2.urdf"
+    }
+  }
+}

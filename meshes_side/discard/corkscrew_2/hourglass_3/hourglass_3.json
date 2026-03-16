@@ -1,0 +1,49 @@
+{
+  "label": "hourglass",
+  "base_name": "3",
+  "full_name": "hourglass_3",
+  "category": "long",
+  "scale": 1.0,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.051110708000000005,
+      0.051110708000000005,
+      0.099972424
+    ],
+    "volume": 0.00019564648595950945,
+    "max_dim": 0.099972424
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.051110708000000005,
+      0.051110708000000005,
+      0.099972424
+    ],
+    "volume": 0.00019564648595950945,
+    "max_dim": 0.099972424
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/hourglass/3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/hourglass/3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/hourglass/3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/hourglass/3.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/hourglass_3/hourglass_3.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/hourglass_3/hourglass_3.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/hourglass_3/hourglass_3.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/hourglass_3/hourglass_3.urdf"
+    }
+  }
+}

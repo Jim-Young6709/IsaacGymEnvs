@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "basketball_3",
+  "base_name": "basketball_3",
+  "full_name": "basketball_3",
+  "category": "small",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-03-15 02:47:21",
+  "transform": {
+    "dilate_x": 0.6699999999999997,
+    "dilate_y": 1.0,
+    "dilate_z": 0.4499999999999995,
+    "dilate_x_min": 0.47999999999999954,
+    "dilate_x_max": 0.8599999999999999,
+    "dilate_y_min": 0.6399999999999997,
+    "dilate_y_max": 1.3600000000000003,
+    "dilate_z_min": 0.37999999999999945,
+    "dilate_z_max": 0.5199999999999996,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 0.47999999999999954,
+      "max": 0.8599999999999999
+    },
+    "y": {
+      "min": 0.6399999999999997,
+      "max": 1.3600000000000003
+    },
+    "z": {
+      "min": 0.37999999999999945,
+      "max": 0.5199999999999996
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.10056593,
+        0.10056596000000001,
+        0.09999482
+      ],
+      "volume": 0.0005263574081085847,
+      "max_dim": 0.10056596000000001
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.06737917309999997,
+        0.10056596000000001,
+        0.04499766899999995
+      ],
+      "volume": 0.00015869675854473806,
+      "max_dim": 0.10056596000000001
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/basketball_3/v000/basketball_3_v000.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/basketball_3/v000/basketball_3_v000.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/basketball_3/v000/basketball_3_v000.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/basketball_3/v000/basketball_3_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/basketball_3/basketball_3.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/basketball_3/basketball_3.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/basketball_3/basketball_3.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/basketball_3/basketball_3.urdf"
+    }
+  }
+}

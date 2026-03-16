@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "bathtub_2",
+  "base_name": "bathtub_2",
+  "full_name": "bathtub_2",
+  "category": "small",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-03-15 02:49:23",
+  "transform": {
+    "dilate_x": 1.06,
+    "dilate_y": 1.1800000000000002,
+    "dilate_z": 1.2100000000000002,
+    "dilate_x_min": 0.96,
+    "dilate_x_max": 1.1600000000000001,
+    "dilate_y_min": 0.96,
+    "dilate_y_max": 1.4000000000000004,
+    "dilate_z_min": 0.96,
+    "dilate_z_max": 1.4600000000000004,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 90.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 0.96,
+      "max": 1.1600000000000001
+    },
+    "y": {
+      "min": 0.96,
+      "max": 1.4000000000000004
+    },
+    "z": {
+      "min": 0.96,
+      "max": 1.4600000000000004
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.10000001,
+        0.04705882,
+        0.03352937
+      ],
+      "volume": 0.00011131786594022926,
+      "max_dim": 0.10000001
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.05552940760000001,
+        0.1060000106,
+        0.04057053770000001
+      ],
+      "volume": 0.00016847602792882693,
+      "max_dim": 0.1060000106
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/bathtub_2/v000/bathtub_2_v000.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/bathtub_2/v000/bathtub_2_v000.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/bathtub_2/v000/bathtub_2_v000.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/bathtub_2/v000/bathtub_2_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/bathtub_2/bathtub_2.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/bathtub_2/bathtub_2.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/bathtub_2/bathtub_2.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/bathtub_2/bathtub_2.urdf"
+    }
+  }
+}

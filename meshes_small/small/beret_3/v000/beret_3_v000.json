@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "beret_3",
+  "base_name": "beret_3",
+  "full_name": "beret_3",
+  "category": "small",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-03-15 03:00:47",
+  "transform": {
+    "dilate_x": 0.7199999999999998,
+    "dilate_y": 1.07,
+    "dilate_z": 0.4599999999999995,
+    "dilate_x_min": 0.6199999999999997,
+    "dilate_x_max": 0.8199999999999998,
+    "dilate_y_min": 0.7199999999999998,
+    "dilate_y_max": 1.4200000000000004,
+    "dilate_z_min": 0.35999999999999943,
+    "dilate_z_max": 0.5599999999999996,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 0.6199999999999997,
+      "max": 0.8199999999999998
+    },
+    "y": {
+      "min": 0.7199999999999998,
+      "max": 1.4200000000000004
+    },
+    "z": {
+      "min": 0.35999999999999943,
+      "max": 0.5599999999999996
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.07986422,
+        0.07986423000000001,
+        0.0912734
+      ],
+      "volume": 0.0005069223498990919,
+      "max_dim": 0.0912734
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.05750223839999998,
+        0.08545472610000002,
+        0.04198576399999996
+      ],
+      "volume": 0.00017964517004663962,
+      "max_dim": 0.08545472610000002
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/beret_3/v000/beret_3_v000.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/beret_3/v000/beret_3_v000.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/beret_3/v000/beret_3_v000.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/beret_3/v000/beret_3_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/beret_3/beret_3.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/beret_3/beret_3.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/beret_3/beret_3.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/beret_3/beret_3.urdf"
+    }
+  }
+}

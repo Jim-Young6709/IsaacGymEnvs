@@ -1,0 +1,49 @@
+{
+  "label": "corkscrew",
+  "base_name": "3",
+  "full_name": "corkscrew_3",
+  "category": "long",
+  "scale": 0.22,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 180.0,
+    "z": 0.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.26469151,
+      0.27053934999999996,
+      1.0000012
+    ],
+    "volume": 0.03500564608527236,
+    "max_dim": 1.0000012
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.058232132199999995,
+      0.059518657,
+      0.220000264
+    ],
+    "volume": 0.00037274011951598016,
+    "max_dim": 0.220000264
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/corkscrew/3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/corkscrew/3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/corkscrew/3.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_side/long/corkscrew_3/corkscrew_3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_side/long/corkscrew_3/corkscrew_3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_side/long/corkscrew_3/corkscrew_3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_side/long/corkscrew_3/corkscrew_3.urdf"
+    }
+  }
+}

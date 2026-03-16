@@ -1,0 +1,49 @@
+{
+  "label": "coffee_table",
+  "base_name": "0",
+  "full_name": "coffee_table_0",
+  "category": "long",
+  "scale": 1.0,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.55115004,
+      0.98662935,
+      0.37208093
+    ],
+    "volume": 0.158202666511345,
+    "max_dim": 0.98662935
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.55115004,
+      0.98662935,
+      0.37208093
+    ],
+    "volume": 0.158202666511345,
+    "max_dim": 0.98662935
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/coffee_table/0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/coffee_table/0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/coffee_table/0.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/coffee_table_0/coffee_table_0.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/coffee_table_0/coffee_table_0.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/coffee_table_0/coffee_table_0.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/coffee_table_0/coffee_table_0.urdf"
+    }
+  }
+}

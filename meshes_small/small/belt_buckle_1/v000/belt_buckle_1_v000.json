@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "belt_buckle_1",
+  "base_name": "belt_buckle_1",
+  "full_name": "belt_buckle_1",
+  "category": "small",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-03-15 02:59:46",
+  "transform": {
+    "dilate_x": 0.8699999999999999,
+    "dilate_y": 0.7899999999999998,
+    "dilate_z": 1.1500000000000001,
+    "dilate_x_min": 0.5999999999999996,
+    "dilate_x_max": 1.1400000000000001,
+    "dilate_y_min": 0.5999999999999996,
+    "dilate_y_max": 0.98,
+    "dilate_z_min": 0.96,
+    "dilate_z_max": 1.3400000000000003,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 90.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 0.5999999999999996,
+      "max": 1.1400000000000001
+    },
+    "y": {
+      "min": 0.5999999999999996,
+      "max": 0.98
+    },
+    "z": {
+      "min": 0.96,
+      "max": 1.3400000000000003
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.10003935,
+        0.08288877,
+        0.03694967
+      ],
+      "volume": 0.0002769766237242372,
+      "max_dim": 0.10003935
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.06548212829999998,
+        0.08703423449999999,
+        0.0424921205
+      ],
+      "volume": 0.0002189209385085184,
+      "max_dim": 0.08703423449999999
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/belt_buckle_1/v000/belt_buckle_1_v000.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/belt_buckle_1/v000/belt_buckle_1_v000.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/belt_buckle_1/v000/belt_buckle_1_v000.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/belt_buckle_1/v000/belt_buckle_1_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/belt_buckle_1/belt_buckle_1.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/belt_buckle_1/belt_buckle_1.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/belt_buckle_1/belt_buckle_1.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/belt_buckle_1/belt_buckle_1.urdf"
+    }
+  }
+}

@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "balloon_1",
+  "base_name": "balloon_1",
+  "full_name": "balloon_1",
+  "category": "small",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-03-15 02:38:18",
+  "transform": {
+    "dilate_x": 0.8399999999999999,
+    "dilate_y": 1.2300000000000002,
+    "dilate_z": 0.46999999999999953,
+    "dilate_x_min": 0.6399999999999997,
+    "dilate_x_max": 1.04,
+    "dilate_y_min": 0.7199999999999998,
+    "dilate_y_max": 1.7400000000000007,
+    "dilate_z_min": 0.4199999999999995,
+    "dilate_z_max": 0.5199999999999996,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 0.6399999999999997,
+      "max": 1.04
+    },
+    "y": {
+      "min": 0.7199999999999998,
+      "max": 1.7400000000000007
+    },
+    "z": {
+      "min": 0.4199999999999995,
+      "max": 0.5199999999999996
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.07754826,
+        0.07754826,
+        0.1
+      ],
+      "volume": 0.00027484219037410626,
+      "max_dim": 0.1
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.06514053839999999,
+        0.09538435980000001,
+        0.04699999999999996
+      ],
+      "volume": 0.00013346446701442737,
+      "max_dim": 0.09538435980000001
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/balloon_1/v000/balloon_1_v000.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/balloon_1/v000/balloon_1_v000.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/balloon_1/v000/balloon_1_v000.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/balloon_1/v000/balloon_1_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/balloon_1/balloon_1.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/balloon_1/balloon_1.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/balloon_1/balloon_1.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/balloon_1/balloon_1.urdf"
+    }
+  }
+}

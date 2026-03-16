@@ -1,0 +1,49 @@
+{
+  "label": "dress",
+  "base_name": "3",
+  "full_name": "dress_3",
+  "category": "long",
+  "scale": 0.12,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 90.0,
+    "y": 180.0,
+    "z": 0.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.49427984,
+      1.00105266,
+      0.40074966
+    ],
+    "volume": 0.10902787670500154,
+    "max_dim": 1.00105266
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.0593135808,
+      0.0480899592,
+      0.1201263192
+    ],
+    "volume": 0.00018840017094624265,
+    "max_dim": 0.1201263192
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/dress/3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/dress/3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/dress/3.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/dress_3/dress_3.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/dress_3/dress_3.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/dress_3/dress_3.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/dress_3/dress_3.urdf"
+    }
+  }
+}

@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "barrel_4",
+  "base_name": "barrel_4",
+  "full_name": "barrel_4",
+  "category": "small",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-03-15 02:41:00",
+  "transform": {
+    "dilate_x": 0.6799999999999997,
+    "dilate_y": 1.1800000000000002,
+    "dilate_z": 0.49999999999999956,
+    "dilate_x_min": 0.5199999999999996,
+    "dilate_x_max": 0.8399999999999999,
+    "dilate_y_min": 0.7799999999999998,
+    "dilate_y_max": 1.5800000000000005,
+    "dilate_z_min": 0.39999999999999947,
+    "dilate_z_max": 0.5999999999999996,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 0.5199999999999996,
+      "max": 0.8399999999999999
+    },
+    "y": {
+      "min": 0.7799999999999998,
+      "max": 1.5800000000000005
+    },
+    "z": {
+      "min": 0.39999999999999947,
+      "max": 0.5999999999999996
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.08826256,
+        0.08826256,
+        0.09417807
+      ],
+      "volume": 0.0004940148328130309,
+      "max_dim": 0.09417807
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.06001854079999998,
+        0.10414982080000001,
+        0.04708903499999996
+      ],
+      "volume": 0.00019819875092458775,
+      "max_dim": 0.10414982080000001
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/barrel_4/v000/barrel_4_v000.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/barrel_4/v000/barrel_4_v000.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/barrel_4/v000/barrel_4_v000.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/barrel_4/v000/barrel_4_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/barrel_4/barrel_4.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/barrel_4/barrel_4.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/barrel_4/barrel_4.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/barrel_4/barrel_4.urdf"
+    }
+  }
+}

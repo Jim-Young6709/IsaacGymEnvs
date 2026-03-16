@@ -1,0 +1,49 @@
+{
+  "label": "beer_bottle",
+  "base_name": "0",
+  "full_name": "beer_bottle_0",
+  "category": "long",
+  "scale": 1.79,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.028380834,
+      0.028380825000000005,
+      0.099995308
+    ],
+    "volume": 4.842432923963324e-05,
+    "max_dim": 0.099995308
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.050801692860000004,
+      0.05080167675000001,
+      0.17899160132
+    ],
+    "volume": 0.00027772994403690886,
+    "max_dim": 0.17899160132
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/beer_bottle/0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/beer_bottle/0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/beer_bottle/0.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/beer_bottle/0.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_side/long/beer_bottle_0/beer_bottle_0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_side/long/beer_bottle_0/beer_bottle_0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_side/long/beer_bottle_0/beer_bottle_0.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_side/long/beer_bottle_0/beer_bottle_0.urdf"
+    }
+  }
+}

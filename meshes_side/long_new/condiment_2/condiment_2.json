@@ -1,0 +1,49 @@
+{
+  "label": "condiment",
+  "base_name": "2",
+  "full_name": "condiment_2",
+  "category": "long",
+  "scale": 0.15,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.42319808000000003,
+      0.435292,
+      0.99697927
+    ],
+    "volume": 0.13007156506676454,
+    "max_dim": 0.99697927
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.063479712,
+      0.0652938,
+      0.1495468905
+    ],
+    "volume": 0.0004389915321003303,
+    "max_dim": 0.1495468905
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/condiment/2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/condiment/2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/condiment/2.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes_side/long/condiment_2/condiment_2.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes_side/long/condiment_2/condiment_2.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes_side/long/condiment_2/condiment_2.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes_side/long/condiment_2/condiment_2.urdf"
+    }
+  }
+}

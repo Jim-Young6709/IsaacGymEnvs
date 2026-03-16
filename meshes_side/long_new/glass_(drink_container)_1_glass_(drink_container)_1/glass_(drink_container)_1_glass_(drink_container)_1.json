@@ -1,0 +1,49 @@
+{
+  "label": "glass_(drink_container)_1",
+  "base_name": "glass_(drink_container)_1",
+  "full_name": "glass_(drink_container)_1_glass_(drink_container)_1",
+  "category": "long",
+  "scale": 1.19,
+  "initial_urdf_scale": [
+    1.0,
+    1.0,
+    1.0
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.04580969,
+      0.04601435,
+      0.09916216
+    ],
+    "volume": 0.00012334483307274878,
+    "max_dim": 0.09916216
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.0545135311,
+      0.0547570765,
+      0.11800297039999999
+    ],
+    "volume": 0.00020785565555604012,
+    "max_dim": 0.11800297039999999
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/glass_(drink_container)_1/glass_(drink_container)_1.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/glass_(drink_container)_1/glass_(drink_container)_1.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/glass_(drink_container)_1/glass_(drink_container)_1.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/glass_(drink_container)_1/glass_(drink_container)_1.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/glass_(drink_container)_1_glass_(drink_container)_1/glass_(drink_container)_1_glass_(drink_container)_1.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/glass_(drink_container)_1_glass_(drink_container)_1/glass_(drink_container)_1_glass_(drink_container)_1.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/glass_(drink_container)_1_glass_(drink_container)_1/glass_(drink_container)_1_glass_(drink_container)_1.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/glass_(drink_container)_1_glass_(drink_container)_1/glass_(drink_container)_1_glass_(drink_container)_1.urdf"
+    }
+  }
+}

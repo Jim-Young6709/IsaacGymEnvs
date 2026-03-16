@@ -1,0 +1,49 @@
+{
+  "label": "gargle",
+  "base_name": "3",
+  "full_name": "gargle_3",
+  "category": "long",
+  "scale": 1.18,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.037707096,
+      0.054894414,
+      0.099469661
+    ],
+    "volume": 9.955216731407472e-05,
+    "max_dim": 0.099469661
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.04449437328,
+      0.06477540852,
+      0.11737419998
+    ],
+    "volume": 0.00016356739656637874,
+    "max_dim": 0.11737419998
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/gargle/3.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/gargle/3.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/gargle/3.npy",
+      "urdf": "/home/rayliu/IsaacGymEnvs/meshes/gargle/3.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/gargle_3/gargle_3.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/gargle_3/gargle_3.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/gargle_3/gargle_3.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/gargle_3/gargle_3.urdf"
+    }
+  }
+}

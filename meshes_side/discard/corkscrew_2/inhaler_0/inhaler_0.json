@@ -1,0 +1,49 @@
+{
+  "label": "inhaler",
+  "base_name": "0",
+  "full_name": "inhaler_0",
+  "category": "long",
+  "scale": 0.17,
+  "initial_urdf_scale": [
+    0.1,
+    0.1,
+    0.1
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.27232609,
+      0.27232608999999997,
+      0.99972553
+    ],
+    "volume": 0.05344891032353162,
+    "max_dim": 0.99972553
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.04629543530000001,
+      0.0462954353,
+      0.16995334010000002
+    ],
+    "volume": 0.00026259449641951097,
+    "max_dim": 0.16995334010000002
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/inhaler/0.obj",
+      "glb": "/home/rayliu/IsaacGymEnvs/meshes/inhaler/0.glb",
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/inhaler/0.npy",
+      "urdf": null
+    },
+    "output": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/inhaler_0/inhaler_0.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/inhaler_0/inhaler_0.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/inhaler_0/inhaler_0.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/inhaler_0/inhaler_0.urdf"
+    }
+  }
+}

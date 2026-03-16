@@ -1,0 +1,49 @@
+{
+  "label": "milk_3",
+  "base_name": "milk_3",
+  "full_name": "milk_3_milk_3",
+  "category": "long",
+  "scale": 1.17,
+  "initial_urdf_scale": [
+    1.0,
+    1.0,
+    1.0
+  ],
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.05808329,
+      0.055686799999999995,
+      0.12578639
+    ],
+    "volume": 0.00030330145912669436,
+    "max_dim": 0.12578639
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.0679574493,
+      0.06515355599999999,
+      0.14717007629999998
+    ],
+    "volume": 0.0004857715598562823,
+    "max_dim": 0.14717007629999998
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/milk_3/milk_3.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/milk_3/milk_3.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/milk_3/milk_3.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/milk_3/milk_3.urdf"
+    },
+    "output": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/milk_3_milk_3/milk_3_milk_3.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/milk_3_milk_3/milk_3_milk_3.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/milk_3_milk_3/milk_3_milk_3.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/milk_3_milk_3/milk_3_milk_3.urdf"
+    }
+  }
+}

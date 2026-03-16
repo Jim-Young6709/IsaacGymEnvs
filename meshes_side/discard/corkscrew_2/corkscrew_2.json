@@ -1,0 +1,43 @@
+{
+  "label": "corkscrew",
+  "base_name": "2",
+  "full_name": "corkscrew_2",
+  "state": "discarded",
+  "scale": 1.0,
+  "rotation_degrees": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "original_stats": {
+    "bbox_extents": [
+      0.99788834,
+      0.34941447000000003,
+      0.34941447
+    ],
+    "volume": 0.05536478317105971,
+    "max_dim": 0.99788834
+  },
+  "scaled_stats": {
+    "bbox_extents": [
+      0.99788834,
+      0.34941447000000003,
+      0.34941447
+    ],
+    "volume": 0.05536478317105971,
+    "max_dim": 0.99788834
+  },
+  "paths": {
+    "original": {
+      "obj": "/home/rayliu/IsaacGymEnvs/meshes/corkscrew/2.obj",
+      "glb": null,
+      "npy": "/home/rayliu/IsaacGymEnvs/meshes/corkscrew/2.npy",
+      "urdf": null
+    },
+    "discarded_output": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/discard/corkscrew_2/corkscrew_2.obj",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/discard/corkscrew_2/corkscrew_2.npy",
+      "urdf": null
+    }
+  }
+}
