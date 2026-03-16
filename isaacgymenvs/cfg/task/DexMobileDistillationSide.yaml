@@ -8,16 +8,16 @@ name: FrankaLEAPMobileDistillationPickSide
 # if given, will override the device setting in gym. 
 env:
   scene:
-    table_size_range: [[0.5, 0.6, 0.01], [0.7, 1.2, 0.1]]
-    z_shift_range: [0.3, 0.8] #[0.7, 0.7]  #[0.01, 0.8]
+    table_size_range: [[0.5, 0.6, 0.05], [0.7, 1.2, 0.05]] # [[0.5, 0.6, 0.01], [0.7, 1.2, 0.1]]
+    z_shift_range: [0.3, 0.8]  #[0.01, 0.8]
   teacher_obs_action_frame: "eef"
   object_settings:
     object_grasp_target_z_scale: 0.25 # @ray z scale for the hand-object reward, special for side grasp
-    xyz_range: [[0.45, 0.1, 0.2], [0.45, 0.1, 0.25]] # [[0.35, 0.1, 0.2], [0.55, 0.1, 0.25]] # xy is center position, z is BOTTOM height
+    xyz_range: [[0.40, -0.3, 0.2], [0.55, 0.3, 0.25]] # [[0.45, -0.2, 0.2], [0.55, 0.2, 0.25]] # xy is center position, z is BOTTOM height
   robot_init:
-    base_init_range: [[-1.0, -0.25, -0.3], [-1.0, 0.25, 0.3]] # [[-1.0, -0.2, -0.08], [-0.2, -0.2, 0.08]] # x, y, yaw
+    base_init_range: [[-0.2, -0.2, -0.08], [-1.0, 0.2, 0.08]] # [[-1.0, -0.2, -0.08], [-0.2, -0.2, 0.08]] # x, y, yaw
     switch_pos_offset: [0.0, 0.0, 0.2]
-    switch_tol: 0.2 # 0.05
+    switch_tol: 0.1 # 0.05
 
   actionScale: # note this will multiply sim.dt
     # used for wbc policies
@@ -30,20 +30,25 @@ env:
 
   object_teleport:
     enable: True
-    env_proportion: 1.0 # proportion of envs to apply teleportation
+    env_proportion: 0.8 # proportion of envs to apply teleportation
     swap_freq: 3 # in episodes, how often to swap the environments that do teleport
     curri_steps: 200000
     n0: 1 # within n0 steps, don't teleport
     n1: 150 # until n1 steps, the probability of teleporting sum up to 0.5
     n2: 300 # at n2 steps, the probability of teleporting is 1.0
 
-  numObservations: 53
-  numStates: 98
+    # @ray we teleport a distaence away from eef to avoid penetration
+    min_xy_dist_to_eef: 0.05 # minimum XY distance from current eef for sampled object reset/teleport pose
+    min_xy_dist_resample_rounds: 12
+    force_right_of_eef: False
+
+  numObservations: 51
+  numStates: 96
   numActions: 22 # delta eef actions 6 (xyz, rpy) + normalized hand joint actions 16
 
   eef_init:
     side_distance: 0.2
-    side_distance_noise: 0.1
+    side_distance_noise: 0.4
     target_quat_noise_deg: 10
     dir_candidates_per_env: 5
     side_mode: left
@@ -54,7 +59,7 @@ fabric:
 observation:
   usage:
     use_z: True
-    use_xy: True
+    use_xy: False
 
 reward:
   params:
@@ -68,6 +73,7 @@ reward:
     grasp_on_object_z_height_gate_floor: 0.1
     grasp_on_object_z_height_gate_enabled: True
     curl_reaching_threshold: 0.15
+    success_tolerance: 0.1
 
   exp:
     beta_hand_object: 5.0

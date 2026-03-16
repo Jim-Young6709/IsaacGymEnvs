@@ -34,6 +34,38 @@ class FrankaLEAPPickTable(FrankaLEAP):
             force_render=force_render
         )
 
+    def init_data(self, actor_num):
+        super().init_data(actor_num)
+        grasp_mode = str(self.cfg["env"]["grasp_mode"])
+        if grasp_mode == "full":
+            grasp_default = self.grasp_finger_dof_pos.clone()
+            active_finger_mask = torch.ones(4, device=self.device)
+            active_dof_mask = torch.ones(16, device=self.device)
+        elif grasp_mode == "pinch2":
+            pinch_defaults = [[0.0] * 16, [0.0] * 16, [0.0] * 16]
+            grasp_default = torch.tensor(pinch_defaults[self.cfg["env"]["grasp_guide_idx"]], device=self.device)
+            active_finger_mask = torch.tensor([1.0, 0.0, 0.0, 1.0], device=self.device)
+            active_dof_mask = torch.tensor([1.0] * 8 + [0.0] * 8, device=self.device)
+        elif grasp_mode == "pinch3":
+            pinch_defaults = [[0.0] * 16, [0.0] * 16, [0.0] * 16]
+            grasp_default = torch.tensor(pinch_defaults[self.cfg["env"]["grasp_guide_idx"]], device=self.device)
+            active_finger_mask = torch.tensor([1.0, 1.0, 0.0, 1.0], device=self.device)
+            active_dof_mask = torch.tensor([1.0] * 12 + [0.0] * 4, device=self.device)
+        else:
+            raise ValueError(f"Unsupported env.grasp_mode={grasp_mode}. Expected one of: full, pinch2, pinch3.")
+
+        self.grasp_finger_dof_pos = grasp_default
+        self.canonical_grasp_config = torch.tensor(
+            [[0, 0, 0, -3 * torch.pi / 4, 0, 3 * torch.pi / 4, 0] + self.grasp_finger_dof_pos.tolist()] * self.num_envs
+        ).to(self.device)
+        self.reward_settings["grasp_finger_dof_pos"] = self.grasp_finger_dof_pos
+        self.reward_settings["grasp_finger_dof_mask"] = active_dof_mask
+        self.reward_settings["active_finger_mask"] = active_finger_mask
+        self.reward_settings["include_palm_in_hand_obj"] = to_torch(
+            1.0 if bool(self.cfg["reward"]["params"]["include_palm_in_hand_obj"]) else 0.0,
+            device=self.device,
+        )
+
     def _create_envs(self, spacing, num_per_row):
         """
         loading Franka + LEAP + a table in the environment, this is for debugging purposes only
@@ -75,17 +107,56 @@ class FrankaLEAPPickTable(FrankaLEAP):
         self.envs = []
         self._object_center_init_state = torch.zeros((self.num_envs, 3), device=self.device)
 
-        # load all meshes first
-        all_meshes_list = self.create_all_meshes()
-        self.num_objects = min(len(all_meshes_list), self.num_envs) # @ray record number of objects for per-object success rate tracking
-        all_meshes_list = all_meshes_list[:self.num_objects]
+        # Legacy layout keeps prebuilt asset pool; variant layout uses procedural per-env loading.
+        mesh_dir = self.mesh_args["mesh_dir"]
+        object_list = self.mesh_args["obj_list"]
+        mesh_entries = self._discover_variant_mesh_entries(mesh_dir, object_list)
+        if len(mesh_entries) == 0:
+            raise RuntimeError(
+                f"No mesh entries discovered under mesh_dir={mesh_dir} "
+                f"with obj_list={object_list}."
+            )
+
+        self.mesh_variant_mode = ("dilation_range" in mesh_entries[0])
+        all_meshes_list = []
+        if self.mesh_variant_mode:
+            self.object_id_to_name = [e["display_name"] for e in mesh_entries]
+            self.num_objects = len(self.object_id_to_name)
+        else:
+            all_meshes_list = self.create_all_meshes()
+            self.num_objects = min(len(all_meshes_list), self.num_envs) # @ray record number of objects for per-object success rate tracking
+            all_meshes_list = all_meshes_list[:self.num_objects]
+            self.object_id_to_name = self.object_id_to_name[:self.num_objects]
         self.env_object_ids = torch.zeros((self.num_envs,), dtype=torch.int64, device=self.device) 
 
         # Create environments
         for i in tqdm(range(self.num_envs), desc="Creating Envs"):
             # grasp object
-            object_asset, object_start_pose, object_scale, object_id, mesh_id = all_meshes_list[i % len(all_meshes_list)]
-            self.env_object_ids[i] = i % len(all_meshes_list)
+            if self.mesh_variant_mode:
+                entry = mesh_entries[i % len(mesh_entries)]
+                d = entry["dilation_range"]
+                object_scale = np.array(
+                    [
+                        np.random.uniform(float(d["x"]["min"]), float(d["x"]["max"])),
+                        np.random.uniform(float(d["y"]["min"]), float(d["y"]["max"])),
+                        np.random.uniform(float(d["z"]["min"]), float(d["z"]["max"])),
+                    ],
+                    dtype=np.float32,
+                )
+                mesh_pos = np.random.uniform(obj_xyz_range[0], obj_xyz_range[1])
+                object_asset, object_start_pose, object_scale, object_id, mesh_id = self._create_mesh(
+                    entry["mesh_path"],
+                    mesh_pos,
+                    object_scale,
+                    quat=[0, 0, 0, 1],
+                    fix_base_link=False,
+                    asset_obj_id=entry["asset_obj_id"],
+                    asset_mesh_id=entry["asset_mesh_id"],
+                )
+                self.env_object_ids[i] = max(0, int(object_id) - 1)
+            else:
+                object_asset, object_start_pose, object_scale, object_id, mesh_id = all_meshes_list[i % len(all_meshes_list)]
+                self.env_object_ids[i] = i % len(all_meshes_list)
 
             # create env instance
             env_ptr = self.gym.create_env(self.sim, lower, upper, num_per_row)
@@ -289,6 +360,7 @@ class FrankaLEAPPickTable(FrankaLEAP):
                 "log_interval_steps": int(self.log_per_object_success_freq),
                 "per_object_success_rates": {
                     str(obj_id): {
+                        "name": self.object_id_to_name[obj_id] if obj_id < len(self.object_id_to_name) else str(obj_id),
                         "episodes": int(self.per_object_episode_counts_interval[obj_id].item()),
                         "successes": int(self.per_object_success_counts_interval[obj_id].item()),
                         "success_rate": float(interval_rates[obj_id].item()),
@@ -319,16 +391,26 @@ class FrankaLEAPPickTable(FrankaLEAP):
 def compute_franka_leap_reward(states, reward_settings):
     # type: (Dict[str, Tensor], Dict[str, Tensor]) -> Dict[str, Tensor]
 
-    # R1: Hand (palm, fingers) to object distance
+    # R1: Hand (palm, selected fingertips) to object distance
     d_palm = torch.norm(states["object_center_pos"] - states["eef_pos"], dim=-1)
-    d_finger1 = torch.norm(states["object_center_pos"] - states["eef_finger1_pos"], dim=-1)
-    d_finger2 = torch.norm(states["object_center_pos"] - states["eef_finger2_pos"], dim=-1)
-    d_finger3 = torch.norm(states["object_center_pos"] - states["eef_finger3_pos"], dim=-1)
-    d_finger4 = torch.norm(states["object_center_pos"] - states["eef_finger4_pos"], dim=-1)
-
-    # R1: Max dist component to object: max_i∈{palm_pos,fingertips} ||x^i - x^obj||
-    d_hand_obj = torch.stack([d_palm, d_finger1, d_finger2, d_finger3, d_finger4], dim=1)
-    d_hand_obj = torch.max(d_hand_obj, dim=1)[0]
+    finger_distances = torch.stack(
+        [
+            torch.norm(states["object_center_pos"] - states["eef_finger1_pos"], dim=-1),
+            torch.norm(states["object_center_pos"] - states["eef_finger2_pos"], dim=-1),
+            torch.norm(states["object_center_pos"] - states["eef_finger3_pos"], dim=-1),
+            torch.norm(states["object_center_pos"] - states["eef_finger4_pos"], dim=-1),
+        ],
+        dim=1,
+    )
+    include_palm = reward_settings["include_palm_in_hand_obj"] > 0.5
+    finger_mask = reward_settings["active_finger_mask"] > 0.5
+    masked_finger_distances = torch.where(
+        finger_mask.unsqueeze(0),
+        finger_distances,
+        torch.full_like(finger_distances, -1.0e6),
+    )
+    d_hand_obj = torch.max(masked_finger_distances, dim=1)[0]
+    d_hand_obj = torch.where(include_palm, torch.maximum(d_hand_obj, d_palm), d_hand_obj)
 
     # R1: Hand object distance reward
     beta_hand_object = reward_settings["beta_hand_object"]
@@ -354,7 +436,8 @@ def compute_franka_leap_reward(states, reward_settings):
     # R4: Finger curl
     hand_dof_pos = states["q"][:, 7:] # hand joint angles
     near_object = (d_hand_obj <= reward_settings["curl_reaching_threshold"])
-    finger_pos_diff = torch.sum((hand_dof_pos - reward_settings["grasp_finger_dof_pos"]) ** 2, dim=1)
+    dof_err = (hand_dof_pos - reward_settings["grasp_finger_dof_pos"]) * reward_settings["grasp_finger_dof_mask"]
+    finger_pos_diff = torch.sum(dof_err ** 2, dim=1)
 
     beta_curl = reward_settings["beta_curl"]
     r_curl= torch.exp(-beta_curl * finger_pos_diff)

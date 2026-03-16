@@ -7,35 +7,46 @@ name: FrankaLEAPPickTableSide
 
 # if given, will override the device setting in gym. 
 env:
-  numObservations: 53
-  numStates: 98
+  numObservations: 51
+  numStates: 96
   numActions: 22 # delta eef actions 6 (xyz, rpy) + normalized hand joint actions 16
 
   object_settings:
     xyz_range:  [[0.35, -0.2, 0.2], [0.55, 0.2, 0.25]] # [[0.55, -0.2, 0.2], [0.75, 0.2, 0.25]] # xy is center position, z is BOTTOM height
     object_grasp_target_z_scale: 0.25 # @ray z scale for the hand-object reward, special for side grasp
-
   eef_init:
     limits_xyz_min:  [-0.25, -0.5, 0.20] #[-0.25, -0.2, 0.2]  #[-0.3, -0.37, 0.1]
     limits_xyz_max: [0.3, 0.2, 0.45] #[0.1, 0.2, 0.45]  #[0.15, -0.1, 0.65]
     phi_range_deg:  [ -120, -60] # [120, -120]  # @ray set to None for 360deg
     side_distance: 0.35
     side_distance_noise: 0.15
+    # Uniform offsets in [min, max], accepted only if final point stays within workspace limits.
+    pos_offset_xyz_min: [-0.15, -0.15, -0.15]
+    pos_offset_xyz_max: [ 0.15,  0.15,  0.15]
     target_quat_noise_deg: 30
     dir_candidates_per_env: 5
     side_mode: both
+    right_section_sampling_enable: False
+    right_section_num: 10
+    right_section_curriculum_enable: False
+    right_section_curriculum_mode: success # steps | success
+    right_section_curriculum_force_active_sections: 0
+    right_section_curriculum_success_threshold: 0.87
+    right_section_curriculum_success_hold_steps: 2000
+    right_section_debug_log_enable: False
+    debug_disable_left_pose_bank: False
     pose_bank_size: 8192 # num of poses per object
     pose_bank_max_rounds: 10 # max rounds to try to find all valid poses
 
     target_quat_sampling_mode: facing_object # random_full
 
-    hand_joint_reset_noise: 60
+    hand_joint_reset_noise: 360
 
   # @ray need to increase object wrench to encourage better grasp style
   object_wrench:
     enable: True
     activation_dis: 0.15 # in meters (apply forces within this range / when object is lifted)
-    max_linear_force: 5.0 # in Newtons
+    max_linear_force: 10.0 # in Newtons
     torsional_radius: 0.01 # in meters
     trigger_duration: 1.0 # seconds, this will time sim_dt to get the number of trigger steps
     curri_steps: 1 # curriculum steps, now default to 1 which is no curri
@@ -43,7 +54,7 @@ env:
 observation:
   usage:
     use_z: True
-    use_xy: True
+    use_xy: False
 
 reward:
   params:
@@ -57,6 +68,9 @@ reward:
     grasp_on_object_z_height_gate_floor: 0.1
     grasp_on_object_z_height_gate_enabled: True
     curl_reaching_threshold: 0.15
+
+    hand_obj_use_midheight_xy: False
+    hand_obj_midheight_height_weight: 1.0
 
   exp:
     beta_hand_object: 6.0

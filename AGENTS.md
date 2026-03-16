@@ -95,6 +95,7 @@ During execution:
 
 * You are allowed and encouraged to **read any file**
 * You are only allowed to **write into dummy files**, which are copies of current files
+* CODE STYLE RULE (strict config keys): unless I explicitly ask for fallback behavior, do **not** use fallback defaults for config/arg access (for example, avoid `dict.get("k", default)`); use strict key access like `dict["k"]` so missing config keys fail fast.
 
 Example:
 
@@ -225,3 +226,27 @@ Upon reading this first time, say "Hello, I've read your AGENT.MD file yeah!!!" 
 - 6. Make target pose change
 - 7. Make hand quaternion change based on object pose
 - 8. Debug memory issue (still exists)
+
+### 2026-03-12
+- [DONE] RL side-pick reset curriculum supports success-gated section unlock:
+  - Added `right_section_curriculum_mode: success|steps`
+  - Added success-gated unlock knobs (`right_section_curriculum_success_threshold`, `right_section_curriculum_success_hold_steps`)
+  - Logs active section count to wandb via env extras: `curriculum/right_section_active_sections`
+- [DONE] Right-section curriculum now supports true zero start:
+  - Active right sections can start at `0` and increase over time (instead of forcing min `1`)
+- [DONE] RL side-pick left-only fallback clarified and preserved:
+  - Left-only behavior when `side_mode=left`, `right_section_sampling_enable=False`, `right_section_curriculum_enable=False`, `debug_disable_left_pose_bank=False`
+- [DONE] Distillation mass range wiring:
+  - `env.object_settings.mass_range` now sampled in `franka_leap_mobile_distillation.py` and applied via cached URDF mass patching
+- [DONE] URDF override cache path made user-private + configurable:
+  - Default cache root: `~/.cache/isaacgym_urdf_overrides`
+  - Env override: `ISAACGYM_URDF_CACHE_ROOT=/path/to/cache`
+- [DONE] Distillation reset/teleport anti-collision guard:
+  - Added min XY distance from EEF during object reset/teleport sampling
+  - New config keys under `env.object_teleport`:
+    - `min_xy_dist_to_eef`
+    - `min_xy_dist_resample_rounds`
+- [DONE] Eval teleport suppression in DAgger mobile trainer:
+  - During `eval()`, teleport is disabled and restored after successful eval return
+- [DONE] Removed mem_probe logging from DAgger mobile trainer:
+  - Removed probe metric collection/printing/local CSV probe logging path

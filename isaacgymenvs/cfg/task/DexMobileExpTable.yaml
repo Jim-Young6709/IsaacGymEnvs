@@ -20,6 +20,7 @@ env:
   numObservations: 49
   numStates: 94
   numActions: 22 # delta eef actions 6 (xyz, rpy) + normalized hand joint actions 16
+  grasp_mode: full
 
 fabric:
   enable: True
@@ -29,6 +30,7 @@ reward:
     target_lift_dis: 0.3
     target_quat: [1.0, 0.0, 0.0, 0.0]
     curl_reaching_threshold: 0.15
+    include_palm_in_hand_obj: True
 
   exp:
     beta_hand_object: 5.0

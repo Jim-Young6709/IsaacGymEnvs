@@ -46,6 +46,7 @@ env:
   object_settings:
     xyz_range: [[0.35, -0.2, 0.2], [0.55, 0.2, 0.25]] # xy is center position, z is BOTTOM height
     scale_range: [1.0, 1.0] # @ray this should match the scale in the urdf
+    mass_range: [0.5, 0.5]
     object_center_z_scale: 0.5 # @ray normally just 1/2, but might be lower for side grasps
 
   object_wrench:

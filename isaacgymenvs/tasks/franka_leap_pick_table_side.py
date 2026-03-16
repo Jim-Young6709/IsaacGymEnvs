@@ -47,10 +47,77 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
     def _post_init_buffers(self):
         super()._post_init_buffers()
         self.side_is_left = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
+        self._right_section_last_log_step = -1  # CODEX
+        self._right_section_active_sections = 0  # CODEX
+        self._right_section_success_hold_counter = 0  # CODEX
+        self._right_section_last_success_rate = 0.0  # CODEX
         # @ray precompute a reset pose bank to reuse
         # this is better than resampling during each reset, far less compute
         # however, need to potentially modify bank size for different sampling regions
         self._create_reset_pose_bank()
+        # CODEX: initialize curriculum state after pose bank is ready.
+        num_sections = int(self.eef_init["right_section_num"])
+        force_active = int(self.eef_init["right_section_curriculum_force_active_sections"])
+        if force_active > 0:
+            self._right_section_active_sections = max(0, min(num_sections, force_active))
+        else:
+            self._right_section_active_sections = 0
+
+    def _get_active_right_sections(self):
+        # CODEX: helper for right-section curriculum progress/debug visualization.
+        num_sections = int(self.eef_init["right_section_num"])
+        if not bool(self.eef_init["right_section_curriculum_enable"]):
+            active_sections = num_sections
+        else:
+            curriculum_mode = str(self.eef_init["right_section_curriculum_mode"])
+            if curriculum_mode == "steps":
+                curri_start_steps = int(self.eef_init["right_section_curriculum_start_steps"])
+                curri_steps = int(self.eef_init["right_section_curriculum_steps"])
+                progress_steps = max(float(self.sim_steps) - float(curri_start_steps), 0.0)
+                curri_t = min(progress_steps / float(max(curri_steps, 1)), 1.0)
+                active_sections = min(num_sections, max(0, int(np.floor(curri_t * float(num_sections)))))
+            elif curriculum_mode == "success":
+                active_sections = int(self._right_section_active_sections)
+            else:
+                raise ValueError(
+                    f"Unsupported eef_init.right_section_curriculum_mode={curriculum_mode}. "
+                    f"Expected one of: steps, success."
+                )
+        force_active = int(self.eef_init["right_section_curriculum_force_active_sections"])
+        if force_active > 0:
+            active_sections = max(0, min(num_sections, force_active))
+        return active_sections
+
+    def _update_right_section_curriculum_from_success(self):
+        # CODEX: success-gated curriculum: when success_rate_5cm_per_ep stays above threshold
+        # for hold_steps consecutive sim steps, unlock one additional right section.
+        if not bool(self.eef_init["right_section_curriculum_enable"]):
+            return
+        if str(self.eef_init["right_section_curriculum_mode"]) != "success":
+            return
+        if int(self.eef_init["right_section_curriculum_force_active_sections"]) > 0:
+            return
+
+        num_sections = int(self.eef_init["right_section_num"])
+        if self._right_section_active_sections >= num_sections:
+            self._right_section_success_hold_counter = 0
+            return
+
+        success_threshold = float(self.eef_init["right_section_curriculum_success_threshold"])
+        hold_steps = int(self.eef_init["right_section_curriculum_success_hold_steps"])
+        if self._right_section_last_success_rate >= success_threshold:
+            self._right_section_success_hold_counter += 1
+        else:
+            self._right_section_success_hold_counter = 0
+
+        if self._right_section_success_hold_counter >= hold_steps:
+            self._right_section_active_sections = min(num_sections, self._right_section_active_sections + 1)
+            self._right_section_success_hold_counter = 0
+            print(
+                f"[right-section-curriculum] sim_steps={int(self.sim_steps)} "
+                f"success_rate_5cm_per_ep={self._right_section_last_success_rate:.4f} "
+                f"active_sections={self._right_section_active_sections}/{num_sections}"
+            )
     
     def init_data(self, actor_num):
         super().init_data(actor_num)
@@ -77,6 +144,14 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         self.reward_settings["grasp_on_object_z_height_offset"] = to_torch(self.cfg["reward"]["params"]["grasp_on_object_z_height_offset"], device=self.device)
         self.reward_settings["grasp_on_object_z_height_gate_floor"]  = to_torch(self.cfg["reward"]["params"]["grasp_on_object_z_height_gate_floor"], device=self.device)
         self.reward_settings["grasp_on_object_z_height_gate_enabled"] = to_torch(1.0 if bool(self.cfg["reward"]["params"]["grasp_on_object_z_height_gate_enabled"]) else 0.0, device=self.device)
+        self.reward_settings["hand_obj_use_midheight_xy"] = to_torch(
+            1.0 if bool(self.cfg["reward"]["params"]["hand_obj_use_midheight_xy"]) else 0.0,
+            device=self.device,
+        )  # CODEX
+        self.reward_settings["hand_obj_midheight_height_weight"] = to_torch(
+            float(self.cfg["reward"]["params"]["hand_obj_midheight_height_weight"]),
+            device=self.device,
+        )  # CODEX
 
         self.reward_settings["w_obj_goal_base"] = self.reward_settings["w_obj_goal"].clone()
         self.reward_settings["w_lift_base"] = self.reward_settings["w_lift"].clone()
@@ -90,17 +165,24 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         # @ray build left/right/both pose banks per object
         # This assumes that all instances of the same object shares the same scale
         side_mode = self.eef_init["side_mode"]
-        side_build = (
-            [True] if side_mode == "left"
-            else [False] if side_mode == "right"
-            else [False, True]
-        )
+        right_section_sampling_enable = bool(self.eef_init["right_section_sampling_enable"])  # CODEX
+        debug_disable_left = bool(self.eef_init["debug_disable_left_pose_bank"])  # CODEX
+        if side_mode == "left":
+            # CODEX: for left grasp mode, still build right-section bank when enabled (for curriculum/debug viz),
+            # while reset sampling can remain left-only unless debug_disable_left_pose_bank is set.
+            side_build = [True, False] if right_section_sampling_enable else [True]
+        elif side_mode == "right":
+            side_build = [True, False] if right_section_sampling_enable else [False]
+        else:
+            side_build = [True, False]
 
         # @ray initialize left+right banks, we may only use half if side_mode!=both
         # but no need to optimize for memory as this is pretty cheap 
         # (~30mb) for 4096 bank size of 69 objects
         self.pose_bank_joint = torch.zeros((num_groups, self.pose_bank_size, self.num_dofs), device=self.device)
         self.pose_bank_quat = torch.zeros((num_groups, self.pose_bank_size, 4), device=self.device)
+        self.pose_bank_eef_pos = torch.zeros((num_groups, self.pose_bank_size, 3), device=self.device)  # CODEX
+        self.pose_bank_section = torch.full((num_groups, self.pose_bank_size), -1, dtype=torch.long, device=self.device)  # CODEX
         self.pose_bank_count = torch.zeros((num_groups,), dtype=torch.long, device=self.device)
 
         all_env_ids = torch.arange(self.num_envs, device=self.device)
@@ -139,6 +221,16 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
                 side_distance_noise = float(self.eef_init["side_distance_noise"])
                 target_quat_noise_deg = float(self.eef_init["target_quat_noise_deg"])
                 target_quat_noise_rad = float(np.deg2rad(target_quat_noise_deg))
+                pos_offset_min = torch.tensor(
+                    self.eef_init["pos_offset_xyz_min"],
+                    device=self.device,
+                    dtype=torch.float32,
+                )  # CODEX
+                pos_offset_max = torch.tensor(
+                    self.eef_init["pos_offset_xyz_max"],
+                    device=self.device,
+                    dtype=torch.float32,
+                )  # CODEX
 
                 # Orientation sampling mode for IK target quaternions:
                 # - "facing_object": canonical side quat aligned to object-facing direction (default)
@@ -161,6 +253,107 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
 
 
                 center = self._object_center_init_state[rep_env_id]
+                # CODEX: keep left bank generation unchanged; synthesize right bank by Y-sections from left poses.
+                if (not left_side) and bool(self.eef_init["right_section_sampling_enable"]):
+                    left_group_id = obj_id * 2 + 1
+                    left_count = int(self.pose_bank_count[left_group_id].item())
+                    if left_count <= 0:
+                        raise RuntimeError(f"right-section bank build requires left bank first for obj_id={obj_id}")
+                    left_eef_pos = self.pose_bank_eef_pos[left_group_id, :left_count]
+                    left_quat = self.pose_bank_quat[left_group_id, :left_count]
+                    num_sections = int(self.eef_init["right_section_num"])
+                    right_y_rel_max = float(-float(self.eef_init["limits_xyz_min"][1]))
+                    if right_y_rel_max <= 0.0:
+                        raise ValueError("right_section_num requires -limits_xyz_min[1] > 0")
+                    # CODEX: infer right-side Y direction as opposite of left-bank mean side.
+                    left_y_mean_rel = torch.mean(left_eef_pos[:, 1] - center[1])
+                    left_sign = 1.0 if float(left_y_mean_rel.item()) >= 0.0 else -1.0
+                    right_sign = -left_sign
+                    section_width = right_y_rel_max / float(num_sections)
+                    # Mirror left density per Y-length onto right side.
+                    left_y_span = right_y_rel_max
+                    left_density = float(left_count) / max(left_y_span, 1.0e-6)
+                    counts = torch.full((num_sections,), int(left_density * section_width), dtype=torch.long, device=self.device)
+                    counts = torch.clamp(counts, min=1)
+                    total_counts = int(counts.sum().item())
+                    if total_counts != self.pose_bank_size:
+                        scaled = torch.floor(counts.float() * (float(self.pose_bank_size) / float(max(total_counts, 1)))).long()
+                        counts = torch.clamp(scaled, min=1)
+                        diff = int(self.pose_bank_size - counts.sum().item())
+                        if diff > 0:
+                            counts[:diff] += 1
+                        elif diff < 0:
+                            dec = min(-diff, int((counts > 1).sum().item()))
+                            if dec > 0:
+                                dec_idx = (counts > 1).nonzero(as_tuple=False).squeeze(-1)[:dec]
+                                counts[dec_idx] -= 1
+
+                    section_cursor = 0
+                    for section_idx in range(num_sections):
+                        target_count = int(counts[section_idx].item())
+                        if target_count <= 0:
+                            continue
+                        y_lo_rel = section_idx * section_width
+                        y_hi_rel = (section_idx + 1) * section_width
+                        filled = 0
+                        rounds_section = 0
+                        while filled < target_count:
+                            rounds_section += 1
+                            if rounds_section > max_rounds:
+                                raise RuntimeError(
+                                    f"right-section pose bank build failed for group {group_id}, section {section_idx}, "
+                                    f"filled={filled}/{target_count}"
+                                )
+                            batch = max(target_count - filled, 32) * 2
+                            base_idx = torch.randint(0, left_count, (batch,), device=self.device)
+                            eef_pos = left_eef_pos[base_idx].clone()
+                            quat_seed = left_quat[base_idx].clone()
+                            y_samples_rel = y_lo_rel + torch.rand(batch, device=self.device) * (y_hi_rel - y_lo_rel)
+                            eef_pos[:, 1] = center[1] + right_sign * y_samples_rel
+                            # keep XZ inside existing workspace limits; Y follows section bounds by construction.
+                            valid_xz = (
+                                (eef_pos[:, 0] >= limits_min[0]) &
+                                (eef_pos[:, 0] <= limits_max[0]) &
+                                (eef_pos[:, 2] >= limits_min[2]) &
+                                (eef_pos[:, 2] <= limits_max[2])
+                            )
+                            if not torch.any(valid_xz):
+                                continue
+                            eef_pos = eef_pos[valid_xz]
+                            quat_seed = quat_seed[valid_xz]
+                            eef_pose = torch.cat([eef_pos, quat_seed], dim=-1)
+                            n = eef_pose.shape[0]
+                            chunk_size = int(self.num_envs)
+                            arm_q_chunks = []
+                            success_chunks = []
+                            with torch.enable_grad():
+                                for start in range(0, n, chunk_size):
+                                    end = min(start + chunk_size, n)
+                                    arm_q_i, success_i = self.get_joint_from_ee(eef_pose[start:end], return_success=True)
+                                    arm_q_chunks.append(arm_q_i)
+                                    success_chunks.append(success_i)
+                            arm_q = torch.cat(arm_q_chunks, dim=0)
+                            ok = torch.cat(success_chunks, dim=0).bool().reshape(-1)
+                            if not torch.any(ok):
+                                continue
+                            arm_ok = arm_q[ok]
+                            quat_ok = quat_seed[ok]
+                            eef_ok = eef_pos[ok]
+                            take = min(target_count - filled, int(arm_ok.shape[0]))
+                            joint_block = torch.zeros((take, self.num_dofs), device=self.device)
+                            joint_block[:, :7] = arm_ok[:take]
+                            start_i = section_cursor + filled
+                            end_i = start_i + take
+                            self.pose_bank_joint[group_id, start_i:end_i] = joint_block
+                            self.pose_bank_quat[group_id, start_i:end_i] = quat_ok[:take]
+                            self.pose_bank_eef_pos[group_id, start_i:end_i] = eef_ok[:take]
+                            self.pose_bank_section[group_id, start_i:end_i] = section_idx
+                            filled += take
+                        section_cursor += target_count
+                    self.pose_bank_count[group_id] = self.pose_bank_size
+                    pbar.update(1)
+                    continue
+
                 while int(self.pose_bank_count[group_id].item()) < self.pose_bank_size:
                     rounds += 1
                     if rounds > max_rounds:
@@ -195,7 +388,18 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
                             dim=-1,
                         )
                         points = center + dirs * radius.unsqueeze(-1)
-                        valid = ((points >= limits_min) & (points <= limits_max)).all(dim=-1)
+                        # CODEX: apply optional per-axis uniform XYZ offset before validity filtering.
+                        if bool(torch.any(pos_offset_max > pos_offset_min)):
+                            offsets = torch.rand((batch_size, 3), device=self.device, dtype=points.dtype)
+                            offsets = pos_offset_min.unsqueeze(0) + offsets * (pos_offset_max - pos_offset_min).unsqueeze(0)
+                            points = points + offsets
+                        xyz_valid = ((points >= limits_min) & (points <= limits_max)).all(dim=-1)
+                        # CODEX: enforce final sampled point radius around object center within side_distance +/- side_distance_noise.
+                        radius_from_center = torch.norm(points - center.unsqueeze(0), dim=-1)
+                        radius_min = max(1.0e-4, side_distance - side_distance_noise)
+                        radius_max = side_distance + side_distance_noise
+                        radius_valid = (radius_from_center >= radius_min) & (radius_from_center <= radius_max)
+                        valid = xyz_valid & radius_valid
                         v = points[valid]
                         out.append(v)
                         total += int(v.shape[0])
@@ -268,6 +472,7 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
                     ok = torch.cat(success_chunks, dim=0).bool().reshape(-1)
                     arm_ok = arm_q[ok]
                     quat_ok = reward_quat[ok]
+                    eef_ok = eef_pos[ok]
                     num_ok = int(arm_ok.shape[0])
                     count = int(self.pose_bank_count[group_id].item())
                     take = min(self.pose_bank_size - count, num_ok)
@@ -275,6 +480,8 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
                     joint_block[:, :7] = arm_ok[:take]
                     self.pose_bank_joint[group_id, count:count + take] = joint_block
                     self.pose_bank_quat[group_id, count:count + take] = quat_ok[:take]
+                    self.pose_bank_eef_pos[group_id, count:count + take] = eef_ok[:take]  # CODEX
+                    self.pose_bank_section[group_id, count:count + take] = -1  # CODEX
                     self.pose_bank_count[group_id] = count + take
                 pbar.update(1)
         pbar.close()
@@ -288,14 +495,58 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
             return
         num_envs = len(env_ids)
         side_mode = self.eef_init["side_mode"]
-        if side_mode == "left":
-            left_mask = torch.ones(num_envs, device=self.device, dtype=torch.bool)
-        elif side_mode == "right":
-            left_mask = torch.zeros(num_envs, device=self.device, dtype=torch.bool)
-        else:
-            left_mask = torch.rand(num_envs, device=self.device) < 0.5
+        # CODEX: active-pose union logic
+        # - right poses are active when right-section sampling+curriculum are enabled
+        # - left poses are active when debug_disable_left_pose_bank is False
+        right_active = bool(self.eef_init["right_section_sampling_enable"]) and bool(self.eef_init["right_section_curriculum_enable"])
+        left_active = not bool(self.eef_init["debug_disable_left_pose_bank"])
+        # Pose-bank-only reset sampling from merged active pose sets (density-proportional, not 50/50).
+        obj_ids = self.env_object_ids[env_ids].long()
+        left_mask = torch.zeros(num_envs, device=self.device, dtype=torch.bool)  # CODEX
+        chosen = torch.zeros(num_envs, device=self.device, dtype=torch.long)  # CODEX
+        num_sections = int(self.eef_init["right_section_num"])  # CODEX
+        active_sections = self._get_active_right_sections() if bool(self.eef_init["right_section_curriculum_enable"]) else num_sections  # CODEX
+        for local_id in range(num_envs):  # CODEX
+            obj_id = int(obj_ids[local_id].item())
+            left_gid = obj_id * 2 + 1
+            right_gid = obj_id * 2 + 0
+            left_count = int(self.pose_bank_count[left_gid].item())
+            right_count = int(self.pose_bank_count[right_gid].item())
+            right_valid_ids = torch.empty((0,), dtype=torch.long, device=self.device)
+            if right_active and right_count > 0:
+                bank_sections = self.pose_bank_section[right_gid, :right_count]
+                valid_bank = (bank_sections >= 0) & (bank_sections < active_sections)
+                right_valid_ids = valid_bank.nonzero(as_tuple=False).squeeze(-1)
+            use_left = left_active and left_count > 0
+            use_right = right_active and right_valid_ids.numel() > 0
+            if not use_left and not use_right:
+                # fallback to original side_mode
+                if side_mode == "left" and left_count > 0:
+                    use_left = True
+                elif side_mode == "right" and right_count > 0:
+                    use_right = True
+                    right_valid_ids = torch.arange(right_count, device=self.device, dtype=torch.long)
+                elif left_count > 0:
+                    use_left = True
+                elif right_count > 0:
+                    use_right = True
+                    right_valid_ids = torch.arange(right_count, device=self.device, dtype=torch.long)
+                else:
+                    raise RuntimeError(f"No available reset poses for obj_id={obj_id}")
 
-        # update the target_quat of envs based on mode ("left/right/both")
+            left_pool = left_count if use_left else 0
+            right_pool = int(right_valid_ids.numel()) if use_right else 0
+            total_pool = left_pool + right_pool
+            pick = int(torch.randint(total_pool, (1,), device=self.device).item())
+            if pick < left_pool:
+                left_mask[local_id] = True
+                chosen[local_id] = pick
+            else:
+                left_mask[local_id] = False
+                chosen[local_id] = right_valid_ids[pick - left_pool]
+
+        group_ids = obj_ids * 2 + left_mask.long()  # CODEX
+        # update the target_quat of envs based on sampled side mask
         self.side_is_left[env_ids] = left_mask
         target_quat = self.target_quat_right.repeat(num_envs, 1)
         if int(left_mask.sum().item()) > 0:
@@ -303,10 +554,27 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         self.reward_settings["target_quat"][env_ids] = target_quat
         self.reward_settings["target_rot_6d"][env_ids] = matrix_to_rotation_6d(quaternion_to_matrix_ig(target_quat))
 
-        # Pose-bank-only reset sampling.
-        obj_ids = self.env_object_ids[env_ids].long()
-        group_ids = obj_ids * 2 + left_mask.long()
-        chosen = torch.randint(0, self.pose_bank_size, (num_envs,), device=self.device)
+        # CODEX: debug logs for right-section curriculum progress and sampled section distribution.
+        debug_log_enable = bool(self.eef_init["right_section_debug_log_enable"])
+        if debug_log_enable:
+            debug_log_interval = int(self.eef_init["right_section_debug_log_interval_steps"])
+        if debug_log_enable and (self.sim_steps - self._right_section_last_log_step >= debug_log_interval):
+            sampled_sections = self.pose_bank_section[group_ids, chosen]
+            sampled_right_sections = sampled_sections[~left_mask]
+            if sampled_right_sections.numel() > 0:
+                hist = torch.bincount(sampled_right_sections.clamp_min(0), minlength=num_sections).cpu().tolist()
+                print(
+                    f"[right-section-debug] sim_steps={int(self.sim_steps)} "
+                    f"active_sections={active_sections}/{num_sections} "
+                    f"right_samples={int(sampled_right_sections.numel())} "
+                    f"section_hist={hist}"
+                )
+            else:
+                print(
+                    f"[right-section-debug] sim_steps={int(self.sim_steps)} "
+                    f"active_sections={active_sections}/{num_sections} right_samples=0"
+                )
+            self._right_section_last_log_step = int(self.sim_steps)
         joint_config = self.pose_bank_joint[group_ids, chosen]
         target_quat = self.pose_bank_quat[group_ids, chosen]
 
@@ -335,6 +603,7 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
             self._draw_eef_candidate_points(clear_lines=False)
             self._draw_object_center_cross(clear_lines=False)
             self._draw_workspace_limits_box(clear_lines=False)
+            self._draw_right_section_workspace(clear_lines=False)  # CODEX
             # self._draw_ik_reachability_grid(clear_lines=False)
             pass
 
@@ -548,30 +817,36 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         env_id = 0
         max_draw = int(1000)
         cross_size = float(0.01)
-        # visualize stored pose-bank entries for env 0's current object-side group.
-        left_side = bool(self.side_is_left[env_id].item()) if hasattr(self, "side_is_left") else False
         obj_id = int(self.env_object_ids[env_id].item())
-        group_id = obj_id * 2 + (1 if left_side else 0)
-        count = int(self.pose_bank_count[group_id].item())
-        if count <= 0:
-            # this should not happen if bank construction succeeded.
-            return
-        draw_n = min(max_draw, count)
-        sample_idx = torch.randperm(count, device=self.device)[:draw_n]
-        arm_joint = self.pose_bank_joint[group_id, sample_idx, :7]
-        eef_pose = self.get_ee_from_joint(arm_joint)
-        points = eef_pose[:, :3].detach().cpu().numpy()
+        left_group_id = obj_id * 2 + 1
+        right_group_id = obj_id * 2 + 0
+        draw_groups = []
+        if self.eef_init["side_mode"] == "left" and bool(self.eef_init["right_section_sampling_enable"]):  # CODEX
+            # CODEX: in left-grasp mode, visualize both left bank and right-section bank.
+            draw_groups = [(left_group_id, [0.0, 1.0, 0.0]), (right_group_id, [1.0, 1.0, 0.0])]
+        else:
+            left_side = bool(self.side_is_left[env_id].item()) if hasattr(self, "side_is_left") else False
+            group_id = obj_id * 2 + (1 if left_side else 0)
+            draw_groups = [(group_id, [0.0, 1.0, 0.0])]
 
         verts_flat = []
         colors_flat = []
-        color = [0.0, 1.0, 0.0]
-        for p in points:
-            verts_flat.extend([p[0] - cross_size, p[1], p[2], p[0] + cross_size, p[1], p[2]])
-            colors_flat.extend(color)
-            verts_flat.extend([p[0], p[1] - cross_size, p[2], p[0], p[1] + cross_size, p[2]])
-            colors_flat.extend(color)
-            verts_flat.extend([p[0], p[1], p[2] - cross_size, p[0], p[1], p[2] + cross_size])
-            colors_flat.extend(color)
+        for group_id, color in draw_groups:
+            count = int(self.pose_bank_count[group_id].item())
+            if count <= 0:
+                continue
+            draw_n = min(max_draw // max(len(draw_groups), 1), count)
+            sample_idx = torch.randperm(count, device=self.device)[:draw_n]
+            arm_joint = self.pose_bank_joint[group_id, sample_idx, :7]
+            eef_pose = self.get_ee_from_joint(arm_joint)
+            points = eef_pose[:, :3].detach().cpu().numpy()
+            for p in points:
+                verts_flat.extend([p[0] - cross_size, p[1], p[2], p[0] + cross_size, p[1], p[2]])
+                colors_flat.extend(color)
+                verts_flat.extend([p[0], p[1] - cross_size, p[2], p[0], p[1] + cross_size, p[2]])
+                colors_flat.extend(color)
+                verts_flat.extend([p[0], p[1], p[2] - cross_size, p[0], p[1], p[2] + cross_size])
+                colors_flat.extend(color)
         if len(verts_flat) == 0:
             return
         self.gym.add_lines(self.viewer, self.envs[env_id], len(verts_flat) // 6, verts_flat, colors_flat)
@@ -730,6 +1005,55 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         verts_flat = [v for seg in verts for v in seg]
         colors_flat = [1.0, 1.0, 0.0] * (len(verts_flat) // 6)
         self.gym.add_lines(self.viewer, self.envs[env_id], len(verts_flat) // 6, verts_flat, colors_flat)
+
+    def _draw_right_section_workspace(self, clear_lines=True):
+        # CODEX: draw currently active right-section workspace box for env 0.
+        if clear_lines:
+            self.gym.clear_lines(self.viewer)
+        env_id = 0
+        num_sections = int(self.eef_init["right_section_num"])
+        active_sections = self._get_active_right_sections()
+        x_center = float(self.cuboid_pos[env_id, 0, 0].item())
+        y_center = float(self.cuboid_pos[env_id, 0, 1].item())
+        z_center = float(self.table_surface_height[env_id].item())
+        limits_min_rel = self.eef_init["limits_xyz_min"]
+        limits_max_rel = self.eef_init["limits_xyz_max"]
+        x_min = x_center + float(limits_min_rel[0])
+        x_max = x_center + float(limits_max_rel[0])
+        # derive Y span from actual active right-bank samples, so sign/flip is always correct
+        obj_id = int(self.env_object_ids[env_id].item())
+        right_group_id = obj_id * 2 + 0
+        bank_sections = self.pose_bank_section[right_group_id, :]
+        valid_bank = (bank_sections >= 0) & (bank_sections < active_sections)
+        valid_ids = valid_bank.nonzero(as_tuple=False).squeeze(-1)
+        if valid_ids.numel() > 0:
+            y_samples = self.pose_bank_eef_pos[right_group_id, valid_ids, 1]
+            y_min = float(torch.min(y_samples).item())
+            y_max = float(torch.max(y_samples).item())
+        else:
+            y_min = y_center
+            y_max = y_center
+        z_min = z_center + float(limits_min_rel[2])
+        z_max = z_center + float(limits_max_rel[2])
+
+        corners = np.array([
+            [x_min, y_min, z_min], [x_max, y_min, z_min], [x_max, y_max, z_min], [x_min, y_max, z_min],
+            [x_min, y_min, z_max], [x_max, y_min, z_max], [x_max, y_max, z_max], [x_min, y_max, z_max],
+        ], dtype=np.float32)
+        edges = [
+            (0, 1), (1, 2), (2, 3), (3, 0),
+            (4, 5), (5, 6), (6, 7), (7, 4),
+            (0, 4), (1, 5), (2, 6), (3, 7),
+        ]
+        verts_flat = []
+        colors_flat = []
+        color = [1.0, 0.5, 0.0]  # orange
+        for a, b in edges:
+            pa = corners[a]
+            pb = corners[b]
+            verts_flat.extend([pa[0], pa[1], pa[2], pb[0], pb[1], pb[2]])
+            colors_flat.extend(color)
+        self.gym.add_lines(self.viewer, self.envs[env_id], len(edges), verts_flat, colors_flat)
     
     # @ray: visualize IK reachability grid (env 0)
     def _draw_ik_reachability_grid(self, clear_lines=True):
@@ -816,6 +1140,12 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
 
         self.reset_buf[:] = torch.where((self.progress_buf >= self.max_episode_length - 1), torch.ones_like(self.reset_buf), self.reset_buf)
         self.reset_buf[self.states['object_center_pos'][:, 2] < self.table_surface_height-0.1] = 1
+        # CODEX: reset scene if object drifts too far in XY from table center (fly-away guard).
+        table_center_xy = self.cuboid_pos[:, 0, :2]
+        object_center_xy = self.states["object_center_pos"][:, :2]
+        dist_to_table_center_xy = torch.norm(object_center_xy - table_center_xy, dim=-1)
+        max_xy_dist = 5.0
+        self.reset_buf[dist_to_table_center_xy > max_xy_dist] = 1
 
         # Lift/goal curriculum (hardcoded here by request; edit these values directly).
         # Curriculum with delayed start:
@@ -920,6 +1250,15 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         self.extras["metrics/lifting_rate_5cm_per_ep"] = torch.mean(self.lifting_flags.float()).item()
         self.extras["metrics/lifting_rate_5cm_per_ep_instant"] = torch.mean(self.lifting_flags_instant).item()
         self.extras["metrics/lifting_rate_5cm_per_step"] = torch.mean(self.lifting_5cm_per_step.float()).item()
+
+        # CODEX: success-based right-section curriculum update + logging.
+        self._right_section_last_success_rate = float(self.extras["metrics/success_rate_5cm_per_ep"])
+        self._update_right_section_curriculum_from_success()
+        self.extras["curriculum/right_section_active_sections"] = float(self._get_active_right_sections())
+        self.extras["curriculum/right_section_success_hold_counter"] = float(self._right_section_success_hold_counter)
+        self.extras["curriculum/right_section_success_threshold"] = float(
+            self.eef_init["right_section_curriculum_success_threshold"]
+        )
         
         # log memory usage TODO: debug utils, cleanup later
         mem_allocated_GB = float(torch.cuda.memory_allocated() / 1024**3)
@@ -939,8 +1278,43 @@ def compute_franka_leap_reward(states, reward_settings):
     d_finger4 = torch.norm(states["object_grasp_target_pos"] - states["eef_finger4_pos"], dim=-1)
 
     # R1: Max dist component to object: max_i∈{palm_pos,fingertips} ||x^i - x^obj||
-    d_hand_obj = torch.stack([d_palm, d_finger1, d_finger2, d_finger3, d_finger4], dim=1)
-    d_hand_obj = torch.max(d_hand_obj, dim=1)[0]
+    d_hand_obj_max = torch.stack([d_palm, d_finger1, d_finger2, d_finger3, d_finger4], dim=1)
+    d_hand_obj_max = torch.max(d_hand_obj_max, dim=1)[0]
+
+    n_env = states["object_quat"].shape[0]
+    local_z = torch.zeros((n_env, 3), dtype=states["object_quat"].dtype, device=states["object_quat"].device)
+    local_z[:, 2] = 1.0
+    object_z_axis_world = quat_apply(states["object_quat"], local_z)
+
+    finger_positions = torch.stack(
+        [
+            states["eef_finger1_pos"],
+            states["eef_finger2_pos"],
+            states["eef_finger3_pos"],
+            states["eef_finger4_pos"],
+        ],
+        dim=1,
+    )
+
+    # CODEX: Optional hand-object distance branch that uses XY distance at the midpoint of (max,min) finger heights.
+    use_midheight_xy = bool(reward_settings["hand_obj_use_midheight_xy"])
+    if use_midheight_xy:
+        object_target_pos = states["object_grasp_target_pos"]
+        finger_to_target = finger_positions - object_target_pos.unsqueeze(1)
+        finger_signed_height = torch.sum(finger_to_target * object_z_axis_world.unsqueeze(1), dim=-1)
+        mid_finger_height = 0.5 * (
+            torch.max(finger_signed_height, dim=1)[0] + torch.min(finger_signed_height, dim=1)[0]
+        )
+        # CODEX: tangential (radial-to-axis) component in object frame.
+        finger_radial = finger_to_target - torch.sum(
+            finger_to_target * object_z_axis_world.unsqueeze(1), dim=-1, keepdim=True
+        ) * object_z_axis_world.unsqueeze(1)
+        d_xy = torch.mean(torch.norm(finger_radial, dim=-1), dim=1)
+        # CODEX: separate height-consistency term so midpoint height actually affects reward.
+        d_height = torch.mean(torch.abs(finger_signed_height - mid_finger_height.unsqueeze(1)), dim=1)
+        d_hand_obj = d_xy + reward_settings["hand_obj_midheight_height_weight"] * d_height
+    else:
+        d_hand_obj = d_hand_obj_max
 
     # R1: Hand object distance reward
     beta_hand_object = reward_settings["beta_hand_object"]
@@ -957,21 +1331,6 @@ def compute_franka_leap_reward(states, reward_settings):
     else:
         r_lift = torch.where(states["lift"], 1.0, torch.zeros_like(object_height))
 
-
-    n_env = states["object_quat"].shape[0]
-    local_z = torch.zeros((n_env, 3), dtype=states["object_quat"].dtype, device=states["object_quat"].device)
-    local_z[:, 2] = 1.0
-    object_z_axis_world = quat_apply(states["object_quat"], local_z)
-
-    finger_positions = torch.stack(
-        [
-            states["eef_finger1_pos"],
-            states["eef_finger2_pos"],
-            states["eef_finger3_pos"],
-            states["eef_finger4_pos"],
-        ],
-        dim=1,
-    )
     gate_offset = reward_settings["grasp_on_object_z_height_offset"]
     gate_target_pos = states["object_grasp_target_pos"] + gate_offset * object_z_axis_world
     target_pos_rep = gate_target_pos.unsqueeze(1)

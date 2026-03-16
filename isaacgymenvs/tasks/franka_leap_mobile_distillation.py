@@ -16,6 +16,9 @@ TODO:
 """
 
 import os
+import re
+import shutil
+import hashlib
 import time
 from datetime import datetime
 from pathlib import Path
@@ -647,6 +650,37 @@ class FrankaLEAPMobileDistillation(VecTask):
         mesh_name, _ = os.path.splitext(mesh_filename)
 
         urdf_rel = mesh_name + ".urdf"
+        if mass is None:
+            return urdf_rel, mesh_dir
+
+        # Create a temp cached copy of the mesh folder and patch URDF mass there.
+        mass_value = float(mass)
+        mass_tag = f"{mass_value:.8g}".replace(".", "p").replace("-", "m")
+        mesh_dir_hash = hashlib.sha1(mesh_dir.encode("utf-8")).hexdigest()[:10]
+        # Prefer user-private cache, override with env var for cluster setups.
+        cache_root = os.environ.get(
+            "ISAACGYM_URDF_CACHE_ROOT",
+            os.path.join(os.path.expanduser("~"), ".cache", "isaacgym_urdf_overrides"),
+        )
+        cache_mesh_dir = os.path.join(cache_root, f"{mesh_name}_{mesh_dir_hash}_mass_{mass_tag}")
+        os.makedirs(cache_root, exist_ok=True)
+        if not os.path.exists(cache_mesh_dir):
+            shutil.copytree(mesh_dir, cache_mesh_dir)
+
+        cache_urdf_path = os.path.join(cache_mesh_dir, urdf_rel)
+        with open(cache_urdf_path, "r") as f:
+            urdf_text = f.read()
+        patched_urdf_text, n_sub = re.subn(
+            r'(<mass\s+value\s*=\s*")[^"]+("\s*/?>)',
+            rf'\g<1>{mass_value:.8g}\2',
+            urdf_text,
+        )
+        if n_sub == 0:
+            raise ValueError(f"No <mass value=...> tag found in URDF: {cache_urdf_path}")
+        if patched_urdf_text != urdf_text:
+            with open(cache_urdf_path, "w") as f:
+                f.write(patched_urdf_text)
+        return urdf_rel, cache_mesh_dir
 
         # TODO: change logic in the future, recreating urdf might not be a good idea
         # urdf_path = os.path.join(mesh_dir, urdf_rel)
@@ -694,7 +728,17 @@ class FrankaLEAPMobileDistillation(VecTask):
         """
         # convert .obj into .urdf file
         mesh_scale = [scale, scale, scale]
-        urdf_path, asset_root = self._create_mesh_urdf(mesh_path, scale=mesh_scale)
+        mesh_mass_range = self.cfg["env"]["object_settings"]["mass_range"]
+        sampled_mesh_mass = None
+        if mesh_mass_range is not None:
+            mass_lo = float(mesh_mass_range[0])
+            mass_hi = float(mesh_mass_range[1])
+            sampled_mesh_mass = float(np.random.uniform(mass_lo, mass_hi))
+        urdf_path, asset_root = self._create_mesh_urdf(
+            mesh_path,
+            scale=mesh_scale,
+            mass=sampled_mesh_mass,
+        )  # CODEX
 
 
         # @ray urdf format
@@ -1689,7 +1733,7 @@ class FrankaLEAPMobileDistillation(VecTask):
         num_trigger_steps = int(round(self.object_wrench_args["trigger_duration"] / self.dt))
         activation_dis = self.object_wrench_args["activation_dis"]
         apply_wrench = ( self.states["object_to_eef"].norm(dim=-1) < activation_dis ) | self.lifting_5cm_per_step
-
+        
         self.object_applied_forces = torch.where(
             ((self.progress_buf % num_trigger_steps) == 0).unsqueeze(-1),
             rand_forces,
@@ -1888,6 +1932,7 @@ class FrankaLEAPMobileDistillation(VecTask):
         else:
             env_ids = object_reset_env_ids.clone()
 
+        apply_teleport_env_ids = torch.empty((0,), dtype=torch.long, device=self.device)  # CODEX
         if self.object_teleport_args["enable"]:
             if self.sim_steps % (self.max_episode_length * self.object_teleport_args['swap_freq']) == 0:
                 self.teleport_env_ids = torch.randperm(self.num_envs, device=self.device)[:self.num_teleport_envs]
@@ -1909,7 +1954,78 @@ class FrankaLEAPMobileDistillation(VecTask):
 
         # Sampling is "centered" around middle of table
         reset_pos = torch.zeros(num_resets, 3, device=self.device)
-        reset_pos[:, :2] = torch.rand(num_resets, 2, device=self.device) * (self.obj_pos_range[env_ids][:, [1,3]] - self.obj_pos_range[env_ids][:, [0,2]]) + self.obj_pos_range[env_ids][:, [0,2]]
+        xy_min = self.obj_pos_range[env_ids][:, [0, 2]]
+        xy_max = self.obj_pos_range[env_ids][:, [1, 3]]
+        eef_xy = self._eef_state[env_ids, :2]  # CODEX
+        force_right_of_eef = bool(self.object_teleport_args["force_right_of_eef"])  # CODEX
+
+        # CODEX: base XY sampling (no EEF-side clipping).
+        def _sample_xy_for_rows(row_mask: torch.Tensor):
+            if not torch.any(row_mask):
+                return
+            row_idx = row_mask.nonzero(as_tuple=False).squeeze(-1)
+            n = int(row_idx.numel())
+            reset_pos[row_idx, 0] = (
+                torch.rand(n, device=self.device) * (xy_max[row_idx, 0] - xy_min[row_idx, 0]) + xy_min[row_idx, 0]
+            )
+            reset_pos[row_idx, 1] = (
+                torch.rand(n, device=self.device) * (xy_max[row_idx, 1] - xy_min[row_idx, 1]) + xy_min[row_idx, 1]
+            )
+
+        _sample_xy_for_rows(torch.ones(num_resets, dtype=torch.bool, device=self.device))  # CODEX
+        # Keep teleported/reset objects away from current EEF xy by a minimum radius.
+        min_xy_dist_to_eef = float(self.object_teleport_args["min_xy_dist_to_eef"])
+        min_xy_resample_rounds = int(self.object_teleport_args["min_xy_dist_resample_rounds"])
+        if min_xy_dist_to_eef > 0.0:
+            for _ in range(min_xy_resample_rounds):
+                too_close = torch.norm(reset_pos[:, :2] - eef_xy, dim=-1) < min_xy_dist_to_eef
+                if not torch.any(too_close):
+                    break
+                _sample_xy_for_rows(too_close)  # CODEX
+
+            too_close = torch.norm(reset_pos[:, :2] - eef_xy, dim=-1) < min_xy_dist_to_eef
+            if torch.any(too_close):
+                bad_ids = too_close.nonzero(as_tuple=False).squeeze(-1)
+                for local_i in bad_ids.tolist():
+                    x0, y0 = float(xy_min[local_i, 0].item()), float(xy_min[local_i, 1].item())
+                    x1, y1 = float(xy_max[local_i, 0].item()), float(xy_max[local_i, 1].item())
+                    ex, ey = float(eef_xy[local_i, 0].item()), float(eef_xy[local_i, 1].item())
+                    corners = torch.tensor(
+                        [[x0, y0], [x0, y1], [x1, y0], [x1, y1]],
+                        device=self.device,
+                        dtype=reset_pos.dtype,
+                    )
+                    d = torch.norm(corners - torch.tensor([ex, ey], device=self.device, dtype=reset_pos.dtype), dim=-1)
+                    reset_pos[local_i, :2] = corners[torch.argmax(d)]
+
+        # CODEX: force-right mode now means teleport-only motion to the right of previous object y.
+        # For teleport envs:
+        # - if there is y-room, set y > previous y (sampled) and keep x as previous x
+        # - if no room, keep previous xy unchanged
+        if force_right_of_eef and apply_teleport_env_ids.numel() > 0:
+            tele_mask = torch.isin(env_ids, apply_teleport_env_ids)
+            if torch.any(tele_mask):
+                local_idx = tele_mask.nonzero(as_tuple=False).squeeze(-1)
+                global_idx = env_ids[local_idx]
+                prev_xy = self._object_state[global_idx, :2].clone()
+                prev_y = prev_xy[:, 1]
+                y_lo = torch.maximum(xy_min[local_idx, 1], prev_y + 1e-4)
+                y_hi = xy_max[local_idx, 1]
+                can_move = y_hi > y_lo
+
+                if torch.any(can_move):
+                    move_idx = local_idx[can_move]
+                    move_prev = prev_xy[can_move]
+                    move_y_lo = y_lo[can_move]
+                    move_y_hi = y_hi[can_move]
+                    reset_pos[move_idx, 0] = move_prev[:, 0]
+                    reset_pos[move_idx, 1] = (
+                        torch.rand(int(move_idx.numel()), device=self.device) * (move_y_hi - move_y_lo) + move_y_lo
+                    )
+                if torch.any(~can_move):
+                    stay_idx = local_idx[~can_move]
+                    stay_prev = prev_xy[~can_move]
+                    reset_pos[stay_idx, :2] = stay_prev
         reset_pos[:, 2] = self.table_surface_height[env_ids]
 
         sampled_object_state[:, 6] = 1.0
@@ -2114,6 +2230,28 @@ class FrankaLEAPMobileDistillation(VecTask):
             self.per_object_lifting_counts += lifting_increments
             self.per_object_lifting_counts_interval += lifting_increments
 
+        # CODEX: keep windowed episode-history metrics consistent with forced-reset accounting.
+        if (
+            hasattr(self, "ep_hist_success")
+            and hasattr(self, "ep_hist_lifting")
+            and hasattr(self, "ep_hist_ptr")
+            and hasattr(self, "ep_hist_count")
+            and hasattr(self, "ep_hist_max")
+        ):
+            n_done = int(env_ids.numel())
+            if n_done > 0:
+                done_success_bits = torch.full(
+                    (n_done,), 1 if mark_success else 0, device=self.device, dtype=torch.int8
+                )
+                done_lifting_bits = torch.full(
+                    (n_done,), 1 if mark_lifting else 0, device=self.device, dtype=torch.int8
+                )
+                write_idx = (torch.arange(n_done, device=self.device) + self.ep_hist_ptr) % self.ep_hist_max
+                self.ep_hist_success[write_idx] = done_success_bits
+                self.ep_hist_lifting[write_idx] = done_lifting_bits
+                self.ep_hist_ptr = (self.ep_hist_ptr + n_done) % self.ep_hist_max
+                self.ep_hist_count = min(self.ep_hist_count + n_done, self.ep_hist_max)
+
     def _get_video_camera_pose_for_env(self, env_id, pos, target):
         # Match teacher framing offsets while anchoring to per-env table top z.
         table_z = float(self.table_surface_height[env_id].item())
@@ -2283,8 +2421,14 @@ class FrankaLEAPMobileDistillation(VecTask):
                 cv2.rectangle(overlay, (10, 10), (260, 50), (128, 128, 128), -1)
                 alpha = 0.7
                 cv2.addWeighted(overlay, alpha, img, 1 - alpha, 0, img)
+                if mode == "eval":
+                    is_success = bool(self.success_long_enough[env_idx].item())
+                    status_text = "success" if is_success else "failure"
+                    text = f"Env: {env_idx}  eval {status_text} step: {step_idx}"
+                else:
+                    text = f"Env: {env_idx}  {mode} step: {step_idx}"
                 cv2.putText(
-                    img, f'Env: {env_idx}  {mode} step: {step_idx}', (20, 35),
+                    img, text, (20, 35),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 0, 0), 2
                 )
                 writer.append_data(img)
@@ -2306,16 +2450,20 @@ class FrankaLEAPMobileDistillation(VecTask):
                         self.video_dir,
                         f"{mode}_step{self.video_step_start}_env{env_idx}.mp4"
                     )
-                    wandb_key = f"visualization/{mode}_video_env_{env_idx}"
+                    wandb_key = f"visualization_{mode}/{mode}_video_env_{env_idx}"
+                    log_step = int(self.distillation_steps) if self.distillation_mode else None  # CODEX
+                    if self.distillation_mode and wandb.run.step is not None:  # CODEX
+                        # Keep video logs monotonic with any prior wandb logs in this process.
+                        log_step = max(log_step, int(wandb.run.step))  # CODEX
                     if self.distillation_mode:
                         wandb.log(
-                            {wandb_key: wandb.Video(path)},
-                            step=self.distillation_steps,
+                            {wandb_key: wandb.Video(path, format="mp4")},  # CODEX
+                            step=log_step,  # CODEX
                             commit=(idx == len(self.video_env_ids) - 1),
                         )
                     else:
                         wandb.log(
-                            {wandb_key: wandb.Video(path)},
+                            {wandb_key: wandb.Video(path, format="mp4")},  # CODEX
                             commit=(idx == len(self.video_env_ids) - 1),
                         )
             if mode == "train":

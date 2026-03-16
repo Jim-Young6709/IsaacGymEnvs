@@ -125,6 +125,8 @@ class PCDTransformer(BaseModel):
         action_space="delta",
         action_dim=22,
         aux_weight=0.0,
+        aux_prediction_mode="absolute",
+        aux_delta_scale=0.01,
     ):
         super().__init__(
             normalize_state=normalize_state,
@@ -146,6 +148,8 @@ class PCDTransformer(BaseModel):
         # update config for auxiliary object state prediction
         self.aux_prediction = (aux_weight > 0)
         self.aux_weight = aux_weight
+        self.aux_prediction_mode = aux_prediction_mode
+        self.aux_delta_scale = aux_delta_scale
         self.aux_memory_allowlist = ["local_pcd_t", "aux_object_state"]
 
         # Type embeddings and encodersfor different modalities

@@ -52,19 +52,23 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
             env_ids = torch.arange(self.num_envs, device=self.device)
         if env_ids.numel() == 0:
             return
-        
+
+        pending_reset_mask = self.object_reset_pending_mask  # CODEX
+
         # Retarget XY for all object resets in this step (regular reset + teleport).
-        object_reset_mask = self.object_reset_pending_mask
-        if torch.any(object_reset_mask):
-            self.reward_settings["target_pos"][object_reset_mask, :2] = self._object_center_init_state[object_reset_mask, :2]
+        if torch.any(pending_reset_mask):
+            self.reward_settings["target_pos"][pending_reset_mask, :2] = self._object_center_init_state[pending_reset_mask, :2]
+            pending_reset_env_ids = pending_reset_mask.nonzero(as_tuple=False).squeeze(-1)  # CODEX
+            reset_related_env_ids = torch.unique(torch.cat([env_ids, pending_reset_env_ids], dim=0))  # CODEX
+        else:
+            reset_related_env_ids = env_ids  # CODEX
 
-        self.pre_teacher_stage_reached[env_ids] = False
-        self.switch_target_quat_latched[env_ids] = False  # CODEX
-        self.switching_eef_init_pos[env_ids] = self._eef_state[env_ids, :3]  # CODEX
+        self.pre_teacher_stage_reached[reset_related_env_ids] = False  # CODEX
+        self.switch_target_quat_latched[reset_related_env_ids] = False  # CODEX: force switching target refresh after teleport/reset.
+        self.switching_eef_init_pos[reset_related_env_ids] = self._eef_state[reset_related_env_ids, :3]  # CODEX
         if self.use_center_tracking_switch_target:  # CODEX
-            self.side_is_left[env_ids] = True  # CODEX: center-tracking mode is left-only by design.
-
-        # self._set_reward_target_quat_from_side_mask(env_ids)
+            self.side_is_left[reset_related_env_ids] = True  # CODEX: center-tracking mode is left-only by design.
+        self._set_reward_target_quat_from_side_mask(reset_related_env_ids)  # CODEX: refresh teacher target quat on teleport/reset.
 
     def _set_reward_target_quat_from_side_mask(self, env_ids):
         if env_ids.numel() == 0:
@@ -77,20 +81,26 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
         self.reward_settings["target_rot_6d"][env_ids] = matrix_to_rotation_6d(
             quaternion_to_matrix_ig(target_quat)
         )
+
+    def _get_center_tracking_target_pos(self, object_center_pos, env_ids=None):
+        # CODEX: single source of truth for center-tracking switch target position.
+        if env_ids is None:
+            target_pos = object_center_pos.clone()
+        else:
+            target_pos = object_center_pos[env_ids].clone()
+        target_pos[:, 2] = target_pos[:, 2] * 2.0 + self.switching_target_z_offset
+        return target_pos
  
     def _update_fabric_switching_target(self, object_center_pos):
         if self.use_center_tracking_switch_target:  # CODEX
             # CODEX: latch switch target pose once and keep fixed during fabric.
-            self.switching_target_z_offset = 0.0  # CODEX
-            self.pre_teacher_stage_reached[:] = False  # CODEX
+            self.switching_target_z_offset = 0.1  # CODEX
 
             if self.enable_fabric:  # CODEX
                 unlatch_ids = (~self.switch_target_quat_latched).nonzero(as_tuple=False).squeeze(-1)  # CODEX
                 if unlatch_ids.numel() > 0:  # CODEX
                     eef_pos = self.switching_eef_init_pos[unlatch_ids]  # CODEX
-                    center_offset = torch.zeros((unlatch_ids.numel(), 3), device=self.device, dtype=object_center_pos.dtype)  # CODEX
-                    center_offset[:, 2] = 0.1  # CODEX
-                    obj_pos = object_center_pos[unlatch_ids] + center_offset  # CODEX
+                    obj_pos = self._get_center_tracking_target_pos(object_center_pos, unlatch_ids)  # CODEX
                     desired_dir = obj_pos - eef_pos  # CODEX
                     desired_dir_xy = desired_dir.clone()  # CODEX
                     desired_dir_xy[:, 2] = 0.0  # CODEX
@@ -116,9 +126,7 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
                 self.switching_target_quat = self.switching_target_quat_latched_value  # CODEX
                 self.switching_target_pos = self.switching_target_pos_latched_value  # CODEX
             else:  # CODEX
-                center_offset = torch.zeros_like(object_center_pos)  # CODEX
-                center_offset[:, 2] = 0.1  # CODEX
-                self.switching_target_pos = object_center_pos.clone() + center_offset  # CODEX
+                self.switching_target_pos = self._get_center_tracking_target_pos(object_center_pos)  # CODEX
                 self.switching_target_quat = self.target_quat_left.repeat(self.num_envs, 1)  # CODEX
 
             # CODEX: radius-based trigger around object center.
@@ -126,23 +134,48 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
             self.switch_activate_radius = torch.full((self.num_envs,), center_radius, device=self.device, dtype=object_center_pos.dtype)  # CODEX
             return  # CODEX
         
-        # CODEX: single-stage switching target (directly use pre-teacher target).
+        # CODEX: two-stage switching target for non-center mode.
+        # If object starts on hand-left: directly use left target.
+        # If object starts on hand-right: stage-1 to right target, then stage-2 to left target.
         side_distance = float(self.eef_init["side_distance"])
-        self.switching_target_z_offset = 0.1
-        side_offset = torch.zeros((self.num_envs, 3), device=self.device, dtype=object_center_pos.dtype)
-        side_offset[:, 1] = side_distance
-        side_offset[:, 2] = self.switching_target_z_offset
-        pre_teacher_target_pos = object_center_pos + side_offset
-        pre_teacher_target_quat = self.target_quat_left.repeat(self.num_envs, 1)
+        self.switching_target_z_offset = 0.3
+        left_offset = torch.zeros((self.num_envs, 3), device=self.device, dtype=object_center_pos.dtype)  # CODEX
+        right_offset = torch.zeros((self.num_envs, 3), device=self.device, dtype=object_center_pos.dtype)  # CODEX
+        left_offset[:, 1] = side_distance  # CODEX
+        right_offset[:, 1] = -side_distance  # CODEX
+        left_offset[:, 2] = self.switching_target_z_offset  # CODEX
+        right_offset[:, 2] = self.switching_target_z_offset  # CODEX
 
-        self.pre_teacher_stage_reached[:] = True  # CODEX
-        self.switching_target_pos = pre_teacher_target_pos  # CODEX
-        self.switching_target_quat = pre_teacher_target_quat  # CODEX
+        left_target_pos = object_center_pos + left_offset  # CODEX
+        right_target_pos = object_center_pos + right_offset  # CODEX
+        left_target_quat = self.target_quat_left.repeat(self.num_envs, 1)  # CODEX
+        right_target_quat = self.target_quat_left.repeat(self.num_envs, 1)  # CODEX: keep same orientation for stage-1 and stage-2.
+
+        # Decide left/right by initial hand-object relation to avoid per-step side flapping.
+        object_is_left = object_center_pos[:, 1] >= self.switching_eef_init_pos[:, 1]  # CODEX
+        object_is_right = ~object_is_left  # CODEX
+        self.pre_teacher_stage_reached[object_is_left] = True  # CODEX: left side goes directly to stage-2.
+
+        # Stage-1 completion for right-start envs: match right-side target first.
+        if torch.any(object_is_right):  # CODEX
+            right_matching_err = self._get_eef_point_matching_err(  # CODEX
+                curent_eef_pos7=self._eef_state[:, :7],
+                target_eef_pos7=torch.cat([right_target_pos, right_target_quat], dim=-1),
+            )
+            reached_right_stage = object_is_right & (right_matching_err <= self.pre_teacher_stage1_tol)  # CODEX
+            self.pre_teacher_stage_reached[reached_right_stage] = True  # CODEX
+
+        use_left_stage = object_is_left | self.pre_teacher_stage_reached  # CODEX
+        self.switching_target_pos = torch.where(  # CODEX
+            use_left_stage.unsqueeze(-1), left_target_pos, right_target_pos
+        )
+        self.switching_target_quat = torch.where(  # CODEX
+            use_left_stage.unsqueeze(-1), left_target_quat, right_target_quat
+        )
 
         # Keep the larger switching hysteresis radii.
         switch_radius = torch.norm(self.switching_target_pos - object_center_pos, dim=-1)
         self.switch_activate_radius = switch_radius + float(self.eef_init["side_distance_noise"])
-        self.switch_keep_radius = self.switch_activate_radius + 0.10
 
     def init_data(self, actor_num):
         super().init_data(actor_num)
@@ -152,7 +185,12 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
         self.switching_eef_init_pos = torch.zeros((self.num_envs, 3), device=self.device, dtype=torch.float)  # CODEX
         self.switching_target_quat_latched_value = torch.zeros((self.num_envs, 4), device=self.device, dtype=torch.float)  # CODEX
         self.switching_target_pos_latched_value = torch.zeros((self.num_envs, 3), device=self.device, dtype=torch.float)  # CODEX
-        self.pre_teacher_stage1_x_offset = -0.3
+        self.ep_hist_window_sizes = [max(1, self.num_envs // 2), self.num_envs, self.num_envs * 2, self.num_envs * 4]  # CODEX
+        self.ep_hist_max = int(self.ep_hist_window_sizes[-1])  # CODEX
+        self.ep_hist_success = torch.full((self.ep_hist_max,), -1, device=self.device, dtype=torch.int8)  # CODEX
+        self.ep_hist_lifting = torch.full((self.ep_hist_max,), -1, device=self.device, dtype=torch.int8)  # CODEX
+        self.ep_hist_ptr = 0  # CODEX
+        self.ep_hist_count = 0  # CODEX
         self.pre_teacher_stage1_tol = self.switch_tol*2
 
         # Teacher-consistent target position semantics:
@@ -187,10 +225,10 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
         self.reward_settings["grasp_on_object_z_height_offset"] = to_torch(self.cfg["reward"]["params"]["grasp_on_object_z_height_offset"], device=self.device)
         self.reward_settings["grasp_on_object_z_height_gate_floor"]  = to_torch(self.cfg["reward"]["params"]["grasp_on_object_z_height_gate_floor"], device=self.device)
         self.reward_settings["grasp_on_object_z_height_gate_enabled"] = to_torch(1.0 if bool(self.cfg["reward"]["params"]["grasp_on_object_z_height_gate_enabled"]) else 0.0, device=self.device)
+        self.reward_settings["success_tolerance"] = to_torch(self.cfg["reward"]["params"]["success_tolerance"], device=self.device)
 
         # Initialize right-side-only target quaternions for all envs.
         all_env_ids = torch.arange(self.num_envs, device=self.device)
-        # TODO: @ray left-side-only behavior.
         self.side_is_left[:] = True
         self._set_reward_target_quat_from_side_mask(all_env_ids)
 
@@ -199,12 +237,12 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
         super().post_physics_step()
         # Visualize switching target frame for debugging in viewer mode.
         if self.debug_viz:
-            # self.gym.clear_lines(self.viewer)
-            # debug_env_id = 1  # CODEX
+            self.gym.clear_lines(self.viewer)
+            debug_env_id = 1  # CODEX
             # self._draw_base_init_pose_grid(env_id=debug_env_id, clear_lines=False)
-            # self._draw_switching_target_pose(env_id=debug_env_id, axis_len=0.10, clear_lines=False)
-            # self._draw_eef_quat_at_teacher_target_pose(env_id=debug_env_id, axis_len=0.095, clear_lines=False)  # CODEX
-            # self._draw_teacher_target_pose(env_id=debug_env_id, axis_len=0.08, clear_lines=False)
+            self._draw_switching_target_pose(env_id=debug_env_id, axis_len=0.10, clear_lines=False)
+            self._draw_eef_quat_at_teacher_target_pose(env_id=debug_env_id, axis_len=0.095, clear_lines=False)  # CODEX
+            self._draw_teacher_target_pose(env_id=debug_env_id, axis_len=0.08, clear_lines=False)
             #self._draw_object_grasp_center(env_id=0, cross_len=0.2, clear_lines=False)
             # self._draw_observation_rays_from_eef(env_id=debug_env_id, clear_lines=False)  # CODEX
             pass
@@ -530,20 +568,23 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
                 # CODEX: require both proximity and pose alignment before teacher handover.
                 activate_now = (radial_dist <= self.switch_activate_radius) & (switching_matching_err <= self.switch_tol)  # CODEX
             else:  # CODEX
-                activate_now = (switching_matching_err <= self.switch_tol)  # CODEX
+                activate_now = self.pre_teacher_stage_reached & (switching_matching_err <= self.switch_tol)  # CODEX
             keep_radius = float(self.eef_init["side_distance"]) + float(self.eef_init["side_distance_noise"])
             keep_active = teacher_active_prev & (radial_dist <= keep_radius)
             teacher_active = (activate_now | keep_active) & (self.progress_buf > 0)
+
+            # CODEX: after teleport/reset this step, if object is on hand-right, force re-entry to fabric two-stage.
+            if not self.use_center_tracking_switch_target:
+                reset_event_mask = self.object_reset_pending_mask.clone()
+                if torch.any(reset_event_mask):
+                    object_on_right = obj_center[:, 1] < eef_pos[:, 1]
+                    force_fabric_mask = reset_event_mask & object_on_right
+                    teacher_active[force_fabric_mask] = False
 
 
             self.fabric_switch_enable[:] = ~teacher_active
             self.fabric_switch_enable[self.progress_buf == 0] = True
             activated_now = (~teacher_active_prev) & teacher_active
-
-        # if self.enable_fabric:  # CODEX
-        #     # CODEX: TEMP DEBUG OVERRIDE - keep fabric always active (disable teacher activation).
-        #     self.fabric_switch_enable[:] = True  # CODEX
-        #     activated_now[:] = False  # CODEX
 
         # Keep reward target updates exactly as before: update target pose on activation edge only.
         active_ids = activated_now.nonzero(as_tuple=False).squeeze(-1)
@@ -717,9 +758,10 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
         self.extras["dis/d_eef_point_goal_rot"] = torch.mean(reward_dict["d_eef_point_goal_rot"]).item()
 
         # log metrics
-        self.lifting_5cm_per_step = self.states["lift"]
+        # CODEX: use object-table contact for lifting metric (debug/metrics), not pure height.
+        self.lifting_5cm_per_step = ~self.table_collision
         self.lifting_flags_instant[self.lifting_5cm_per_step] = 1
-        self.success_5cm_per_step = (reward_dict["d_eef_point_goal"] < 0.05) & self.lifting_5cm_per_step
+        self.success_5cm_per_step = (reward_dict["d_eef_point_goal"] < self.reward_settings["success_tolerance"]) & self.lifting_5cm_per_step
         self.success_flags_instant[self.success_5cm_per_step] = 1
         success_timeout_steps = self.reward_settings["success_timeout_steps"]
         lifting_timeout_steps = self.reward_settings["lifting_timeout_steps"]
@@ -755,6 +797,17 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
             self.per_object_success_counts_interval += success_increments
             self.per_object_lifting_counts_interval += lifting_increments
 
+            # CODEX: maintain rolling per-episode outcomes for windowed success metrics.
+            done_success_bits = self.success_long_enough[done_env_ids].to(torch.int8)
+            done_lifting_bits = self.lifting_long_enough[done_env_ids].to(torch.int8)
+            n_done = int(done_env_ids.numel())
+            if n_done > 0:
+                write_idx = (torch.arange(n_done, device=self.device) + self.ep_hist_ptr) % self.ep_hist_max
+                self.ep_hist_success[write_idx] = done_success_bits
+                self.ep_hist_lifting[write_idx] = done_lifting_bits
+                self.ep_hist_ptr = (self.ep_hist_ptr + n_done) % self.ep_hist_max
+                self.ep_hist_count = min(self.ep_hist_count + n_done, self.ep_hist_max)
+
         # @ray log per-object per-interval success rates locally and a histograom to wandb
         if self.sim_steps > 0 and (self.sim_steps % self.log_per_object_success_freq == 0):
             # @ray prevent inf from division by zero if some objects are not in any envs
@@ -769,7 +822,13 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
                 torch.zeros_like(self.per_object_lifting_counts_interval, dtype=torch.float32),
             )
             if wandb.run is not None:
-                wandb.log({"per_object_success_rate_hist": wandb.Histogram(success_interval_rates.detach().cpu().numpy(), num_bins=20)},)
+                hist_step = int(self.distillation_steps) if self.distillation_mode else int(self.sim_steps)  # CODEX
+                if wandb.run.step is not None:  # CODEX
+                    hist_step = max(hist_step, int(wandb.run.step))  # CODEX
+                wandb.log(  # CODEX
+                    {"per_object_success_rate_hist": wandb.Histogram(success_interval_rates.detach().cpu().numpy(), num_bins=20)},
+                    step=hist_step,
+                )
             interval_snapshot = {
                 "sim_steps": int(self.sim_steps),
                 "log_interval_steps": int(self.log_per_object_success_freq),
@@ -808,9 +867,31 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
         self.extras["metrics/lifting_rate_5cm_per_ep"] = float(lifting_eps) / float(total_eps)
         self.extras["metrics/lifting_rate_5cm_per_ep_instant"] = torch.mean(self.lifting_flags_instant).item()
         self.extras["metrics/lifting_rate_5cm_per_step"] = torch.mean(self.lifting_5cm_per_step.float()).item()
-        self.extras["metrics/episode_count_total"] = total_eps
-        self.extras["metrics/success_episode_count_total"] = success_eps
-        self.extras["metrics/lifting_episode_count_total"] = lifting_eps
+
+        # CODEX: windowed episode metrics (empty slots are ignored, never counted as failures).
+        window_key_suffixes = ["envs_div2", "envs", "envs_x2", "envs_x4"]  # CODEX
+        for win_size, key_suffix in zip(self.ep_hist_window_sizes, window_key_suffixes):  # CODEX
+            win_len = min(int(win_size), int(self.ep_hist_count))  # CODEX
+            if win_len > 0:  # CODEX
+                idx = (torch.arange(win_len, device=self.device) + (self.ep_hist_ptr - win_len)) % self.ep_hist_max  # CODEX
+                succ_vals = self.ep_hist_success[idx]  # CODEX
+                lift_vals = self.ep_hist_lifting[idx]  # CODEX
+                valid_s = succ_vals >= 0  # CODEX
+                valid_l = lift_vals >= 0  # CODEX
+                succ_rate = float(succ_vals[valid_s].float().mean().item()) if bool(torch.any(valid_s)) else 0.0  # CODEX
+                lift_rate = float(lift_vals[valid_l].float().mean().item()) if bool(torch.any(valid_l)) else 0.0  # CODEX
+                valid_count_s = int(valid_s.sum().item())  # CODEX
+                valid_count_l = int(valid_l.sum().item())  # CODEX
+            else:  # CODEX
+                succ_rate = 0.0  # CODEX
+                lift_rate = 0.0  # CODEX
+                valid_count_s = 0  # CODEX
+                valid_count_l = 0  # CODEX
+
+            self.extras[f"metrics/success_rate_5cm_per_ep_win_{key_suffix}"] = succ_rate  # CODEX
+            self.extras[f"metrics/lifting_rate_5cm_per_ep_win_{key_suffix}"] = lift_rate  # CODEX
+            self.extras[f"metrics/success_rate_5cm_per_ep_win_{key_suffix}_count"] = valid_count_s  # CODEX
+            self.extras[f"metrics/lifting_rate_5cm_per_ep_win_{key_suffix}_count"] = valid_count_l  # CODEX
 
         # log memory usage TODO: debug utils, cleanup later
         mem_allocated_GB = float(torch.cuda.memory_allocated() / 1024**3)

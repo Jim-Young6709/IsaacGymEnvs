@@ -68,11 +68,13 @@ dagger:
   steps_per_episode: ${task.env.episodeLength}
   save_freq: 1
   eval_freq: 10
+  eval_only_teacher: False  # CODEX: when True, eval episodes run teacher-only eval (skip student eval).
+  debug_teacher_eval: False  # CODEX: run an additional teacher-only eval pass for debugging.
 
   teacher_forcing:
     enable: True
     warmup_episodes: 10
-    scheduling_episodes: 10 # after warmup episodes, linearly decay teacher forcing envs to 0 over these many episodes
+    scheduling_episodes: 20 # after warmup episodes, linearly decay teacher forcing envs to 0 over these many episodes
 
   learning_rate: 0.001
   weight_decay: 0.01
@@ -83,6 +85,9 @@ dagger:
 
   reaching_reset_threshold: 100
   local_pcd_range: [1.5, 0.5, 0.5] # Codex: [cylindrical range, eef spherical range, aux spherical range]
+  aux_feedback_to_policy: True
+  aux_init_only: False
+  aux_feedback_start_steps: 30000
   load_ckpt_path: null
 
 # TODO: are these args still actively in use? or its just DRP stuff
