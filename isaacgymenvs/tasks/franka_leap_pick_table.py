@@ -42,12 +42,20 @@ class FrankaLEAPPickTable(FrankaLEAP):
             active_finger_mask = torch.ones(4, device=self.device)
             active_dof_mask = torch.ones(16, device=self.device)
         elif grasp_mode == "pinch2":
-            pinch_defaults = [[0.0] * 16, [0.0] * 16, [0.0] * 16]
+            pinch_defaults = [
+                [0.79, -0.2, 0.7, 0.7, 1.15, 0.38, 0.23, 0.77, 0.48, -0.09, -0.2, 0.62, 0.5, -0.05, 0.02, 0.29],
+                [0.79, -0.2, 0.7, 0.7, 1.15, 0.38, 0.23, 0.77, 0.48, -0.09, -0.2, 0.62, 0.5, -0.05, 0.02, 0.29],
+                [0.79, -0.2, 0.7, 0.7, 1.15, 0.38, 0.23, 0.77, 0.48, -0.09, -0.2, 0.62, 0.5, -0.05, 0.02, 0.29],
+            ]
             grasp_default = torch.tensor(pinch_defaults[self.cfg["env"]["grasp_guide_idx"]], device=self.device)
             active_finger_mask = torch.tensor([1.0, 0.0, 0.0, 1.0], device=self.device)
             active_dof_mask = torch.tensor([1.0] * 8 + [0.0] * 8, device=self.device)
         elif grasp_mode == "pinch3":
-            pinch_defaults = [[0.0] * 16, [0.0] * 16, [0.0] * 16]
+            pinch_defaults = [
+                [0.79, -0.2, 0.7, 0.7, 1.15, 0.38, 0.23, 0.77, 0.89, -0.09, 0.74, 0.62, 0.5, 0.05, 0.02, 0.29],
+                [0.79, -0.2, 0.7, 0.7, 1.15, 0.38, 0.23, 0.77, 0.89, -0.09, 0.74, 0.62, 0.5, 0.05, 0.02, 0.29],
+                [0.79, -0.2, 0.7, 0.7, 1.15, 0.38, 0.23, 0.77, 0.89, -0.09, 0.74, 0.62, 0.5, 0.05, 0.02, 0.29],
+            ]
             grasp_default = torch.tensor(pinch_defaults[self.cfg["env"]["grasp_guide_idx"]], device=self.device)
             active_finger_mask = torch.tensor([1.0, 1.0, 0.0, 1.0], device=self.device)
             active_dof_mask = torch.tensor([1.0] * 12 + [0.0] * 4, device=self.device)

@@ -132,6 +132,9 @@ def compute_scene_oracle_pcd(
         spheres = [s for s in spheres if not s.is_zero_volume()]
 
     if len(mesh_position) > 0:
+        def _valid_scale(scale):
+            s = np.asarray(scale)
+            return np.all(s > 0)
         meshes = [
             ObjaMesh(pos, scale, quat, obj_id, str(mesh_id), meshes_dir=meshes_dir)
             for pos, scale, quat, obj_id, mesh_id in zip(
@@ -141,7 +144,7 @@ def compute_scene_oracle_pcd(
                 obj_id,
                 mesh_id,
             )
-            if obj_id != 0.0 and scale > 0
+            if obj_id != 0.0 and _valid_scale(scale)
         ]
         meshes = [m for m in meshes if not m.is_zero_volume()]
 

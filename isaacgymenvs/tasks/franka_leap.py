@@ -168,10 +168,10 @@ class FrankaLEAP(VecTask):
                 0.7,  0.2,  0.7,  0.7,
             ]
             hand_default_3 = [
-                0.7, -0.2, 0.64,  0.7,
-                0.8, 0.88, 0.77,  0.9,
-                0.65, 0.0, 1.04,  0.65,
-                1.1,  -0.11,  0.91,  0.86,
+                0.0000, 0.0000, 0.0000, 0.0000,
+                -0.0300, 0.0000, 1.0100, 0.6900,
+                0.0000, 0.0000, 0.0000, 0.0000,
+                0.0000, 0.0000, 0.0000, 0.0000,
             ]
             # @ray default 2 is being used
             self.hand_default = ([hand_default_1] + [hand_default_2] + [hand_default_3])[self.cfg['env']['grasp_guide_idx']]
