@@ -334,7 +334,7 @@ class DaggerMobile:
         if "local_pcd_t" in self.pcd_encoders_keys:
             # get cropping params
             num_points = torch.tensor(self.cfg.model.pcd_encoders_cfg["local_pcd_t"]["num_points"], device=self.device, dtype=torch.int) # [num cylindrical points, num spherical eef points, num spherical aux points]
-            depth_pcd_ratio = 0.5 # hardcoded to 0.5 for now
+            depth_pcd_ratio = self.cfg["task"]["pcd_spec"].get("depth_pcd_ratio", 1.0)
             num_points_dict = {}
             num_points_dict['depth'] = (num_points * depth_pcd_ratio).to(torch.int)
             num_points_dict['lidar'] = num_points - num_points_dict['depth']
