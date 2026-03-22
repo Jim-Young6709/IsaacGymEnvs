@@ -309,8 +309,8 @@ class DaggerMobile:
                 pcd=obs['gt_pcd_t'],
                 lidar_pose=lidar_pose7,
                 num_points=num_full_pcd_points,
-                num_azimuth=512,
-                num_polar=128,
+                num_azimuth=128,
+                num_polar=512,
                 suppress_bins=2,
                 jitter_std_m=0.001,
             )
@@ -485,6 +485,43 @@ class DaggerMobile:
             target_delta = (object_center_pos - prev_abs_aux_2d) / self.aux_delta_scale
             return torch.clamp(target_delta, -1.0, 1.0)
         return object_center_pos
+
+    def _plot_aux_prediction_in_viewer(self):
+        if (not self.has_aux_prediction) or (not hasattr(self.env, "viewer")) or (self.env.viewer is None):
+            return
+        if (not hasattr(self.env, "draw_box_lines")) or (not hasattr(self.env, "gym")):
+            return
+
+        franka_base_pos = self.env.states['franka_base_pose7'][:, :3]
+        franka_base_quat = self.env.states['franka_base_pose7'][:, 3:]
+        franka_base_rot_mat = quaternion_to_matrix_ig(franka_base_quat)
+
+        aux_base = self._aux_to_2d(self.aux_buffer)
+        aux_world = torch.bmm(aux_base.unsqueeze(1), franka_base_rot_mat)[:, 0, :] + franka_base_pos
+
+        aux_dims = self.env.mesh_aabb_extents
+        aux_box_pos = aux_world.clone()
+        aux_box_pos[:, 2] -= 0.5 * aux_dims[:, 2]
+
+        self.env.gym.clear_lines(self.env.viewer)
+
+        if hasattr(self.env, "box_pos") and hasattr(self.env, "box_quats") and hasattr(self.env, "box_dims"):
+            for env_idx in range(self.env.num_envs):
+                self.env.draw_box_lines(
+                    env_idx,
+                    self.env.box_pos[env_idx].clone(),
+                    self.env.box_quats[env_idx].clone(),
+                    self.env.box_dims[env_idx].clone(),
+                )
+
+        for env_idx in range(self.env.num_envs):
+            self.env.draw_box_lines(
+                env_idx,
+                aux_box_pos[env_idx].clone(),
+                (0.0, 0.0, 0.0, 1.0),
+                aux_dims[env_idx].clone(),
+                color=(0.2, 1.0, 0.2),
+            )
 
     def train_episode(self):
         count_reaching = torch.zeros(self.env.num_envs, device=self.device).int()
@@ -739,10 +776,20 @@ class DaggerMobile:
                 point_base_frame = torch.bmm(point_shifted, rot_global2base) # (num_envs, N, 3), bmm is like matmul but specifically made for batches of 2D matrices (input has to be 3D), faster than matmul
                 obs_input_a0["objxyz_t0"] = point_base_frame[:, 0, :] # (num_envs, 3)
             if "aux_object_state" in self.state_encoders_keys:
+                gt_object_center_pos = self._get_object_center_pos_in_base_frame(use_initial_frame=self.aux_init_only)
                 if self._use_aux_feedback():
-                    obs_input_a0["aux_object_state"] = self.aux_buffer.clone()
+                    aux_object_state = self.aux_buffer.clone()
+                    if hasattr(self.env, "object_reset_mask") and torch.any(self.env.object_reset_mask):
+                        if aux_object_state.ndim == 3:
+                            aux_object_state[self.env.object_reset_mask, 0, :] = gt_object_center_pos[self.env.object_reset_mask]
+                        else:
+                            aux_object_state[self.env.object_reset_mask, :] = gt_object_center_pos[self.env.object_reset_mask]
+                    obs_input_a0["aux_object_state"] = aux_object_state
                 else:
-                    obs_input_a0["aux_object_state"] = self._get_object_center_pos_in_base_frame(use_initial_frame=self.aux_init_only)
+                    obs_input_a0["aux_object_state"] = gt_object_center_pos
+
+                if hasattr(self.env, "object_reset_mask"):
+                    self.env.object_reset_mask[:] = False
 
             with torch.no_grad():
                 student_model = self.student_model.module if self.multi_gpu else self.student_model
@@ -751,6 +798,10 @@ class DaggerMobile:
                 student_actions_chunk = output["action"]
                 if self.has_aux_prediction:
                     self.aux_buffer[:] = self._decode_aux_prediction(output["aux"], obs_input_a0["aux_object_state"])
+
+            # plot aux prediction in gui
+            if not self.env.headless:
+                self._plot_aux_prediction_in_viewer()
 
             for action_idx in range(self.chunk_size):
                 student_actions = student_actions_chunk[:, action_idx, :]
