@@ -5,7 +5,12 @@ follow the installation instructions in the documentation. We highly recommend u
 to simplify set up.
 
 ```bash
+# install torch
 pip install torch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 --index-url https://download.pytorch.org/whl/cu121
+
+# install IsaacGym
+tar -xzf IsaacGym_Preview_4_Package.tar.gz
+pip install -e ./isaacgym/python/
 
 # curobo for IK
 git clone https://github.com/NVlabs/curobo.git
