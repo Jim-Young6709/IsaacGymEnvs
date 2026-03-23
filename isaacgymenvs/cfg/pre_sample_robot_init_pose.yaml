@@ -64,7 +64,7 @@ presample:
   total_episodes: 3
   steps_per_episode: ${task.env.episodeLength}
 
-  assume_obj_in_view_t0: False
+  assume_obj_in_view_t0: True
   output_hdf5_dir: ./presampled_envs/completed
   output_hdf5_name: presampled_init_poses.hdf5
 
