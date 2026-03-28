@@ -417,7 +417,7 @@ class DaggerMobile:
                         log_name=f"eef{key}",
                     ) # (num_envs, num_local_points, 3)
                 else:
-                    eef_spherical_local_pcd_t = torch.zeros((400, 0, 3), device="cuda:0")
+                    eef_spherical_local_pcd_t = torch.zeros((self.env.num_envs, 0, 3), device=self.device)
                 obs[f"local_eef{key}_pcd_t"] = eef_spherical_local_pcd_t # local eef pcd in global frame
 
                 aux_spherical_local_pcd_t, aux_spherical_crop_logs = crop_local_pcd(
@@ -767,8 +767,8 @@ class DaggerMobile:
                 self.scheduler.step()
                 self._profile_end(episode_profile_stats, "train/scheduler", profile_start)
 
-            mem_allocated_GB = float(torch.cuda.memory_allocated() / 1024**3)
-            mem_reserved_GB = float(torch.cuda.memory_reserved() / 1024**3)
+            mem_allocated_GB = float(torch.cuda.memory_allocated(self.device) / 1024**3)
+            mem_reserved_GB = float(torch.cuda.memory_reserved(self.device) / 1024**3)
 
             if self.use_wandb:
                 profile_start = self._profile_start()
