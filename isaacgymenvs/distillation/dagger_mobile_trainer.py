@@ -350,6 +350,9 @@ class DaggerMobile:
                 num_points=num_full_pcd_points,
             )
 
+            self._profile_end(profile_stats, "preprocess/depth_render", profile_start)
+            profile_start = self._profile_start()
+
             # lidar pcd
             lidar_pose7 = self.env.states["lidar_pose7"].clone() # (num_envs, 7)
             sim_lidar_pcd_raw, sim_lidar_render_logs = simulate_lidar_render_from_pose(
@@ -357,7 +360,7 @@ class DaggerMobile:
                 lidar_pose=lidar_pose7,
                 num_points=num_full_pcd_points,
                 num_azimuth=128,
-                num_polar=512,
+                num_polar=256,
                 suppress_bins=2,
                 jitter_std_m=0.001,
             )
@@ -375,7 +378,7 @@ class DaggerMobile:
             obs['depth_pcd_t'] = sim_depth_pcd
             obs['lidar_pcd_t'] = sim_lidar_pcd
             obs['full_pcd_t'] = torch.cat([sim_depth_pcd, sim_lidar_pcd], dim=1)
-            self._profile_end(profile_stats, "preprocess/sensor_render", profile_start)
+            self._profile_end(profile_stats, "preprocess/lidar_render", profile_start)
         else:
             obs['full_pcd_t'] = obs['gt_pcd_t']
 
