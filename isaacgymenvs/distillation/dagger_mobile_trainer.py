@@ -896,7 +896,7 @@ class DaggerMobile:
 
             train_loss, train_profile_stats = self.train_episode()
 
-            eval_policy = (self.eval_freq > 0) and (self.episode % self.eval_freq == 0)
+            eval_policy = (self.eval_freq > 0) and (self.episode % self.eval_freq == 0) and (self.episode > 0) # skip eval at episode 0
             if eval_policy:
                 eval_wandb_logs = self.eval()
 
