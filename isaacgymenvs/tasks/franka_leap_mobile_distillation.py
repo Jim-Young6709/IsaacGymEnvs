@@ -152,8 +152,11 @@ class FrankaLEAPMobileDistillation(VecTask):
             if num_debug_samples > 0:
                 self.debug_plot_reset_pose_samples_viser(num_samples=num_debug_samples)
 
-        # randomize progress buffer
-        self.progress_buf = torch.randint(0, self.max_episode_length, (self.num_envs,)).to(self.device)
+        # Keep env episode starts synchronized only for debugging.
+        if self.debug_viz:
+            self.progress_buf = torch.zeros((self.num_envs,), dtype=self.progress_buf.dtype, device=self.device)
+        else:
+            self.progress_buf = torch.randint(0, self.max_episode_length, (self.num_envs,), device=self.device)
 
     def  _init_buffers(self):
         # Values to be filled in at runtime
@@ -280,19 +283,32 @@ class FrankaLEAPMobileDistillation(VecTask):
 
         # teleport init
         self.num_teleport_envs = int(round(self.object_teleport_args['env_proportion'] * self.num_envs))
-        self.teleport_env_ids = torch.randperm(self.num_envs, device=self.device)[:self.num_teleport_envs]
-        tele_n0 = self.object_teleport_args['n0']
-        tele_n1 = self.object_teleport_args['n1']
-        tele_n2 = self.object_teleport_args['n2']
-        self.teleport_probs = torch.zeros(tele_n2, dtype=torch.float32, device=self.device)
-        self.teleport_probs[tele_n0:tele_n1] = 0.5 / (tele_n1 - tele_n0) # until n1 steps, the probability of teleporting sum up to 0.5
-        # for n1~n2 steps, increase the teleport probability quadratically from 0.5 / (tele_n1 - tele_n0) to 1.0
-        indexing = torch.arange(tele_n1, tele_n2, dtype=torch.float32, device=self.device)
-        quad_c = 0.5 / (tele_n1 - tele_n0)
-        quad_b = tele_n1
-        quad_a = (1 - quad_c) / ( (tele_n2 - quad_b)**2 )
-        self.teleport_probs[tele_n1:] = quad_a*(indexing + 1 - quad_b)**2 + quad_c
-        self.teleport_buf = torch.zeros((self.num_envs,), dtype=torch.int, device=self.device)
+        tele_n0 = max(0, int(self.object_teleport_args['n0']))
+        tele_n1 = max(tele_n0, int(self.object_teleport_args['n1']))
+        tele_n2 = max(tele_n1, int(self.object_teleport_args['n2']))
+        schedule_len = max(tele_n2, 1)
+        self.teleport_probs = torch.zeros(schedule_len, dtype=torch.float32, device=self.device)
+
+        if tele_n2 == 0:
+            self.teleport_probs[:] = 1.0
+        else:
+            flat_prob = 0.0
+            if tele_n1 > tele_n0:
+                flat_prob = 0.5 / (tele_n1 - tele_n0)  # until n1 steps, the probability of teleporting sums to 0.5
+                self.teleport_probs[tele_n0:tele_n1] = flat_prob
+
+            if tele_n2 > tele_n1:
+                # From n1~n2 steps, increase the teleport probability quadratically up to 1.0.
+                indexing = torch.arange(tele_n1, tele_n2, dtype=torch.float32, device=self.device)
+                quad_b = tele_n1
+                quad_a = (1 - flat_prob) / ((tele_n2 - quad_b) ** 2)
+                self.teleport_probs[tele_n1:tele_n2] = quad_a * (indexing + 1 - quad_b) ** 2 + flat_prob
+            elif tele_n1 > 0:
+                self.teleport_probs[tele_n1 - 1:] = flat_prob
+
+        self.teleport_swap_frequency = max(1, int(self.object_teleport_args.get("swap_frequency", 1)))
+        self.teleport_cached_env_ids = torch.empty((0,), dtype=torch.long, device=self.device)
+        self.teleport_cached_step = -1
         # Latched until consumed by distillation logic, so resets across chunked steps are preserved.
         self.object_reset_mask = torch.zeros((self.num_envs,), dtype=torch.bool, device=self.device)
         # Pending resets are promoted after one post-physics pass so downstream logic reads post-reset state.
@@ -898,6 +914,7 @@ class FrankaLEAPMobileDistillation(VecTask):
         max_agg_shapes = num_robot_shapes + 1 + 1 # 1 for object, 1 for table
 
         self.robots = []
+        self.tables = []
         self.objects = []
         self.add_on_obstacles = []
         self.envs = []
@@ -954,7 +971,7 @@ class FrankaLEAPMobileDistillation(VecTask):
                     env_id=i,
                 )
 
-            self.gym.create_actor(
+            table_actor = self.gym.create_actor(
                 env_ptr, table_asset, table_start_pose, "table", i, 1, 0
             )
 
@@ -973,6 +990,7 @@ class FrankaLEAPMobileDistillation(VecTask):
             # Store the created env pointers
             self.envs.append(env_ptr)
             self.robots.append(robot_actor)
+            self.tables.append(table_actor)
             self.objects.append(self._object_id)
             self.add_on_obstacles.append(self._add_on_obstacle_ids)
 
@@ -1775,7 +1793,7 @@ class FrankaLEAPMobileDistillation(VecTask):
         In the distillation training script, we always call teacher model for actions regardless of fabrics switch logic.
         Given teacher model actions as input, the switch logic happens here:
             1) if self.fabrics_switch_enable=True, use fabrics for motion planning and override teacher actions
-            1) else, convert teacher eef frame actions back to world frame and use ik to solve for joint angles to update robot
+               else, convert teacher eef frame actions back to world frame and use ik to solve for joint angles to update robot
         For the camera arm, always use fabrics to focus on the object center
 
 
@@ -1858,6 +1876,7 @@ class FrankaLEAPMobileDistillation(VecTask):
 
         if self.enable_fabric:
             # @ray use fabrics actions to override teacher actions when switch enables
+            teacher_actions_abs[:, :3] = abs_full_joint_actions_fabric[:, :3] # @ray activating the base fabric during teacher rl messes up the rl policy, need to tune fabric
             teacher_actions_abs[self.fabric_switch_enable, :10] = abs_full_joint_actions_fabric[self.fabric_switch_enable, :10]
             teacher_actions_abs[self.fabric_switch_enable, 10:26] = self.canonical_joint_config[self.fabric_switch_enable, 10:26]
             teacher_actions_abs[:, 26:] = abs_full_joint_actions_fabric[:, 10:]
@@ -1926,24 +1945,14 @@ class FrankaLEAPMobileDistillation(VecTask):
 
         return student_actions_abs
 
-    def _reset_object_state(self, object_reset_env_ids):
+    def _reset_object_state(self, object_reset_env_ids, apply_teleport_env_ids=None):
         if object_reset_env_ids is None:
             env_ids = torch.arange(self.num_envs, device=self.device)
         else:
             env_ids = object_reset_env_ids.clone()
 
-        apply_teleport_env_ids = torch.empty((0,), dtype=torch.long, device=self.device)  # CODEX
-        if self.object_teleport_args["enable"]:
-            if self.sim_steps % (self.max_episode_length * self.object_teleport_args['swap_freq']) == 0:
-                self.teleport_env_ids = torch.randperm(self.num_envs, device=self.device)[:self.num_teleport_envs]
-
-            curri_factor = min(self.sim_steps / self.object_teleport_args['curri_steps'], 1.0)
-            # teleport object (note this is in addition to normal reset)
-            _teleport_buf = self.teleport_buf[self.teleport_env_ids] # get the corresponding teleport buffer
-            apply_teleport = (self.teleport_probs[_teleport_buf] * curri_factor) > torch.rand(len(_teleport_buf), device=self.device)
-            apply_teleport_env_ids = self.teleport_env_ids[apply_teleport]
-
-            env_ids = torch.unique(torch.cat([env_ids, apply_teleport_env_ids], dim=0))
+        if apply_teleport_env_ids is None:
+            apply_teleport_env_ids = torch.empty((0,), dtype=torch.long, device=self.device)
 
         if env_ids.numel() > 0:
             self.object_reset_pending_mask[env_ids] = True
@@ -2028,6 +2037,65 @@ class FrankaLEAPMobileDistillation(VecTask):
                     reset_pos[stay_idx, :2] = stay_prev
         reset_pos[:, 2] = self.table_surface_height[env_ids]
 
+        # Reject reset/teleport poses whose expanded object bbox already contains robot points.
+        robot_pcd_world = self.robot_pcd_sampler.sample(self._q[env_ids], self.torchurdf_to_isaac_idx)
+        bbox_center = reset_pos.clone()
+        bbox_center[:, 2] += self.mesh_aabb_extents[env_ids, 2] * self.object_center_z_scale
+        bbox_half_extents = 0.5 * self.mesh_aabb_extents[env_ids]
+        bbox_half_extents = bbox_half_extents + 0.01  # small safety margin to reduce post-reset penetrations
+
+        def _robot_points_inside_bbox():
+            rel = torch.abs(robot_pcd_world - bbox_center.unsqueeze(1))
+            inside = torch.all(rel <= bbox_half_extents.unsqueeze(1), dim=-1)
+            return torch.any(inside, dim=1)
+
+        penetration_mask = _robot_points_inside_bbox()
+        if torch.any(penetration_mask):
+            for _ in range(min_xy_resample_rounds):
+                _sample_xy_for_rows(penetration_mask)
+                if force_right_of_eef and apply_teleport_env_ids.numel() > 0:
+                    tele_mask = torch.isin(env_ids, apply_teleport_env_ids) & penetration_mask
+                    if torch.any(tele_mask):
+                        local_idx = tele_mask.nonzero(as_tuple=False).squeeze(-1)
+                        global_idx = env_ids[local_idx]
+                        prev_xy = self._object_state[global_idx, :2].clone()
+                        prev_y = prev_xy[:, 1]
+                        y_lo = torch.maximum(xy_min[local_idx, 1], prev_y + 1e-4)
+                        y_hi = xy_max[local_idx, 1]
+                        can_move = y_hi > y_lo
+                        if torch.any(can_move):
+                            move_idx = local_idx[can_move]
+                            move_prev = prev_xy[can_move]
+                            move_y_lo = y_lo[can_move]
+                            move_y_hi = y_hi[can_move]
+                            reset_pos[move_idx, 0] = move_prev[:, 0]
+                            reset_pos[move_idx, 1] = (
+                                torch.rand(int(move_idx.numel()), device=self.device) * (move_y_hi - move_y_lo) + move_y_lo
+                            )
+                        if torch.any(~can_move):
+                            stay_idx = local_idx[~can_move]
+                            stay_prev = prev_xy[~can_move]
+                            reset_pos[stay_idx, :2] = stay_prev
+                bbox_center[:, :2] = reset_pos[:, :2]
+                penetration_mask = _robot_points_inside_bbox()
+                if not torch.any(penetration_mask):
+                    break
+
+            if torch.any(penetration_mask):
+                bad_ids = penetration_mask.nonzero(as_tuple=False).squeeze(-1)
+                for local_i in bad_ids.tolist():
+                    x0, y0 = float(xy_min[local_i, 0].item()), float(xy_min[local_i, 1].item())
+                    x1, y1 = float(xy_max[local_i, 0].item()), float(xy_max[local_i, 1].item())
+                    corners = torch.tensor(
+                        [[x0, y0], [x0, y1], [x1, y0], [x1, y1]],
+                        device=self.device,
+                        dtype=reset_pos.dtype,
+                    )
+                    robot_xy = robot_pcd_world[local_i, :, :2]
+                    corner_score = torch.cdist(corners.unsqueeze(0), robot_xy.unsqueeze(0)).amin(dim=-1).squeeze(0)
+                    reset_pos[local_i, :2] = corners[torch.argmax(corner_score)]
+                bbox_center[:, :2] = reset_pos[:, :2]
+
         sampled_object_state[:, 6] = 1.0
         # theta = torch.rand(num_resets, device=self.device) * 2 * torch.pi  # random angle [0, 2π)
         # # quat = [0.0, 0.0, torch.sin(theta/2), torch.cos(theta/2)]
@@ -2050,7 +2118,51 @@ class FrankaLEAPMobileDistillation(VecTask):
             self.object_pcd_t0 = object_pcds_world.clone()
         self.object_pcd_t0[env_ids] = object_pcds_world[env_ids].clone()
 
-        self.teleport_buf[env_ids] = 0
+    def _sample_step_teleport_env_ids(self):
+        if not self.object_teleport_args["enable"]:
+            return torch.empty((0,), dtype=torch.long, device=self.device)
+        if self.num_teleport_envs <= 0:
+            return torch.empty((0,), dtype=torch.long, device=self.device)
+
+        curri_steps = int(self.object_teleport_args["curri_steps"])
+        if curri_steps <= 0:
+            curri_factor = 1.0
+        else:
+            curri_factor = min(self.sim_steps / curri_steps, 1.0)
+
+        schedule_len = int(self.teleport_probs.shape[0])
+        if schedule_len <= 0:
+            return torch.empty((0,), dtype=torch.long, device=self.device)
+        event_idx = int(self.sim_steps) % schedule_len
+        event_prob = float(self.teleport_probs[event_idx].item()) * float(curri_factor)
+        if event_prob <= 0.0 or torch.rand(1, device=self.device).item() >= event_prob:
+            return torch.empty((0,), dtype=torch.long, device=self.device)
+
+        eligible_ids = torch.where(self.reset_buf == 0)[0]
+        if eligible_ids.numel() == 0:
+            return torch.empty((0,), dtype=torch.long, device=self.device)
+
+        refresh_subset = (
+            self.teleport_cached_env_ids.numel() == 0
+            or self.teleport_cached_step < 0
+            or (int(self.sim_steps) - int(self.teleport_cached_step)) >= self.teleport_swap_frequency
+        )
+        if refresh_subset:
+            num_pick = min(int(self.num_teleport_envs), int(eligible_ids.numel()))
+            perm = torch.randperm(int(eligible_ids.numel()), device=self.device)[:num_pick]
+            self.teleport_cached_env_ids = eligible_ids[perm]
+            self.teleport_cached_step = int(self.sim_steps)
+
+        cached_mask = torch.isin(self.teleport_cached_env_ids, eligible_ids)
+        teleport_env_ids = self.teleport_cached_env_ids[cached_mask]
+        if teleport_env_ids.numel() > 0:
+            return teleport_env_ids
+
+        num_pick = min(int(self.num_teleport_envs), int(eligible_ids.numel()))
+        perm = torch.randperm(int(eligible_ids.numel()), device=self.device)[:num_pick]
+        self.teleport_cached_env_ids = eligible_ids[perm]
+        self.teleport_cached_step = int(self.sim_steps)
+        return self.teleport_cached_env_ids
 
     def pre_physics_step(self, actions):
         """
@@ -2076,8 +2188,10 @@ class FrankaLEAPMobileDistillation(VecTask):
             self.object_reset_pending_mask[:] = False
 
         self.progress_buf += 1
-        self.teleport_buf += 1
-        self.teleport_buf = self.teleport_buf % self.object_teleport_args['n2']
+
+        teleport_env_ids = self._sample_step_teleport_env_ids()
+        if teleport_env_ids.numel() > 0:
+            self._reset_object_state(teleport_env_ids, apply_teleport_env_ids=teleport_env_ids)
 
         env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
         self.reset_idx(env_ids)
@@ -2255,7 +2369,7 @@ class FrankaLEAPMobileDistillation(VecTask):
     def _get_video_camera_pose_for_env(self, env_id, pos, target):
         # Match teacher framing offsets while anchoring to per-env table top z.
         table_z = float(self.table_surface_height[env_id].item())
-        pos_z_offset = float(pos[2]) - 0.0
+        pos_z_offset = float(pos[2]) - 0.0 + 0.2
         target_z_offset = float(target[2]) - 0.0
         camera_position = gymapi.Vec3(float(pos[0]), float(pos[1]), table_z + pos_z_offset)
         camera_target = gymapi.Vec3(float(target[0]), float(target[1]), table_z + target_z_offset)

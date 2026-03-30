@@ -9,7 +9,7 @@ import hydra
 import isaacgym
 import numpy as np
 import torch
-from isaacgym import gymapi
+from isaacgym import gymapi, gymtorch
 from isaacgym.torch_utils import *
 from isaacgymenvs.utils.pcd_utils import *
 from isaacgymenvs.utils.rotation_conversions import *
@@ -22,17 +22,6 @@ import wandb
 
 class FrankaLEAPPickTableSide(FrankaLEAP):
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
-
-        # @ray we actually manually design the hand reset position range so avoid ik solver failures, so we need a fixed object spawn position
-        # also, since we use eef position control, the policy is agnostic to object position and franka priorioception in the world frame
-        # so fixed position won't affect learning
-        xyz_range = cfg["env"]["object_settings"]["xyz_range"]
-        avg_xyz = [
-            0.5 * (xyz_range[0][0] + xyz_range[1][0]),
-            0.5 * (xyz_range[0][1] + xyz_range[1][1]),
-            0.5 * (xyz_range[0][2] + xyz_range[1][2]),
-        ]
-        cfg["env"]["object_settings"]["xyz_range"] = [avg_xyz, avg_xyz]
         self.object_grasp_target_z_scale = float(cfg["env"]["object_settings"]["object_grasp_target_z_scale"])
         super().__init__(
             cfg=cfg,
@@ -47,78 +36,343 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
     def _post_init_buffers(self):
         super()._post_init_buffers()
         self.side_is_left = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
-        self._right_section_last_log_step = -1  # CODEX
-        self._right_section_active_sections = 0  # CODEX
-        self._right_section_success_hold_counter = 0  # CODEX
-        self._right_section_last_success_rate = 0.0  # CODEX
-        # @ray precompute a reset pose bank to reuse
-        # this is better than resampling during each reset, far less compute
-        # however, need to potentially modify bank size for different sampling regions
-        self._create_reset_pose_bank()
-        # CODEX: initialize curriculum state after pose bank is ready.
-        num_sections = int(self.eef_init["right_section_num"])
-        force_active = int(self.eef_init["right_section_curriculum_force_active_sections"])
-        if force_active > 0:
-            self._right_section_active_sections = max(0, min(num_sections, force_active))
-        else:
-            self._right_section_active_sections = 0
 
-    def _get_active_right_sections(self):
-        # CODEX: helper for right-section curriculum progress/debug visualization.
-        num_sections = int(self.eef_init["right_section_num"])
-        if not bool(self.eef_init["right_section_curriculum_enable"]):
-            active_sections = num_sections
-        else:
-            curriculum_mode = str(self.eef_init["right_section_curriculum_mode"])
-            if curriculum_mode == "steps":
-                curri_start_steps = int(self.eef_init["right_section_curriculum_start_steps"])
-                curri_steps = int(self.eef_init["right_section_curriculum_steps"])
-                progress_steps = max(float(self.sim_steps) - float(curri_start_steps), 0.0)
-                curri_t = min(progress_steps / float(max(curri_steps, 1)), 1.0)
-                active_sections = min(num_sections, max(0, int(np.floor(curri_t * float(num_sections)))))
-            elif curriculum_mode == "success":
-                active_sections = int(self._right_section_active_sections)
-            else:
-                raise ValueError(
-                    f"Unsupported eef_init.right_section_curriculum_mode={curriculum_mode}. "
-                    f"Expected one of: steps, success."
-                )
-        force_active = int(self.eef_init["right_section_curriculum_force_active_sections"])
-        if force_active > 0:
-            active_sections = max(0, min(num_sections, force_active))
-        return active_sections
-
-    def _update_right_section_curriculum_from_success(self):
-        # CODEX: success-gated curriculum: when success_rate_5cm_per_ep stays above threshold
-        # for hold_steps consecutive sim steps, unlock one additional right section.
-        if not bool(self.eef_init["right_section_curriculum_enable"]):
+    def pre_physics_step(self, actions):
+        super().pre_physics_step(actions)
+        # CODEX: quick debug snippet (remove later).
+        debug_lock_enable = False
+        debug_lock_env_id = 0
+        debug_lock_pos_offset = [0.0, 0.0, 0.25]
+        if not debug_lock_enable:
             return
-        if str(self.eef_init["right_section_curriculum_mode"]) != "success":
-            return
-        if int(self.eef_init["right_section_curriculum_force_active_sections"]) > 0:
+        env_id = int(debug_lock_env_id)
+        if env_id < 0 or env_id >= self.num_envs:
             return
 
-        num_sections = int(self.eef_init["right_section_num"])
-        if self._right_section_active_sections >= num_sections:
-            self._right_section_success_hold_counter = 0
-            return
+        env_ids = torch.tensor([env_id], device=self.device, dtype=torch.long)
+        pos_offset = torch.tensor(
+            debug_lock_pos_offset,
+            device=self.device,
+            dtype=self._object_state.dtype,
+        ).unsqueeze(0)
+        target_pos = self.states["object_center_pos"][env_ids] + pos_offset
 
-        success_threshold = float(self.eef_init["right_section_curriculum_success_threshold"])
-        hold_steps = int(self.eef_init["right_section_curriculum_success_hold_steps"])
-        if self._right_section_last_success_rate >= success_threshold:
-            self._right_section_success_hold_counter += 1
-        else:
-            self._right_section_success_hold_counter = 0
+        object_z_local = torch.tensor([[0.0, 0.0, 1.0]], device=self.device, dtype=self._object_state.dtype)
+        object_z_axis = quat_apply(self._object_state[env_ids, 3:7], object_z_local)
+        object_z_axis = object_z_axis / torch.norm(object_z_axis, dim=-1, keepdim=True).clamp_min(1.0e-8)
 
-        if self._right_section_success_hold_counter >= hold_steps:
-            self._right_section_active_sections = min(num_sections, self._right_section_active_sections + 1)
-            self._right_section_success_hold_counter = 0
-            print(
-                f"[right-section-curriculum] sim_steps={int(self.sim_steps)} "
-                f"success_rate_5cm_per_ep={self._right_section_last_success_rate:.4f} "
-                f"active_sections={self._right_section_active_sections}/{num_sections}"
+        hand_dir_local = self.hand_grasp_dir_local.unsqueeze(0).repeat(1, 1).to(dtype=self._object_state.dtype)
+        hand_dir_local = hand_dir_local / torch.norm(hand_dir_local, dim=-1, keepdim=True).clamp_min(1.0e-8)
+        cross = torch.cross(hand_dir_local, object_z_axis, dim=-1)
+        dot = torch.sum(hand_dir_local * object_z_axis, dim=-1, keepdim=True).clamp(-1.0, 1.0)
+        q_align = torch.cat([cross, 1.0 + dot], dim=-1)
+
+        opposite_mask = (1.0 + dot.squeeze(-1)) < 1.0e-6
+        if bool(torch.any(opposite_mask)):
+            axis = torch.cross(
+                hand_dir_local[opposite_mask],
+                torch.tensor([[1.0, 0.0, 0.0]], device=self.device, dtype=hand_dir_local.dtype).repeat(int(opposite_mask.sum().item()), 1),
+                dim=-1,
             )
-    
+            small = torch.norm(axis, dim=-1, keepdim=True) < 1.0e-6
+            if bool(torch.any(small)):
+                axis[small.squeeze(-1)] = torch.cross(
+                    hand_dir_local[opposite_mask][small.squeeze(-1)],
+                    torch.tensor([[0.0, 1.0, 0.0]], device=self.device, dtype=hand_dir_local.dtype).repeat(int(small.sum().item()), 1),
+                    dim=-1,
+                )
+            axis = axis / torch.norm(axis, dim=-1, keepdim=True).clamp_min(1.0e-8)
+            q_align[opposite_mask] = torch.cat(
+                [axis, torch.zeros((int(opposite_mask.sum().item()), 1), device=self.device, dtype=axis.dtype)],
+                dim=-1,
+            )
+        q_align = q_align / torch.norm(q_align, dim=-1, keepdim=True).clamp_min(1.0e-8)
+
+        eef_pose = torch.cat([target_pos, q_align], dim=-1)
+        with torch.enable_grad():
+            arm_q, success = self.get_joint_from_ee(eef_pose, return_success=True)
+        success = success.bool().reshape(-1)
+        if bool(success[0].item()):
+            self.abs_actions[env_ids, :7] = arm_q
+            self.abs_actions[:] = tensor_clamp(
+                self.abs_actions, self.robot_dof_lower_limits, self.robot_dof_upper_limits
+            )
+            self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(self.abs_actions))
+
+    def _reset_object_state(self, object_reset_env_ids):
+        if object_reset_env_ids is None:
+            env_ids = torch.arange(self.num_envs, device=self.device)
+        else:
+            env_ids = object_reset_env_ids.clone()
+
+        if self.object_teleport_args["enable"]:
+            if self.sim_steps % (self.max_episode_length * self.object_teleport_args['swap_freq']) == 0:
+                self.teleport_env_ids = torch.randperm(self.num_envs, device=self.device)[:self.num_teleport_envs]
+
+            curri_factor = min(self.sim_steps / self.object_teleport_args['curri_steps'], 1.0)
+            _teleport_buf = self.teleport_buf[self.teleport_env_ids]
+            apply_teleport = (self.teleport_probs[_teleport_buf] * curri_factor) > torch.rand(len(_teleport_buf), device=self.device)
+            apply_teleport_env_ids = self.teleport_env_ids[apply_teleport]
+            env_ids = torch.unique(torch.cat([env_ids, apply_teleport_env_ids], dim=0))
+
+        num_resets = len(env_ids)
+        sampled_object_state = torch.zeros(num_resets, 13, device=self.device)
+
+        reset_pos = torch.zeros(num_resets, 3, device=self.device)
+        reset_pos[:, :2] = torch.rand(num_resets, 2, device=self.device) * (
+            self.obj_pos_range[env_ids][:, [1, 3]] - self.obj_pos_range[env_ids][:, [0, 2]]
+        ) + self.obj_pos_range[env_ids][:, [0, 2]]
+        reset_pos[:, 2] = self.table_surface_height[env_ids]
+
+        # default upright quaternion (xyzw)
+        sampled_object_state[:, 6] = 1.0
+
+        # CODEX: sample a percentage of resets with lying-flat orientation.
+        lie_flat_prob = float(self.cfg["env"]["object_settings"]["lie_flat_prob"])
+        if lie_flat_prob > 0.0:
+            lie_flat_mask = torch.rand(num_resets, device=self.device) < lie_flat_prob
+            if bool(torch.any(lie_flat_mask)):
+                n_flat = int(lie_flat_mask.sum().item())
+                phi = torch.rand(n_flat, device=self.device) * (2.0 * torch.pi)
+                target_xy = torch.stack([torch.cos(phi), torch.sin(phi), torch.zeros_like(phi)], dim=-1)
+                src_z = torch.tensor([0.0, 0.0, 1.0], device=self.device).unsqueeze(0).repeat(n_flat, 1)
+                cross = torch.cross(src_z, target_xy, dim=-1)
+                dot = torch.sum(src_z * target_xy, dim=-1, keepdim=True)
+                q_align = torch.cat([cross, 1.0 + dot], dim=-1)
+                q_align = q_align / torch.norm(q_align, dim=-1, keepdim=True).clamp_min(1.0e-8)
+                sampled_object_state[lie_flat_mask, 3:7] = q_align
+
+                flat_env_ids = env_ids[lie_flat_mask]
+                # CODEX: recompute root Z from rotated geometry so flat objects start on table (no air-drop).
+                flat_extents = self.mesh_aabb_extents[flat_env_ids]  # full extents (ex, ey, ez)
+                corner_template = torch.tensor(
+                    [
+                        [-0.5, -0.5, 0.0],
+                        [ 0.5, -0.5, 0.0],
+                        [-0.5,  0.5, 0.0],
+                        [ 0.5,  0.5, 0.0],
+                        [-0.5, -0.5, 1.0],
+                        [ 0.5, -0.5, 1.0],
+                        [-0.5,  0.5, 1.0],
+                        [ 0.5,  0.5, 1.0],
+                    ],
+                    device=self.device,
+                    dtype=flat_extents.dtype,
+                )
+                flat_corners_local = corner_template.unsqueeze(0) * flat_extents.unsqueeze(1)  # (N, 8, 3)
+                flat_rot = quaternion_to_matrix_ig(q_align)  # (N, 3, 3)
+                flat_corners_world = torch.matmul(
+                    flat_rot.unsqueeze(1), flat_corners_local.unsqueeze(-1)
+                ).squeeze(-1)  # (N, 8, 3)
+                min_corner_z = torch.min(flat_corners_world[:, :, 2], dim=1).values
+                reset_pos[lie_flat_mask, 2] = self.table_surface_height[flat_env_ids] - min_corner_z + 0.002
+
+        sampled_object_state[:, :3] = reset_pos
+        self._object_state[env_ids] = sampled_object_state
+
+        # CODEX: update center init state using sampled quaternion (works for upright + lying).
+        local_offset = torch.zeros((num_resets, 3), device=self.device)
+        local_offset[:, 2] = self.mesh_aabb_extents[env_ids, 2] * self.object_center_z_scale
+        object_rot_mat = quaternion_to_matrix_ig(sampled_object_state[:, 3:7])
+        rotated_offset = torch.matmul(object_rot_mat, local_offset.unsqueeze(-1)).squeeze(-1)
+        self._object_center_init_state[env_ids] = reset_pos + rotated_offset
+
+        multi_env_ids_int32 = self._global_indices[env_ids, self._object_id].flatten()
+        self.gym.set_actor_root_state_tensor_indexed(
+            self.sim, gymtorch.unwrap_tensor(self._root_state),
+            gymtorch.unwrap_tensor(multi_env_ids_int32), len(multi_env_ids_int32))
+
+        self.teleport_buf[env_ids] = 0
+
+    def _sample_reset_joint_and_target_quat(self, env_ids):
+        num_envs = int(env_ids.numel())
+        device = self.device
+        dtype = self._object_center_init_state.dtype
+
+        side_mode = str(self.eef_init["side_mode"])
+        if side_mode == "left":
+            left_mask = torch.ones(num_envs, device=device, dtype=torch.bool)
+        elif side_mode == "right":
+            left_mask = torch.zeros(num_envs, device=device, dtype=torch.bool)
+        elif side_mode == "both":
+            left_mask = torch.rand(num_envs, device=device) < 0.5
+        else:
+            raise ValueError(f"Unsupported eef_init.side_mode={side_mode}. Expected one of: left, right, both.")
+
+        target_quat = self.target_quat_right.repeat(num_envs, 1)
+        if int(left_mask.sum().item()) > 0:
+            target_quat[left_mask] = self.target_quat_left.repeat(int(left_mask.sum().item()), 1)
+
+        joint_config = torch.zeros((num_envs, self.num_dofs), device=device, dtype=dtype)
+        centers = self._object_center_init_state[env_ids]
+
+        limits_min_rel = torch.tensor(self.eef_init["limits_xyz_min"], device=device, dtype=dtype).unsqueeze(0).repeat(num_envs, 1)
+        limits_max_rel = torch.tensor(self.eef_init["limits_xyz_max"], device=device, dtype=dtype).unsqueeze(0).repeat(num_envs, 1)
+        if int(left_mask.sum().item()) > 0:
+            y_min_r = limits_min_rel[left_mask, 1].clone()
+            y_max_r = limits_max_rel[left_mask, 1].clone()
+            limits_min_rel[left_mask, 1] = -y_max_r
+            limits_max_rel[left_mask, 1] = -y_min_r
+
+        limits_min = centers + limits_min_rel
+        limits_max = centers + limits_max_rel
+
+        side_distance = float(self.eef_init["side_distance"])
+        side_distance_noise = float(self.eef_init["side_distance_noise"])
+        target_quat_noise_deg = float(self.eef_init["target_quat_noise_deg"])
+        target_quat_noise_rad = float(np.deg2rad(target_quat_noise_deg))
+        pos_offset_min = torch.tensor(self.eef_init["pos_offset_xyz_min"], device=device, dtype=dtype)
+        pos_offset_max = torch.tensor(self.eef_init["pos_offset_xyz_max"], device=device, dtype=dtype)
+        target_quat_sampling_mode = str(self.eef_init["target_quat_sampling_mode"])
+        if target_quat_sampling_mode not in ("facing_object", "random_full"):
+            raise ValueError(
+                f"Unsupported eef_init.target_quat_sampling_mode={target_quat_sampling_mode}. "
+                f"Expected one of: facing_object, random_full."
+            )
+
+        phi_range_deg = self.eef_init["phi_range_deg"]
+        phi_start_deg = float(phi_range_deg[0])
+        phi_end_deg = float(phi_range_deg[1])
+        phi_start = torch.full((num_envs,), phi_start_deg, device=device, dtype=dtype)
+        phi_end = torch.full((num_envs,), phi_end_deg, device=device, dtype=dtype)
+        if int(left_mask.sum().item()) > 0:
+            phi_start[left_mask] = -phi_end_deg
+            phi_end[left_mask] = -phi_start_deg
+        phi_start = torch.remainder(phi_start, 360.0)
+        phi_end = torch.remainder(phi_end, 360.0)
+        phi_sweep = torch.remainder(phi_end - phi_start, 360.0)
+
+        remaining = torch.arange(num_envs, device=device)
+        while remaining.numel() > 0:
+            # CODEX: adaptive candidate fan-out to keep each IK call near full batch.
+            # Target roughly one chunk of size self.num_envs:
+            # total_candidates ~= remaining_envs * dir_candidates_per_env ~= self.num_envs
+            dir_candidates_per_env = max(1, int(np.ceil(float(self.num_envs) / float(max(int(remaining.numel()), 1)))))
+            batch_env = remaining.repeat_interleave(dir_candidates_per_env)
+            center_rep = centers[batch_env]
+            left_rep = left_mask[batch_env]
+            limits_min_rep = limits_min[batch_env]
+            limits_max_rep = limits_max[batch_env]
+            target_quat_rep = target_quat[batch_env]
+            phi_start_rep = phi_start[batch_env]
+            phi_sweep_rep = phi_sweep[batch_env]
+
+            batch_size = int(batch_env.numel())
+            radius = side_distance + (torch.rand(batch_size, device=device, dtype=dtype) * 2.0 - 1.0) * side_distance_noise
+            radius = radius.clamp_min(1.0e-4)
+            cos_theta = torch.rand(batch_size, device=device, dtype=dtype) * 2.0 - 1.0
+            theta = torch.acos(torch.clamp(cos_theta, -1.0, 1.0))
+            u = torch.rand(batch_size, device=device, dtype=dtype)
+            phi_deg = torch.remainder(phi_start_rep + u * phi_sweep_rep, 360.0)
+            phi = phi_deg * (torch.pi / 180.0)
+            dirs = torch.stack(
+                [torch.sin(theta) * torch.cos(phi), torch.sin(theta) * torch.sin(phi), torch.cos(theta)],
+                dim=-1,
+            )
+            points = center_rep + dirs * radius.unsqueeze(-1)
+
+            if bool(torch.any(pos_offset_max > pos_offset_min)):
+                offsets = torch.rand((batch_size, 3), device=device, dtype=dtype)
+                offsets = pos_offset_min.unsqueeze(0) + offsets * (pos_offset_max - pos_offset_min).unsqueeze(0)
+                points = points + offsets
+
+            xyz_valid = ((points >= limits_min_rep) & (points <= limits_max_rep)).all(dim=-1)
+            radius_from_center = torch.norm(points - center_rep, dim=-1)
+            radius_min = max(1.0e-4, side_distance - side_distance_noise)
+            radius_max = side_distance + side_distance_noise
+            radius_valid = (radius_from_center >= radius_min) & (radius_from_center <= radius_max)
+            valid = xyz_valid & radius_valid
+
+            if not torch.any(valid):
+                continue
+
+            valid_batch_env = batch_env[valid]
+            eef_pos = points[valid]
+            center_valid = centers[valid_batch_env]
+            left_valid = left_mask[valid_batch_env]
+            base_quat = target_quat[valid_batch_env]
+
+            desired_dir = center_valid - eef_pos
+            desired_dir = desired_dir / torch.norm(desired_dir, dim=-1, keepdim=True).clamp_min(1.0e-8)
+            ref_dir = torch.zeros((eef_pos.shape[0], 3), device=device, dtype=dtype)
+            ref_dir[:, 1] = torch.where(
+                left_valid,
+                -torch.ones(eef_pos.shape[0], device=device, dtype=dtype),
+                torch.ones(eef_pos.shape[0], device=device, dtype=dtype),
+            )
+
+            if target_quat_sampling_mode == "random_full":
+                u1 = torch.rand((eef_pos.shape[0],), device=device, dtype=dtype)
+                u2 = torch.rand((eef_pos.shape[0],), device=device, dtype=dtype)
+                u3 = torch.rand((eef_pos.shape[0],), device=device, dtype=dtype)
+                two_pi = 2.0 * torch.pi
+                qx = torch.sqrt(1.0 - u1) * torch.sin(two_pi * u2)
+                qy = torch.sqrt(1.0 - u1) * torch.cos(two_pi * u2)
+                qz = torch.sqrt(u1) * torch.sin(two_pi * u3)
+                qw = torch.sqrt(u1) * torch.cos(two_pi * u3)
+                ik_target_quat = torch.stack([qx, qy, qz, qw], dim=-1)
+                reward_quat = ik_target_quat.clone()
+            else:
+                cross = torch.cross(ref_dir, desired_dir, dim=-1)
+                dot = torch.sum(ref_dir * desired_dir, dim=-1, keepdim=True)
+                q_align = torch.cat([cross, 1.0 + dot], dim=-1)
+                q_align = q_align / torch.norm(q_align, dim=-1, keepdim=True).clamp_min(1.0e-8)
+                ik_target_quat = quat_mul(q_align, base_quat)
+                desired_dir_xy = desired_dir.clone()
+                desired_dir_xy[:, 2] = 0.0
+                desired_dir_xy = desired_dir_xy / torch.norm(desired_dir_xy, dim=-1, keepdim=True).clamp_min(1.0e-8)
+                ref_yaw = torch.atan2(ref_dir[:, 1], ref_dir[:, 0])
+                desired_yaw = torch.atan2(desired_dir_xy[:, 1], desired_dir_xy[:, 0])
+                yaw_delta = desired_yaw - ref_yaw
+                yaw_axis = torch.zeros((eef_pos.shape[0], 3), device=device, dtype=dtype)
+                yaw_axis[:, 2] = 1.0
+                q_yaw = quat_from_angle_axis(yaw_delta, yaw_axis)
+                reward_quat = quat_mul(q_yaw, base_quat)
+
+            if target_quat_noise_rad > 0.0:
+                noise_axis = torch.randn((eef_pos.shape[0], 3), device=device, dtype=dtype)
+                noise_axis = noise_axis / torch.norm(noise_axis, dim=-1, keepdim=True).clamp_min(1.0e-8)
+                noise_angle = (torch.rand((eef_pos.shape[0],), device=device, dtype=dtype) * 2.0 - 1.0) * target_quat_noise_rad
+                q_noise = quat_from_angle_axis(noise_angle, noise_axis)
+                ik_target_quat = quat_mul(q_noise, ik_target_quat)
+
+            ik_target_quat = ik_target_quat / torch.norm(ik_target_quat, dim=-1, keepdim=True).clamp_min(1.0e-8)
+            reward_quat = reward_quat / torch.norm(reward_quat, dim=-1, keepdim=True).clamp_min(1.0e-8)
+
+            eef_pose = torch.cat([eef_pos, ik_target_quat], dim=-1)
+            chunk_size = int(self.num_envs)
+            arm_q_chunks = []
+            success_chunks = []
+            with torch.enable_grad():
+                for start in range(0, int(eef_pose.shape[0]), chunk_size):
+                    end = min(start + chunk_size, int(eef_pose.shape[0]))
+                    arm_q_i, success_i = self.get_joint_from_ee(eef_pose[start:end], return_success=True)
+                    arm_q_chunks.append(arm_q_i)
+                    success_chunks.append(success_i)
+            arm_q = torch.cat(arm_q_chunks, dim=0)
+            ok = torch.cat(success_chunks, dim=0).bool().reshape(-1)
+            if not torch.any(ok):
+                continue
+
+            success_env = valid_batch_env[ok]
+            success_arm_q = arm_q[ok]
+            success_reward_quat = reward_quat[ok]
+            solved_envs = []
+            for env_local in remaining:
+                match = (success_env == env_local)
+                if bool(torch.any(match)):
+                    first_idx = int(match.nonzero(as_tuple=False)[0].item())
+                    joint_config[env_local, :7] = success_arm_q[first_idx]
+                    target_quat[env_local] = success_reward_quat[first_idx]
+                    solved_envs.append(int(env_local.item()))
+            if len(solved_envs) == 0:
+                continue
+            solved_envs = torch.tensor(solved_envs, device=device, dtype=remaining.dtype)
+            solved_mask = torch.isin(remaining, solved_envs)
+            remaining = remaining[~solved_mask]
+
+        return joint_config, target_quat, left_mask
+
     def init_data(self, actor_num):
         super().init_data(actor_num)
         # @ray we use target_quat for reward computation and construct it based on the mode "left/right/both"
@@ -133,17 +387,24 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         
         self.reward_settings["beta_hand_orientation"] = to_torch(self.cfg["reward"]["exp"]["beta_hand_orientation"], device=self.device)
         self.reward_settings["w_hand_orientation"] = to_torch(self.cfg["reward"]["weights"]["w_hand_orientation"], device=self.device)
+        orientation_reward_mode = str(self.cfg["reward"]["params"]["orientation_reward_mode"])  # CODEX
+        if orientation_reward_mode == "old_targetquat":
+            self.orientation_reward_mode_id = 0
+        elif orientation_reward_mode == "canonical_axis":
+            self.orientation_reward_mode_id = 1
+        elif orientation_reward_mode == "object_axis":
+            self.orientation_reward_mode_id = 2
+        else:
+            raise ValueError(
+                f"Unsupported reward.params.orientation_reward_mode={orientation_reward_mode}. "
+                "Expected one of: old_targetquat, canonical_axis, object_axis."
+            )
+        self.reward_settings["orientation_reward_mode"] = to_torch(float(self.orientation_reward_mode_id), device=self.device)  # CODEX
+        self.reward_settings["object_upright_reward_floor"] = to_torch(
+            float(self.cfg["reward"]["params"]["object_upright_reward_floor"]),
+            device=self.device,
+        )  # CODEX
 
-        # @ray to force the hand to grasp on the correct region on the object (in terms of z-axis), we gate the lift and to-goal rewards with a sigmoid based on z-difference 
-        # between the grasp_target's z height and the averaged finger height on obejct. 
-        # @ray we add an offset to the grasp_target z_height to match the height of the stacked fingers. 
-        # This is crucial to make reward consistent across objects of varying height.
-        # @ray we also add a floor value to make the gate not 0, otherwise the policy loses incentive to lift early on when its grasp style is not good enough
-        self.reward_settings["grasp_on_object_z_height_tolerance"] = to_torch(self.cfg["reward"]["params"]["grasp_on_object_z_height_tolerance"], device=self.device)
-        self.reward_settings["grasp_on_object_z_height_slope"] = to_torch(self.cfg["reward"]["params"]["grasp_on_object_z_height_slope"], device=self.device)
-        self.reward_settings["grasp_on_object_z_height_offset"] = to_torch(self.cfg["reward"]["params"]["grasp_on_object_z_height_offset"], device=self.device)
-        self.reward_settings["grasp_on_object_z_height_gate_floor"]  = to_torch(self.cfg["reward"]["params"]["grasp_on_object_z_height_gate_floor"], device=self.device)
-        self.reward_settings["grasp_on_object_z_height_gate_enabled"] = to_torch(1.0 if bool(self.cfg["reward"]["params"]["grasp_on_object_z_height_gate_enabled"]) else 0.0, device=self.device)
         self.reward_settings["hand_obj_use_midheight_xy"] = to_torch(
             1.0 if bool(self.cfg["reward"]["params"]["hand_obj_use_midheight_xy"]) else 0.0,
             device=self.device,
@@ -152,9 +413,41 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
             float(self.cfg["reward"]["params"]["hand_obj_midheight_height_weight"]),
             device=self.device,
         )  # CODEX
+        hand_grasp_dir_local = torch.tensor(
+            self.cfg["reward"]["params"]["hand_grasp_dir_local"],
+            device=self.device,
+            dtype=torch.float32,
+        )  # CODEX
+        self.hand_grasp_dir_local = hand_grasp_dir_local / torch.norm(hand_grasp_dir_local).clamp_min(1.0e-8)  # CODEX
+        self.canonical_flat_hand_config = torch.tensor(
+            [
+                0.0000, 0.0000, 0.0000, 0.0000,
+                -0.0000, 0.0000, 1.0000, 0.5700,
+                0.0000, 0.0000, 0.0000, 0.0000,
+                0.0000, 0.0000, 0.0000, 0.0000,
+            ],
+            device=self.device,
+        )
+        self.reward_settings["curl_dof_weight"] = torch.ones(16, device=self.device)
 
         self.reward_settings["w_obj_goal_base"] = self.reward_settings["w_obj_goal"].clone()
         self.reward_settings["w_lift_base"] = self.reward_settings["w_lift"].clone()
+        self.target_pos_z_center = self.reward_settings["target_pos"][:, 2].clone()
+
+    def _resample_target_pos(self, env_ids):
+        if env_ids is None or env_ids.numel() == 0:
+            return
+        target_dtype = self.reward_settings["target_pos"].dtype
+        target_noise = torch.tensor(
+            self.cfg["reward"]["params"]["target_pos_noise"],
+            device=self.device,
+            dtype=target_dtype,
+        )
+        target_center = torch.zeros((env_ids.numel(), 3), device=self.device, dtype=target_dtype)
+        target_center[:, :2] = self._object_center_init_state[env_ids, :2].to(dtype=target_dtype)
+        target_center[:, 2] = self.target_pos_z_center[env_ids].to(dtype=target_dtype)
+        offsets = (torch.rand((env_ids.numel(), 3), device=self.device, dtype=target_dtype) * 2.0 - 1.0) * target_noise.unsqueeze(0)
+        self.reward_settings["target_pos"][env_ids] = target_center + offsets
 
     def _create_reset_pose_bank(self):
         self.pose_bank_size = int(self.eef_init["pose_bank_size"])
@@ -494,89 +787,8 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         if env_ids.numel() == 0:
             return
         num_envs = len(env_ids)
-        side_mode = self.eef_init["side_mode"]
-        # CODEX: active-pose union logic
-        # - right poses are active when right-section sampling+curriculum are enabled
-        # - left poses are active when debug_disable_left_pose_bank is False
-        right_active = bool(self.eef_init["right_section_sampling_enable"]) and bool(self.eef_init["right_section_curriculum_enable"])
-        left_active = not bool(self.eef_init["debug_disable_left_pose_bank"])
-        # Pose-bank-only reset sampling from merged active pose sets (density-proportional, not 50/50).
-        obj_ids = self.env_object_ids[env_ids].long()
-        left_mask = torch.zeros(num_envs, device=self.device, dtype=torch.bool)  # CODEX
-        chosen = torch.zeros(num_envs, device=self.device, dtype=torch.long)  # CODEX
-        num_sections = int(self.eef_init["right_section_num"])  # CODEX
-        active_sections = self._get_active_right_sections() if bool(self.eef_init["right_section_curriculum_enable"]) else num_sections  # CODEX
-        for local_id in range(num_envs):  # CODEX
-            obj_id = int(obj_ids[local_id].item())
-            left_gid = obj_id * 2 + 1
-            right_gid = obj_id * 2 + 0
-            left_count = int(self.pose_bank_count[left_gid].item())
-            right_count = int(self.pose_bank_count[right_gid].item())
-            right_valid_ids = torch.empty((0,), dtype=torch.long, device=self.device)
-            if right_active and right_count > 0:
-                bank_sections = self.pose_bank_section[right_gid, :right_count]
-                valid_bank = (bank_sections >= 0) & (bank_sections < active_sections)
-                right_valid_ids = valid_bank.nonzero(as_tuple=False).squeeze(-1)
-            use_left = left_active and left_count > 0
-            use_right = right_active and right_valid_ids.numel() > 0
-            if not use_left and not use_right:
-                # fallback to original side_mode
-                if side_mode == "left" and left_count > 0:
-                    use_left = True
-                elif side_mode == "right" and right_count > 0:
-                    use_right = True
-                    right_valid_ids = torch.arange(right_count, device=self.device, dtype=torch.long)
-                elif left_count > 0:
-                    use_left = True
-                elif right_count > 0:
-                    use_right = True
-                    right_valid_ids = torch.arange(right_count, device=self.device, dtype=torch.long)
-                else:
-                    raise RuntimeError(f"No available reset poses for obj_id={obj_id}")
-
-            left_pool = left_count if use_left else 0
-            right_pool = int(right_valid_ids.numel()) if use_right else 0
-            total_pool = left_pool + right_pool
-            pick = int(torch.randint(total_pool, (1,), device=self.device).item())
-            if pick < left_pool:
-                left_mask[local_id] = True
-                chosen[local_id] = pick
-            else:
-                left_mask[local_id] = False
-                chosen[local_id] = right_valid_ids[pick - left_pool]
-
-        group_ids = obj_ids * 2 + left_mask.long()  # CODEX
-        # update the target_quat of envs based on sampled side mask
-        self.side_is_left[env_ids] = left_mask
-        target_quat = self.target_quat_right.repeat(num_envs, 1)
-        if int(left_mask.sum().item()) > 0:
-            target_quat[left_mask] = self.target_quat_left.repeat(int(left_mask.sum().item()), 1)
-        self.reward_settings["target_quat"][env_ids] = target_quat
-        self.reward_settings["target_rot_6d"][env_ids] = matrix_to_rotation_6d(quaternion_to_matrix_ig(target_quat))
-
-        # CODEX: debug logs for right-section curriculum progress and sampled section distribution.
-        debug_log_enable = bool(self.eef_init["right_section_debug_log_enable"])
-        if debug_log_enable:
-            debug_log_interval = int(self.eef_init["right_section_debug_log_interval_steps"])
-        if debug_log_enable and (self.sim_steps - self._right_section_last_log_step >= debug_log_interval):
-            sampled_sections = self.pose_bank_section[group_ids, chosen]
-            sampled_right_sections = sampled_sections[~left_mask]
-            if sampled_right_sections.numel() > 0:
-                hist = torch.bincount(sampled_right_sections.clamp_min(0), minlength=num_sections).cpu().tolist()
-                print(
-                    f"[right-section-debug] sim_steps={int(self.sim_steps)} "
-                    f"active_sections={active_sections}/{num_sections} "
-                    f"right_samples={int(sampled_right_sections.numel())} "
-                    f"section_hist={hist}"
-                )
-            else:
-                print(
-                    f"[right-section-debug] sim_steps={int(self.sim_steps)} "
-                    f"active_sections={active_sections}/{num_sections} right_samples=0"
-                )
-            self._right_section_last_log_step = int(self.sim_steps)
-        joint_config = self.pose_bank_joint[group_ids, chosen]
-        target_quat = self.pose_bank_quat[group_ids, chosen]
+        self._resample_target_pos(env_ids)
+        joint_config, target_quat, left_mask = self._sample_reset_joint_and_target_quat(env_ids)
 
         # Optional hand-joint perturbation at reset (radians, uniform in [-noise, noise]).
         hand_joint_reset_noise_deg = float(self.eef_init["hand_joint_reset_noise"])
@@ -591,20 +803,34 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
             u = torch.rand((num_envs, 16), device=self.device)
             joint_config[:, 7:23] = sample_low + u * (sample_high - sample_low)
 
+        canonical_hand_init_prob = float(self.eef_init["canonical_hand_init_prob"])
+        if canonical_hand_init_prob > 0.0:
+            use_canonical_hand = torch.rand((num_envs,), device=self.device) < canonical_hand_init_prob
+            if bool(torch.any(use_canonical_hand)):
+                joint_config[use_canonical_hand, 7:23] = self.canonical_flat_hand_config.unsqueeze(0).repeat(
+                    int(use_canonical_hand.sum().item()), 1
+                )
+
+        self.side_is_left[env_ids] = left_mask
         self.reward_settings["target_quat"][env_ids] = target_quat
         self.reward_settings["target_rot_6d"][env_ids] = matrix_to_rotation_6d(quaternion_to_matrix_ig(target_quat))
         self.set_robot_joint_state(joint_config, env_ids=env_ids)
+
+    def set_viewer(self):
+        super().set_viewer(
+            pos=[1.5, -1.0, 0.7],
+            target=[0.5, 0.0, 0.1],
+        )
 
     def post_physics_step(self):
         super().post_physics_step()
         # @ray visualize debugging stuff
         if self.debug_viz and self.viewer is not None:
             # self._draw_object_xy_range_grid(clear_lines=False)
-            self._draw_eef_candidate_points(clear_lines=False)
-            self._draw_object_center_cross(clear_lines=False)
-            self._draw_workspace_limits_box(clear_lines=False)
-            self._draw_right_section_workspace(clear_lines=False)  # CODEX
-            # self._draw_ik_reachability_grid(clear_lines=False)
+            # self._draw_object_center_cross(clear_lines=False)
+            # self._draw_target_sampling_box(clear_lines=False)
+            # self._draw_workspace_limits_box(clear_lines=False)
+            self._draw_grasp_direction_line(clear_lines=False)  # CODEX
             pass
 
     def _create_envs(self, spacing, num_per_row):
@@ -774,6 +1000,35 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         object_grasp_target_to_eef = torch.matmul(
             eef_rot_mat_t, object_grasp_target_to_eef_world.unsqueeze(-1)
         ).squeeze(-1)
+        hand_grasp_axis = quat_apply(
+            self._eef_state[:, 3:7],
+            self.hand_grasp_dir_local.unsqueeze(0).repeat(self.num_envs, 1),
+        )  # CODEX
+        object_z_axis = object_rot_mat[:, :, 2]
+        # Mode 1: old orientation (target-quat full point-matching; includes XY guidance).
+        hand_eef_pos7_rot = torch.cat([self._eef_state[:, :3], self.reward_settings["target_quat"]], dim=-1)
+        hand_target_quat_err = self._get_eef_point_matching_err(
+            curent_eef_pos7=self._eef_state[:, :7],
+            target_eef_pos7=hand_eef_pos7_rot,
+        )
+        # Mode 2: canonical axis alignment only (no XY guidance), using hand/object canonical z-axes.
+        hand_z_axis = eef_rot_mat[:, :, 2]
+        target_z_axis = quaternion_to_matrix_ig(self.reward_settings["target_quat"])[:, :, 2]
+        hand_target_axis_dot = torch.sum(hand_z_axis * target_z_axis, dim=-1).clamp(-1.0, 1.0)
+        hand_canonical_axis_err = 1.0 - torch.abs(hand_target_axis_dot)
+        # Mode 3: object-axis alignment using configured hand grasp direction and object z-axis.
+        hand_object_axis_dot = torch.sum(hand_grasp_axis * object_z_axis, dim=-1).clamp(-1.0, 1.0)
+        hand_object_axis_err = 1.0 - torch.abs(hand_object_axis_dot)
+        if self.orientation_reward_mode_id == 0:
+            hand_orientation_err = hand_target_quat_err
+        elif self.orientation_reward_mode_id == 1:
+            hand_orientation_err = hand_canonical_axis_err
+        else:
+            hand_orientation_err = hand_object_axis_err
+
+        world_z = torch.zeros((self.num_envs, 3), device=self.device, dtype=self._object_state.dtype)
+        world_z[:, 2] = 1.0
+        object_upright_score = torch.sum(object_z_axis * world_z, dim=-1).clamp(0.0, 1.0)  # CODEX
 
         # @ray not just update but also create new keys here
         self.states.update({
@@ -782,6 +1037,11 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
             "object_grasp_target_pos": object_grasp_target_pos, # @ray reward-only grasp target
             "object_grasp_target_to_eef": object_grasp_target_to_eef, # @ray for policy observation
             "grasp_side_binary": self.side_is_left.float().unsqueeze(-1),
+            "point_matching_err_hand_axis": hand_object_axis_err,  # CODEX
+            "point_matching_err_hand_canonical_axis": hand_canonical_axis_err,  # CODEX
+            "point_matching_err_hand_targetquat": hand_target_quat_err,  # CODEX
+            "point_matching_err_hand": hand_orientation_err,
+            "object_upright_score": object_upright_score,  # CODEX
         })
 
     def check_robot_collision(self):
@@ -851,57 +1111,18 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
             return
         self.gym.add_lines(self.viewer, self.envs[env_id], len(verts_flat) // 6, verts_flat, colors_flat)
 
-    # Draws:
-    # 1) object center and grasp target crosses
-    # 2) x_low/x_high bands along object local z-axis (both + and - directions)
-    # 3) projected fingertip points on object z-axis
-    # 4) average absolute fingertip height-error marker used by current sigmoid gate
     def _draw_object_center_cross(self, half_extent=0.2, clear_lines=True):
         if clear_lines:
             self.gym.clear_lines(self.viewer)
 
         centers = self.states["object_center_pos"]
         grasp_targets = self.states["object_grasp_target_pos"]
-        object_quat = self.states["object_quat"]
-
-        local_z = torch.zeros((self.num_envs, 3), dtype=object_quat.dtype, device=object_quat.device)
-        local_z[:, 2] = 1.0
-        object_z_axis_world = quat_apply(object_quat, local_z)
-        object_z_axis_world = object_z_axis_world / torch.norm(object_z_axis_world, dim=-1, keepdim=True).clamp_min(1e-8)
-        # offseted gate target for sigmoid-gate visualization.
-        gate_offset = self.reward_settings["grasp_on_object_z_height_offset"]
-        gate_targets = grasp_targets + gate_offset * object_z_axis_world
-
-        finger_positions = torch.stack(
-            [
-                self.states["eef_finger1_pos"],
-                self.states["eef_finger2_pos"],
-                self.states["eef_finger3_pos"],
-                self.states["eef_finger4_pos"],
-            ],
-            dim=1,
-        )  # (N,4,3)
-        fingertip_to_target = finger_positions - gate_targets.unsqueeze(1)
-        finger_signed_height_err = torch.sum(fingertip_to_target * object_z_axis_world.unsqueeze(1), dim=-1)  # (N,4)
-        # keep visualization aligned with reward gate metric.
-        # use the exact gate input from reward: x = abs(max(signed_height_err)).
-        top_finger_signed_height = torch.max(finger_signed_height_err, dim=1)[0]  # (N,)
-        d_finger_height_align = torch.abs(top_finger_signed_height)
-
-        # visualize all envs (same style as base debug helper).
-        x_low = float(self.reward_settings["grasp_on_object_z_height_tolerance"][0].item())
-        x_high = float(self.reward_settings["grasp_on_object_z_height_tolerance"][1].item())
-        err_marker_half = 0.2
-        band_cross_half = 0.2
+        goal_targets = self.reward_settings["target_pos"]
         thick_eps = 0.006
 
         centers_np = centers.detach().cpu().numpy()
         grasp_targets_np = grasp_targets.detach().cpu().numpy()
-        gate_targets_np = gate_targets.detach().cpu().numpy()
-        z_axis_np = object_z_axis_world.detach().cpu().numpy()
-        finger_pos_np = finger_positions.detach().cpu().numpy()
-        finger_signed_err_np = finger_signed_height_err.detach().cpu().numpy()
-        d_align_np = d_finger_height_align.detach().cpu().numpy()
+        goal_targets_np = goal_targets.detach().cpu().numpy()
 
         # helper for thicker debug crosses (add 3 offset copies per axis).
         def add_thick_cross(verts_list, colors_list, p, cross_half, color_rgb):
@@ -921,38 +1142,19 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         for i in range(self.num_envs):
             c = centers_np[i]
             g = grasp_targets_np[i]
-            g_gate = gate_targets_np[i]
-            z_axis = z_axis_np[i]
+            t = goal_targets_np[i]
 
             verts_flat = []
             colors_flat = []
 
             # object center cross (red)
-            # add_thick_cross(verts_flat, colors_flat, c, half_extent, [1.0, 0.0, 0.0])
+            add_thick_cross(verts_flat, colors_flat, c, half_extent, [1.0, 0.0, 0.0])
 
             # grasp target cross (cyan)
             add_thick_cross(verts_flat, colors_flat, g, half_extent, [0.0, 0.8, 1.0])
-            # offseted gate-target cross (blue).
-            add_thick_cross(verts_flat, colors_flat, g_gate, half_extent, [0.0, 0.2, 1.0])
 
-            # draw gate bands at +x_low (green) and +x_high (yellow) from gate target.
-            for dist, col in ((x_low, [0.0, 1.0, 0.0]), (x_high, [1.0, 1.0, 0.0])):
-                p = g_gate + dist * z_axis
-                add_thick_cross(verts_flat, colors_flat, p, band_cross_half, col)
-
-            # draw projected fingertip points onto object z-axis (magenta).
-            # for f_idx in range(4):
-            #     signed_err = float(finger_signed_err_np[i, f_idx])
-            #     p_proj = g + signed_err * z_axis
-            #     add_thick_cross(verts_flat, colors_flat, p_proj, band_cross_half, [1.0, 0.0, 1.0])
-
-            #     # Link fingertip to projection for easier visual sanity check.
-            #     fp = finger_pos_np[i, f_idx]
-            #     verts_flat.extend([fp[0], fp[1], fp[2], p_proj[0], p_proj[1], p_proj[2]])
-            #     colors_flat.extend([0.7, 0.2, 1.0])
-
-            p_gate_x = g_gate + float(d_align_np[i]) * z_axis
-            add_thick_cross(verts_flat, colors_flat, p_gate_x, err_marker_half, [1.0, 0.5, 0.0])  # orange
+            # reward target cross (magenta)
+            add_thick_cross(verts_flat, colors_flat, t, half_extent, [1.0, 0.0, 1.0])
 
             self.gym.add_lines(
                 self.viewer,
@@ -961,6 +1163,41 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
                 verts_flat,
                 colors_flat,
             )
+
+    def _draw_target_sampling_box(self, clear_lines=True):
+        if clear_lines:
+            self.gym.clear_lines(self.viewer)
+        env_id = 0
+        target_dtype = self.reward_settings["target_pos"].dtype
+        target_noise = torch.tensor(
+            self.cfg["reward"]["params"]["target_pos_noise"],
+            device=self.device,
+            dtype=target_dtype,
+        )
+        center = torch.zeros((3,), device=self.device, dtype=target_dtype)
+        center[:2] = self._object_center_init_state[env_id, :2].to(dtype=target_dtype)
+        center[2] = self.target_pos_z_center[env_id].to(dtype=target_dtype)
+        limits_min = center - target_noise
+        limits_max = center + target_noise
+        x_min, y_min, z_min = [float(limits_min[0].item()), float(limits_min[1].item()), float(limits_min[2].item())]
+        x_max, y_max, z_max = [float(limits_max[0].item()), float(limits_max[1].item()), float(limits_max[2].item())]
+        verts = [
+            [x_min, y_min, z_min], [x_max, y_min, z_min],
+            [x_max, y_min, z_min], [x_max, y_max, z_min],
+            [x_max, y_max, z_min], [x_min, y_max, z_min],
+            [x_min, y_max, z_min], [x_min, y_min, z_min],
+            [x_min, y_min, z_max], [x_max, y_min, z_max],
+            [x_max, y_min, z_max], [x_max, y_max, z_max],
+            [x_max, y_max, z_max], [x_min, y_max, z_max],
+            [x_min, y_max, z_max], [x_min, y_min, z_max],
+            [x_min, y_min, z_min], [x_min, y_min, z_max],
+            [x_max, y_min, z_min], [x_max, y_min, z_max],
+            [x_max, y_max, z_min], [x_max, y_max, z_max],
+            [x_min, y_max, z_min], [x_min, y_max, z_max],
+        ]
+        verts_flat = [v for seg in verts for v in seg]
+        colors_flat = [1.0, 0.0, 1.0] * (len(verts_flat) // 6)
+        self.gym.add_lines(self.viewer, self.envs[env_id], len(verts_flat) // 6, verts_flat, colors_flat)
     
     
     # @ray: visualize workspace XYZ limits as a wireframe box (env 0)
@@ -968,24 +1205,16 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         if clear_lines:
             self.gym.clear_lines(self.viewer)
         env_id = 0
-        # CODEX
-        # Match debug box with actual left/right sampling bounds.
         limits_min_rel = torch.tensor(self.eef_init["limits_xyz_min"], device=self.device, dtype=torch.float32)
         limits_max_rel = torch.tensor(self.eef_init["limits_xyz_max"], device=self.device, dtype=torch.float32)
-        center = [
-            float(self.cuboid_pos[env_id, 0, 0].item()),
-            float(self.cuboid_pos[env_id, 0, 1].item()),
-            float(self.table_surface_height[env_id].item()),
-        ]
-        # CODEX
-        limits_min = torch.tensor(center, device=self.device, dtype=torch.float32) + limits_min_rel
-        limits_max = torch.tensor(center, device=self.device, dtype=torch.float32) + limits_max_rel
+        center = self._object_center_init_state[env_id].to(dtype=torch.float32)
         if bool(self.side_is_left[env_id].item()):
-            center_y = float(center[1])
-            y_min_r = float(limits_min[1].item())
-            y_max_r = float(limits_max[1].item())
-            limits_min[1] = 2.0 * center_y - y_max_r
-            limits_max[1] = 2.0 * center_y - y_min_r
+            y_min_r = limits_min_rel[1].clone()
+            y_max_r = limits_max_rel[1].clone()
+            limits_min_rel[1] = -y_max_r
+            limits_max_rel[1] = -y_min_r
+        limits_min = center + limits_min_rel
+        limits_max = center + limits_max_rel
         x_min, y_min, z_min = [float(limits_min[0].item()), float(limits_min[1].item()), float(limits_min[2].item())]
         x_max, y_max, z_max = [float(limits_max[0].item()), float(limits_max[1].item()), float(limits_max[2].item())]
         verts = [
@@ -1006,54 +1235,36 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         colors_flat = [1.0, 1.0, 0.0] * (len(verts_flat) // 6)
         self.gym.add_lines(self.viewer, self.envs[env_id], len(verts_flat) // 6, verts_flat, colors_flat)
 
-    def _draw_right_section_workspace(self, clear_lines=True):
-        # CODEX: draw currently active right-section workspace box for env 0.
+    def _draw_grasp_direction_line(self, clear_lines=True):
         if clear_lines:
             self.gym.clear_lines(self.viewer)
         env_id = 0
-        num_sections = int(self.eef_init["right_section_num"])
-        active_sections = self._get_active_right_sections()
-        x_center = float(self.cuboid_pos[env_id, 0, 0].item())
-        y_center = float(self.cuboid_pos[env_id, 0, 1].item())
-        z_center = float(self.table_surface_height[env_id].item())
-        limits_min_rel = self.eef_init["limits_xyz_min"]
-        limits_max_rel = self.eef_init["limits_xyz_max"]
-        x_min = x_center + float(limits_min_rel[0])
-        x_max = x_center + float(limits_max_rel[0])
-        # derive Y span from actual active right-bank samples, so sign/flip is always correct
-        obj_id = int(self.env_object_ids[env_id].item())
-        right_group_id = obj_id * 2 + 0
-        bank_sections = self.pose_bank_section[right_group_id, :]
-        valid_bank = (bank_sections >= 0) & (bank_sections < active_sections)
-        valid_ids = valid_bank.nonzero(as_tuple=False).squeeze(-1)
-        if valid_ids.numel() > 0:
-            y_samples = self.pose_bank_eef_pos[right_group_id, valid_ids, 1]
-            y_min = float(torch.min(y_samples).item())
-            y_max = float(torch.max(y_samples).item())
-        else:
-            y_min = y_center
-            y_max = y_center
-        z_min = z_center + float(limits_min_rel[2])
-        z_max = z_center + float(limits_max_rel[2])
+        line_len = 0.12  # CODEX
+        eef_pos = self._eef_state[env_id, :3]
+        object_pos = self.states["object_center_pos"][env_id]
 
-        corners = np.array([
-            [x_min, y_min, z_min], [x_max, y_min, z_min], [x_max, y_max, z_min], [x_min, y_max, z_min],
-            [x_min, y_min, z_max], [x_max, y_min, z_max], [x_max, y_max, z_max], [x_min, y_max, z_max],
-        ], dtype=np.float32)
-        edges = [
-            (0, 1), (1, 2), (2, 3), (3, 0),
-            (4, 5), (5, 6), (6, 7), (7, 4),
-            (0, 4), (1, 5), (2, 6), (3, 7),
+        hand_dir = quat_apply(
+            self._eef_state[env_id:env_id + 1, 3:7],
+            self.hand_grasp_dir_local.unsqueeze(0),
+        )[0]
+        hand_dir = hand_dir / torch.norm(hand_dir).clamp_min(1.0e-8)
+
+        object_z = quat_apply(
+            self._object_state[env_id:env_id + 1, 3:7],
+            torch.tensor([[0.0, 0.0, 1.0]], device=self.device, dtype=eef_pos.dtype),
+        )[0]
+        object_z = object_z / torch.norm(object_z).clamp_min(1.0e-8)
+
+        p0 = eef_pos
+        p1 = eef_pos + line_len * hand_dir
+        q0 = object_pos
+        q1 = object_pos + line_len * object_z
+        verts_flat = [
+            float(p0[0]), float(p0[1]), float(p0[2]), float(p1[0]), float(p1[1]), float(p1[2]),
+            float(q0[0]), float(q0[1]), float(q0[2]), float(q1[0]), float(q1[1]), float(q1[2]),
         ]
-        verts_flat = []
-        colors_flat = []
-        color = [1.0, 0.5, 0.0]  # orange
-        for a, b in edges:
-            pa = corners[a]
-            pb = corners[b]
-            verts_flat.extend([pa[0], pa[1], pa[2], pb[0], pb[1], pb[2]])
-            colors_flat.extend(color)
-        self.gym.add_lines(self.viewer, self.envs[env_id], len(edges), verts_flat, colors_flat)
+        colors_flat = [0.0, 1.0, 1.0, 1.0, 1.0, 0.0]  # hand-dir cyan, object-z yellow
+        self.gym.add_lines(self.viewer, self.envs[env_id], 2, verts_flat, colors_flat)
     
     # @ray: visualize IK reachability grid (env 0)
     def _draw_ik_reachability_grid(self, clear_lines=True):
@@ -1165,13 +1376,15 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         self.reward_settings["w_obj_goal"] = self.reward_settings["w_obj_goal_base"] * curri_scale
         self.reward_settings["w_lift"] = self.reward_settings["w_lift_base"] * curri_scale
         reward_dict = compute_franka_leap_reward(self.states, self.reward_settings)
+        # CODEX: only resample target after sustained success, not instant one-step goal hit.
+        success_long_enough_ids = self.success_long_enough.nonzero(as_tuple=False).squeeze(-1)
+        if success_long_enough_ids.numel() > 0:
+            self._resample_target_pos(success_long_enough_ids)
 
         self.rew_buf[:] = reward_dict["r_total"]
         self.extras["sep_reward/r_hand_obj"] = torch.mean(reward_dict["r_hand_obj"]).item()
         self.extras["sep_reward/r_obj_goal"] = torch.mean(reward_dict["r_obj_goal"]).item()
-        self.extras["sep_reward/r_obj_goal_rot"] = torch.mean(reward_dict["r_obj_goal_rot"]).item()
-        self.extras["sep_reward/lift_height_gate"] = torch.mean(reward_dict["lift_height_gate"]).item()
-        self.extras["sep_reward/lift_height_gate_soft"] = torch.mean(reward_dict["lift_height_gate_soft"]).item()
+        self.extras["sep_reward/r_hand_rot"] = torch.mean(reward_dict["r_hand_rot"]).item()
         self.extras["sep_reward/r_lift"] = torch.mean(reward_dict["r_lift"]).item()
         self.extras["sep_reward/r_curl"] = torch.mean(reward_dict["r_curl"]).item()
         self.extras["sep_reward/r_actionreg"] = torch.mean(reward_dict["r_actionreg"]).item()
@@ -1252,14 +1465,6 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         self.extras["metrics/lifting_rate_5cm_per_step"] = torch.mean(self.lifting_5cm_per_step.float()).item()
 
         # CODEX: success-based right-section curriculum update + logging.
-        self._right_section_last_success_rate = float(self.extras["metrics/success_rate_5cm_per_ep"])
-        self._update_right_section_curriculum_from_success()
-        self.extras["curriculum/right_section_active_sections"] = float(self._get_active_right_sections())
-        self.extras["curriculum/right_section_success_hold_counter"] = float(self._right_section_success_hold_counter)
-        self.extras["curriculum/right_section_success_threshold"] = float(
-            self.eef_init["right_section_curriculum_success_threshold"]
-        )
-        
         # log memory usage TODO: debug utils, cleanup later
         mem_allocated_GB = float(torch.cuda.memory_allocated() / 1024**3)
         mem_reserved_GB = float(torch.cuda.memory_reserved() / 1024**3)
@@ -1310,8 +1515,10 @@ def compute_franka_leap_reward(states, reward_settings):
             finger_to_target * object_z_axis_world.unsqueeze(1), dim=-1, keepdim=True
         ) * object_z_axis_world.unsqueeze(1)
         d_xy = torch.mean(torch.norm(finger_radial, dim=-1), dim=1)
-        # CODEX: separate height-consistency term so midpoint height actually affects reward.
-        d_height = torch.mean(torch.abs(finger_signed_height - mid_finger_height.unsqueeze(1)), dim=1)
+        # CODEX: absolute midpoint height relative to the grasp target, so the hand is
+        # rewarded for descending to the object's grasp band instead of only matching
+        # the fingers' internal height spread.
+        d_height = torch.abs(mid_finger_height)
         d_hand_obj = d_xy + reward_settings["hand_obj_midheight_height_weight"] * d_height
     else:
         d_hand_obj = d_hand_obj_max
@@ -1331,55 +1538,13 @@ def compute_franka_leap_reward(states, reward_settings):
     else:
         r_lift = torch.where(states["lift"], 1.0, torch.zeros_like(object_height))
 
-    gate_offset = reward_settings["grasp_on_object_z_height_offset"]
-    gate_target_pos = states["object_grasp_target_pos"] + gate_offset * object_z_axis_world
-    target_pos_rep = gate_target_pos.unsqueeze(1)
-    fingertip_to_target = finger_positions - target_pos_rep
-    finger_signed_height_err = torch.sum(fingertip_to_target * object_z_axis_world.unsqueeze(1), dim=-1)
-    # @ray use max signed height to find heighest finger
-    # force this finger to be within a certain height range on the object by passing its absolute height to a sigmoid
-    # this prevents competing rewards between lift+goal vs. grasp style, since the hand need to place its fingers correctly and thus cannot eargly exploit the lift with a bad style
-    # also, the absolute height prevents the policy from overlapping its fingers on the grasp_target to exploit the reward after it learns a good style, thus we retain the good style throughout training
-    top_finger_signed_height = torch.max(finger_signed_height_err, dim=1)[0]
-    d_finger_height_align = torch.abs(top_finger_signed_height)
-
-    # @ray sigmoid gate on lift and to-goal reward to force the hand to grasp on the right part of the object
-    # not adding this would result in the hand eargerly converging on grasping the top part of long cylindrical objects, undesirable
-    x = d_finger_height_align
-    x_low = reward_settings["grasp_on_object_z_height_tolerance"][0]
-    x_high = reward_settings["grasp_on_object_z_height_tolerance"][1]
-    s = reward_settings["grasp_on_object_z_height_slope"]
-    x_mid = 0.5 * (x_low + x_high)
-    lift_height_gate = 1.0 - 1.0 / (1.0 + torch.exp(s * (x_mid - x)))
-    gate_floor = reward_settings["grasp_on_object_z_height_gate_floor"]
-    lift_height_gate_soft = gate_floor + (1.0 - gate_floor) * lift_height_gate
-
-    gate_enabled = bool(reward_settings["grasp_on_object_z_height_gate_enabled"])
-    if gate_enabled:
-        lift_height_gate_apply = lift_height_gate_soft
-    else:
-        lift_height_gate_apply = torch.ones_like(lift_height_gate_soft)
-    
-    r_lift_before_gate = r_lift.clone()
-    r_lift = r_lift * lift_height_gate_apply
+    r_lift = r_lift
 
     # R3: Object goal distance reward (based on average point matching distance)
     d_eef_point_goal_target = states["point_matching_err_target"]
     beta_object_goal = reward_settings["beta_object_goal"]
     r_obj_goal = torch.exp(-beta_object_goal * d_eef_point_goal_target)
     r_obj_goal = torch.where(states["lift"], r_obj_goal, 0.0)
-    # Apply the same grasp-height gate to object-goal reward to reduce top-grasp exploitation.
-    r_obj_goal = r_obj_goal * lift_height_gate_apply
-    # print(
-    #     "[reward_debug] x0=", x[0],
-    #     "x_low=", x_low,
-    #     "x_high=", x_high,
-    #     "x_mid=", x_mid,
-    #     "s=", s,
-    #     "gate0=", lift_height_gate[0],
-    #     "r_lift_before0=", r_lift_before_gate[0],
-    #     "r_lift_after0=", r_lift[0],
-    # )
 
     # R4: Hand orientation reward (based on average point matching distance)
     d_eef_point_goal_hand = states["point_matching_err_hand"]
@@ -1389,7 +1554,8 @@ def compute_franka_leap_reward(states, reward_settings):
     # R5: Finger curl
     hand_dof_pos = states["q"][:, 7:] # hand joint angles
     near_object = (d_hand_obj <= reward_settings["curl_reaching_threshold"])
-    finger_pos_diff = torch.sum((hand_dof_pos - reward_settings["grasp_finger_dof_pos"]) ** 2, dim=1)
+    dof_err = hand_dof_pos - reward_settings["grasp_finger_dof_pos"]
+    finger_pos_diff = torch.sum((dof_err ** 2) * reward_settings["curl_dof_weight"], dim=1)
 
     beta_curl = reward_settings["beta_curl"]
     r_curl= torch.exp(-beta_curl * finger_pos_diff)
@@ -1415,12 +1581,20 @@ def compute_franka_leap_reward(states, reward_settings):
     r_total =w_hand_obj*r_hand_obj + w_obj_goal*r_obj_goal + w_hand_orientation*r_hand_orientation + \
               w_curl*r_curl * float(use_curl) + \
               w_lift*r_lift + w_actionreg*r_actionreg
+    # CODEX: in object-axis mode only, linearly downscale total reward by object uprightness.
+    # upright_scale = floor + (1-floor) * upright_score, upright_score in [0, 1].
+    is_object_axis_mode = (reward_settings["orientation_reward_mode"] > 1.5).to(r_total.dtype)
+    upright_score = states["object_upright_score"]
+    upright_floor = reward_settings["object_upright_reward_floor"]
+    upright_scale = upright_floor + (1.0 - upright_floor) * upright_score
+    total_scale = 1.0 + (upright_scale - 1.0) * is_object_axis_mode
+    r_total = r_total * total_scale
     
     rewards = {
         "r_hand_obj": w_hand_obj*r_hand_obj,
         "r_lift": w_lift*r_lift,
         "r_obj_goal": w_obj_goal*r_obj_goal,
-        "r_obj_goal_rot": w_hand_orientation*r_hand_orientation,
+        "r_hand_rot": w_hand_orientation*r_hand_orientation,
         "r_curl": w_curl*r_curl,
         "r_actionreg": w_actionreg*r_actionreg,
         "r_total": r_total,
@@ -1428,8 +1602,6 @@ def compute_franka_leap_reward(states, reward_settings):
         "d_lift": object_height,
         "d_eef_point_goal": d_eef_point_goal_target,
         "d_eef_point_goal_rot": d_eef_point_goal_hand,
-        "lift_height_gate": lift_height_gate,
-        "lift_height_gate_soft": lift_height_gate_soft,
     }
 
     return rewards

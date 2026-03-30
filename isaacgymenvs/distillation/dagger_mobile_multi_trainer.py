@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 
 import torch
 import torch.optim as optim
+from hydra import compose 
 from hydra.utils import instantiate
 from tqdm import tqdm
 from collections import OrderedDict
@@ -26,16 +27,17 @@ import wandb
 
 from typing import Dict
 from pathlib import Path
+from omegaconf import OmegaConf, open_dict
 from isaacgymenvs.tasks import FrankaLEAPMobileDistillation
 
 
-class DaggerMobile:
+class DaggerMultiMobile:
     def __init__(self, cfg):
-        # overwrite the video logging freq so it aligns well with the eval pattern
-        cfg.task.env.video_logging.freq = max((cfg.dagger.eval_freq + 1), 10) * cfg.task.env.episodeLength
-
         # load configs
         self.multi_gpu = cfg.multi_gpu
+        self.local_rank = 0
+        self.global_rank = 0 
+        self.world_size = 1
         if self.multi_gpu:
             dist.init_process_group(backend="nccl")
             self.local_rank = int(os.getenv("LOCAL_RANK", "0"))
@@ -49,7 +51,62 @@ class DaggerMobile:
             if self.local_rank == 0:
                 cfg.graphics_device_id = self.local_rank
             else:
-                cfg.task.env.video_logging.capture = False # note the actual video logging flag is in task env, not in general cfg.capture_video
+                cfg.graphics_device_id = -1
+
+        # @ray load in the spec for this rank
+        num_specs = len(list(cfg["specs"]))
+        if self.multi_gpu:
+            if self.world_size % num_specs != 0:
+                raise ValueError(
+                    f"world_size ({self.world_size}) must be evenly divisible by number of specs ({num_specs})"
+                )
+            ranks_per_spec = self.world_size // num_specs
+            spec_idx = self.global_rank // ranks_per_spec
+            self.spec_group_rank = self.global_rank % ranks_per_spec
+        else:
+            if num_specs > 1:
+                raise ValueError(f"Multiple specs provided but multi_gpu is False, cannot assign specs to ranks. num_specs: {num_specs}")
+            spec_idx = 0
+            ranks_per_spec = 1
+            self.spec_group_rank = 0
+
+        self.spec_group_size = ranks_per_spec
+        self.is_spec_lead = (self.spec_group_rank == 0)
+        self.is_checkpoint_lead = ((not self.multi_gpu) or (self.global_rank == 0))
+        
+        self.spec_name = list(cfg["specs"])[spec_idx]
+        self.spec_cfg = compose(config_name=f"specs/{self.spec_name}") # load hydra config dict through hydra
+        self.spec_cfg = OmegaConf.create(OmegaConf.to_container(self.spec_cfg, resolve=True)) # conver to a plain config tree
+        # @ray from the spec, load the task and teacher configs into the main cfg
+        task_cfg = compose(config_name="dagger_multi_config", overrides=[f"task={self.spec_cfg['task']}"]).task
+        task_cfg = OmegaConf.create(OmegaConf.to_container(task_cfg, resolve=True))
+        train_cfg = compose(config_name="dagger_multi_config", overrides=[f"train={self.spec_cfg['train']}"]).train
+        train_cfg = OmegaConf.create(OmegaConf.to_container(train_cfg, resolve=True))
+        with open_dict(task_cfg):
+            task_cfg.env.numEnvs = cfg.task.env.numEnvs
+
+        if "overrides" in self.spec_cfg and "task" in self.spec_cfg["overrides"]:  # CODEX
+            task_cfg = OmegaConf.merge(task_cfg, self.spec_cfg["overrides"]["task"])  # CODEX
+
+        with open_dict(cfg):
+            cfg.task = task_cfg
+            cfg.task_name = task_cfg.name
+            cfg.train = train_cfg
+            cfg.teacher = OmegaConf.create(OmegaConf.to_container(self.spec_cfg["teacher"], resolve=True))
+            cfg.wandb_name = str(self.spec_cfg["name"])
+            if "overrides" in self.spec_cfg:
+                for override_key, override_value in self.spec_cfg["overrides"].items():
+                    if override_key == "task":
+                        continue
+                    cfg[override_key] = OmegaConf.merge(cfg[override_key], override_value)
+        
+        # @ray log videos per spec
+        cfg.task.env.video_logging.freq = max((cfg.dagger.eval_freq + 1), 10) * cfg.task.env.episodeLength
+        if self.multi_gpu:
+            if self.is_spec_lead:
+                cfg.graphics_device_id = self.local_rank
+            else:
+                cfg.task.env.video_logging.capture = False  # note the actual video logging flag is in task env, not in general cfg.capture_video
                 cfg.graphics_device_id = -1
 
         self.cfg = cfg
@@ -63,24 +120,28 @@ class DaggerMobile:
         self.chunk_size = cfg.chunk_size
         self.device = cfg['sim_device']
         self.seed = cfg.seed
-        self.rank_seed = int(self.seed) + (int(self.global_rank) if self.multi_gpu else 0)  # CODEX
+        self.rank_seed = int(self.seed) + (int(self.global_rank) if self.multi_gpu else 0) # @ray different seeds per rank
         base_exp_name = str(cfg.experiment) if str(cfg.experiment) != "" else str(cfg.train.params.config.name)
         if self.multi_gpu:
-            # CODEX: ensure all ranks use exactly one shared run name/checkpoint dir.
+            # ensure all ranks use exactly one shared run name/checkpoint dir.
             shared_time_suffix = ""
             if self.global_rank == 0:
                 shared_time_suffix = "{date:%d-%H-%M-%S}".format(date=datetime.now())
             shared_name_list = [shared_time_suffix]
             dist.broadcast_object_list(shared_name_list, src=0)
-            self.exp_name = base_exp_name + "_" + shared_name_list[0]
+            self.run_time_suffix = shared_name_list[0]  # CODEX
+            self.exp_name = base_exp_name + "_" + self.run_time_suffix
         else:
-            self.exp_name = base_exp_name + '_{date:%d-%H-%M-%S}'.format(date=datetime.now())
-        set_seed_and_precision(self.seed, (int(self.global_rank) if self.multi_gpu else 0))  # CODEX
+            self.run_time_suffix = '{date:%d-%H-%M-%S}'.format(date=datetime.now())
+            self.exp_name = base_exp_name + "_" + self.run_time_suffix
+        self.base_exp_name = base_exp_name
+        set_seed_and_precision(self.seed, (int(self.global_rank) if self.multi_gpu else 0))
+
 
         self.learning_rate = cfg.dagger.learning_rate
         self.weight_decay = cfg.dagger.weight_decay
         # load env
-        run_name = self.exp_name  # CODEX: keep local video run folder consistent with experiment+timestamp naming.
+        run_name = f"{self.base_exp_name}_{self.spec_cfg['name']}_{self.run_time_suffix}"   # keep local video run folder consistent with experiment+timestamp naming.
         def create_isaacgym_env(**kwargs) -> FrankaLEAPMobileDistillation:
             envs = isaacgymenvs.make(
                 self.rank_seed,
@@ -162,10 +223,15 @@ class DaggerMobile:
         self.batch_idx = 0
         self.batch_size = self.cfg.dagger.batch_size
 
-        self.use_wandb = self.cfg.wandb_activate
+        # @ray create a wandb run per spec
+        # so that we can compare each spec to a non-multi-teacher baseline with the same task config
+        # every spec logs global run stats as well
+        self.use_wandb = self.cfg.wandb_activate and self.is_spec_lead
         self.wandb_project = self.cfg.wandb_project
-        self.wandb_name = self.exp_name  # CODEX: enforce display name consistency (experiment + timestamp).
+        self.wandb_name = f"{self.base_exp_name}_{self.spec_cfg['name']}_{self.run_time_suffix}"  # (experimet + spec name + timestamp)
         self.wandb_id = None
+        self.wandb_run_map = {}
+        self.spec_wandb_run = None
 
         self.state_encoders_keys = self.cfg.model.state_encoders_cfg.keys()
         self.pcd_encoders_keys = self.cfg.model.pcd_encoders_cfg.keys()
@@ -173,18 +239,23 @@ class DaggerMobile:
         self.save_dir = Path("dagger_ckpts") / self.exp_name
         self.save_freq = self.cfg.dagger.save_freq
         os.makedirs(self.save_dir, exist_ok=True)
-        if (not self.multi_gpu) or (self.global_rank == 0):  # CODEX
-            colorprint(f"Checkpoint dir: {self.save_dir.resolve()}", color="magenta")  # CODEX
+        if self.is_checkpoint_lead:  # CODEX
+            colorprint(f"Checkpoint dir: {self.save_dir.resolve()}", color="magenta")
+        colorprint(
+            f"Rank {self.global_rank} using spec '{self.spec_cfg['name']}' with task '{self.cfg.task_name}' (spec_group_rank={self.spec_group_rank})",
+            color="cyan",
+        )
 
         self.eval_freq = self.cfg.dagger.eval_freq
-        self.eval_only_teacher = bool(self.cfg.dagger.get("eval_only_teacher", False))  # CODEX
-        self.debug_teacher_eval = bool(self.cfg.dagger.get("debug_teacher_eval", False))  # CODEX
-        self.latest_eval_wandb_logs = {}  # CODEX
-        self.last_eval_episode = -1  # CODEX
+        self.eval_only_teacher = bool(self.cfg.dagger.get("eval_only_teacher", False))
+        self.debug_teacher_eval = bool(self.cfg.dagger.get("debug_teacher_eval", False))
+        self.latest_eval_wandb_logs = {}
+        self.last_eval_episode = -1
+        self.last_student_actions = torch.zeros(
+            (self.env.num_envs, self.env.num_actions), device=self.device
+        )
 
         if self.multi_gpu:            
-            self.use_wandb = (self.cfg.wandb_activate and self.global_rank == 0)
-
             self.student_model = self.student_model.to(self.device)
             self.student_model = DDP(
                 self.student_model,
@@ -200,16 +271,22 @@ class DaggerMobile:
             colorprint(f"Resumed training from {load_checkpoint_path}: steps={self.total_steps}, success_rate_ep={success_rate_ep}", color="magenta")
 
         if self.use_wandb:
-            wandb.init(
+            # @ray for resuming the individual spec runs
+            if self.spec_cfg["name"] in self.wandb_run_map:
+                self.wandb_id = self.wandb_run_map[self.spec_cfg["name"]]["id"]
+                self.wandb_name = self.wandb_run_map[self.spec_cfg["name"]]["name"]
+            self.spec_wandb_run = wandb.init(
                 project=self.wandb_project,
                 name=self.wandb_name,
                 id=self.wandb_id,
                 resume="must" if self.wandb_id else None,
+                group=self.cfg.wandb_group if self.cfg.wandb_group != '' else self.exp_name,
                 config={
                     "batch_size": self.batch_size,
                     "num_episodes": self.total_episodes,
                     "learning_rate": self.learning_rate,
                     "weight_decay": self.weight_decay,
+                    "spec_name": self.spec_cfg["name"],
                 }
             )
 
@@ -230,6 +307,67 @@ class DaggerMobile:
             elif isinstance(v, numbers.Number):
                 out[k] = float(v)
         return out
+    
+    def _gather_global_metrics(self, local_metrics: Dict) -> Dict:
+        numeric_metrics = self._sanitize_wandb_logs(local_metrics)
+        if not self.multi_gpu:
+            return {f"global/{k}": v for k, v in numeric_metrics.items() if k != "episode"}
+
+        gather_payload = numeric_metrics if self.is_spec_lead else None
+        gathered = [None for _ in range(self.world_size)]
+        dist.all_gather_object(gathered, gather_payload)
+        if self.global_rank != 0:
+            return {}
+
+        lead_payloads = [payload for payload in gathered if payload is not None]
+        if len(lead_payloads) == 0:
+            return {}
+
+        aggregate = {}
+        metric_keys = set()
+        for payload in lead_payloads:
+            metric_keys.update(payload.keys())
+
+        for key in metric_keys:
+            if key == "episode":
+                continue
+            values = [payload[key] for payload in lead_payloads if key in payload]
+            if len(values) == 0:
+                continue
+            aggregate[f"global/{key}"] = float(sum(values) / len(values))
+
+        return aggregate
+    
+    def _get_broadcast_global_metrics(self, local_metrics: Dict) -> Dict:
+        aggregate = self._gather_global_metrics(local_metrics)
+        if not self.multi_gpu:
+            return aggregate
+        shared_logs = [aggregate if self.global_rank == 0 else None]
+        dist.broadcast_object_list(shared_logs, src=0)
+        return shared_logs[0] if shared_logs[0] is not None else {}
+    
+    def _sync_wandb_run_map(self):
+        local_payload = None
+        if self.use_wandb:
+            local_payload = {
+                self.spec_cfg["name"]: {
+                    "id": self.spec_wandb_run.id,
+                    "name": self.spec_wandb_run.name,
+                    "project": self.spec_wandb_run.project,
+                }
+            }
+
+        if not self.multi_gpu:
+            if local_payload is not None:
+                self.wandb_run_map.update(local_payload)
+            return
+
+        gathered = [None for _ in range(self.world_size)]
+        dist.all_gather_object(gathered, local_payload)
+        if self.global_rank == 0:
+            for payload in gathered:
+                if payload is not None:
+                    self.wandb_run_map.update(payload)
 
     # teacher loading utils
     def load_param_dict(self, cfg_path) -> Dict:
@@ -254,9 +392,10 @@ class DaggerMobile:
             model.running_mean_std.load_state_dict(weights["running_mean_std"])
 
     def save_checkpoint(self, episode, train_success_rate_ep=None, eval_success_rate_ep=None, top_k=3):
+        student_model = self.student_model.module if self.multi_gpu else self.student_model 
         checkpoint = {
             "episode": episode,
-            "model_state_dict": self.student_model.state_dict(),
+            "model_state_dict": student_model.state_dict(),
             "optimizer_state_dict": self.optimizer.state_dict(),
             "train_success_rate_ep": train_success_rate_ep,
             "eval_success_rate_ep": eval_success_rate_ep,
@@ -266,10 +405,8 @@ class DaggerMobile:
         }
         if self.scheduler is not None:
             checkpoint["scheduler_state_dict"] = self.scheduler.state_dict()
-        if self.use_wandb:
-            checkpoint["wandb_id"] = wandb.run.id
-            checkpoint["wandb_name"] = wandb.run.name
-            checkpoint["wandb_project"] = wandb.run.project
+        if len(self.wandb_run_map) > 0:
+            checkpoint["wandb_runs"] = dict(self.wandb_run_map)
         torch.save(checkpoint, self.save_dir / "latest.pt")
         if episode % self.save_freq == 0:
             torch.save(checkpoint, self.save_dir / f"episode_{episode:06d}.pt")
@@ -290,17 +427,19 @@ class DaggerMobile:
 
     def load_checkpoint(self, checkpoint_path):
         checkpoint = torch.load(checkpoint_path, map_location=self.device)
-        self.student_model.load_state_dict(checkpoint["model_state_dict"])
+        model_state_dict = checkpoint["model_state_dict"]
+        if any(key.startswith("module.") for key in model_state_dict.keys()):
+            model_state_dict = {key[7:]: value for key, value in model_state_dict.items()}
+        target_model = self.student_model.module if self.multi_gpu else self.student_model
+        target_model.load_state_dict(model_state_dict)
         self.optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         if self.scheduler is not None and "scheduler_state_dict" in checkpoint:
             self.scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
         self.episode = (checkpoint["episode"] + 1) % self.total_episodes
         self.total_steps = checkpoint["total_steps"]
         self.batch_idx = checkpoint["batch_idx"]
-        if "wandb_id" in checkpoint:
-            self.wandb_id = checkpoint["wandb_id"]
-            self.wandb_name = checkpoint["wandb_name"]
-            self.wandb_project = checkpoint["wandb_project"]
+        if "wandb_runs" in checkpoint:
+            self.wandb_run_map = checkpoint["wandb_runs"]
         return checkpoint["train_success_rate_ep"]
 
     def preprocess_inputs(self, obs):
@@ -535,12 +674,11 @@ class DaggerMobile:
             q_arm_manip = self.env.states['q'][:, 3:10].clone() # (num_envs, 7)
             q_arm_vision = self.env.states['q'][:, 26:].clone() # (num_envs, 6)
             q_hand = self.env.states['q'][:, 10:26].clone() # (num_envs, 16)
-
             obs_input_a0["q_arm_manip"] = self.env.normalize_robot_joints(q_arm_manip, robot="franka", delta=False)
             obs_input_a0["q_arm_vision"] = self.env.normalize_robot_joints(q_arm_vision, robot="arx", delta=False)
             obs_input_a0["q_hand"] = self.env.normalize_robot_joints(q_hand, robot="leap", delta=False)
             if "q_hand_ctrl_delta" in self.state_encoders_keys:
-                obs_input_a0["q_hand_ctrl_delta"] = self.env.normalize_robot_joints(q_hand - self.env.abs_actions[:, 10:26], robot="leap", delta=True)
+                obs_input_a0["q_hand_ctrl_delta"] = self.last_student_actions.clone()
             if "objxyz_t0" in self.state_encoders_keys:
                 obs_input_a0["objxyz_t0"] = self.env._object_center_init_state.clone()
 
@@ -662,6 +800,7 @@ class DaggerMobile:
                 # sync distillation steps for wandb video logging
                 self.env.distillation_steps = self.total_steps
                 self.env.step(step_actions)
+                self.last_student_actions[:] = step_actions
 
                 # count continuous reaching success
                 count_reaching += self.env.success_5cm_per_step
@@ -716,8 +855,6 @@ class DaggerMobile:
                     wandb_logs.update(aux_wandb_logs)
 
                 train_log_step = int(self.total_steps)  # CODEX
-                if wandb.run is not None and wandb.run.step is not None:  # CODEX
-                    train_log_step = max(train_log_step, int(wandb.run.step))  # CODEX
                 wandb.log(self._sanitize_wandb_logs(wandb_logs), step=train_log_step)  # CODEX
 
         return ave_loss
@@ -773,12 +910,11 @@ class DaggerMobile:
             q_arm_manip = self.env.states['q'][:, 3:10].clone() # (num_envs, 7)
             q_arm_vision = self.env.states['q'][:, 26:].clone() # (num_envs, 6)
             q_hand = self.env.states['q'][:, 10:26].clone() # (num_envs, 16)
-
             obs_input_a0["q_arm_manip"] = self.env.normalize_robot_joints(q_arm_manip, robot="franka", delta=False)
             obs_input_a0["q_arm_vision"] = self.env.normalize_robot_joints(q_arm_vision, robot="arx", delta=False)
             obs_input_a0["q_hand"] = self.env.normalize_robot_joints(q_hand, robot="leap", delta=False)
             if "q_hand_ctrl_delta" in self.state_encoders_keys:
-                obs_input_a0["q_hand_ctrl_delta"] = self.env.normalize_robot_joints(q_hand - self.env.abs_actions[:, 10:26], robot="leap", delta=True)
+                obs_input_a0["q_hand_ctrl_delta"] = self.last_student_actions.clone()
             if "objxyz_t0" in self.state_encoders_keys:
                 obs_input_a0["objxyz_t0"] = self.env._object_center_init_state.clone()
 
@@ -828,12 +964,14 @@ class DaggerMobile:
                 self.env.distillation_steps = self.total_steps
                 self.env.reset_buf[:] = 0  # CODEX: disable early termination resets during eval (e.g., object-fall).
                 self.env.step(step_actions)
+                self.last_student_actions[:] = step_actions
                 self.env.reset_buf[:] = 0  # CODEX: keep fixed-horizon rollout even if reward logic marks done.
                 eval_sim_step += 1  # CODEX
 
         # set env state back for training
         self.env.reset_idx()
         self.env.compute_observations()
+        self.last_student_actions.zero_()
         self.env.progress_buf = torch.randint(
             0, self.env.max_episode_length,
             (self.env.num_envs,),
@@ -860,14 +998,12 @@ class DaggerMobile:
 
         # Log eval metrics directly to avoid dependence on outer merged logging paths.
         if self.use_wandb:
-            eval_payload = self._sanitize_wandb_logs(eval_wandb_logs)
-            eval_payload[f"{metric_prefix}/triggered"] = 1.0
-            eval_payload["episode"] = float(self.episode)
-            eval_log_step = int(self.total_steps)  # CODEX
-            if wandb.run is not None and wandb.run.step is not None:  # CODEX
-                eval_log_step = max(eval_log_step, int(wandb.run.step))  # CODEX
-            wandb.log(eval_payload, step=eval_log_step)  # CODEX
-            print(f"[wandb][{metric_prefix}] step={eval_log_step} episode={self.episode} logged eval metrics")  # CODEX
+            eval_logs = dict(eval_wandb_logs)
+            eval_logs[f"{metric_prefix}/triggered"] = 1.0
+            eval_logs["episode"] = float(self.episode)
+            eval_log_step = int(self.total_steps)
+            wandb.log(self._sanitize_wandb_logs(eval_logs), step=eval_log_step) 
+            print(f"[wandb][{metric_prefix}] step={eval_log_step} episode={self.episode} logged eval metrics")
 
         success_key = f"{metric_prefix}/eval_success_rate_5cm_per_ep"  # CODEX
         lift_key = f"{metric_prefix}/eval_lifting_rate_5cm_per_ep"  # CODEX
@@ -875,7 +1011,7 @@ class DaggerMobile:
             f"[{metric_prefix}] episode={self.episode} "
             f"success_rate_5cm_per_ep={float(eval_wandb_logs[success_key]):.4f} "
             f"lifting_rate_5cm_per_ep={float(eval_wandb_logs[lift_key]):.4f}"
-        )  # CODEX
+        )
 
         return eval_wandb_logs
 
@@ -919,7 +1055,7 @@ class DaggerMobile:
                         teacher_eval_wandb_logs = self.eval(policy_source="teacher", capture_video=False)  # CODEX
                         self.latest_eval_wandb_logs.update(teacher_eval_wandb_logs)  # CODEX
 
-            if (not self.multi_gpu) or (self.global_rank == 0):
+            if (not self.multi_gpu) or self.is_spec_lead:
                 episode_time = time.time() - start_time
                 estimated_finish_time = start_time + episode_time * remaining_episodes
 
@@ -938,10 +1074,15 @@ class DaggerMobile:
                     wandb_payload = dict(train_metrics)
                     if eval_metrics is not None:
                         wandb_payload.update(eval_metrics)
-                    merged_log_step = int(self.total_steps)  # CODEX
-                    if wandb.run is not None and wandb.run.step is not None:  # CODEX
-                        merged_log_step = max(merged_log_step, int(wandb.run.step))  # CODEX
-                    wandb.log(self._sanitize_wandb_logs(wandb_payload), step=merged_log_step)  # CODEX
+                    merged_log_step = int(self.total_steps)
+                    wandb.log(self._sanitize_wandb_logs(wandb_payload), step=merged_log_step)
+                global_payload = dict(train_metrics)  # CODEX
+                if eval_metrics is not None:  # CODEX
+                    global_payload.update(eval_metrics)  # CODEX
+                aggregate_logs = self._get_broadcast_global_metrics(global_payload)
+                if self.use_wandb and len(aggregate_logs) > 0:
+                    aggregate_logs["episode"] = float(self.episode)
+                    wandb.log(self._sanitize_wandb_logs(aggregate_logs), step=merged_log_step)
                 # TODO: add args: save ckpt? frequency?
                 if eval_policy:
                     if self.eval_only_teacher:
@@ -949,8 +1090,10 @@ class DaggerMobile:
                     else:
                         eval_lifting = eval_wandb_logs.get("eval/eval_lifting_rate_5cm_per_ep", None)  # CODEX
                 else:
-                    eval_lifting = None  # CODEX
-                self.save_checkpoint(self.episode, train_metrics["metrics/success_rate_5cm_per_ep"], eval_lifting)
+                    eval_lifting = None 
+                if self.is_checkpoint_lead:
+                    self._sync_wandb_run_map()
+                    self.save_checkpoint(self.episode, train_metrics["metrics/success_rate_5cm_per_ep"], eval_lifting)
 
                 log_metrics = dict(train_metrics)
                 if eval_metrics is not None:

@@ -13,9 +13,9 @@ env:
   teacher_obs_action_frame: "eef"
   object_settings:
     object_grasp_target_z_scale: 0.25 # @ray z scale for the hand-object reward, special for side grasp
-    xyz_range: [[0.40, -0.3, 0.2], [0.55, 0.3, 0.25]] # [[0.45, -0.2, 0.2], [0.55, 0.2, 0.25]] # xy is center position, z is BOTTOM height
+    xyz_range: [[0.45, -0.3, 0.2], [0.55, 0.3, 0.25]] # [[0.45, -0.2, 0.2], [0.55, 0.2, 0.25]] # xy is center position, z is BOTTOM height
   robot_init:
-    base_init_range: [[-0.2, -0.2, -0.08], [-1.0, 0.2, 0.08]] # [[-1.0, -0.2, -0.08], [-0.2, -0.2, 0.08]] # x, y, yaw
+    base_init_range: [[-0.4, -0.2, -0.08], [-1.0, 0.2, 0.08]] # [[-1.0, -0.2, -0.08], [-0.2, -0.2, 0.08]] # x, y, yaw
     switch_pos_offset: [0.0, 0.0, 0.2]
     switch_tol: 0.1 # 0.05
 
@@ -29,13 +29,15 @@ env:
     eef_rot: 0.6 # axis-angle rotation
 
   object_teleport:
+    # @ray teleport checker is not only triggered at object_reset but every step
+    # @ray to reduce cost, a global Bernoulli based on n0, n1, n2 is used
     enable: True
-    env_proportion: 0.8 # proportion of envs to apply teleportation
-    swap_freq: 3 # in episodes, how often to swap the environments that do teleport
-    curri_steps: 200000
-    n0: 1 # within n0 steps, don't teleport
-    n1: 150 # until n1 steps, the probability of teleporting sum up to 0.5
-    n2: 300 # at n2 steps, the probability of teleporting is 1.0
+    env_proportion: 0.5 # proportion of envs to apply teleportation
+    swap_frequency: 1
+    curri_steps: 1
+    n0: 20 # within n0 steps, don't teleport
+    n1: 105 # until n1 steps, the probability of teleporting sum up to 0.5
+    n2: 105 # keep ramp disabled; cycle resets after the flat schedule
 
     # @ray we teleport a distaence away from eef to avoid penetration
     min_xy_dist_to_eef: 0.05 # minimum XY distance from current eef for sampled object reset/teleport pose
@@ -47,11 +49,20 @@ env:
   numActions: 22 # delta eef actions 6 (xyz, rpy) + normalized hand joint actions 16
 
   eef_init:
-    side_distance: 0.2
-    side_distance_noise: 0.4
     target_quat_noise_deg: 10
     dir_candidates_per_env: 5
     side_mode: left
+
+  fabric_switch:
+    lateral_offset: 0.2
+    high_z_offset: 0.35
+    high_z_tol: 0.05
+    stage3_z_offset: 0.3
+    stage2_xy_tol: 0.1
+    stage3_xy_tol: 0.1
+    stage3_xy_tol_exit: 0.13
+    teacher_activate_z_offset: 0.35
+    flat_table_reset_steps: 30
 
 fabric:
   enable: True
@@ -92,3 +103,7 @@ reward:
     w_actionreg: -0.001
 
   actionreg_type: "" # "delta_joint_action", "delta_eef_action", "delta_qd"
+
+sim:
+  physx:
+    contact_offset: 0.005

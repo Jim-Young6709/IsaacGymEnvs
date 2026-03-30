@@ -10,7 +10,7 @@ import hydra
 import isaacgym
 import numpy as np
 import torch
-from isaacgym import gymapi
+from isaacgym import gymapi, gymtorch
 from isaacgym.torch_utils import *
 from isaacgymenvs.utils.pcd_utils import *
 from isaacgymenvs.utils.rotation_conversions import *
@@ -34,31 +34,107 @@ class FrankaLEAPPickTable(FrankaLEAP):
             force_render=force_render
         )
 
+    def pre_physics_step(self, actions):
+        super().pre_physics_step(actions)
+
     def init_data(self, actor_num):
         super().init_data(actor_num)
         grasp_mode = str(self.cfg["env"]["grasp_mode"])
+        # Pinch presets are authored in thumb-first order: [thumb, index, middle, ring].
+        # Current candidate raw Isaac order from visual debugging: [index, thumb, middle, ring].
+        def remap_thumb_block(thumb):
+            # IsaacGym thumb block is ordered as [4, 3, 2, 1] when authored thumb joints
+            # are counted from the fingertip as [1, 2, 3, 4].
+            return [thumb[3], thumb[2], thumb[1], thumb[0]]
+
+        def thumb_first_to_raw_q(blocks):
+            thumb, index, middle, ring = blocks
+            return index + remap_thumb_block(thumb) + middle + ring
+
         if grasp_mode == "full":
             grasp_default = self.grasp_finger_dof_pos.clone()
             active_finger_mask = torch.ones(4, device=self.device)
             active_dof_mask = torch.ones(16, device=self.device)
+            curl_dof_weight = torch.ones(16, device=self.device)
+            special_curl_dof_mask = torch.zeros(16, device=self.device)  # CODEX
+            special_curl_enable = torch.tensor(0.0, device=self.device)  # CODEX
+            special_curl_reward_weight = torch.tensor(1.0, device=self.device)  # CODEX
         elif grasp_mode == "pinch2":
-            pinch_defaults = [
-                [0.79, -0.2, 0.7, 0.7, 1.15, 0.38, 0.23, 0.77, 0.48, -0.09, -0.2, 0.62, 0.5, -0.05, 0.02, 0.29],
-                [0.79, -0.2, 0.7, 0.7, 1.15, 0.38, 0.23, 0.77, 0.48, -0.09, -0.2, 0.62, 0.5, -0.05, 0.02, 0.29],
-                [0.79, -0.2, 0.7, 0.7, 1.15, 0.38, 0.23, 0.77, 0.48, -0.09, -0.2, 0.62, 0.5, -0.05, 0.02, 0.29],
+            pinch_defaults_thumb_first = [
+                [
+                    [0.79, -0.2, 0.7, 0.7],
+                    [1.15, 0.38, 0.23, 0.77],
+                    [0.48, -0.09, -0.2, 0.62],
+                    [0.5, -0.05, 0.02, 0.29],
+                ],
+                [
+                    [0.79, -0.2, 0.7, 0.7],
+                    [1.15, 0.38, 0.23, 0.77],
+                    [0.48, -0.09, -0.2, 0.62],
+                    [0.5, -0.05, 0.02, 0.29],
+                ],
+                [
+                    [0.79, -0.2, 0.7, 0.7],
+                    [1.15, 0.38, 0.23, 0.77],
+                    [0.48, -0.09, -0.2, 0.62],
+                    [0.5, -0.05, 0.02, 0.29],
+                ],
             ]
-            grasp_default = torch.tensor(pinch_defaults[self.cfg["env"]["grasp_guide_idx"]], device=self.device)
-            active_finger_mask = torch.tensor([1.0, 0.0, 0.0, 1.0], device=self.device)
+            grasp_default = torch.tensor(
+                thumb_first_to_raw_q(pinch_defaults_thumb_first[self.cfg["env"]["grasp_guide_idx"]]),
+                device=self.device,
+            )
+            active_finger_mask = torch.tensor([1.0, 1.0, 0.0, 0.0], device=self.device)
             active_dof_mask = torch.tensor([1.0] * 8 + [0.0] * 8, device=self.device)
+            curl_dof_weight = torch.ones(16, device=self.device)
+            # CODEX: pinch2 uses same split-curl logic as pinch3, with special fingers = 3rd+4th blocks.
+            special_curl_dof_mask = torch.zeros(16, device=self.device)
+            special_curl_dof_mask[8:16] = 1.0
+            special_curl_enable = torch.tensor(1.0, device=self.device)
+            special_curl_reward_weight = torch.tensor(
+                float(self.cfg["reward"]["params"]["pinch_far_finger_curl_weight"]),
+                device=self.device,
+            )  # CODEX
         elif grasp_mode == "pinch3":
-            pinch_defaults = [
-                [0.79, -0.2, 0.7, 0.7, 1.15, 0.38, 0.23, 0.77, 0.89, -0.09, 0.74, 0.62, 0.5, 0.05, 0.02, 0.29],
-                [0.79, -0.2, 0.7, 0.7, 1.15, 0.38, 0.23, 0.77, 0.89, -0.09, 0.74, 0.62, 0.5, 0.05, 0.02, 0.29],
-                [0.79, -0.2, 0.7, 0.7, 1.15, 0.38, 0.23, 0.77, 0.89, -0.09, 0.74, 0.62, 0.5, 0.05, 0.02, 0.29],
+            pinch_defaults_thumb_first = [
+                [
+                    [0.77, 0.69, 0.73, 0.89],
+                    [0.93, 0.00, 0.53, 0.77],
+                    [0.69, 0.01, 0.81, 0.85],
+                    [-0.27, -0.07, 0.13, 0.33],
+                ],
+                [
+                    [0.77, 0.69, 0.73, 0.89],
+                    [0.93, 0.00, 0.53, 0.77],
+                    [0.69, 0.01, 0.81, 0.85],
+                    [-0.27, -0.07, 0.13, 0.33],
+                ],
+                [
+                    [0.77, 0.69, 0.73, 0.89],
+                    [0.93, 0.00, 0.53, 0.77],
+                    [0.69, 0.01, 0.81, 0.85],
+                    [-0.27, -0.07, 0.13, 0.33],
+                ],
             ]
-            grasp_default = torch.tensor(pinch_defaults[self.cfg["env"]["grasp_guide_idx"]], device=self.device)
-            active_finger_mask = torch.tensor([1.0, 1.0, 0.0, 1.0], device=self.device)
-            active_dof_mask = torch.tensor([1.0] * 12 + [0.0] * 4, device=self.device)
+            grasp_default = torch.tensor(
+                thumb_first_to_raw_q(pinch_defaults_thumb_first[self.cfg["env"]["grasp_guide_idx"]]),
+                device=self.device,
+            )
+            # CODEX: pinch3 hand-object distance excludes pinky, but curl includes all fingers.
+            active_finger_mask = torch.tensor([1.0, 1.0, 1.0, 0.0], device=self.device)
+            # CODEX: base near-object curl excludes pinky; pinky is handled by special always-on curl.
+            active_dof_mask = torch.ones(16, device=self.device)
+            active_dof_mask[12:16] = 0.0
+            curl_dof_weight = torch.ones(16, device=self.device)
+            # CODEX: raw hand DOF order is [index, thumb, middle, pinky/ring] in 4-DOF blocks.
+            # For pinch3, "far finger" is pinky/ring -> block [12:16], with extra curl emphasis.
+            special_curl_dof_mask = torch.zeros(16, device=self.device)  # CODEX
+            special_curl_dof_mask[12:16] = 1.0  # CODEX
+            special_curl_enable = torch.tensor(1.0, device=self.device)  # CODEX
+            special_curl_reward_weight = torch.tensor(
+                float(self.cfg["reward"]["params"]["pinch_far_finger_curl_weight"]),
+                device=self.device,
+            )  # CODEX
         else:
             raise ValueError(f"Unsupported env.grasp_mode={grasp_mode}. Expected one of: full, pinch2, pinch3.")
 
@@ -69,6 +145,10 @@ class FrankaLEAPPickTable(FrankaLEAP):
         self.reward_settings["grasp_finger_dof_pos"] = self.grasp_finger_dof_pos
         self.reward_settings["grasp_finger_dof_mask"] = active_dof_mask
         self.reward_settings["active_finger_mask"] = active_finger_mask
+        self.reward_settings["curl_dof_weight"] = curl_dof_weight
+        self.reward_settings["special_curl_dof_mask"] = special_curl_dof_mask  # CODEX
+        self.reward_settings["special_curl_enable"] = special_curl_enable  # CODEX
+        self.reward_settings["special_curl_reward_weight"] = special_curl_reward_weight  # CODEX
         self.reward_settings["include_palm_in_hand_obj"] = to_torch(
             1.0 if bool(self.cfg["reward"]["params"]["include_palm_in_hand_obj"]) else 0.0,
             device=self.device,
@@ -115,23 +195,12 @@ class FrankaLEAPPickTable(FrankaLEAP):
         self.envs = []
         self._object_center_init_state = torch.zeros((self.num_envs, 3), device=self.device)
 
-        # Legacy layout keeps prebuilt asset pool; variant layout uses procedural per-env loading.
-        mesh_dir = self.mesh_args["mesh_dir"]
-        object_list = self.mesh_args["obj_list"]
-        mesh_entries = self._discover_variant_mesh_entries(mesh_dir, object_list)
-        if len(mesh_entries) == 0:
-            raise RuntimeError(
-                f"No mesh entries discovered under mesh_dir={mesh_dir} "
-                f"with obj_list={object_list}."
-            )
-
-        self.mesh_variant_mode = ("dilation_range" in mesh_entries[0])
-        all_meshes_list = []
+        # load all meshes first (pooled preload for both legacy and variant layouts)
+        all_meshes_list = self.create_all_meshes()
         if self.mesh_variant_mode:
-            self.object_id_to_name = [e["display_name"] for e in mesh_entries]
+            # Variant-mode metrics are keyed by variant identity (asset_obj_id), not preload copy index.
             self.num_objects = len(self.object_id_to_name)
         else:
-            all_meshes_list = self.create_all_meshes()
             self.num_objects = min(len(all_meshes_list), self.num_envs) # @ray record number of objects for per-object success rate tracking
             all_meshes_list = all_meshes_list[:self.num_objects]
             self.object_id_to_name = self.object_id_to_name[:self.num_objects]
@@ -140,30 +209,10 @@ class FrankaLEAPPickTable(FrankaLEAP):
         # Create environments
         for i in tqdm(range(self.num_envs), desc="Creating Envs"):
             # grasp object
+            object_asset, object_start_pose, object_scale, object_id, mesh_id = all_meshes_list[i % len(all_meshes_list)]
             if self.mesh_variant_mode:
-                entry = mesh_entries[i % len(mesh_entries)]
-                d = entry["dilation_range"]
-                object_scale = np.array(
-                    [
-                        np.random.uniform(float(d["x"]["min"]), float(d["x"]["max"])),
-                        np.random.uniform(float(d["y"]["min"]), float(d["y"]["max"])),
-                        np.random.uniform(float(d["z"]["min"]), float(d["z"]["max"])),
-                    ],
-                    dtype=np.float32,
-                )
-                mesh_pos = np.random.uniform(obj_xyz_range[0], obj_xyz_range[1])
-                object_asset, object_start_pose, object_scale, object_id, mesh_id = self._create_mesh(
-                    entry["mesh_path"],
-                    mesh_pos,
-                    object_scale,
-                    quat=[0, 0, 0, 1],
-                    fix_base_link=False,
-                    asset_obj_id=entry["asset_obj_id"],
-                    asset_mesh_id=entry["asset_mesh_id"],
-                )
                 self.env_object_ids[i] = max(0, int(object_id) - 1)
             else:
-                object_asset, object_start_pose, object_scale, object_id, mesh_id = all_meshes_list[i % len(all_meshes_list)]
                 self.env_object_ids[i] = i % len(all_meshes_list)
 
             # create env instance
@@ -316,6 +365,8 @@ class FrankaLEAPPickTable(FrankaLEAP):
         self.extras["sep_reward/r_obj_goal"] = torch.mean(reward_dict["r_obj_goal"]).item()
         self.extras["sep_reward/r_lift"] = torch.mean(reward_dict["r_lift"]).item()
         self.extras["sep_reward/r_curl"] = torch.mean(reward_dict["r_curl"]).item()
+        if "r_curl_special" in reward_dict:
+            self.extras["sep_reward/r_curl_special"] = torch.mean(reward_dict["r_curl_special"]).item()
         self.extras["sep_reward/r_actionreg"] = torch.mean(reward_dict["r_actionreg"]).item()
         self.extras["dis/d_hand_obj"] = torch.mean(reward_dict["d_hand_obj"]).item()
         self.extras["dis/d_lift"] = torch.mean(reward_dict["d_lift"]).item()
@@ -445,11 +496,16 @@ def compute_franka_leap_reward(states, reward_settings):
     hand_dof_pos = states["q"][:, 7:] # hand joint angles
     near_object = (d_hand_obj <= reward_settings["curl_reaching_threshold"])
     dof_err = (hand_dof_pos - reward_settings["grasp_finger_dof_pos"]) * reward_settings["grasp_finger_dof_mask"]
+    dof_err = dof_err * reward_settings["curl_dof_weight"]
     finger_pos_diff = torch.sum(dof_err ** 2, dim=1)
 
     beta_curl = reward_settings["beta_curl"]
-    r_curl= torch.exp(-beta_curl * finger_pos_diff)
+    r_curl = torch.exp(-beta_curl * finger_pos_diff)
     r_curl = torch.where(near_object, r_curl, 0.0)
+    # CODEX: always-on extra curl term for special finger block (pinky in pinch3).
+    special_dof_err = (hand_dof_pos - reward_settings["grasp_finger_dof_pos"]) * reward_settings["special_curl_dof_mask"]
+    special_finger_pos_diff = torch.sum(special_dof_err ** 2, dim=1)
+    r_curl_special = torch.exp(-beta_curl * special_finger_pos_diff) * reward_settings["special_curl_enable"]
 
     # R5: Velocity Regularization/Penalty
     actionreg = states["actionreg"]
@@ -460,6 +516,7 @@ def compute_franka_leap_reward(states, reward_settings):
     w_lift = reward_settings["w_lift"]
     w_curl = reward_settings["w_curl"]
     w_actionreg = reward_settings["w_actionreg"]
+    w_curl_special = reward_settings["special_curl_reward_weight"]  # CODEX
 
     # R6: Hand 
     use_curl = bool(reward_settings["use_curl"])
@@ -467,7 +524,7 @@ def compute_franka_leap_reward(states, reward_settings):
     # use activated rewards only
     # but compute all rewards anyways for logging
     r_total = w_hand_obj*r_hand_obj + w_obj_goal*r_obj_goal + \
-              w_curl*r_curl * float(use_curl) + \
+              w_curl*(r_curl + w_curl_special * r_curl_special) * float(use_curl) + \
               w_lift*r_lift + w_actionreg*r_actionreg
     
     rewards = {
@@ -475,6 +532,7 @@ def compute_franka_leap_reward(states, reward_settings):
         "r_lift": w_lift*r_lift,
         "r_obj_goal": w_obj_goal*r_obj_goal,
         "r_curl": w_curl*r_curl,
+        "r_curl_special": w_curl*w_curl_special*r_curl_special,
         "r_actionreg": w_actionreg*r_actionreg,
         "r_total": r_total,
         "d_hand_obj": d_hand_obj,

@@ -291,8 +291,7 @@ class PCDTransformer(BaseModel):
         pred = {}
         if self.aux_prediction:
             output_action = output[:, 1:, :]  # (B, chunk_size, H)
-            output_aux = output[:, 0:1, :]  # (B, 1, H)
-            pred["aux"] = self.aux_head(output_aux)  # (B, 1, 3)
+            pred["aux"] = self.aux_head(output_action)  # predict aux open-loop for every action token.  # (B, chunk_size, 3)
         else:
             output_action = output  # (B, chunk_size, H)
 

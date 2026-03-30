@@ -223,17 +223,26 @@ class FrankaLEAP(VecTask):
         # teleport init
         self.num_teleport_envs = int(round(self.object_teleport_args['env_proportion'] * self.num_envs))
         self.teleport_env_ids = torch.randperm(self.num_envs, device=self.device)[:self.num_teleport_envs]
-        tele_n0 = self.object_teleport_args['n0']
-        tele_n1 = self.object_teleport_args['n1']
-        tele_n2 = self.object_teleport_args['n2']
-        self.teleport_probs = torch.zeros(tele_n2, dtype=torch.float32, device=self.device)
-        self.teleport_probs[tele_n0:tele_n1] = 0.5 / (tele_n1 - tele_n0) # until n1 steps, the probability of teleporting sum up to 0.5
-        # for n1~n2 steps, increase the teleport probability quadratically from 0.5 / (tele_n1 - tele_n0) to 1.0
-        indexing = torch.arange(tele_n1, tele_n2, dtype=torch.float32, device=self.device)
-        quad_c = 0.5 / (tele_n1 - tele_n0)
-        quad_b = tele_n1
-        quad_a = (1 - quad_c) / ( (tele_n2 - quad_b)**2 )
-        self.teleport_probs[tele_n1:] = quad_a*(indexing + 1 - quad_b)**2 + quad_c
+        tele_n0 = max(0, int(self.object_teleport_args['n0']))
+        tele_n1 = max(tele_n0, int(self.object_teleport_args['n1']))
+        tele_n2 = max(tele_n1, int(self.object_teleport_args['n2']))
+        schedule_len = max(tele_n2, 1)
+        self.teleport_probs = torch.zeros(schedule_len, dtype=torch.float32, device=self.device)
+        if tele_n2 == 0:
+            self.teleport_probs[:] = 1.0
+        else:
+            flat_prob = 0.0
+            if tele_n1 > tele_n0:
+                flat_prob = 0.5 / (tele_n1 - tele_n0)
+                self.teleport_probs[tele_n0:tele_n1] = flat_prob
+
+            if tele_n2 > tele_n1:
+                indexing = torch.arange(tele_n1, tele_n2, dtype=torch.float32, device=self.device)
+                quad_b = tele_n1
+                quad_a = (1 - flat_prob) / ((tele_n2 - quad_b) ** 2)
+                self.teleport_probs[tele_n1:tele_n2] = quad_a * (indexing + 1 - quad_b) ** 2 + flat_prob
+            elif tele_n1 > 0:
+                self.teleport_probs[tele_n1 - 1:] = flat_prob
         self.teleport_buf = torch.zeros((self.num_envs,), dtype=torch.int, device=self.device)
 
     def _build_joint_mapping(self):
@@ -884,13 +893,29 @@ class FrankaLEAP(VecTask):
                 "(mesh_dir/object/variant/*.obj or mesh_dir/category/object/variant/*.obj)."
             )
         self.mesh_variant_mode = ("dilation_range" in mesh_entries[0])
-        if self.mesh_variant_mode and len(mesh_entries) > self.num_envs:
-            # CODEX: avoid loading every variant asset at once (can OOM / segfault Isaac Gym).
-            # Keep a bounded variant pool and let env assignment/modulo reuse it.
-            sampled_idx = np.random.choice(len(mesh_entries), size=self.num_envs, replace=False)
-            mesh_entries = [mesh_entries[int(i)] for i in sampled_idx.tolist()]
+        if self.mesh_variant_mode:
+            base_entries = mesh_entries
+            # CODEX: keep per-object metrics keyed by true variants (not expanded preload copies).
+            self.object_id_to_name = [e["display_name"] for e in base_entries]
 
-        self.object_id_to_name = [e["display_name"] for e in mesh_entries]
+            variant_count = len(base_entries)
+            preload_multiplier = int(self.mesh_args.get("variant_preload_multiplier", 1))
+            if preload_multiplier < 1:
+                raise ValueError("env.mesh.variant_preload_multiplier must be >= 1")
+
+            target_preload = variant_count * preload_multiplier
+            max_preload = int(self.mesh_args.get("variant_preload_max", self.num_envs))
+            if max_preload > 0:
+                target_preload = min(target_preload, max_preload)
+            target_preload = min(target_preload, self.num_envs)
+            target_preload = max(1, target_preload)
+
+            # Build a pooled preload list by repeating variants as needed, then shuffle.
+            idx = np.arange(target_preload, dtype=np.int64) % variant_count
+            np.random.shuffle(idx)
+            mesh_entries = [base_entries[int(i)] for i in idx.tolist()]
+        else:
+            self.object_id_to_name = [e["display_name"] for e in mesh_entries]
 
         meshes = []
         for entry in tqdm(mesh_entries, desc="Preparing Meshes"):

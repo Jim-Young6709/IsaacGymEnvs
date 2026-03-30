@@ -33,8 +33,10 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
         # cfg["env"]["object_settings"]["xyz_range"] = [avg_xyz, avg_xyz]
         self.object_grasp_target_z_scale = float(cfg["env"]["object_settings"]["object_grasp_target_z_scale"])
         self.use_center_tracking_switch_target = False  # CODEX
-        # Use teacher side-distance noise as switching tolerance band for side grasp handover.
-        self.switch_tol = float(cfg["env"]["eef_init"]["side_distance_noise"])
+        self.fabric_switch_cfg = cfg["env"]["fabric_switch"]
+        self.switch_tol = float(self.fabric_switch_cfg["lateral_offset"])
+        self.rl_target_xy_offset = torch.tensor([0.05, 0.0], dtype=torch.float32)
+        self.rl_target_z_offset = float(cfg["reward"]["params"]["target_pos"][2])
         super().__init__(
             cfg=cfg,
             rl_device=rl_device,
@@ -45,27 +47,59 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
             force_render=force_render
         )
         
+    def _build_fixed_target_pos(self, env_ids=None):
+        if env_ids is None:
+            object_init_xy = self._object_center_init_state[:, :2]
+            table_height = self.table_surface_height
+        else:
+            object_init_xy = self._object_center_init_state[env_ids, :2]
+            table_height = self.table_surface_height[env_ids]
+
+        target_xy_offset = self.rl_target_xy_offset.to(device=self.device, dtype=object_init_xy.dtype).unsqueeze(0)
+        target_pos = torch.zeros((object_init_xy.shape[0], 3), device=self.device, dtype=object_init_xy.dtype)
+        target_pos[:, :2] = object_init_xy + target_xy_offset
+        target_pos[:, 2] = table_height + self.rl_target_z_offset
+        return target_pos
 
     def reset_idx(self, env_ids=None):
-        super().reset_idx(env_ids)
         if env_ids is None:
             env_ids = torch.arange(self.num_envs, device=self.device)
         if env_ids.numel() == 0:
             return
 
-        pending_reset_mask = self.object_reset_pending_mask  # CODEX
+        pre_reset_color_state = torch.where(
+            self.flat_table_long_enough[env_ids],
+            torch.full((env_ids.numel(),), 2, device=self.device, dtype=self._table_debug_color_state_prev.dtype),
+            torch.where(
+                self.success_long_enough[env_ids],
+                torch.full((env_ids.numel(),), 1, device=self.device, dtype=self._table_debug_color_state_prev.dtype),
+                torch.zeros((env_ids.numel(),), device=self.device, dtype=self._table_debug_color_state_prev.dtype),
+            ),
+        )
+        success_count = int((pre_reset_color_state == 1).sum().item())
+        failure_count = int((pre_reset_color_state == 2).sum().item())
+        labeled_count = success_count + failure_count
+        if labeled_count > 0:
+            self.debug_success_total += success_count
+            self.debug_failure_total += failure_count
+            success_rate = float(success_count) / float(labeled_count)
+            total_labeled = self.debug_success_total + self.debug_failure_total
+            total_success_rate = float(self.debug_success_total) / float(total_labeled)
+            print(
+                f"[episode_outcomes] step={int(self.sim_steps)} done={int(env_ids.numel())} "
+                f"success={success_count} failure={failure_count} success_rate={success_rate:.3f} "
+                f"total_success={self.debug_success_total} total_failure={self.debug_failure_total} "
+                f"total_success_rate={total_success_rate:.3f}"
+            )
 
-        # Retarget XY for all object resets in this step (regular reset + teleport).
-        if torch.any(pending_reset_mask):
-            self.reward_settings["target_pos"][pending_reset_mask, :2] = self._object_center_init_state[pending_reset_mask, :2]
-            pending_reset_env_ids = pending_reset_mask.nonzero(as_tuple=False).squeeze(-1)  # CODEX
-            reset_related_env_ids = torch.unique(torch.cat([env_ids, pending_reset_env_ids], dim=0))  # CODEX
-        else:
-            reset_related_env_ids = env_ids  # CODEX
+        super().reset_idx(env_ids)
 
-        self.pre_teacher_stage_reached[reset_related_env_ids] = False  # CODEX
+        reset_related_env_ids = env_ids
+
         self.switch_target_quat_latched[reset_related_env_ids] = False  # CODEX: force switching target refresh after teleport/reset.
         self.switching_eef_init_pos[reset_related_env_ids] = self._eef_state[reset_related_env_ids, :3]  # CODEX
+        self.flat_table_duration[reset_related_env_ids] = 0
+        self.flat_table_long_enough[reset_related_env_ids] = False
         if self.use_center_tracking_switch_target:  # CODEX
             self.side_is_left[reset_related_env_ids] = True  # CODEX: center-tracking mode is left-only by design.
         self._set_reward_target_quat_from_side_mask(reset_related_env_ids)  # CODEX: refresh teacher target quat on teleport/reset.
@@ -130,76 +164,136 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
                 self.switching_target_quat = self.target_quat_left.repeat(self.num_envs, 1)  # CODEX
 
             # CODEX: radius-based trigger around object center.
-            center_radius = float(self.eef_init["side_distance"])  # CODEX
+            center_radius = float(self.fabric_switch_cfg["lateral_offset"])  # CODEX
             self.switch_activate_radius = torch.full((self.num_envs,), center_radius, device=self.device, dtype=object_center_pos.dtype)  # CODEX
             return  # CODEX
-        
-        # CODEX: two-stage switching target for non-center mode.
-        # If object starts on hand-left: directly use left target.
-        # If object starts on hand-right: stage-1 to right target, then stage-2 to left target.
-        side_distance = float(self.eef_init["side_distance"])
-        self.switching_target_z_offset = 0.3
-        left_offset = torch.zeros((self.num_envs, 3), device=self.device, dtype=object_center_pos.dtype)  # CODEX
-        right_offset = torch.zeros((self.num_envs, 3), device=self.device, dtype=object_center_pos.dtype)  # CODEX
-        left_offset[:, 1] = side_distance  # CODEX
-        right_offset[:, 1] = -side_distance  # CODEX
-        left_offset[:, 2] = self.switching_target_z_offset  # CODEX
-        right_offset[:, 2] = self.switching_target_z_offset  # CODEX
 
-        left_target_pos = object_center_pos + left_offset  # CODEX
-        right_target_pos = object_center_pos + right_offset  # CODEX
-        left_target_quat = self.target_quat_left.repeat(self.num_envs, 1)  # CODEX
-        right_target_quat = self.target_quat_left.repeat(self.num_envs, 1)  # CODEX: keep same orientation for stage-1 and stage-2.
+        # CODEX: pure region-based switching target for non-center mode.
+        switch_geom = self._get_noncenter_switch_geometry(object_center_pos)
+        high_z = switch_geom["high_z"]
+        high_z_boundary = switch_geom["high_z_boundary"]
+        stage2_target_pos = switch_geom["stage2_target_pos"]
+        stage3_target_pos = switch_geom["stage3_target_pos"]
 
-        # Decide left/right by initial hand-object relation to avoid per-step side flapping.
-        object_is_left = object_center_pos[:, 1] >= self.switching_eef_init_pos[:, 1]  # CODEX
-        object_is_right = ~object_is_left  # CODEX
-        self.pre_teacher_stage_reached[object_is_left] = True  # CODEX: left side goes directly to stage-2.
+        stage_target_quat = self.target_quat_left.repeat(self.num_envs, 1)
 
-        # Stage-1 completion for right-start envs: match right-side target first.
-        if torch.any(object_is_right):  # CODEX
-            right_matching_err = self._get_eef_point_matching_err(  # CODEX
-                curent_eef_pos7=self._eef_state[:, :7],
-                target_eef_pos7=torch.cat([right_target_pos, right_target_quat], dim=-1),
-            )
-            reached_right_stage = object_is_right & (right_matching_err <= self.pre_teacher_stage1_tol)  # CODEX
-            self.pre_teacher_stage_reached[reached_right_stage] = True  # CODEX
+        eef_pos = self._eef_state[:, :3]
+        # Non-center side logic uses the opposite Y-side convention from the earlier draft.
+        eef_on_right = eef_pos[:, 1] >= object_center_pos[:, 1]
+        eef_on_left = ~eef_on_right
+        eef_below_high = eef_pos[:, 2] < high_z_boundary
+        high_region = ~eef_below_high
+        left_lower_region = eef_on_left & eef_below_high
+        left_lower_target_pos = eef_pos.clone()
+        left_lower_target_pos[:, 2] = high_z
+        stage2_xy_dist = torch.norm(eef_pos[:, :2] - stage2_target_pos[:, :2], dim=-1)
+        high_aligned_region = high_region & (stage2_xy_dist <= float(self.fabric_switch_cfg["stage2_xy_tol"]))
+        high_far_region = high_region & (~high_aligned_region)
 
-        use_left_stage = object_is_left | self.pre_teacher_stage_reached  # CODEX
-        self.switching_target_pos = torch.where(  # CODEX
-            use_left_stage.unsqueeze(-1), left_target_pos, right_target_pos
+        self.switching_target_pos = torch.where(
+            left_lower_region.unsqueeze(-1),
+            left_lower_target_pos,
+            torch.where(high_far_region.unsqueeze(-1), stage2_target_pos, stage3_target_pos),
         )
-        self.switching_target_quat = torch.where(  # CODEX
-            use_left_stage.unsqueeze(-1), left_target_quat, right_target_quat
-        )
+        teacher_active = ~self.fabric_switch_enable
+        if torch.any(teacher_active):
+            self.switching_target_pos[teacher_active] = object_center_pos[teacher_active]
+        self.switching_target_quat = stage_target_quat
 
-        # Keep the larger switching hysteresis radii.
         switch_radius = torch.norm(self.switching_target_pos - object_center_pos, dim=-1)
-        self.switch_activate_radius = switch_radius + float(self.eef_init["side_distance_noise"])
+        self.switch_activate_radius = switch_radius
+
+    def _get_noncenter_switch_geometry(self, object_center_pos):
+        lateral_offset = float(self.fabric_switch_cfg["lateral_offset"])
+        self.switching_target_z_offset = float(self.fabric_switch_cfg["high_z_offset"])
+        high_z_tol = float(self.fabric_switch_cfg["high_z_tol"])
+        object_top_z = self.table_surface_height + self.mesh_aabb_extents[:, 2]
+        high_z = object_top_z + self.switching_target_z_offset
+        high_z_boundary = high_z - high_z_tol
+        teacher_z_max = object_center_pos[:, 2] + float(self.fabric_switch_cfg["teacher_activate_z_offset"])
+
+        stage2_target_pos = object_center_pos.clone()
+        stage2_target_pos[:, 1] += lateral_offset
+        stage2_target_pos[:, 2] = high_z
+
+        left_lower_target_pos = object_center_pos.clone()
+        left_lower_target_pos[:, 1] -= lateral_offset
+        left_lower_target_pos[:, 2] = high_z
+
+        stage3_target_pos = object_center_pos.clone()
+        stage3_target_pos[:, 1] += lateral_offset
+        stage3_target_pos[:, 2] += float(self.fabric_switch_cfg["stage3_z_offset"])
+
+        return {
+            "lateral_offset": lateral_offset,
+            "high_z": high_z,
+            "high_z_boundary": high_z_boundary,
+            "teacher_z_max": teacher_z_max,
+            "left_lower_target_pos": left_lower_target_pos,
+            "stage2_target_pos": stage2_target_pos,
+            "stage3_target_pos": stage3_target_pos,
+        }
+
+    def _get_noncenter_switch_region_codes(self, object_center_pos):
+        switch_geom = self._get_noncenter_switch_geometry(object_center_pos)
+        eef_pos = self._eef_state[:, :3]
+        teacher_activation_z = self._get_teacher_activation_z()
+        eef_on_right = eef_pos[:, 1] >= object_center_pos[:, 1]
+        eef_on_left = ~eef_on_right
+        eef_below_high = eef_pos[:, 2] < switch_geom["high_z_boundary"]
+        stage2_xy_dist = torch.norm(eef_pos[:, :2] - switch_geom["stage2_target_pos"][:, :2], dim=-1)
+        object_xy_dist = torch.norm(eef_pos[:, :2] - object_center_pos[:, :2], dim=-1)
+        stage3_xy_dist = torch.norm(eef_pos[:, :2] - switch_geom["stage3_target_pos"][:, :2], dim=-1)
+        object_close = object_xy_dist <= float(self.fabric_switch_cfg["lateral_offset"])
+        stage3_close = stage3_xy_dist <= self.pre_teacher_stage3_xy_tol
+        right_close = eef_on_right & (teacher_activation_z <= switch_geom["teacher_z_max"]) & (object_close | stage3_close)
+        high_region = ~eef_below_high
+        high_aligned = high_region & (stage2_xy_dist <= float(self.fabric_switch_cfg["stage2_xy_tol"]))
+        high_far = high_region & (~high_aligned)
+        left_lower = eef_on_left & eef_below_high
+        right_lower = eef_on_right & eef_below_high & (~right_close)
+
+        region_codes = torch.full((self.num_envs,), 3, device=self.device, dtype=torch.long)
+        region_codes[left_lower] = 0
+        region_codes[high_far] = 1
+        region_codes[high_aligned] = 2
+        region_codes[right_lower] = 3
+        region_codes[right_close] = 4
+        return region_codes, switch_geom
+
+    def _get_teacher_activation_z(self):
+        return self._eef_state[:, 2]
+
+    def _debug_print_joint_limits(self, env_id=2):
+        return
 
     def init_data(self, actor_num):
         super().init_data(actor_num)
         self.side_is_left = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
-        self.pre_teacher_stage_reached = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
         self.switch_target_quat_latched = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)  # CODEX
         self.switching_eef_init_pos = torch.zeros((self.num_envs, 3), device=self.device, dtype=torch.float)  # CODEX
         self.switching_target_quat_latched_value = torch.zeros((self.num_envs, 4), device=self.device, dtype=torch.float)  # CODEX
         self.switching_target_pos_latched_value = torch.zeros((self.num_envs, 3), device=self.device, dtype=torch.float)  # CODEX
+        self.debug_success_total = 0
+        self.debug_failure_total = 0
         self.ep_hist_window_sizes = [max(1, self.num_envs // 2), self.num_envs, self.num_envs * 2, self.num_envs * 4]  # CODEX
         self.ep_hist_max = int(self.ep_hist_window_sizes[-1])  # CODEX
         self.ep_hist_success = torch.full((self.ep_hist_max,), -1, device=self.device, dtype=torch.int8)  # CODEX
         self.ep_hist_lifting = torch.full((self.ep_hist_max,), -1, device=self.device, dtype=torch.int8)  # CODEX
         self.ep_hist_ptr = 0  # CODEX
         self.ep_hist_count = 0  # CODEX
-        self.pre_teacher_stage1_tol = self.switch_tol*2
+        self.pre_teacher_stage3_xy_tol = float(self.fabric_switch_cfg["stage3_xy_tol"])
+        self.pre_teacher_stage3_xy_tol_exit = float(self.fabric_switch_cfg["stage3_xy_tol_exit"])
+        self.flat_table_reset_steps = int(self.fabric_switch_cfg["flat_table_reset_steps"])
+        self.debug_last_region_code = torch.full((self.num_envs,), -1, device=self.device, dtype=torch.long)
+        self.debug_viz_env_ids = [4]
+        self.flat_table_duration = torch.zeros((self.num_envs,), device=self.device, dtype=torch.int32)
+        self.flat_table_long_enough = torch.zeros((self.num_envs,), device=self.device, dtype=torch.bool)
+        self._table_debug_color_state_prev = torch.zeros((self.num_envs,), device=self.device, dtype=torch.int32)
 
         # Teacher-consistent target position semantics:
-        # use fixed cfg reward target_pos instead of parent dynamic obj_pos_target.
-        static_target_pos = to_torch(
-            self.cfg["reward"]["params"]["target_pos"], device=self.device
-        ).unsqueeze(0).repeat(self.num_envs, 1)
-        static_target_pos[:, 2] = self.table_surface_height + static_target_pos[:, 2]
-        self.reward_settings["target_pos"] = static_target_pos
+        # fixed per reset, but anchored to object-init XY and table-height-relative Z.
+        self.reward_settings["target_pos"] = self._build_fixed_target_pos()
 
 
         # @ray we use target_quat for reward computation and construct it based on the mode "left/right/both"
@@ -235,17 +329,154 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
 
     def post_physics_step(self):
         super().post_physics_step()
+        if self.debug_viz:
+            self._update_table_lift_colors()
         # Visualize switching target frame for debugging in viewer mode.
         if self.debug_viz:
             self.gym.clear_lines(self.viewer)
-            debug_env_id = 1  # CODEX
-            # self._draw_base_init_pose_grid(env_id=debug_env_id, clear_lines=False)
-            self._draw_switching_target_pose(env_id=debug_env_id, axis_len=0.10, clear_lines=False)
-            self._draw_eef_quat_at_teacher_target_pose(env_id=debug_env_id, axis_len=0.095, clear_lines=False)  # CODEX
-            self._draw_teacher_target_pose(env_id=debug_env_id, axis_len=0.08, clear_lines=False)
-            #self._draw_object_grasp_center(env_id=0, cross_len=0.2, clear_lines=False)
+            for debug_env_id in self.debug_viz_env_ids:
+                # self._draw_base_init_pose_grid(env_id=debug_env_id, clear_lines=False)
+                self._draw_switching_target_pose(env_id=debug_env_id, axis_len=0.10, clear_lines=False)
+                # self._draw_eef_quat_at_teacher_target_pose(env_id=debug_env_id, axis_len=0.095, clear_lines=False)  # CODEX
+                # self._draw_teacher_target_pose(env_id=debug_env_id, axis_len=0.08, clear_lines=False)
+                # self._draw_fabric_switch_regions(env_id=debug_env_id, clear_lines=False)
+            # self._draw_object_grasp_center(env_id=debug_env_id, cross_len=0.2, clear_lines=False)
             # self._draw_observation_rays_from_eef(env_id=debug_env_id, clear_lines=False)  # CODEX
             pass
+
+    def _update_table_lift_colors(self):
+        if (not self.debug_viz) or (not hasattr(self, "tables")) or len(self.tables) != self.num_envs:
+            return
+
+        # 0=default gray, 1=success green, 2=failure red. Failure takes priority.
+        color_state = torch.where(
+            self.flat_table_long_enough,
+            torch.full_like(self._table_debug_color_state_prev, 2),
+            torch.where(
+                self.success_long_enough,
+                torch.full_like(self._table_debug_color_state_prev, 1),
+                torch.zeros_like(self._table_debug_color_state_prev),
+            ),
+        )
+        changed_mask = color_state != self._table_debug_color_state_prev
+        if not torch.any(changed_mask):
+            return
+
+        changed_ids = changed_mask.nonzero(as_tuple=False).squeeze(-1).tolist()
+        default_color = gymapi.Vec3(0.55, 0.55, 0.55)
+        success_color = gymapi.Vec3(0.0, 0.85, 0.0)
+        failure_color = gymapi.Vec3(0.9, 0.0, 0.0)
+        for env_id in changed_ids:
+            state = int(color_state[env_id].item())
+            if state == 2:
+                color = failure_color
+            elif state == 1:
+                color = success_color
+            else:
+                color = default_color
+            self.gym.set_rigid_body_color(
+                self.envs[env_id],
+                self.tables[env_id],
+                0,
+                gymapi.MESH_VISUAL_AND_COLLISION,
+                color,
+            )
+        self._table_debug_color_state_prev.copy_(color_state)
+
+    def _draw_fabric_switch_regions(self, env_id=0, clear_lines=False):
+        if self.viewer is None or self.use_center_tracking_switch_target:
+            return
+        if clear_lines:
+            self.gym.clear_lines(self.viewer)
+
+        object_center_pos = self.states["object_center_pos"]
+        region_codes, switch_geom = self._get_noncenter_switch_region_codes(object_center_pos)
+
+        obj = object_center_pos[env_id]
+        eef = self._eef_state[env_id, :3]
+        teacher_activation_z = float(self._get_teacher_activation_z()[env_id].item())
+        high_z = float(switch_geom["high_z"][env_id].item())
+        teacher_z_max = float(switch_geom["teacher_z_max"][env_id].item())
+        stage2_target = switch_geom["stage2_target_pos"][env_id]
+        stage3_target = switch_geom["stage3_target_pos"][env_id]
+        xy_tol = float(self.pre_teacher_stage3_xy_tol)
+        stage2_xy_tol = float(self.fabric_switch_cfg["stage2_xy_tol"])
+
+        x_half_span = 0.18
+        y_half_span = max(0.02, float(switch_geom["lateral_offset"]) + 0.05)
+        z_min = float(obj[2].item()) - 0.02
+        z_max = max(high_z, float(eef[2].item()), teacher_z_max) + 0.05
+        boundary_y = float(obj[1].item())
+
+        verts = []
+        colors = []
+
+        def add_line(p0, p1, color):
+            verts.extend([float(p0[0]), float(p0[1]), float(p0[2]), float(p1[0]), float(p1[1]), float(p1[2])])
+            colors.extend(color)
+
+        # Left/right boundary through the object center.
+        add_line(
+            [float(obj[0]) - x_half_span, boundary_y, z_min],
+            [float(obj[0]) - x_half_span, boundary_y, z_max],
+            [1.0, 1.0, 0.0],
+        )
+        add_line(
+            [float(obj[0]) + x_half_span, boundary_y, z_min],
+            [float(obj[0]) + x_half_span, boundary_y, z_max],
+            [1.0, 1.0, 0.0],
+        )
+        add_line(
+            [float(obj[0]) - x_half_span, boundary_y, high_z],
+            [float(obj[0]) + x_half_span, boundary_y, high_z],
+            [0.0, 0.8, 1.0],
+        )
+
+        # Stage 2 and Stage 3 target markers.
+        for target_pos, color in ((stage2_target, [0.0, 0.8, 1.0]), (stage3_target, [1.0, 0.0, 1.0])):
+            cross_len = 0.03
+            add_line(target_pos + torch.tensor([-cross_len, 0.0, 0.0], device=self.device), target_pos + torch.tensor([cross_len, 0.0, 0.0], device=self.device), color)
+            add_line(target_pos + torch.tensor([0.0, -cross_len, 0.0], device=self.device), target_pos + torch.tensor([0.0, cross_len, 0.0], device=self.device), color)
+            add_line(target_pos + torch.tensor([0.0, 0.0, -cross_len], device=self.device), target_pos + torch.tensor([0.0, 0.0, cross_len], device=self.device), color)
+
+        # High-aligned XY boundary around the Stage 2 target at high_z.
+        stage2_box_min_x = float(stage2_target[0].item()) - stage2_xy_tol
+        stage2_box_max_x = float(stage2_target[0].item()) + stage2_xy_tol
+        stage2_box_min_y = float(stage2_target[1].item()) - stage2_xy_tol
+        stage2_box_max_y = float(stage2_target[1].item()) + stage2_xy_tol
+        add_line([stage2_box_min_x, stage2_box_min_y, high_z], [stage2_box_max_x, stage2_box_min_y, high_z], [0.2, 1.0, 0.2])
+        add_line([stage2_box_max_x, stage2_box_min_y, high_z], [stage2_box_max_x, stage2_box_max_y, high_z], [0.2, 1.0, 0.2])
+        add_line([stage2_box_max_x, stage2_box_max_y, high_z], [stage2_box_min_x, stage2_box_max_y, high_z], [0.2, 1.0, 0.2])
+        add_line([stage2_box_min_x, stage2_box_max_y, high_z], [stage2_box_min_x, stage2_box_min_y, high_z], [0.2, 1.0, 0.2])
+
+        # Object-centered close region at the teacher activation height.
+        close_z = teacher_z_max
+        object_close_radius = float(switch_geom["lateral_offset"])
+        obj_box_min_x = float(obj[0].item()) - object_close_radius
+        obj_box_max_x = float(obj[0].item()) + object_close_radius
+        obj_box_min_y = float(obj[1].item()) - object_close_radius
+        obj_box_max_y = float(obj[1].item()) + object_close_radius
+        add_line([obj_box_min_x, obj_box_min_y, close_z], [obj_box_max_x, obj_box_min_y, close_z], [1.0, 0.5, 0.0])
+        add_line([obj_box_max_x, obj_box_min_y, close_z], [obj_box_max_x, obj_box_max_y, close_z], [1.0, 0.5, 0.0])
+        add_line([obj_box_max_x, obj_box_max_y, close_z], [obj_box_min_x, obj_box_max_y, close_z], [1.0, 0.5, 0.0])
+        add_line([obj_box_min_x, obj_box_max_y, close_z], [obj_box_min_x, obj_box_min_y, close_z], [1.0, 0.5, 0.0])
+
+        # Small Stage 3 tolerance region attached to the object-centered close region.
+        stage3_box_min_x = float(stage3_target[0].item()) - xy_tol
+        stage3_box_max_x = float(stage3_target[0].item()) + xy_tol
+        stage3_box_min_y = float(stage3_target[1].item()) - xy_tol
+        stage3_box_max_y = float(stage3_target[1].item()) + xy_tol
+        add_line([stage3_box_min_x, stage3_box_min_y, close_z], [stage3_box_max_x, stage3_box_min_y, close_z], [1.0, 0.8, 0.2])
+        add_line([stage3_box_max_x, stage3_box_min_y, close_z], [stage3_box_max_x, stage3_box_max_y, close_z], [1.0, 0.8, 0.2])
+        add_line([stage3_box_max_x, stage3_box_max_y, close_z], [stage3_box_min_x, stage3_box_max_y, close_z], [1.0, 0.8, 0.2])
+        add_line([stage3_box_min_x, stage3_box_max_y, close_z], [stage3_box_min_x, stage3_box_min_y, close_z], [1.0, 0.8, 0.2])
+
+        self.gym.add_lines(self.viewer, self.envs[env_id], len(verts) // 6, verts, colors)
+
+        region_names = ["left_lower", "high_far", "high_aligned", "right_lower", "right_close"]
+        region_code = int(region_codes[env_id].item())
+        if int(self.debug_last_region_code[env_id].item()) != region_code:
+            self.debug_last_region_code[env_id] = region_code
 
     def _draw_base_init_pose_grid(self, env_id=0, clear_lines=False, num_div_x=8, num_div_y=6):
         if self.viewer is None:
@@ -547,6 +778,11 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
 
     def _update_states(self):
         super()._update_states()
+        self._debug_print_joint_limits(env_id=2)
+        if torch.any(self.object_reset_mask):
+            reset_object_env_ids = self.object_reset_mask.nonzero(as_tuple=False).squeeze(-1)
+            self.reward_settings["target_pos"][reset_object_env_ids] = self._build_fixed_target_pos(reset_object_env_ids)
+            self._set_reward_target_quat_from_side_mask(reset_object_env_ids)
         # Side-grasp switching override:
         # 1) Activate teacher when EEF pose is within switch_tol of switching target pose.
         # 2) Keep teacher active while EEF remains within side_distance + side_distance_noise of object center.
@@ -554,24 +790,32 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
         activated_now = torch.zeros((self.num_envs,), dtype=torch.bool, device=self.device)
         if self.enable_fabric:
             eef_pos = self._eef_state[:, :3]
+            teacher_activation_z = self._get_teacher_activation_z()
             obj_center = self.states["object_center_pos"]
             radial_dist = torch.norm(eef_pos - obj_center, dim=-1)
 
-            # CODEX: full pose matching for switch gate (includes position and orientation).
-            switching_matching_err = self._get_eef_point_matching_err(
-                curent_eef_pos7=self._eef_state[:, :7],
-                target_eef_pos7=torch.cat([self.switching_target_pos, self.switching_target_quat], dim=-1),  # CODEX
-            )
-
             teacher_active_prev = ~self.fabric_switch_enable
             if self.use_center_tracking_switch_target:  # CODEX
-                # CODEX: require both proximity and pose alignment before teacher handover.
-                activate_now = (radial_dist <= self.switch_activate_radius) & (switching_matching_err <= self.switch_tol)  # CODEX
+                activate_now = radial_dist <= self.switch_activate_radius  # CODEX
             else:  # CODEX
-                activate_now = self.pre_teacher_stage_reached & (switching_matching_err <= self.switch_tol)  # CODEX
-            keep_radius = float(self.eef_init["side_distance"]) + float(self.eef_init["side_distance_noise"])
-            keep_active = teacher_active_prev & (radial_dist <= keep_radius)
-            teacher_active = (activate_now | keep_active) & (self.progress_buf > 0)
+                object_top_z = self.table_surface_height + self.mesh_aabb_extents[:, 2]
+                high_z = object_top_z + self.switching_target_z_offset
+                teacher_z_max = obj_center[:, 2] + float(self.fabric_switch_cfg["teacher_activate_z_offset"])
+                stage3_target_pos = obj_center.clone()
+                stage3_target_pos[:, 1] += float(self.fabric_switch_cfg["lateral_offset"])
+                stage3_target_pos[:, 2] += float(self.fabric_switch_cfg["stage3_z_offset"])
+                object_xy_dist = torch.norm(eef_pos[:, :2] - obj_center[:, :2], dim=-1)
+                stage3_xy_dist = torch.norm(eef_pos[:, :2] - stage3_target_pos[:, :2], dim=-1)
+                eef_on_right = eef_pos[:, 1] >= obj_center[:, 1]
+                stage3_xy_tol = torch.full_like(stage3_xy_dist, self.pre_teacher_stage3_xy_tol)
+                stage3_xy_tol[teacher_active_prev] = self.pre_teacher_stage3_xy_tol_exit
+                object_close = object_xy_dist <= float(self.fabric_switch_cfg["lateral_offset"])
+                stage3_close = stage3_xy_dist <= stage3_xy_tol
+                activate_now = eef_on_right & (teacher_activation_z <= teacher_z_max) & (object_close | stage3_close)
+            teacher_active = activate_now & (self.progress_buf > 0)
+            # CODEX: latch teacher after lift so we do not switch back to fabric mid-manipulation.
+            # `states["lift"]` comes from parent `_update_states()` and is updated every step.
+            teacher_active = teacher_active | self.states["lift"]
 
             # CODEX: after teleport/reset this step, if object is on hand-right, force re-entry to fabric two-stage.
             if not self.use_center_tracking_switch_target:
@@ -586,47 +830,42 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
             self.fabric_switch_enable[self.progress_buf == 0] = True
             activated_now = (~teacher_active_prev) & teacher_active
 
-        # Keep reward target updates exactly as before: update target pose on activation edge only.
         active_ids = activated_now.nonzero(as_tuple=False).squeeze(-1)
         if active_ids.numel() > 0:
             obj_center_active = self.states["object_center_pos"][active_ids]
+            num_active = active_ids.numel()
             eef_pos_active = self._eef_state[active_ids, :3]
             desired_dir = obj_center_active - eef_pos_active
-            desired_dir = desired_dir / torch.norm(desired_dir, dim=-1, keepdim=True).clamp_min(1e-6)  # CODEX
-
-            self.reward_settings["target_pos"][active_ids, :2] = obj_center_active[:, :2]
+            desired_dir_xy = desired_dir.clone()
+            desired_dir_xy[:, 2] = 0.0
+            desired_dir_xy = desired_dir_xy / torch.norm(desired_dir_xy, dim=-1, keepdim=True).clamp_min(1e-6)
 
             left_mask = self.side_is_left[active_ids]
-            num_active = active_ids.numel()
             base_quat_right = self.target_quat_right.repeat(num_active, 1)
             base_quat_left = self.target_quat_left.repeat(num_active, 1)
-            if self.use_center_tracking_switch_target:  # CODEX
-                # CODEX: center-tracking mode is strictly left-canonical for teacher target orientation.
-                self.side_is_left[active_ids] = True
-                left_mask = torch.ones_like(left_mask, dtype=torch.bool)
-                base_quat = base_quat_left
-            else:
-                base_quat = torch.where(left_mask.unsqueeze(-1), base_quat_left, base_quat_right)
+            base_quat = torch.where(left_mask.unsqueeze(-1), base_quat_left, base_quat_right)
 
-            ref_dir = torch.zeros((num_active, 3), device=self.device, dtype=desired_dir.dtype)
-            ref_dir[:, 1] = torch.where(
+            ref_dir_xy = torch.zeros((num_active, 3), device=self.device, dtype=desired_dir_xy.dtype)
+            ref_dir_xy[:, 1] = torch.where(
                 left_mask,
-                -torch.ones_like(left_mask, dtype=desired_dir.dtype),
-                torch.ones_like(left_mask, dtype=desired_dir.dtype),
+                -torch.ones_like(left_mask, dtype=desired_dir_xy.dtype),
+                torch.ones_like(left_mask, dtype=desired_dir_xy.dtype),
             )
-            # CODEX: full directional alignment (teacher checkpoint convention).
-            cross = torch.cross(ref_dir, desired_dir, dim=-1)  # CODEX
-            dot = torch.sum(ref_dir * desired_dir, dim=-1, keepdim=True)  # CODEX
-            q_align = torch.cat([cross, 1.0 + dot], dim=-1)  # CODEX
-            q_align = q_align / torch.norm(q_align, dim=-1, keepdim=True).clamp_min(1e-6)  # CODEX
-            target_quat_active = quat_mul(q_align, base_quat)  # CODEX
+            cross_z = (
+                ref_dir_xy[:, 0] * desired_dir_xy[:, 1] - ref_dir_xy[:, 1] * desired_dir_xy[:, 0]
+            ).unsqueeze(-1)
+            dot_xy = torch.sum(ref_dir_xy[:, :2] * desired_dir_xy[:, :2], dim=-1, keepdim=True)
+            yaw = torch.atan2(cross_z, dot_xy)
+            half_yaw = 0.5 * yaw
+            q_align = torch.zeros((num_active, 4), device=self.device, dtype=desired_dir_xy.dtype)
+            q_align[:, 2:3] = torch.sin(half_yaw)
+            q_align[:, 3:4] = torch.cos(half_yaw)
+            target_quat_active = quat_mul(q_align, base_quat)
             target_quat_active = target_quat_active / torch.norm(target_quat_active, dim=-1, keepdim=True).clamp_min(1e-8)
-
             self.reward_settings["target_quat"][active_ids] = target_quat_active
             self.reward_settings["target_rot_6d"][active_ids] = matrix_to_rotation_6d(
                 quaternion_to_matrix_ig(target_quat_active)
             )
-            eef_pos_active = self._eef_state[active_ids, :3]
             target_to_eef_world_active = self.reward_settings["target_pos"][active_ids] - eef_pos_active
             eef_rot_mat_active = quaternion_to_matrix_ig(self._eef_state[active_ids, 3:7])
             eef_rot_mat_t_active = eef_rot_mat_active.transpose(1, 2)
@@ -737,7 +976,8 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
     def compute_reward(self):
         # @ray states used are updated in compute_observations(), called right before compute_reward()
 
-        self.reset_buf[:] = torch.where((self.progress_buf >= self.max_episode_length - 1), torch.ones_like(self.reset_buf), self.reset_buf)
+        if not self.debug_viz:
+            self.reset_buf[:] = torch.where((self.progress_buf >= self.max_episode_length - 1), torch.ones_like(self.reset_buf), self.reset_buf)
         self.reset_buf[self.states['object_center_pos'][:, 2] < self.table_surface_height-0.1] = 1
 
         reward_dict = compute_franka_leap_reward(self.states, self.reward_settings)
@@ -778,6 +1018,18 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
         # Latch success/lifting once achieved anywhere in an episode.
         self.success_long_enough = self.success_long_enough | (self.success_duration >= success_timeout_steps)
         self.lifting_long_enough = self.lifting_long_enough | (self.lifting_duration >= lifting_timeout_steps)
+        low_object_height = self.states["object_center_pos"][:, 2] <= (
+            self.table_surface_height + 0.5 * (self._object_center_init_state[:, 2] - self.table_surface_height) + 0.01
+        )
+        self.flat_table_duration = torch.where(
+            low_object_height,
+            self.flat_table_duration + 1,
+            torch.zeros_like(self.flat_table_duration),
+        )
+        self.flat_table_long_enough = self.flat_table_long_enough | (
+            self.flat_table_duration >= self.flat_table_reset_steps
+        )
+        self.reset_buf[self.flat_table_long_enough] = 1
         done_envs = self.reset_buf > 0
 
         if torch.any(done_envs):

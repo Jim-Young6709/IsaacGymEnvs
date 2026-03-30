@@ -41,7 +41,7 @@ state_encoders_cfg:
     dropout: 0
     use_state: true
   q_hand_ctrl_delta:
-    input_dim: 16
+    input_dim: 32
     hidden_dims: [128, 256]
     dropout: 0
     use_state: true

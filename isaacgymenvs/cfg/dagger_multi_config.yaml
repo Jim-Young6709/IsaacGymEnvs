@@ -1,8 +1,17 @@
+# CODEX
+# Multi-teacher version of dagger_config. `specs` is a list of spec names from cfg/specs/.
 
-# Task name - used to pick the class to load
-task_name: ${task.name}
+# CODEX
+# Task/train defaults below are bootstrap-only so Hydra can compose before the selected spec
+# replaces them per rank.
+
+# Task name - set by the selected spec at runtime.
+task_name: ''
 # experiment name. defaults to name of training config
 experiment: ''
+
+# CODEX
+specs: []
 
 # if set to positive integer, overrides the default number of environments
 num_envs: ''
@@ -16,60 +25,44 @@ torch_deterministic: False
 max_iterations: ''
 
 ## Device config
-#  'physx' or 'flex'
 physics_engine: 'physx'
-# whether to use cpu or gpu pipeline
 pipeline: 'gpu'
-# device for running physics simulation
 sim_device: 'cuda:0'
-# device to run RL
 rl_device: 'cuda:0'
 graphics_device_id: 0
 
-## PhysX arguments
-num_threads: 4 # Number of worker threads per scene used by PhysX - for CPU PhysX only.
-solver_type: 1 # 0: pgs, 1: tgs
-num_subscenes: 4 # Splits the simulation into N physics scenes and runs each one in a separate thread
+num_threads: 4
+solver_type: 1
+num_subscenes: 4
 
-# RLGames Arguments
-# test - if set, run policy in inference mode (requires setting checkpoint to load)
 test: False
-# used to set checkpoint path
 checkpoint: ''
-# set sigma when restoring network
 sigma: ''
-# set to True to use multi-gpu training
 multi_gpu: False
 
 wandb_activate: False
 wandb_group: ''
-wandb_name: ${train.params.config.name}
+wandb_name: 'multi_dagger'
 wandb_entity: "daedalus2060-carnegie-mellon-university"
 wandb_project: "dexgym"
 wandb_tags: []
-wandb_logcode_dir: '' 
+wandb_logcode_dir: ''
 
 capture_video: False
 capture_video_freq: 1464
 capture_video_len: 100
 force_render: True
-
-# disables rendering
 headless: False
-
-
-teacher:
-  cfg: ../cfg/train/DexExpTablePPO.yaml
-  ckpt: ./ckpts/exp_table.pth
 
 dagger:
   batch_size: ${num_envs}
   total_episodes: 10000
-  steps_per_episode: ${task.env.episodeLength}
+  # Global distillation rollout horizon, independent of each spec's env episodeLength.
+  steps_per_episode: 1000
   save_freq: 1
   eval_freq: 10
-  eval_only_teacher: False  # CODEX: when True, eval episodes run teacher-only eval (skip student eval).
-  debug_teacher_eval: False  # CODEX: run an additional teacher-only eval pass for debugging.
+  eval_only_teacher: False
+  debug_teacher_eval: False
 
   delayed_update_steps: 1
   update_epochs_per_rollout: 5
@@ -77,7 +70,7 @@ dagger:
   teacher_forcing:
     enable: True
     warmup_episodes: 10
-    scheduling_episodes: 10 # after warmup episodes, linearly decay teacher forcing envs to 0 over these many episodes
+    scheduling_episodes: 10
 
   learning_rate: 0.001
   weight_decay: 0.01
@@ -87,13 +80,12 @@ dagger:
   device: ${rl_device}
 
   reaching_reset_threshold: 100
-  local_pcd_range: [1.5, 0.5, 0.5] # Codex: [cylindrical range, eef spherical range, aux spherical range]
+  local_pcd_range: [1.5, 0.5, 0.5]
   aux_feedback_to_policy: True
   aux_init_only: False
   aux_feedback_start_steps: 0
   load_ckpt_path: null
 
-# TODO: are these args still actively in use? or its just DRP stuff
 normalize_state: True
 normalize_action: True
 action_space:
@@ -102,17 +94,14 @@ action_space:
   delta_arx_action: True
 chunk_size: 10
 
-
-# set default task and default training config based on task
 defaults:
-  - task: Ant
-  - train: ${task}PPO
+  - task: DexMobileDistillationSide
+  - train: DexMobileDistillationSidePPO
   - model: transformer
   - pbt: no_pbt
   - override hydra/job_logging: disabled
   - _self_
 
-# set the directory where the output files get saved
 hydra:
   output_subdir: null
   run:

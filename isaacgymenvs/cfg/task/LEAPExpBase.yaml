@@ -29,6 +29,7 @@ env:
     arx: 0.2 # joint angle
 
   grasp_guide_idx: 1 # 0: thumb curl toward the other fingers, 1: thumb is more curled horizontally, more enveloped grasp
+  grasp_mode: full # options: full, pinch2, pinch3
 
   controlType: joint_position  # options are {joint_position, osc}
   controlFrequencyInv: 1
@@ -60,11 +61,11 @@ env:
   object_teleport:
     enable: True
     env_proportion: 0.3 # proportion of envs to apply teleportation
-    swap_freq: 3 # in episodes, how often to swap the environments that do teleport
-    curri_steps: 200000
+    curri_steps: 20000
+    swap_freq: 3
     n0: 10 # within n0 steps, don't teleport
     n1: 150 # until n1 steps, the probability of teleporting sum up to 0.5
-    n2: 300 # at n2 steps, the probability of teleporting is 1.0
+    n2: 100 # at n2 steps, the probability of teleporting is 1.0
 
   distractor_settings:
     enable: False
@@ -131,6 +132,7 @@ reward:
     target_quat: [0.707, -0.707, 0.0, 0.0]
     matching_dis: 0.2
     curl_reaching_threshold: 0.15
+    include_palm_in_hand_obj: True
     success_timeout: 2.0
     lifting_timeout: 2.0
 

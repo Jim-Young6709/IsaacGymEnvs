@@ -18,18 +18,34 @@ from viser.extras import ViserUrdf
 DEFAULT_ARM = [-1.41111064, -1.20421876, 1.11514925, -2.30643184, 0.97677832, 1.59482316, -0.73056353]
 
 # CODEX
-# Hand defaults requested by user, in logical order:
-# [index(4), thumb(4), middle(4), ring(4)].
-DEFAULT_HAND_LOGICAL = [
+# Hand defaults in the same raw convention used by IsaacGym tasks:
+# [index(4), thumb(4), middle(4), ring(4)] with the thumb block in
+# IsaacGym order [4, 3, 2, 1] when counted from fingertip-first.
+DEFAULT_HAND_ISAAC = [
      0.0000,  0.0000,  0.0000,  0.0000,
--0.0300,  0.0000,  1.0100,  0.6900,
+ 0.6900,  1.0100,  0.0000, -0.0300,
  0.0000,  0.0000,  0.0000,  0.0000,
  0.0000,  0.0000,  0.0000,  0.0000,
 ]
 
-# CODEX
-# Mapping from the logical hand order above to actual LEAP joint names used in this repo.
-LEAP_HAND_JOINT_NAMES_LOGICAL_ORDER = [
+HAND_PRESETS_ISAAC = {
+    "default": DEFAULT_HAND_ISAAC,
+    "pinch2": [
+        1.15, 0.38, 0.23, 0.77,
+        0.70, 0.70, -0.20, 0.79,
+        0.48, -0.09, -0.20, 0.62,
+        0.50, -0.05, 0.02, 0.29,
+    ],
+    "pinch3": [
+        0.93, 0.00, 0.53, 0.77,
+      0.89, 0.73, 0.69, 0.77,
+      0.69, 0.01, 0.81, 0.85,
+     -0.27, -0.07, 0.13, 0.33,
+    ],
+}
+
+# Hand joint names in the same raw IsaacGym block order.
+LEAP_HAND_JOINT_NAMES_ISAAC_ORDER = [
     "finger_joint_1", "finger_joint_0", "finger_joint_2", "finger_joint_3",      # index
     "finger_joint_12", "finger_joint_13", "finger_joint_14", "finger_joint_15",  # thumb
     "finger_joint_5", "finger_joint_4", "finger_joint_6", "finger_joint_7",      # middle
@@ -42,7 +58,7 @@ ARM_JOINT_NAMES = [
 ]
 
 
-def build_default_joint_map(joint_names: List[str]) -> Dict[str, float]:
+def build_default_joint_map(joint_names: List[str], hand_preset: str) -> Dict[str, float]:
     # CODEX
     # Initialize all actuated joints to zero, then apply requested defaults.
     joint_map = {name: 0.0 for name in joint_names}
@@ -51,7 +67,7 @@ def build_default_joint_map(joint_names: List[str]) -> Dict[str, float]:
         if name in joint_map:
             joint_map[name] = float(val)
 
-    for name, val in zip(LEAP_HAND_JOINT_NAMES_LOGICAL_ORDER, DEFAULT_HAND_LOGICAL):
+    for name, val in zip(LEAP_HAND_JOINT_NAMES_ISAAC_ORDER, HAND_PRESETS_ISAAC[hand_preset]):
         if name in joint_map:
             joint_map[name] = float(val)
 
@@ -71,6 +87,13 @@ def main() -> None:
     parser.add_argument("--slider-min", type=float, default=-3.14)
     parser.add_argument("--slider-max", type=float, default=3.14)
     parser.add_argument("--slider-step", type=float, default=0.01)
+    parser.add_argument(
+        "--hand-preset",
+        type=str,
+        choices=sorted(HAND_PRESETS_ISAAC.keys()),
+        default="default",
+        help="Initial LEAP-hand preset in IsaacGym joint order.",
+    )
     args = parser.parse_args()
 
     urdf_path = Path(args.urdf)
@@ -114,7 +137,7 @@ def main() -> None:
         mesh_handle.wxyz = q_local_x_cw
 
     joint_names = urdf_vis.get_actuated_joint_names()
-    joint_map = build_default_joint_map(joint_names)
+    joint_map = build_default_joint_map(joint_names, args.hand_preset)
 
     def push_cfg() -> None:
         q = np.array([joint_map[name] for name in joint_names], dtype=np.float64)
@@ -150,23 +173,43 @@ def main() -> None:
     actions = server.gui.add_folder("Actions")
     with actions:
         reset_btn = server.gui.add_button("Reset to Default Pose")
+        preset_default_btn = server.gui.add_button("Load Hand Default")
+        preset_pinch2_btn = server.gui.add_button("Load Hand Pinch2")
+        preset_pinch3_btn = server.gui.add_button("Load Hand Pinch3")
         print_btn = server.gui.add_button("Print LEAP Hand Angles")
         print_arm_btn = server.gui.add_button("Print Franka Arm Angles")  # CODEX
 
+    def apply_hand_preset(hand_preset: str) -> None:
+        for name, val in zip(LEAP_HAND_JOINT_NAMES_ISAAC_ORDER, HAND_PRESETS_ISAAC[hand_preset]):
+            joint_map[name] = float(val)
+            slider_handles[name].value = float(val)
+        push_cfg()
+
     @reset_btn.on_click
     def _(_: object) -> None:
-        defaults = build_default_joint_map(joint_names)
+        defaults = build_default_joint_map(joint_names, args.hand_preset)
         for name in joint_names:
             joint_map[name] = defaults[name]
             slider_handles[name].value = float(defaults[name])
         push_cfg()
 
+    @preset_default_btn.on_click
+    def _(_: object) -> None:
+        apply_hand_preset("default")
+
+    @preset_pinch2_btn.on_click
+    def _(_: object) -> None:
+        apply_hand_preset("pinch2")
+
+    @preset_pinch3_btn.on_click
+    def _(_: object) -> None:
+        apply_hand_preset("pinch3")
+
     @print_btn.on_click
     def _(_: object) -> None:
         # CODEX
-        # Print in the same 4x4 logical grouping requested by user.
-        values = [joint_map[name] for name in LEAP_HAND_JOINT_NAMES_LOGICAL_ORDER]
-        print("LEAP hand angles (index, thumb, middle, ring):")
+        values = [joint_map[name] for name in LEAP_HAND_JOINT_NAMES_ISAAC_ORDER]
+        print("LEAP hand angles in IsaacGym order (index, thumb, middle, ring):")
         print(f"{values[0]: .4f}, {values[1]: .4f}, {values[2]: .4f}, {values[3]: .4f},")
         print(f"{values[4]: .4f}, {values[5]: .4f}, {values[6]: .4f}, {values[7]: .4f},")
         print(f"{values[8]: .4f}, {values[9]: .4f}, {values[10]: .4f}, {values[11]: .4f},")

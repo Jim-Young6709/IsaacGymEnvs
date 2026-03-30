@@ -693,6 +693,7 @@ def simulate_depth_cam_render_from_pose(
     cam_spec_dict: dict = INTEL_435,
 ):
     """
+    Expects fll scene point cloud and camera pose. Renders depth, back-projects to world grid, adds jitter, then subsamples to fixed num_points.
     Args:
         pcd (torch.Tensor): _description_
         camera_pose (torch.Tensor): (B,7): [x,y,z,qx,qy,qz,qw], camera->world, +X forward

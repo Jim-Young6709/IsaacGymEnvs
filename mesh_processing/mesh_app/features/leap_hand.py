@@ -11,14 +11,9 @@ class LeapHandFeature(FeatureBase):
         self.controller.hand_scale = 1.0
         self.controller.hand_z = 0.1
         self.controller.load_hand(self.controller.config.leap_hand_path)
-        self._default_pose = [
-            0.95, -0.2, 0.95, 0.95,
-            1.0, 1.57, 1.0, 1.14,
-            0.9, 0.0, 0.9, 0.9,
-            0.95, 0.2, 0.95, 0.95,
-        ]
-        if len(self.controller.hand_joint_order) == len(self._default_pose):
-            self.controller.set_hand_joint_angles(self._pose_to_joint_angles(self._default_pose))
+        self._default_angles = list((self.controller.config.leap_hand_presets or {}).get("default", []))
+        if len(self.controller.hand_joint_order) == len(self._default_angles):
+            self.controller.set_hand_joint_angles(self._default_angles)
         self._widgets_ready = False
         self.chk_show = None
         self.z_spin = None
@@ -46,58 +41,15 @@ class LeapHandFeature(FeatureBase):
         self.controller.rotate_hand(axis, 90.0)
         self.controller.refresh_view()
 
-    def _pose_to_joint_angles(self, pose):
-        if not self.controller.hand_joint_order:
-            return pose
-        finger_groups = {
-            "index": [f"finger_joint_{i}" for i in range(0, 4)],
-            "thumb": [f"finger_joint_{i}" for i in range(4, 8)],
-            "middle": [f"finger_joint_{i}" for i in range(8, 12)],
-            "ring": [f"finger_joint_{i}" for i in range(12, 16)],
-        }
-        order = getattr(self.controller.config, "leap_hand_pose_order", ["index", "thumb", "middle", "ring"])
-        values = list(pose)
-        mapping = {}
-        idx = 0
-        for finger in order:
-            joints = finger_groups.get(finger, [])
-            for joint in joints:
-                if idx < len(values):
-                    mapping[joint] = values[idx]
-                idx += 1
-        angles = []
-        for name in self.controller.hand_joint_order:
-            angles.append(mapping.get(name, 0.0))
-        return angles
-
-    def _joint_angles_to_pose(self, angles):
-        finger_groups = {
-            "index": [f"finger_joint_{i}" for i in range(0, 4)],
-            "thumb": [f"finger_joint_{i}" for i in range(4, 8)],
-            "middle": [f"finger_joint_{i}" for i in range(8, 12)],
-            "ring": [f"finger_joint_{i}" for i in range(12, 16)],
-        }
-        order = getattr(self.controller.config, "leap_hand_pose_order", ["index", "thumb", "middle", "ring"])
-        angle_map = {}
-        for name, angle in zip(self.controller.hand_joint_order, angles):
-            angle_map[name] = angle
-        pose = []
-        for finger in order:
-            for joint in finger_groups.get(finger, []):
-                pose.append(angle_map.get(joint, 0.0))
-        return pose
-
     def _print_pose(self):
         angles = list(self.controller.hand_joint_angles)
         if not angles:
             return
-        pose = self._joint_angles_to_pose(angles)
         print("leap_hand_joint_order:", self.controller.hand_joint_order)
         print("leap_hand_joint_angles:", [round(v, 4) for v in angles])
-        print("leap_hand_pose_order:", getattr(self.controller.config, "leap_hand_pose_order", []))
-        print("grasp_default = [")
-        for i in range(0, len(pose), 4):
-            chunk = ", ".join(f"{pose[j]:.4f}" for j in range(i, min(i + 4, len(pose))))
+        print("leap_hand_angles_isaac = [")
+        for i in range(0, len(angles), 4):
+            chunk = ", ".join(f"{angles[j]:.4f}" for j in range(i, min(i + 4, len(angles))))
             print(f"    {chunk},")
         print("]")
 

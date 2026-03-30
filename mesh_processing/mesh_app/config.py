@@ -26,7 +26,6 @@ class AppConfig:
     leap_hand_path: str = "/home/rayliu/grogu/IsaacGymEnvs/assets/franka_hand/franka_leap.urdf"
     leap_hand_assets_root: str = "/home/rayliu/grogu/IsaacGymEnvs/assets/franka_hand"
     leap_hand_joint_order: Optional[List[str]] = None
-    leap_hand_pose_order: Optional[List[str]] = None
     leap_hand_presets: Optional[Dict[str, List[float]]] = None
     default_urdf_scale: List[float] = None
     categories: List[CategorySpec] = None
@@ -48,27 +47,25 @@ class AppConfig:
                 "finger_joint_5", "finger_joint_4", "finger_joint_6", "finger_joint_7",
                 "finger_joint_9", "finger_joint_8", "finger_joint_10", "finger_joint_11",
             ]
-        if self.leap_hand_pose_order is None:
-            self.leap_hand_pose_order = ["index", "thumb", "middle", "ring"]
         if self.leap_hand_presets is None:
             self.leap_hand_presets = {
-                "grasp_01": [
-                    0.7, -0.2, 0.7, 0.7,
-                    0.8, 1.57, 0.77, 0.9,
-                    0.65, 0.0, 0.65, 0.65,
-                    0.7, 0.2, 0.7, 0.7,
+                "default": [
+                    0.0000, 0.0000, 0.0000, 0.0000,
+                    0.6900, 1.0100, 0.0000, -0.0300,
+                    0.0000, 0.0000, 0.0000, 0.0000,
+                    0.0000, 0.0000, 0.0000, 0.0000,
                 ],
-                "grasp_02": [
-                    0.79, -0.2, 0.7, 0.7,
+                "pinch2": [
                     1.15, 0.38, 0.23, 0.77,
-                    0.89, -0.09, 0.74, 0.62,
-                    0.5, 0.05, 0.02, 0.29,
+                    0.70, 0.70, -0.20, 0.79,
+                    0.48, -0.09, -0.20, 0.62,
+                    0.50, -0.05, 0.02, 0.29,
                 ],
-                "grasp_03": [
-                    0.79, -0.2, 0.7, 0.7,
-                    1.15, 0.38, 0.23, 0.77,
-                    0.48, -0.09, -0.2, 0.62,
-                    0.5, -0.05, 0.02, 0.29,
+                "pinch3": [
+                    0.93, 0.00, 0.53, 0.77,
+                    0.89, 0.73, 0.69, 0.77,
+                    0.69, 0.01, 0.81, 0.85,
+                    -0.27, -0.07, 0.13, 0.33,
                 ],
             }
         else:

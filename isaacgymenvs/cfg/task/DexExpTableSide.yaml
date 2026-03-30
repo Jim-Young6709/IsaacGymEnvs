@@ -14,6 +14,7 @@ env:
   object_settings:
     xyz_range:  [[0.35, -0.2, 0.2], [0.55, 0.2, 0.25]] # [[0.55, -0.2, 0.2], [0.75, 0.2, 0.25]] # xy is center position, z is BOTTOM height
     object_grasp_target_z_scale: 0.25 # @ray z scale for the hand-object reward, special for side grasp
+    lie_flat_prob: 0.0
   eef_init:
     limits_xyz_min:  [-0.25, -0.5, 0.20] #[-0.25, -0.2, 0.2]  #[-0.3, -0.37, 0.1]
     limits_xyz_max: [0.3, 0.2, 0.45] #[0.1, 0.2, 0.45]  #[0.15, -0.1, 0.65]
@@ -26,21 +27,11 @@ env:
     target_quat_noise_deg: 30
     dir_candidates_per_env: 5
     side_mode: both
-    right_section_sampling_enable: False
-    right_section_num: 10
-    right_section_curriculum_enable: False
-    right_section_curriculum_mode: success # steps | success
-    right_section_curriculum_force_active_sections: 0
-    right_section_curriculum_success_threshold: 0.87
-    right_section_curriculum_success_hold_steps: 2000
-    right_section_debug_log_enable: False
-    debug_disable_left_pose_bank: False
-    pose_bank_size: 8192 # num of poses per object
-    pose_bank_max_rounds: 10 # max rounds to try to find all valid poses
 
     target_quat_sampling_mode: facing_object # random_full
 
     hand_joint_reset_noise: 360
+    canonical_hand_init_prob: 0.1
 
   # @ray need to increase object wrench to encourage better grasp style
   object_wrench:
@@ -58,16 +49,15 @@ observation:
 
 reward:
   params:
-    target_pos: [0.5, 0.0, 0.3]
+    target_pos: [0.5, 0.0, 0.35] # @ray note that xy is no longer used and is inferred from object xy
+    target_pos_noise: [0.2, 0.3, 0.1]
     target_lift_dis: 0.1
     target_quat_right: [-0.7071067811865475, 0.0, 0.0, 0.7071067811865476]
     target_quat_left: [0.7071067811865475, 0.0, 0.0, 0.7071067811865476]
-    grasp_on_object_z_height_tolerance: [0.015, 0.03]
-    grasp_on_object_z_height_slope: 3000
-    grasp_on_object_z_height_offset: 0.05
-    grasp_on_object_z_height_gate_floor: 0.1
-    grasp_on_object_z_height_gate_enabled: True
     curl_reaching_threshold: 0.15
+    hand_grasp_dir_local: [0.0, 1.0, 0.0]
+    orientation_reward_mode: old_targetquat # old_targetquat | canonical_axis | object_axis
+    object_upright_reward_floor: 0.3 # only used when orientation_reward_mode=object_axis
 
     hand_obj_use_midheight_xy: False
     hand_obj_midheight_height_weight: 1.0
