@@ -1,8 +1,0 @@
-name: pick_side
-task: DexMobileDistillationSide
-train: DexMobileDistillationSidePPO
-teacher:
-  cfg: ../cfg/train/DexMobileDistillationSidePPO.yaml
-  ckpt: ""
-overrides:
-  task: {}
