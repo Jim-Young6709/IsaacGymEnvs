@@ -125,8 +125,6 @@ class PCDTransformer(BaseModel):
         action_space="delta",
         action_dim=22,
         aux_weight=0.0,
-        aux_prediction_mode="absolute",
-        aux_delta_scale=0.01,
     ):
         super().__init__(
             normalize_state=normalize_state,
@@ -148,8 +146,6 @@ class PCDTransformer(BaseModel):
         # update config for auxiliary object state prediction
         self.aux_prediction = (aux_weight > 0)
         self.aux_weight = aux_weight
-        self.aux_prediction_mode = aux_prediction_mode
-        self.aux_delta_scale = aux_delta_scale
         self.aux_memory_allowlist = ["local_pcd_t", "aux_object_state"]
 
         # Type embeddings and encodersfor different modalities
@@ -291,7 +287,8 @@ class PCDTransformer(BaseModel):
         pred = {}
         if self.aux_prediction:
             output_action = output[:, 1:, :]  # (B, chunk_size, H)
-            pred["aux"] = self.aux_head(output_action)  # predict aux open-loop for every action token.  # (B, chunk_size, 3)
+            output_aux = output[:, 0:1, :]  # (B, 1, H)
+            pred["aux"] = self.aux_head(output_aux)  # (B, 1, 3)
         else:
             output_action = output  # (B, chunk_size, H)
 
