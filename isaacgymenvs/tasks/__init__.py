@@ -34,15 +34,15 @@ from .franka_leap_pick_side import FrankaLEAPPickSide
 from .franka_leap_pick_full import FrankaLEAPPickFull
 from .franka_leap_pick_top_full import FrankaLEAPPickTopFull
 
-# from .franka_leap_mobile import FrankaLEAPMobile
-# from .franka_leap_mobile_pick_table import FrankaLEAPMobilePickTable
-# from .franka_leap_mobile_pick_table_multi import FrankaLEAPMobilePickTableMulti
-# from .franka_leap_mobile_pick_top_full import FrankaLEAPMobilePickTopFull
+from .franka_leap_mobile import FrankaLEAPMobile
+from .franka_leap_mobile_pick_table import FrankaLEAPMobilePickTable
+from .franka_leap_mobile_pick_table_multi import FrankaLEAPMobilePickTableMulti
+from .franka_leap_mobile_pick_top_full import FrankaLEAPMobilePickTopFull
+
 from .franka_leap_mobile_distillation import FrankaLEAPMobileDistillation
 from .franka_leap_mobile_distillation_pick_top import FrankaLEAPMobileDistillationPickTop
-from .franka_leap_mobile_distillation_pick_side import FrankaLEAPMobileDistillationPickSide
-# from .franka_cmd import FrankaCMD
-# from .franka_cmd_pick_table import FrankaCMDPickTable
+from .franka_cmd import FrankaCMD
+from .franka_cmd_pick_table import FrankaCMDPickTable
 
 
 
@@ -55,13 +55,12 @@ isaacgym_task_map = {
     "FrankaLEAPPickSide": FrankaLEAPPickSide,
     "FrankaLEAPPickFull": FrankaLEAPPickFull,
     "FrankaLEAPPickTopFull": FrankaLEAPPickTopFull,
-    # "FrankaLEAPMobile": FrankaLEAPMobile,
+    "FrankaLEAPMobile": FrankaLEAPMobile,
     "FrankaLEAPMobileDistillation": FrankaLEAPMobileDistillation,
     "FrankaLEAPMobileDistillationPickTop": FrankaLEAPMobileDistillationPickTop,
-    "FrankaLEAPMobileDistillationPickSide": FrankaLEAPMobileDistillationPickSide,
-    # "FrankaLEAPMobilePickTable": FrankaLEAPMobilePickTable,
-    # "FrankaLEAPMobilePickTableMulti": FrankaLEAPMobilePickTableMulti,
-    # "FrankaLEAPMobilePickTopFull": FrankaLEAPMobilePickTopFull,
-    # "FrankaCMD": FrankaCMD,
-    # "FrankaCMDPickTable": FrankaCMDPickTable,
+    "FrankaLEAPMobilePickTable": FrankaLEAPMobilePickTable,
+    "FrankaLEAPMobilePickTableMulti": FrankaLEAPMobilePickTableMulti,
+    "FrankaLEAPMobilePickTopFull": FrankaLEAPMobilePickTopFull,
+    "FrankaCMD": FrankaCMD,
+    "FrankaCMDPickTable": FrankaCMDPickTable,
 }
