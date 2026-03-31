@@ -7,63 +7,39 @@ name: FrankaLEAPPickTableSide
 
 # if given, will override the device setting in gym. 
 env:
-  numObservations: 51
-  numStates: 96
+  numObservations: 52
+  numStates: 97
   numActions: 22 # delta eef actions 6 (xyz, rpy) + normalized hand joint actions 16
 
   object_settings:
-    xyz_range:  [[0.35, -0.2, 0.2], [0.55, 0.2, 0.25]] # [[0.55, -0.2, 0.2], [0.75, 0.2, 0.25]] # xy is center position, z is BOTTOM height
-    object_grasp_target_z_scale: 0.25 # @ray z scale for the hand-object reward, special for side grasp
-    lie_flat_prob: 0.0
+    object_grasp_target_z_scale: 0.01 # @ray z scale for the hand-object reward, special for side grasp
+
   eef_init:
-    limits_xyz_min:  [-0.25, -0.5, 0.20] #[-0.25, -0.2, 0.2]  #[-0.3, -0.37, 0.1]
-    limits_xyz_max: [0.3, 0.2, 0.45] #[0.1, 0.2, 0.45]  #[0.15, -0.1, 0.65]
-    phi_range_deg:  [ -120, -60] # [120, -120]  # @ray set to None for 360deg
-    side_distance: 0.35
-    side_distance_noise: 0.15
-    # Uniform offsets in [min, max], accepted only if final point stays within workspace limits.
-    pos_offset_xyz_min: [-0.15, -0.15, -0.15]
-    pos_offset_xyz_max: [ 0.15,  0.15,  0.15]
-    target_quat_noise_deg: 30
+    limits_xyz_min: [-0.3, -0.37, 0.1]
+    limits_xyz_max: [0.15, -0.1, 0.65]
+    side_distance: 0.45
+    side_distance_noise: 0.1
+    target_quat_noise_deg: 10
     dir_candidates_per_env: 5
-    side_mode: both
-
-    target_quat_sampling_mode: facing_object # random_full
-
-    hand_joint_reset_noise: 360
-    canonical_hand_init_prob: 0.1
-
-  # @ray need to increase object wrench to encourage better grasp style
-  object_wrench:
-    enable: True
-    activation_dis: 0.15 # in meters (apply forces within this range / when object is lifted)
-    max_linear_force: 10.0 # in Newtons
-    torsional_radius: 0.01 # in meters
-    trigger_duration: 1.0 # seconds, this will time sim_dt to get the number of trigger steps
-    curri_steps: 1 # curriculum steps, now default to 1 which is no curri
+    side_mode: right
+    pose_bank_size: 4096 # num of poses per object
+    pose_bank_max_rounds: 10 # max rounds to try to find all valid poses
 
 observation:
   usage:
     use_z: True
-    use_xy: False
+    use_xy: True
 
 reward:
   params:
-    target_pos: [0.5, 0.0, 0.35] # @ray note that xy is no longer used and is inferred from object xy
-    target_pos_noise: [0.2, 0.3, 0.1]
+    target_pos: [0.5, 0.0, 0.3]
     target_lift_dis: 0.1
     target_quat_right: [-0.7071067811865475, 0.0, 0.0, 0.7071067811865476]
     target_quat_left: [0.7071067811865475, 0.0, 0.0, 0.7071067811865476]
     curl_reaching_threshold: 0.15
-    hand_grasp_dir_local: [0.0, 1.0, 0.0]
-    orientation_reward_mode: old_targetquat # old_targetquat | canonical_axis | object_axis
-    object_upright_reward_floor: 0.3 # only used when orientation_reward_mode=object_axis
-
-    hand_obj_use_midheight_xy: False
-    hand_obj_midheight_height_weight: 1.0
 
   exp:
-    beta_hand_object: 6.0
+    beta_hand_object: 5.0
     beta_object_goal: 5.0
     beta_hand_orientation: 5.0
     beta_lift: 0.0 # set this to 0 to use a 0-1 lift reward
