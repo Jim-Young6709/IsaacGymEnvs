@@ -44,8 +44,8 @@ multi_gpu: False
 wandb_activate: False
 wandb_group: ''
 wandb_name: ${train.params.config.name}
-wandb_entity: "daedalus2060-carnegie-mellon-university"
-wandb_project: "dexgym"
+wandb_entity: 'jimyoung6709'
+wandb_project: 'Dex_dagger'
 wandb_tags: []
 wandb_logcode_dir: '' 
 
@@ -88,9 +88,6 @@ dagger:
 
   reaching_reset_threshold: 100
   local_pcd_range: [1.5, 0.5, 0.5] # Codex: [cylindrical range, eef spherical range, aux spherical range]
-  aux_feedback_to_policy: True
-  aux_init_only: False
-  aux_feedback_start_steps: 0
   load_ckpt_path: null
 
 # TODO: are these args still actively in use? or its just DRP stuff
@@ -100,7 +97,7 @@ action_space:
   delta_franka_action: True
   delta_leap_action: True
   delta_arx_action: True
-chunk_size: 10
+chunk_size: 1
 
 
 # set default task and default training config based on task
