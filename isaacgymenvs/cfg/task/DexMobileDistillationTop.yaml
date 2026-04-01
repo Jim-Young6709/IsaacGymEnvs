@@ -3,7 +3,7 @@
 defaults:
   - DexMobileExpBase
 
-name: FrankaLEAPMobilePickTable
+name: FrankaLEAPMobileDistillationPickTop
 
 # if given, will override the device setting in gym. 
 env:
@@ -27,7 +27,8 @@ fabric:
 
 reward:
   params:
-    target_lift_dis: 0.3
+    target_pos: [0.5, 0.0, 0.3]
+    target_lift_dis: 0.1
     target_quat: [1.0, 0.0, 0.0, 0.0]
     curl_reaching_threshold: 0.15
     include_palm_in_hand_obj: True

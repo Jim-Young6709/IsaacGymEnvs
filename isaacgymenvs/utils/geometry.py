@@ -21,6 +21,7 @@
 # DEALINGS IN THE SOFTWARE.
 import json
 import os
+import glob
 
 import numpy as np
 import torch
@@ -879,21 +880,46 @@ class ObjaMesh:
     def __init__(self, position, scale, quaternion, obj_id, mesh_id, max_points=1000, meshes_dir=None):
         if meshes_dir is None:
             meshes_dir = os.path.join(os.path.dirname(__file__), "..", "..", "meshes")
-        type_mapping_file_path = os.path.join(meshes_dir, "type_mapping.json")
-        obj_int2str = {}
-        try:
-            with open(type_mapping_file_path, "r") as file:
-                obj_str2int = json.load(file)
-            obj_int2str = {value: key for key, value in obj_str2int.items()}
-        except FileNotFoundError:
-            print("The file does not exist.")
-        subdirectory = obj_int2str[int(obj_id)]
         self._pose = SE3(xyz=position, so3=SO3(quaternion=quaternion))
-        self.scale = scale
+        self.scale = np.asarray(scale, dtype=np.float32)
+        if self.scale.size == 1:
+            self.scale = float(self.scale.item())
         self.quaternion = quaternion
-        self.file_path = os.path.abspath(os.path.join(meshes_dir, subdirectory, mesh_id + ".npy"))
+        mesh_id_str = str(mesh_id)
+        # Variant layout path mode: mesh_id is a relative path under meshes_dir.
+        if ("/" in mesh_id_str) or ("\\" in mesh_id_str):
+            self.file_path = os.path.abspath(os.path.join(meshes_dir, mesh_id_str + ".npy"))
+        else:
+            # Legacy layout mode: resolve object subdirectory from type_mapping.
+            # CODEX: fallback to recursive basename search when obj_id mapping is unavailable,
+            # so variant-style ids that arrive without "/" still resolve correctly.
+            type_mapping_file_path = os.path.join(meshes_dir, "type_mapping.json")
+            resolved = False
+            if os.path.isfile(type_mapping_file_path):
+                with open(type_mapping_file_path, "r") as file:
+                    obj_str2int = json.load(file)
+                obj_int2str = {int(value): key for key, value in obj_str2int.items()}
+                if int(obj_id) in obj_int2str:
+                    subdirectory = obj_int2str[int(obj_id)]
+                    self.file_path = os.path.abspath(os.path.join(meshes_dir, subdirectory, mesh_id_str + ".npy"))
+                    resolved = True
+            if not resolved:
+                matches = glob.glob(os.path.join(meshes_dir, "**", mesh_id_str + ".npy"), recursive=True)
+                if len(matches) == 0:
+                    raise FileNotFoundError(
+                        f"Could not resolve mesh npy for mesh_id={mesh_id_str} under meshes_dir={meshes_dir}"
+                    )
+                if len(matches) > 1:
+                    raise RuntimeError(
+                        f"Ambiguous mesh_id={mesh_id_str}: found multiple npy matches: {matches[:5]}"
+                    )
+                self.file_path = os.path.abspath(matches[0])
         self.pc = np.load(self.file_path)
-        self.surface_area = self.scale**2 * 6  # just assume a cube
+        if isinstance(self.scale, float):
+            self.surface_area = self.scale**2 * 6  # just assume a cube
+        else:
+            sx, sy, sz = float(self.scale[0]), float(self.scale[1]), float(self.scale[2])
+            self.surface_area = 2.0 * (sx * sy + sy * sz + sx * sz)
 
     def calculate_convex_hull_area_vectorized(self):
         "Quick estimation of SA based on point cloud. Note that this is just a rough estimation"
@@ -958,4 +984,3 @@ class ObjaMesh:
                 [2 * x * z - 2 * y * w, 2 * y * z + 2 * x * w, 1 - 2 * x**2 - 2 * y**2],
             ]
         )
-

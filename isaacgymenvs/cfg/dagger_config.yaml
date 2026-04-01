@@ -68,9 +68,11 @@ dagger:
   steps_per_episode: ${task.env.episodeLength}
   save_freq: 1
   eval_freq: 10
-  aux_init_only: False
-  aux_feedback_to_policy: True
-  aux_feedback_start_steps: 30000
+  eval_only_teacher: False  # CODEX: when True, eval episodes run teacher-only eval (skip student eval).
+  debug_teacher_eval: False  # CODEX: run an additional teacher-only eval pass for debugging.
+
+  delayed_update_steps: 1
+  update_epochs_per_rollout: 5
 
   teacher_forcing:
     enable: True

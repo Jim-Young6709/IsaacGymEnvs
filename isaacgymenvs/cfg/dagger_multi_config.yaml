@@ -1,0 +1,108 @@
+# CODEX
+# Multi-teacher version of dagger_config. `specs` is a list of spec names from cfg/specs/.
+
+# CODEX
+# Task/train defaults below are bootstrap-only so Hydra can compose before the selected spec
+# replaces them per rank.
+
+# Task name - set by the selected spec at runtime.
+task_name: ''
+# experiment name. defaults to name of training config
+experiment: ''
+
+# CODEX
+specs: []
+
+# if set to positive integer, overrides the default number of environments
+num_envs: ''
+
+# seed - set to -1 to choose random seed
+seed: 42
+# set to True for deterministic performance
+torch_deterministic: False
+
+# set the maximum number of learning iterations to train for. overrides default per-environment setting
+max_iterations: ''
+
+## Device config
+physics_engine: 'physx'
+pipeline: 'gpu'
+sim_device: 'cuda:0'
+rl_device: 'cuda:0'
+graphics_device_id: 0
+
+num_threads: 4
+solver_type: 1
+num_subscenes: 4
+
+test: False
+checkpoint: ''
+sigma: ''
+multi_gpu: False
+
+wandb_activate: False
+wandb_group: ''
+wandb_name: 'multi_dagger'
+wandb_entity: "daedalus2060-carnegie-mellon-university"
+wandb_project: "dexgym"
+wandb_tags: []
+wandb_logcode_dir: ''
+
+capture_video: False
+capture_video_freq: 1464
+capture_video_len: 100
+force_render: True
+headless: False
+
+dagger:
+  batch_size: ${num_envs}
+  total_episodes: 10000
+  # Global distillation rollout horizon, independent of each spec's env episodeLength.
+  steps_per_episode: 1000
+  save_freq: 1
+  eval_freq: 10
+  eval_only_teacher: False
+  debug_teacher_eval: False
+
+  delayed_update_steps: 1
+  update_epochs_per_rollout: 5
+
+  teacher_forcing:
+    enable: True
+    warmup_episodes: 10
+    scheduling_episodes: 10
+
+  learning_rate: 0.001
+  weight_decay: 0.01
+  max_grad_norm: 1.0
+  warmup_episodes: 1
+
+  device: ${rl_device}
+
+  reaching_reset_threshold: 100
+  local_pcd_range: [1.5, 0.5, 0.5]
+  aux_feedback_to_policy: True
+  aux_init_only: False
+  aux_feedback_start_steps: 0
+  load_ckpt_path: null
+
+normalize_state: True
+normalize_action: True
+action_space:
+  delta_franka_action: True
+  delta_leap_action: True
+  delta_arx_action: True
+chunk_size: 10
+
+defaults:
+  - task: DexMobileDistillationSide
+  - train: DexMobileDistillationSidePPO
+  - model: transformer
+  - pbt: no_pbt
+  - override hydra/job_logging: disabled
+  - _self_
+
+hydra:
+  output_subdir: null
+  run:
+    dir: .

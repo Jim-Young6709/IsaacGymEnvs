@@ -10,6 +10,9 @@ env:
   numObservations: 49
   numStates: 94
   numActions: 22 # delta eef actions 6 (xyz, rpy) + normalized hand joint actions 16
+  grasp_mode: full # full, pinch2, pinch3
+  mesh:
+    variant_preload_multiplier: 10
 
 reward:
   params:
@@ -17,6 +20,8 @@ reward:
     target_lift_dis: 0.1
     target_quat: [1.0, 0.0, 0.0, 0.0]
     curl_reaching_threshold: 0.15
+    include_palm_in_hand_obj: True
+    pinch_far_finger_curl_weight: 10.0
 
   exp:
     beta_hand_object: 5.0

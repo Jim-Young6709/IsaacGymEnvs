@@ -1,0 +1,8 @@
+name: pick_top
+task: DexMobileDistillationTop
+train: DexMobileDistillationTopPPO
+teacher:
+  cfg: ../cfg/train/DexMobileDistillationTopPPO.yaml
+  ckpt: ""
+overrides:
+  task: {}

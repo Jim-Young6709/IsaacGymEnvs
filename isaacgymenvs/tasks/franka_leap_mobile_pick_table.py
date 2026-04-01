@@ -40,7 +40,7 @@ class FrankaLEAPMobilePickTable(FrankaLEAPMobile):
         self.table_size = torch.rand(self.num_envs, 3, device=self.device) * (table_size_range[1] - table_size_range[0]) + table_size_range[0]
 
         self.max_objects_per_env = 1
-
+ 
     def _setup_fabric_switching_target(self):
         self.switching_target_pos = self._object_state[:, :3].clone()
         self.switching_target_pos += self.switch_pos_offset
@@ -221,6 +221,35 @@ class FrankaLEAPMobilePickTable(FrankaLEAPMobile):
 
     def init_data(self, actor_num):
         super().init_data(actor_num=actor_num)
+        grasp_mode = str(self.cfg["env"]["grasp_mode"])
+        if grasp_mode == "full":
+            grasp_default = self.grasp_finger_dof_pos.clone()
+            active_finger_mask = torch.ones(4, device=self.device)
+            active_dof_mask = torch.ones(16, device=self.device)
+        elif grasp_mode == "pinch2":
+            pinch_defaults = [[0.0] * 16, [0.0] * 16, [0.0] * 16]
+            grasp_default = torch.tensor(pinch_defaults[self.cfg["env"]["grasp_guide_idx"]], device=self.device)
+            active_finger_mask = torch.tensor([1.0, 0.0, 0.0, 1.0], device=self.device)
+            active_dof_mask = torch.tensor([1.0] * 8 + [0.0] * 8, device=self.device)
+        elif grasp_mode == "pinch3":
+            pinch_defaults = [[0.0] * 16, [0.0] * 16, [0.0] * 16]
+            grasp_default = torch.tensor(pinch_defaults[self.cfg["env"]["grasp_guide_idx"]], device=self.device)
+            active_finger_mask = torch.tensor([1.0, 1.0, 0.0, 1.0], device=self.device)
+            active_dof_mask = torch.tensor([1.0] * 12 + [0.0] * 4, device=self.device)
+        else:
+            raise ValueError(f"Unsupported env.grasp_mode={grasp_mode}. Expected one of: full, pinch2, pinch3.")
+
+        self.grasp_finger_dof_pos = grasp_default
+        self.canonical_grasp_config = torch.tensor(
+            [[0, 0, 0, -3 * torch.pi / 4, 0, 3 * torch.pi / 4, 0] + self.grasp_finger_dof_pos.tolist()] * self.num_envs
+        ).to(self.device)
+        self.reward_settings["grasp_finger_dof_pos"] = self.grasp_finger_dof_pos
+        self.reward_settings["grasp_finger_dof_mask"] = active_dof_mask
+        self.reward_settings["active_finger_mask"] = active_finger_mask
+        self.reward_settings["include_palm_in_hand_obj"] = to_torch(
+            1.0 if bool(self.cfg["reward"]["params"]["include_palm_in_hand_obj"]) else 0.0,
+            device=self.device,
+        )
         self.reward_settings["target_pos"] = self.obj_pos_target
         self.reward_settings["w_colli"] = to_torch(self.cfg["reward"]["weights"]["w_colli"], device=self.device)
 
@@ -313,16 +342,26 @@ class FrankaLEAPMobilePickTable(FrankaLEAPMobile):
 def compute_franka_leap_reward(states, reward_settings):
     # type: (Dict[str, Tensor], Dict[str, Tensor]) -> Dict[str, Tensor]
 
-    # R1: Hand (palm, fingers) to object distance
+    # R1: Hand (palm, selected fingertips) to object distance
     d_palm = torch.norm(states["object_center_pos"] - states["eef_pos"], dim=-1)
-    d_finger1 = torch.norm(states["object_center_pos"] - states["eef_finger1_pos"], dim=-1)
-    d_finger2 = torch.norm(states["object_center_pos"] - states["eef_finger2_pos"], dim=-1)
-    d_finger3 = torch.norm(states["object_center_pos"] - states["eef_finger3_pos"], dim=-1)
-    d_finger4 = torch.norm(states["object_center_pos"] - states["eef_finger4_pos"], dim=-1)
-
-    # R1: Max dist component to object: max_i∈{palm_pos,fingertips} ||x^i - x^obj||
-    d_hand_obj = torch.stack([d_palm, d_finger1, d_finger2, d_finger3, d_finger4], dim=1)
-    d_hand_obj = torch.max(d_hand_obj, dim=1)[0]
+    finger_distances = torch.stack(
+        [
+            torch.norm(states["object_center_pos"] - states["eef_finger1_pos"], dim=-1),
+            torch.norm(states["object_center_pos"] - states["eef_finger2_pos"], dim=-1),
+            torch.norm(states["object_center_pos"] - states["eef_finger3_pos"], dim=-1),
+            torch.norm(states["object_center_pos"] - states["eef_finger4_pos"], dim=-1),
+        ],
+        dim=1,
+    )
+    include_palm = reward_settings["include_palm_in_hand_obj"] > 0.5
+    finger_mask = reward_settings["active_finger_mask"] > 0.5
+    masked_finger_distances = torch.where(
+        finger_mask.unsqueeze(0),
+        finger_distances,
+        torch.full_like(finger_distances, -1.0e6),
+    )
+    d_hand_obj = torch.max(masked_finger_distances, dim=1)[0]
+    d_hand_obj = torch.where(include_palm, torch.maximum(d_hand_obj, d_palm), d_hand_obj)
 
     # R1: Hand object distance reward
     beta_hand_object = reward_settings["beta_hand_object"]
@@ -348,7 +387,8 @@ def compute_franka_leap_reward(states, reward_settings):
     # R4: Finger curl
     hand_dof_pos = states["q"][:, 10:26] # hand joint angles
     near_object = (d_hand_obj <= reward_settings["curl_reaching_threshold"])
-    finger_pos_diff = torch.sum((hand_dof_pos - reward_settings["grasp_finger_dof_pos"]) ** 2, dim=1)
+    dof_err = (hand_dof_pos - reward_settings["grasp_finger_dof_pos"]) * reward_settings["grasp_finger_dof_mask"]
+    finger_pos_diff = torch.sum(dof_err ** 2, dim=1)
 
     beta_curl = reward_settings["beta_curl"]
     r_curl= torch.exp(-beta_curl * finger_pos_diff)

@@ -3,6 +3,9 @@ Franka + LEAP Hand Env
 """
 
 import os
+import re
+import shutil
+import hashlib
 import time
 from datetime import datetime
 from pathlib import Path
@@ -146,6 +149,8 @@ class FrankaLEAP(VecTask):
 
         # @ray per object success rate logging
         self.env_object_ids = None
+        self.object_id_to_name = []
+        self.mesh_variant_mode = False
 
     def _post_init_buffers(self):
         if not hasattr(self, 'canonical_joint_config'):
@@ -162,8 +167,14 @@ class FrankaLEAP(VecTask):
                 0.65,  0.0,  0.65,  0.65,
                 0.7,  0.2,  0.7,  0.7,
             ]
+            hand_default_3 = [
+                0.0000, 0.0000, 0.0000, 0.0000,
+                -0.0300, 0.0000, 1.0100, 0.6900,
+                0.0000, 0.0000, 0.0000, 0.0000,
+                0.0000, 0.0000, 0.0000, 0.0000,
+            ]
             # @ray default 2 is being used
-            self.hand_default = ([hand_default_1] + [hand_default_2])[self.cfg['env']['grasp_guide_idx']]
+            self.hand_default = ([hand_default_1] + [hand_default_2] + [hand_default_3])[self.cfg['env']['grasp_guide_idx']]
 
             self.canonical_joint_config = torch.tensor(
                 [
@@ -171,11 +182,8 @@ class FrankaLEAP(VecTask):
                     self.hand_default
                 ] * self.num_envs
             ).to(self.device)
-
-        if not hasattr(self, 'default_reset_joint_config'):
-            self.default_reset_joint_config = self.canonical_joint_config.clone()
-
         self.ik_regularization_config = self.canonical_joint_config[:, :7]
+
         self.delta_joint_actions = torch.zeros((self.num_envs, self.num_robot_dofs), device=self.device, dtype=torch.float) # Current delta actions to be deployed
         self.delta_eef_actions = torch.zeros((self.num_envs, self.num_robot_dofs-1), device=self.device, dtype=torch.float) # Current delta actions to be deployed at the end effector
 
@@ -215,17 +223,26 @@ class FrankaLEAP(VecTask):
         # teleport init
         self.num_teleport_envs = int(round(self.object_teleport_args['env_proportion'] * self.num_envs))
         self.teleport_env_ids = torch.randperm(self.num_envs, device=self.device)[:self.num_teleport_envs]
-        tele_n0 = self.object_teleport_args['n0']
-        tele_n1 = self.object_teleport_args['n1']
-        tele_n2 = self.object_teleport_args['n2']
-        self.teleport_probs = torch.zeros(tele_n2, dtype=torch.float32, device=self.device)
-        self.teleport_probs[tele_n0:tele_n1] = 0.5 / (tele_n1 - tele_n0) # until n1 steps, the probability of teleporting sum up to 0.5
-        # for n1~n2 steps, increase the teleport probability quadratically from 0.5 / (tele_n1 - tele_n0) to 1.0
-        indexing = torch.arange(tele_n1, tele_n2, dtype=torch.float32, device=self.device)
-        quad_c = 0.5 / (tele_n1 - tele_n0)
-        quad_b = tele_n1
-        quad_a = (1 - quad_c) / ( (tele_n2 - quad_b)**2 )
-        self.teleport_probs[tele_n1:] = quad_a*(indexing + 1 - quad_b)**2 + quad_c
+        tele_n0 = max(0, int(self.object_teleport_args['n0']))
+        tele_n1 = max(tele_n0, int(self.object_teleport_args['n1']))
+        tele_n2 = max(tele_n1, int(self.object_teleport_args['n2']))
+        schedule_len = max(tele_n2, 1)
+        self.teleport_probs = torch.zeros(schedule_len, dtype=torch.float32, device=self.device)
+        if tele_n2 == 0:
+            self.teleport_probs[:] = 1.0
+        else:
+            flat_prob = 0.0
+            if tele_n1 > tele_n0:
+                flat_prob = 0.5 / (tele_n1 - tele_n0)
+                self.teleport_probs[tele_n0:tele_n1] = flat_prob
+
+            if tele_n2 > tele_n1:
+                indexing = torch.arange(tele_n1, tele_n2, dtype=torch.float32, device=self.device)
+                quad_b = tele_n1
+                quad_a = (1 - flat_prob) / ((tele_n2 - quad_b) ** 2)
+                self.teleport_probs[tele_n1:tele_n2] = quad_a * (indexing + 1 - quad_b) ** 2 + flat_prob
+            elif tele_n1 > 0:
+                self.teleport_probs[tele_n1 - 1:] = flat_prob
         self.teleport_buf = torch.zeros((self.num_envs,), dtype=torch.int, device=self.device)
 
     def _build_joint_mapping(self):
@@ -462,8 +479,14 @@ class FrankaLEAP(VecTask):
             0.9,  0.0,  0.9,  0.9,
             0.95,  0.2,  0.95,  0.95,
         ]
+        grasp_default_3 = [
+            0.7, -0.2, 0.64,  0.7,
+            0.8, 0.88, 0.77,  0.9,
+            0.65, 0.0, 1.04,  0.65,
+            1.1,  -0.11,  0.91,  0.86,
+        ]
 
-        self.grasp_default = ([grasp_default_1] + [grasp_default_2])[self.cfg['env']['grasp_guide_idx']]
+        self.grasp_default = ([grasp_default_1] + [grasp_default_2] + [grasp_default_3])[self.cfg['env']['grasp_guide_idx']]
 
         self.grasp_finger_dof_pos = torch.tensor(self.grasp_default, device=self.device)
 
@@ -571,6 +594,51 @@ class FrankaLEAP(VecTask):
         mesh_name, _ = os.path.splitext(mesh_filename)
 
         urdf_rel = mesh_name + ".urdf"
+        if mass is None:
+            return urdf_rel, mesh_dir
+
+        # Create a temp cached copy of the mesh folder and patch URDF mass there.
+        mass_value = float(mass)
+        scale_vec = np.asarray(scale, dtype=np.float32).reshape(-1)
+        if scale_vec.shape[0] == 1:
+            scale_vec = np.repeat(scale_vec, 3)
+        assert scale_vec.shape[0] == 3, "URDF scale must be scalar or shape (3,)"
+        mass_tag = f"{mass_value:.8g}".replace(".", "p").replace("-", "m")
+        scale_tag = "_".join([f"{float(s):.6g}".replace(".", "p").replace("-", "m") for s in scale_vec])
+        mesh_dir_hash = hashlib.sha1(mesh_dir.encode("utf-8")).hexdigest()[:10]
+        cache_root = os.environ.get(
+            "ISAACGYM_URDF_CACHE_ROOT",
+            os.environ.get("WARP_CACHE_ROOT", os.path.join(os.path.expanduser("~"), ".cache", "isaacgym_urdf_overrides")),
+        )
+        cache_mesh_dir = os.path.join(cache_root, f"{mesh_name}_{mesh_dir_hash}_mass_{mass_tag}_scale_{scale_tag}")
+        os.makedirs(cache_root, exist_ok=True)
+        if not os.path.exists(cache_mesh_dir):
+            shutil.copytree(mesh_dir, cache_mesh_dir)
+
+        cache_urdf_path = os.path.join(cache_mesh_dir, urdf_rel)
+        with open(cache_urdf_path, "r") as f:
+            urdf_text = f.read()
+        patched_urdf_text, n_sub = re.subn(
+            r'(<mass\s+value\s*=\s*")[^"]+("\s*/?>)',
+            rf'\g<1>{mass_value:.8g}\2',
+            urdf_text,
+        )
+        if n_sub == 0:
+            raise ValueError(f"No <mass value=...> tag found in URDF: {cache_urdf_path}")
+
+        scale_str = f"{float(scale_vec[0]):.8g} {float(scale_vec[1]):.8g} {float(scale_vec[2]):.8g}"
+        patched_urdf_text, n_scale_sub = re.subn(
+            r'(<mesh\b[^>]*\bscale\s*=\s*")[^"]+(")',
+            rf'\g<1>{scale_str}\2',
+            patched_urdf_text,
+        )
+        if n_scale_sub == 0:
+            raise ValueError(f"No <mesh ... scale=\"...\"> tag found in URDF: {cache_urdf_path}")
+
+        if patched_urdf_text != urdf_text:
+            with open(cache_urdf_path, "w") as f:
+                f.write(patched_urdf_text)
+        return urdf_rel, cache_mesh_dir
 
         # TODO: change logic in the future, recreating urdf might not be a good idea
         # urdf_path = os.path.join(mesh_dir, urdf_rel)
@@ -606,7 +674,17 @@ class FrankaLEAP(VecTask):
         #     f.write(urdf_str)
         return urdf_rel, mesh_dir
 
-    def _create_mesh(self, mesh_path, pos, scale, quat=[0, 0, 0, 1], fix_base_link=True, obj_str2int=None):
+    def _create_mesh(
+        self,
+        mesh_path,
+        pos,
+        scale,
+        quat=[0, 0, 0, 1],
+        fix_base_link=True,
+        obj_str2int=None,
+        asset_obj_id=None,
+        asset_mesh_id=None,
+    ):
         """
         Args:
             position (np.ndarray): (3,) xyz position of the mesh center
@@ -617,8 +695,23 @@ class FrankaLEAP(VecTask):
             start_pose (gymapi.Transform): start pose of the mesh
         """
         # convert .obj into .urdf file
-        mesh_scale = [scale, scale, scale]
-        urdf_path, asset_root = self._create_mesh_urdf(mesh_path, scale=mesh_scale)
+        if np.isscalar(scale):
+            mesh_scale = [float(scale), float(scale), float(scale)]
+        else:
+            mesh_scale_arr = np.asarray(scale, dtype=np.float32).reshape(-1)
+            assert mesh_scale_arr.shape[0] == 3, "Mesh scale must be scalar or shape (3,)"
+            mesh_scale = mesh_scale_arr.tolist()
+        mesh_mass_range = self.cfg["env"]["object_settings"]["mass_range"]
+        sampled_mesh_mass = None
+        if mesh_mass_range is not None:
+            mass_lo = float(mesh_mass_range[0])
+            mass_hi = float(mesh_mass_range[1])
+            sampled_mesh_mass = float(np.random.uniform(mass_lo, mass_hi))
+        urdf_path, asset_root = self._create_mesh_urdf(
+            mesh_path,
+            scale=mesh_scale,
+            mass=sampled_mesh_mass,
+        )  # CODEX
 
 
         # @ray urdf format
@@ -632,8 +725,10 @@ class FrankaLEAP(VecTask):
         # object specs including id is in apple_1.json
         # asset_specs_path = Path(mesh_path).with_suffix(".json")
 
-        asset_mesh_id = Path(mesh_path).parts[-2]
-        asset_obj_id = int(obj_str2int[asset_mesh_id])
+        if asset_mesh_id is None:
+            asset_mesh_id = Path(mesh_path).parts[-2]
+        if asset_obj_id is None:
+            asset_obj_id = int(obj_str2int[asset_mesh_id])
 
         # Create mesh asset
         opts = gymapi.AssetOptions()
@@ -645,36 +740,137 @@ class FrankaLEAP(VecTask):
         start_pose.r = gymapi.Quat(*quat)  # quat in xyzw order
         return asset, start_pose, scale, asset_obj_id, asset_mesh_id
 
+    def _discover_variant_mesh_entries(self, mesh_dir, object_list):
+        """
+        Discover meshes for both legacy and variant layouts.
+        Returns:
+            List[dict] with keys:
+                mesh_path, asset_obj_id, asset_mesh_id, display_name
+        """
+        type_mapping_path = os.path.join(mesh_dir, "type_mapping.json")
+        entries = []
+
+        if os.path.isfile(type_mapping_path):
+            # Legacy layout: <mesh_dir>/<object>/<mesh>.obj with type_mapping.json at root.
+            with open(type_mapping_path, "r") as f:
+                obj_str2int = json.load(f)
+            if object_list == ["all"]:
+                object_list = [obj for obj in os.listdir(mesh_dir) if obj != "type_mapping.json"]
+            object_list = sorted(
+                object_list,
+                key=lambda obj: (0, obj_str2int[obj]) if obj in obj_str2int else (1, obj),
+            )
+            for obj in object_list:
+                obj_dir = os.path.join(mesh_dir, obj)
+                if not os.path.isdir(obj_dir):
+                    continue
+                for file in sorted(os.listdir(obj_dir)):
+                    if not file.endswith(".obj"):
+                        continue
+                    mesh_path = os.path.join(obj_dir, file)
+                    asset_mesh_id = Path(mesh_path).parts[-2]
+                    entries.append(
+                        {
+                            "mesh_path": mesh_path,
+                            "asset_obj_id": int(obj_str2int[asset_mesh_id]),
+                            "asset_mesh_id": asset_mesh_id,
+                            "display_name": asset_mesh_id,
+                        }
+                    )
+            return entries
+
+        # Variant layout:
+        # - <mesh_dir>/<category>/<object>/<variant>/<object>_<variant>.obj
+        # - <mesh_dir>/<object>/<variant>/<object>_<variant>.obj
+        if object_list == ["all"]:
+            selected_objects = None
+        else:
+            selected_objects = set(object_list)
+
+        variant_entries = []
+        for root, _, files in os.walk(mesh_dir):
+            obj_files = sorted([f for f in files if f.endswith(".obj")])
+            if not obj_files:
+                continue
+            rel_dir = os.path.relpath(root, mesh_dir)
+            parts = rel_dir.split(os.sep)
+            if len(parts) == 3:
+                category, object_name, variant = parts
+                mesh_rel_prefix = os.path.join(category, object_name, variant)
+            elif len(parts) == 2:
+                object_name, variant = parts
+                category = Path(mesh_dir).name
+                mesh_rel_prefix = os.path.join(object_name, variant)
+            else:
+                continue
+            if selected_objects is not None and object_name not in selected_objects:
+                continue
+            for obj_file in obj_files:
+                if not obj_file.startswith(f"{object_name}_{variant}"):
+                    continue
+                mesh_path = os.path.join(root, obj_file)
+                mesh_stem = os.path.splitext(obj_file)[0]
+                json_path = os.path.join(root, mesh_stem + ".json")
+                if not os.path.isfile(json_path):
+                    continue
+                with open(json_path, "r") as jf:
+                    meta = json.load(jf)
+                if meta["transform_model"] != "dilation_only_v1":
+                    continue
+                # mesh_id can be a nested relative path; ObjaMesh handles this directly.
+                mesh_id_rel = os.path.join(mesh_rel_prefix, mesh_stem)
+                display_name = f"{object_name}_{variant}"
+                variant_entries.append((display_name, mesh_path, mesh_id_rel, meta["dilation_range"]))
+
+        variant_entries = sorted(variant_entries, key=lambda x: (x[0], x[1]))
+        for idx, (display_name, mesh_path, mesh_id_rel, dilation_range) in enumerate(variant_entries):
+            entries.append(
+                {
+                    "mesh_path": mesh_path,
+                    "asset_obj_id": idx + 1,  # keep >0 for ObjaMesh filtering
+                    "asset_mesh_id": mesh_id_rel,
+                    "display_name": display_name,
+                    "dilation_range": dilation_range,
+                }
+            )
+        return entries
+
     def create_rand_mesh(self, fix_base_link=False):
         # get randomly sampled mesh path
         mesh_dir = self.mesh_args["mesh_dir"]
         object_list = self.mesh_args["obj_list"]
-
-        if object_list == ["all"]:
-            object_list = [
-                obj
-                for obj in os.listdir(mesh_dir)
-                if obj != "type_mapping.json"
-            ]
-
-        mesh_files = [
-            os.path.join(mesh_dir, obj, file)
-            for obj in object_list
-            for file in os.listdir(os.path.join(mesh_dir, obj))
-            if file.endswith(".obj")
-        ]
-        mesh_sampler = lambda: random.choice(mesh_files)
-        sampled_mesh_path = mesh_sampler()
+        mesh_entries = self._discover_variant_mesh_entries(mesh_dir, object_list)
+        sampled = random.choice(mesh_entries)
+        sampled_mesh_path = sampled["mesh_path"]
 
         # sample random size, pos and ori
         scale_range = self.cfg["env"]["object_settings"]["scale_range"]
         pos_range = self.cfg["env"]["object_settings"]["xyz_range"]
 
-        mesh_scale = np.random.uniform(scale_range[0], scale_range[1])
+        if "dilation_range" in sampled:
+            d = sampled["dilation_range"]
+            mesh_scale = np.array(
+                [
+                    np.random.uniform(float(d["x"]["min"]), float(d["x"]["max"])),
+                    np.random.uniform(float(d["y"]["min"]), float(d["y"]["max"])),
+                    np.random.uniform(float(d["z"]["min"]), float(d["z"]["max"])),
+                ],
+                dtype=np.float32,
+            )
+        else:
+            mesh_scale = np.random.uniform(scale_range[0], scale_range[1])
         mesh_pos = np.random.uniform(pos_range[0], pos_range[1])
         mesh_quat = R.random().as_quat()  # [x, y, z, w]
 
-        return self._create_mesh(sampled_mesh_path, mesh_pos, mesh_scale, mesh_quat, fix_base_link)
+        return self._create_mesh(
+            sampled_mesh_path,
+            mesh_pos,
+            mesh_scale,
+            mesh_quat,
+            fix_base_link,
+            asset_obj_id=sampled["asset_obj_id"],
+            asset_mesh_id=sampled["asset_mesh_id"],
+        )
 
     def create_all_meshes(self, fix_base_link=False):
         """
@@ -688,32 +884,41 @@ class FrankaLEAP(VecTask):
         mesh_dir = self.mesh_args["mesh_dir"]
         object_list = self.mesh_args["obj_list"]
 
-        if object_list == ["all"]:
-            object_list = [
-                obj
-                for obj in os.listdir(mesh_dir)
-                if obj != "type_mapping.json"
-            ]
+        mesh_entries = self._discover_variant_mesh_entries(mesh_dir, object_list)
+        if len(mesh_entries) == 0:
+            raise RuntimeError(
+                f"No mesh entries discovered under mesh_dir={mesh_dir} "
+                f"with obj_list={object_list}. "
+                "Expected legacy layout with type_mapping.json or variant layout "
+                "(mesh_dir/object/variant/*.obj or mesh_dir/category/object/variant/*.obj)."
+            )
+        self.mesh_variant_mode = ("dilation_range" in mesh_entries[0])
+        if self.mesh_variant_mode:
+            base_entries = mesh_entries
+            # CODEX: keep per-object metrics keyed by true variants (not expanded preload copies).
+            self.object_id_to_name = [e["display_name"] for e in base_entries]
 
-        obj_mapping_path = os.path.join(mesh_dir, "type_mapping.json")
-        with open(obj_mapping_path, "r") as f:
-            obj_str2int = json.load(f)
-        object_list = sorted(
-            object_list,
-            key=lambda obj: (0, obj_str2int[obj]) if obj in obj_str2int else (1, obj),
-        )
+            variant_count = len(base_entries)
+            preload_multiplier = int(self.mesh_args.get("variant_preload_multiplier", 1))
+            if preload_multiplier < 1:
+                raise ValueError("env.mesh.variant_preload_multiplier must be >= 1")
 
-        mesh_files = []
-        for obj in object_list:
-            obj_dir = os.path.join(mesh_dir, obj)
-            if not os.path.isdir(obj_dir):
-                continue
-            for file in sorted(os.listdir(obj_dir)):
-                if file.endswith(".obj"):
-                    mesh_files.append(os.path.join(obj_dir, file))
+            target_preload = variant_count * preload_multiplier
+            max_preload = int(self.mesh_args.get("variant_preload_max", self.num_envs))
+            if max_preload > 0:
+                target_preload = min(target_preload, max_preload)
+            target_preload = min(target_preload, self.num_envs)
+            target_preload = max(1, target_preload)
+
+            # Build a pooled preload list by repeating variants as needed, then shuffle.
+            idx = np.arange(target_preload, dtype=np.int64) % variant_count
+            np.random.shuffle(idx)
+            mesh_entries = [base_entries[int(i)] for i in idx.tolist()]
+        else:
+            self.object_id_to_name = [e["display_name"] for e in mesh_entries]
 
         meshes = []
-        for mesh_file_path in tqdm(mesh_files, desc="Preparing Meshes"):
+        for entry in tqdm(mesh_entries, desc="Preparing Meshes"):
             # sample random size, pos and ori
             scale_range = self.cfg["env"]["object_settings"]["scale_range"]
             pos_range = self.cfg["env"]["object_settings"]["xyz_range"]
@@ -722,7 +927,13 @@ class FrankaLEAP(VecTask):
             mesh_pos = np.random.uniform(pos_range[0], pos_range[1])
             mesh_quat = R.random().as_quat()
             asset, start_pose, scale, asset_obj_id, asset_mesh_id = self._create_mesh(
-                mesh_file_path, mesh_pos, mesh_scale, mesh_quat, fix_base_link, obj_str2int
+                entry["mesh_path"],
+                mesh_pos,
+                mesh_scale,
+                mesh_quat,
+                fix_base_link,
+                asset_obj_id=entry["asset_obj_id"],
+                asset_mesh_id=entry["asset_mesh_id"],
             )
             meshes.append((asset, start_pose, scale, asset_obj_id, asset_mesh_id))
 
@@ -745,8 +956,8 @@ class FrankaLEAP(VecTask):
     def _update_states(self):
         # update arm eef state
         eef_rot_mat = quaternion_to_matrix_ig(self._eef_state[:, 3:7])
-        eef_rot_mat_T = eef_rot_mat.transpose(1, 2)
         eef_rot_6d = matrix_to_rotation_6d(eef_rot_mat)
+        eef_rot_mat_t = eef_rot_mat.transpose(1, 2)
 
         # update object state
         object_center_pos = self._object_state[:, :3].clone()
@@ -758,29 +969,28 @@ class FrankaLEAP(VecTask):
 
         object_rot_6d = matrix_to_rotation_6d(object_rot_mat)
 
-        object_rot_mat_in_eef_frame = torch.matmul(eef_rot_mat_T, object_rot_mat)
+        object_rot_mat_in_eef_frame = torch.matmul(eef_rot_mat.transpose(1, 2), object_rot_mat)
         object_to_eef_rot_6d = matrix_to_rotation_6d(object_rot_mat_in_eef_frame)
 
         # update target state
         target_rot_mat = quaternion_to_matrix_ig(self.reward_settings["target_quat"])
-        target_rot_mat_in_eef_frame = torch.matmul(eef_rot_mat_T, target_rot_mat)
+        target_rot_mat_in_eef_frame = torch.matmul(eef_rot_mat.transpose(1, 2), target_rot_mat)
         target_to_eef_rot_6d = matrix_to_rotation_6d(target_rot_mat_in_eef_frame)
 
-        # get world frame pos / delta pos, and convert them to eef frame
         eef_pos = self._eef_state[:, :3]
-        eef_finger1_pos_relative_world = self._eef_finger1_state[:, :3] - eef_pos
-        eef_finger2_pos_relative_world = self._eef_finger2_state[:, :3] - eef_pos
-        eef_finger3_pos_relative_world = self._eef_finger3_state[:, :3] - eef_pos
-        eef_finger4_pos_relative_world = self._eef_finger4_state[:, :3] - eef_pos
+        finger1_rel_world = self._eef_finger1_state[:, :3] - eef_pos
+        finger2_rel_world = self._eef_finger2_state[:, :3] - eef_pos
+        finger3_rel_world = self._eef_finger3_state[:, :3] - eef_pos
+        finger4_rel_world = self._eef_finger4_state[:, :3] - eef_pos
         object_to_eef_world = object_center_pos - eef_pos
         target_to_eef_world = self.reward_settings["target_pos"] - eef_pos
 
-        eef_finger1_pos_relative = torch.matmul(eef_rot_mat_T, eef_finger1_pos_relative_world.unsqueeze(-1)).squeeze(-1)
-        eef_finger2_pos_relative = torch.matmul(eef_rot_mat_T, eef_finger2_pos_relative_world.unsqueeze(-1)).squeeze(-1)
-        eef_finger3_pos_relative = torch.matmul(eef_rot_mat_T, eef_finger3_pos_relative_world.unsqueeze(-1)).squeeze(-1)
-        eef_finger4_pos_relative = torch.matmul(eef_rot_mat_T, eef_finger4_pos_relative_world.unsqueeze(-1)).squeeze(-1)
-        object_to_eef = torch.matmul(eef_rot_mat_T, object_to_eef_world.unsqueeze(-1)).squeeze(-1)
-        target_to_eef = torch.matmul(eef_rot_mat_T, target_to_eef_world.unsqueeze(-1)).squeeze(-1)
+        finger1_rel_eef = torch.matmul(eef_rot_mat_t, finger1_rel_world.unsqueeze(-1)).squeeze(-1)
+        finger2_rel_eef = torch.matmul(eef_rot_mat_t, finger2_rel_world.unsqueeze(-1)).squeeze(-1)
+        finger3_rel_eef = torch.matmul(eef_rot_mat_t, finger3_rel_world.unsqueeze(-1)).squeeze(-1)
+        finger4_rel_eef = torch.matmul(eef_rot_mat_t, finger4_rel_world.unsqueeze(-1)).squeeze(-1)
+        object_to_eef = torch.matmul(eef_rot_mat_t, object_to_eef_world.unsqueeze(-1)).squeeze(-1)
+        target_to_eef = torch.matmul(eef_rot_mat_t, target_to_eef_world.unsqueeze(-1)).squeeze(-1)
 
         # @ray we don't need pos and rot error except for side grasp table
         # probably should refactor to use separate update states later
@@ -831,10 +1041,10 @@ class FrankaLEAP(VecTask):
             "eef_finger4_pos": self._eef_finger4_state[:, :3],
 
             # Fingertip positions relative to hand base (palm_center)
-            "eef_finger1_pos_relative": eef_finger1_pos_relative,
-            "eef_finger2_pos_relative": eef_finger2_pos_relative,
-            "eef_finger3_pos_relative": eef_finger3_pos_relative,
-            "eef_finger4_pos_relative": eef_finger4_pos_relative,
+            "eef_finger1_pos_relative": finger1_rel_eef,
+            "eef_finger2_pos_relative": finger2_rel_eef,
+            "eef_finger3_pos_relative": finger3_rel_eef,
+            "eef_finger4_pos_relative": finger4_rel_eef,
 
             # Object
             "object_quat": self._object_state[:, 3:7],
@@ -901,7 +1111,7 @@ class FrankaLEAP(VecTask):
     def check_robot_collision(self):
         # TODO: figure out arm & hand collision
         self.gym.refresh_net_contact_force_tensor(self.sim)
-        self.env_collision = torch.where(
+        self.scene_collision = torch.where(
             torch.norm(torch.sum(self.contact_forces[:, :30, :], dim=1), dim=1) > 1.0, 1.0, 0.0
         )  # the first 30 elements belong to franka + leap
         self.collision = torch.where(
@@ -1403,13 +1613,10 @@ class FrankaLEAP(VecTask):
         if self.randomize:
             self.apply_randomizations(self.randomization_params)
 
-        if env_ids is None:
-            env_ids = torch.arange(self.num_envs, device=self.device)
+        # if env_ids is None:
+        #     env_ids = torch.arange(self.num_envs, device=self.device)
 
         self._reset_object_state(env_ids) # reset object state
-
-        if env_ids.numel() == 0:
-            return
 
         reset_noise = torch.rand((len(env_ids), 23), device=self.device) # [0, 1]
         reset_noise = 2.0 * (reset_noise - 0.5) # [-1, 1]
@@ -1417,12 +1624,12 @@ class FrankaLEAP(VecTask):
 
         if self.reset_noise_scale["leap"] is None:
             reset_noise[:, 7:] = self.unnormalize_robot_joints(reset_noise[:, 7:], robot="hand", delta=False)
-            reset_noise[:, 7:] -= self.default_reset_joint_config[env_ids, 7:]
+            reset_noise[:, 7:] -= self.canonical_joint_config[env_ids, 7:]
         else:
             reset_noise[:, 7:] *= self.reset_noise_scale["leap"]
 
         reset_joint_config = tensor_clamp(
-            self.default_reset_joint_config[env_ids] + reset_noise,
+            self.canonical_joint_config[env_ids] + reset_noise,
             self.robot_dof_lower_limits,
             self.robot_dof_upper_limits,
         )
@@ -1514,7 +1721,7 @@ class FrankaLEAP(VecTask):
             pos_actions_world = torch.matmul(eef_rot_mat, pos_actions_local.unsqueeze(-1)).squeeze(-1)
             ctrl_target_eef_pos = self.states["eef_pos"] + pos_actions_world
 
-            # Interpret rotation deltas as target rot (axis-angle) displacements in EEF-local frame.
+            # Interpret rotation deltas in EEF-local frame.
             rot_actions_local = actions[:, 3:6] * self.action_scale["eef_rot"] * self.dt
             angle = torch.norm(rot_actions_local, p=2, dim=-1)
             axis = rot_actions_local / angle.unsqueeze(-1).clamp_min(1.0e-8)
@@ -1524,10 +1731,10 @@ class FrankaLEAP(VecTask):
             rot_actions_quat_local = torch.where(
                 angle.unsqueeze(-1).repeat(1, 4) > 1.0e-6,
                 rot_actions_quat_local,
-                torch.tensor([0.0, 0.0, 0.0, 1.0], device=self.device).repeat(self.num_envs, 1),
+                torch.tensor([0.0, 0.0, 0.0, 1.0], device=self.device).repeat(actions.shape[0], 1),
             )
             # Local-frame composition: q_target = q_current * q_delta_local.
-            ctrl_target_eef_quat = quat_mul(self.states["eef_quat"], rot_actions_quat_local) # xyzw format
+            ctrl_target_eef_quat = quat_mul(self.states["eef_quat"], rot_actions_quat_local)
 
             delta_arm_joint_actions_unnormalized = eef_ctrl.compute_dof_pos_delta(
                 arm_dof_pos=self.states['q'][:, :7],
@@ -1565,7 +1772,8 @@ class FrankaLEAP(VecTask):
         self.teleport_buf = self.teleport_buf % self.object_teleport_args['n2']
 
         env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
-        self.reset_idx(env_ids)
+        if env_ids.numel() > 0:
+            self.reset_idx(env_ids)
 
         self.compute_observations()
         if self.debug_viz and self.viewer is not None:
