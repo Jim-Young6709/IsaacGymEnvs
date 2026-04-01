@@ -73,7 +73,7 @@ dagger:
   aux_feedback_start_steps: 30000
 
   teacher_forcing:
-    enable: False
+    enable: True
     warmup_episodes: 10
     scheduling_episodes: 10 # after warmup episodes, linearly decay teacher forcing envs to 0 over these many episodes
 

@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "avocado_1",
+  "base_name": "avocado_1",
+  "full_name": "avocado_1",
+  "category": "small",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-03-15 02:35:48",
+  "transform": {
+    "dilate_x": 0.9866666666666666,
+    "dilate_y": 1.446666666666667,
+    "dilate_z": 0.5066666666666662,
+    "dilate_x_min": 0.6799999999999997,
+    "dilate_x_max": 1.2933333333333334,
+    "dilate_y_min": 1.02,
+    "dilate_y_max": 1.873333333333334,
+    "dilate_z_min": 0.4399999999999995,
+    "dilate_z_max": 0.5733333333333329,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 0.6799999999999997,
+      "max": 1.2933333333333334
+    },
+    "y": {
+      "min": 1.02,
+      "max": 1.873333333333334
+    },
+    "z": {
+      "min": 0.4399999999999995,
+      "max": 0.5733333333333329
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.06721859,
+        0.06714323,
+        0.10025154
+      ],
+      "volume": 0.00021646676907979883,
+      "max_dim": 0.10025154
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.06632234213333332,
+        0.09713387273333336,
+        0.05079411359999995
+      ],
+      "volume": 0.0001565497936113416,
+      "max_dim": 0.09713387273333336
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/avocado_1/v000/avocado_1_v000.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/avocado_1/v000/avocado_1_v000.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/avocado_1/v000/avocado_1_v000.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/avocado_1/v000/avocado_1_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/avocado_1/avocado_1.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/avocado_1/avocado_1.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/avocado_1/avocado_1.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/avocado_1/avocado_1.urdf"
+    }
+  }
+}

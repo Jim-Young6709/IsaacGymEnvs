@@ -437,4 +437,3 @@ class Dagger:
                 print("\n")
             
             self.episode += 1
-

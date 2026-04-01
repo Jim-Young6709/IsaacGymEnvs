@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "Band_Aid_0",
+  "base_name": "Band_Aid_0",
+  "full_name": "Band_Aid_0",
+  "category": "small",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-03-15 01:20:31",
+  "transform": {
+    "dilate_x": 0.4299999999999995,
+    "dilate_y": 1.1500000000000001,
+    "dilate_z": 0.8699999999999999,
+    "dilate_x_min": 0.35999999999999943,
+    "dilate_x_max": 0.49999999999999956,
+    "dilate_y_min": 0.5999999999999996,
+    "dilate_y_max": 1.7000000000000006,
+    "dilate_z_min": 0.6999999999999997,
+    "dilate_z_max": 1.04,
+    "rot_x": 0.0,
+    "rot_y": 90.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 0.35999999999999943,
+      "max": 0.49999999999999956
+    },
+    "y": {
+      "min": 0.5999999999999996,
+      "max": 1.7000000000000006
+    },
+    "z": {
+      "min": 0.6999999999999997,
+      "max": 1.04
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.09973916,
+        0.07561424,
+        0.07561424
+      ],
+      "volume": 0.00043640538693452723,
+      "max_dim": 0.09973916
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.0657843888,
+        0.086956376,
+        0.04288783879999995
+      ],
+      "volume": 0.0001877481435400374,
+      "max_dim": 0.086956376
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/Band_Aid_0/v000/Band_Aid_0_v000.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/Band_Aid_0/v000/Band_Aid_0_v000.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/Band_Aid_0/v000/Band_Aid_0_v000.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/Band_Aid_0/v000/Band_Aid_0_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/Band_Aid_0/Band_Aid_0.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/Band_Aid_0/Band_Aid_0.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/Band_Aid_0/Band_Aid_0.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/Band_Aid_0/Band_Aid_0.urdf"
+    }
+  }
+}

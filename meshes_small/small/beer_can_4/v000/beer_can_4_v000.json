@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "beer_can_4",
+  "base_name": "beer_can_4",
+  "full_name": "beer_can_4",
+  "category": "small",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-03-15 02:58:20",
+  "transform": {
+    "dilate_x": 1.04,
+    "dilate_y": 1.7000000000000006,
+    "dilate_z": 0.5699999999999996,
+    "dilate_x_min": 0.7199999999999998,
+    "dilate_x_max": 1.3600000000000003,
+    "dilate_y_min": 1.02,
+    "dilate_y_max": 2.3800000000000012,
+    "dilate_z_min": 0.49999999999999956,
+    "dilate_z_max": 0.6399999999999997,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 0.7199999999999998,
+      "max": 1.3600000000000003
+    },
+    "y": {
+      "min": 1.02,
+      "max": 2.3800000000000012
+    },
+    "z": {
+      "min": 0.49999999999999956,
+      "max": 0.6399999999999997
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.051230109999999995,
+        0.05123011,
+        0.09928705
+      ],
+      "volume": 0.00018582188426455852,
+      "max_dim": 0.09928705
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.0532793144,
+        0.08709118700000004,
+        0.05659361849999996
+      ],
+      "volume": 0.0001872638620864515,
+      "max_dim": 0.08709118700000004
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/beer_can_4/v000/beer_can_4_v000.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/beer_can_4/v000/beer_can_4_v000.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/beer_can_4/v000/beer_can_4_v000.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/beer_can_4/v000/beer_can_4_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/beer_can_4/beer_can_4.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/beer_can_4/beer_can_4.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/beer_can_4/beer_can_4.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/beer_can_4/beer_can_4.urdf"
+    }
+  }
+}

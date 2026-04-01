@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "aquarium_0",
+  "base_name": "aquarium_0",
+  "full_name": "aquarium_0",
+  "category": "small",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-03-15 02:25:09",
+  "transform": {
+    "dilate_x": 0.6099999999999997,
+    "dilate_y": 0.95,
+    "dilate_z": 0.6199999999999997,
+    "dilate_x_min": 0.4599999999999995,
+    "dilate_x_max": 0.7599999999999998,
+    "dilate_y_min": 0.6599999999999997,
+    "dilate_y_max": 1.2400000000000002,
+    "dilate_z_min": 0.4599999999999995,
+    "dilate_z_max": 0.7799999999999998,
+    "rot_x": 0.0,
+    "rot_y": 180.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 0.4599999999999995,
+      "max": 0.7599999999999998
+    },
+    "y": {
+      "min": 0.6599999999999997,
+      "max": 1.2400000000000002
+    },
+    "z": {
+      "min": 0.4599999999999995,
+      "max": 0.7799999999999998
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.10323929,
+        0.10323929,
+        0.08458678
+      ],
+      "volume": 0.00046721392094111434,
+      "max_dim": 0.10323929
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.06297596689999996,
+        0.09807732549999999,
+        0.05244380359999998
+      ],
+      "volume": 0.00016786528965493275,
+      "max_dim": 0.09807732549999999
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/aquarium_0/v000/aquarium_0_v000.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/aquarium_0/v000/aquarium_0_v000.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/aquarium_0/v000/aquarium_0_v000.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/aquarium_0/v000/aquarium_0_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/aquarium_0/aquarium_0.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/aquarium_0/aquarium_0.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/aquarium_0/aquarium_0.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/aquarium_0/aquarium_0.urdf"
+    }
+  }
+}

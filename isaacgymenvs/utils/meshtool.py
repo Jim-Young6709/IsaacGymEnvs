@@ -14,9 +14,9 @@ import pyqtgraph.opengl as gl
 
 
 # ========= CONFIG ========= #
-MESH_ROOT = "/home/rayliu/IsaacGymEnvs/meshes"
-OUTPUT_ROOT = "/home/rayliu/IsaacGymEnvs/meshes_sorted"
-REF_PATH = "/home/rayliu/IsaacGymEnvs/meshes_debug/apple"
+MESH_ROOT = "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long"
+OUTPUT_ROOT = "/home/rayliu/grogu/IsaacGymEnvs/meshes_side"
+REF_PATH = "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long/beer_can_1"
 
 CATEGORY_DIRS = {
     "regular": "regular",
@@ -496,10 +496,10 @@ class MeshToolApp(QtWidgets.QWidget):
         # Slider/Spin
         scale_row = QtWidgets.QHBoxLayout()
         self.scale_spin = QtWidgets.QDoubleSpinBox()
-        self.scale_spin.setRange(0.1, 3.0); self.scale_spin.setSingleStep(0.025); self.scale_spin.setValue(1.0)
+        self.scale_spin.setRange(0.01, 3.0); self.scale_spin.setSingleStep(0.01); self.scale_spin.setValue(1.0)
         
         self.scale_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
-        self.scale_slider.setRange(10, 300); self.scale_slider.setValue(100)
+        self.scale_slider.setRange(1, 300); self.scale_slider.setValue(100)
         
         scale_row.addWidget(QtWidgets.QLabel("Scale:"))
         scale_row.addWidget(self.scale_spin)
@@ -508,12 +508,22 @@ class MeshToolApp(QtWidgets.QWidget):
 
         # Load Mode Dropdown
         mode_row = QtWidgets.QHBoxLayout()
-        self.load_mode_combo = QtWidgets.QComboBox()
-        self.load_mode_combo.addItems(["1. Always Reset", "2. Keep Settings", "3. Load Saved"])
-        self.load_mode_combo.setCurrentIndex(2)
         mode_row.addWidget(QtWidgets.QLabel("On Load:"))
-        mode_row.addWidget(self.load_mode_combo)
+        mode_row.addWidget(QtWidgets.QLabel("State source"))
         sc_layout.addLayout(mode_row)
+
+        # CODEX: Visualization state-source toggles.
+        # 1/2 are mutually exclusive; both can fall back to 3.
+        self.chk_load_from_load_dir = QtWidgets.QCheckBox("1. Load from load dir")
+        self.chk_load_from_save_dir = QtWidgets.QCheckBox("2. Load from save dir")
+        self.chk_reuse_last_scale_set = QtWidgets.QCheckBox("3. Reuse last scale set")
+        self.chk_load_from_save_dir.setChecked(True)
+        self.chk_reuse_last_scale_set.setChecked(True)
+        self.chk_load_from_load_dir.stateChanged.connect(self._on_load_source_toggle)
+        self.chk_load_from_save_dir.stateChanged.connect(self._on_load_source_toggle)
+        sc_layout.addWidget(self.chk_load_from_load_dir)
+        sc_layout.addWidget(self.chk_load_from_save_dir)
+        sc_layout.addWidget(self.chk_reuse_last_scale_set)
 
         # Cat Buttons
         btn_reg = QtWidgets.QPushButton("Regular (1)"); btn_reg.setObjectName("accentButton")
@@ -1189,6 +1199,55 @@ class MeshToolApp(QtWidgets.QWidget):
             "rot_z": None,
         }
 
+    def _on_load_source_toggle(self):
+        # CODEX: 1 and 2 must be mutually exclusive.
+        sender = self.sender()
+        if sender is self.chk_load_from_load_dir and self.chk_load_from_load_dir.isChecked():
+            self.chk_load_from_save_dir.blockSignals(True)
+            self.chk_load_from_save_dir.setChecked(False)
+            self.chk_load_from_save_dir.blockSignals(False)
+        elif sender is self.chk_load_from_save_dir and self.chk_load_from_save_dir.isChecked():
+            self.chk_load_from_load_dir.blockSignals(True)
+            self.chk_load_from_load_dir.setChecked(False)
+            self.chk_load_from_load_dir.blockSignals(False)
+
+    def _state_from_load_dir(self, entry: MeshEntry) -> Optional[Dict[str, float]]:
+        # CODEX: Try loading per-object transform state from the source/load dir.
+        obj_dir = os.path.dirname(entry.obj_path)
+        candidates = [
+            os.path.join(obj_dir, f"{entry.base_name}.json"),
+            os.path.join(obj_dir, f"{entry.label}_{entry.base_name}.json"),
+        ]
+        for p in candidates:
+            if not os.path.isfile(p):
+                continue
+            try:
+                with open(p, "r") as f:
+                    data = json.load(f)
+                scale = float(data.get("scale", 1.0))
+                r = data.get("rotation_degrees", {})
+                return {
+                    "scale": scale,
+                    "rot_x": float(r.get("x", 0.0)),
+                    "rot_y": float(r.get("y", 0.0)),
+                    "rot_z": float(r.get("z", 0.0)),
+                }
+            except Exception:
+                continue
+        return None
+
+    def _state_from_save_dir(self, entry: MeshEntry) -> Optional[Dict[str, float]]:
+        # CODEX: Reuse existing save-dir state lookup.
+        info = self._get_fs_status(entry)
+        if info["state"] in ("saved", "discarded") and info["scale"] is not None:
+            return {
+                "scale": float(info["scale"]),
+                "rot_x": float(info["rot_x"] or 0.0),
+                "rot_y": float(info["rot_y"] or 0.0),
+                "rot_z": float(info["rot_z"] or 0.0),
+            }
+        return None
+
     def _update_save_state_label(self):
         """Show whether current object is saved / discarded / untouched."""
         if not (0 <= self.index < len(self.entries)):
@@ -1281,28 +1340,26 @@ class MeshToolApp(QtWidgets.QWidget):
         # -------------------------------------
 
         fs_info = self._get_fs_status(entry)
-        is_saved = fs_info["state"] in ("saved", "discarded")
-
-        mode = self.load_mode_combo.currentIndex()
-        
         target_scale = 1.0
         target_rx = 0.0
         target_ry = 0.0
         target_rz = 0.0
 
-        if mode == 0: 
-            pass 
-        elif mode == 1:
-            target_scale = self.scale_spin.value()
-            target_rx = self.rotation_x_degrees
-            target_ry = self.rotation_y_degrees
-            target_rz = self.rotation_z_degrees
-        elif mode == 2:
-            if is_saved and fs_info["scale"] is not None:
-                target_scale = float(fs_info["scale"])
-                target_rx = float(fs_info["rot_x"] or 0.0)
-                target_ry = float(fs_info["rot_y"] or 0.0)
-                target_rz = float(fs_info["rot_z"] or 0.0)
+        # CODEX: source selection with fallback to option 3.
+        selected_state = None
+        if self.chk_load_from_load_dir.isChecked():
+            selected_state = self._state_from_load_dir(entry)
+        elif self.chk_load_from_save_dir.isChecked():
+            selected_state = self._state_from_save_dir(entry)
+
+        if selected_state is None and self.chk_reuse_last_scale_set.isChecked():
+            selected_state = self.last_state
+
+        if selected_state is not None:
+            target_scale = float(selected_state.get("scale", 1.0))
+            target_rx = float(selected_state.get("rot_x", 0.0))
+            target_ry = float(selected_state.get("rot_y", 0.0))
+            target_rz = float(selected_state.get("rot_z", 0.0))
 
         self.rotation_x_degrees = target_rx
         self.rotation_y_degrees = target_ry

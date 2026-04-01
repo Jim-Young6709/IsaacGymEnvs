@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "ambulance_2",
+  "base_name": "ambulance_2",
+  "full_name": "ambulance_2",
+  "category": "small",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-03-15 02:23:04",
+  "transform": {
+    "dilate_x": 0.94,
+    "dilate_y": 1.3100000000000003,
+    "dilate_z": 0.99,
+    "dilate_x_min": 0.6199999999999997,
+    "dilate_x_max": 1.2600000000000002,
+    "dilate_y_min": 0.7199999999999998,
+    "dilate_y_max": 1.9000000000000008,
+    "dilate_z_min": 0.8399999999999999,
+    "dilate_z_max": 1.1400000000000001,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 90.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 0.6199999999999997,
+      "max": 1.2600000000000002
+    },
+    "y": {
+      "min": 0.7199999999999998,
+      "max": 1.9000000000000008
+    },
+    "z": {
+      "min": 0.8399999999999999,
+      "max": 1.1400000000000001
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.09997997,
+        0.04069928,
+        0.04493451
+      ],
+      "volume": 0.00013940324306111005,
+      "max_dim": 0.09997997
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.05331605680000001,
+        0.09398117179999999,
+        0.0444851649
+      ],
+      "volume": 0.00016994454197039643,
+      "max_dim": 0.09398117179999999
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/ambulance_2/v000/ambulance_2_v000.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/ambulance_2/v000/ambulance_2_v000.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/ambulance_2/v000/ambulance_2_v000.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/ambulance_2/v000/ambulance_2_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/ambulance_2/ambulance_2.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/ambulance_2/ambulance_2.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/ambulance_2/ambulance_2.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/ambulance_2/ambulance_2.urdf"
+    }
+  }
+}

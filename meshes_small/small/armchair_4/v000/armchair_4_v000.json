@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "armchair_4",
+  "base_name": "armchair_4",
+  "full_name": "armchair_4",
+  "category": "small",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-03-15 02:26:00",
+  "transform": {
+    "dilate_x": 1.03,
+    "dilate_y": 1.6400000000000006,
+    "dilate_z": 0.5799999999999996,
+    "dilate_x_min": 0.6599999999999997,
+    "dilate_x_max": 1.4000000000000004,
+    "dilate_y_min": 0.8399999999999999,
+    "dilate_y_max": 2.4400000000000013,
+    "dilate_z_min": 0.4399999999999995,
+    "dilate_z_max": 0.7199999999999998,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 0.6599999999999997,
+      "max": 1.4000000000000004
+    },
+    "y": {
+      "min": 0.8399999999999999,
+      "max": 2.4400000000000013
+    },
+    "z": {
+      "min": 0.4399999999999995,
+      "max": 0.7199999999999998
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.05392735,
+        0.04666964,
+        0.08976382
+      ],
+      "volume": 2.3465514224223732e-05,
+      "max_dim": 0.08976382
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.055545170500000005,
+        0.07653820960000002,
+        0.052063015599999964
+      ],
+      "volume": 2.299000904398405e-05,
+      "max_dim": 0.07653820960000002
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/armchair_4/v000/armchair_4_v000.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/armchair_4/v000/armchair_4_v000.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/armchair_4/v000/armchair_4_v000.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/armchair_4/v000/armchair_4_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/armchair_4/armchair_4.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/armchair_4/armchair_4.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/armchair_4/armchair_4.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/armchair_4/armchair_4.urdf"
+    }
+  }
+}

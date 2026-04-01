@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "armor_4",
+  "base_name": "armor_4",
+  "full_name": "armor_4",
+  "category": "small",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-03-15 02:26:58",
+  "transform": {
+    "dilate_x": 0.7499999999999998,
+    "dilate_y": 1.2200000000000002,
+    "dilate_z": 0.7099999999999997,
+    "dilate_x_min": 0.5599999999999996,
+    "dilate_x_max": 0.94,
+    "dilate_y_min": 0.5599999999999996,
+    "dilate_y_max": 1.8800000000000008,
+    "dilate_z_min": 0.5599999999999996,
+    "dilate_z_max": 0.8599999999999999,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 0.5599999999999996,
+      "max": 0.94
+    },
+    "y": {
+      "min": 0.5599999999999996,
+      "max": 1.8800000000000008
+    },
+    "z": {
+      "min": 0.5599999999999996,
+      "max": 0.8599999999999999
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.10000009,
+        0.06118673,
+        0.08227487
+      ],
+      "volume": 0.0002845317762965127,
+      "max_dim": 0.10000009
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.07500006749999999,
+        0.07464781060000002,
+        0.05841515769999998
+      ],
+      "volume": 0.00018484606847102937,
+      "max_dim": 0.07500006749999999
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/armor_4/v000/armor_4_v000.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/armor_4/v000/armor_4_v000.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/armor_4/v000/armor_4_v000.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/armor_4/v000/armor_4_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/armor_4/armor_4.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/armor_4/armor_4.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/armor_4/armor_4.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/armor_4/armor_4.urdf"
+    }
+  }
+}

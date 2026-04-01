@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "battery_4",
+  "base_name": "battery_4",
+  "full_name": "battery_4",
+  "category": "small",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-03-15 02:50:34",
+  "transform": {
+    "dilate_x": 0.8599999999999999,
+    "dilate_y": 0.9299999999999999,
+    "dilate_z": 0.8099999999999998,
+    "dilate_x_min": 0.6399999999999997,
+    "dilate_x_max": 1.08,
+    "dilate_y_min": 0.6399999999999997,
+    "dilate_y_max": 1.2200000000000002,
+    "dilate_z_min": 0.6399999999999997,
+    "dilate_z_max": 0.98,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 90.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 0.6399999999999997,
+      "max": 1.08
+    },
+    "y": {
+      "min": 0.6399999999999997,
+      "max": 1.2200000000000002
+    },
+    "z": {
+      "min": 0.6399999999999997,
+      "max": 0.98
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.098929,
+        0.04494949,
+        0.05814563
+      ],
+      "volume": 0.0002507112342001638,
+      "max_dim": 0.098929
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.0418030257,
+        0.08507893999999999,
+        0.047097960299999984
+      ],
+      "volume": 0.00016242026454176564,
+      "max_dim": 0.08507893999999999
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/battery_4/v000/battery_4_v000.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/battery_4/v000/battery_4_v000.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/battery_4/v000/battery_4_v000.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/battery_4/v000/battery_4_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/battery_4/battery_4.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/battery_4/battery_4.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/battery_4/battery_4.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/battery_4/battery_4.urdf"
+    }
+  }
+}
