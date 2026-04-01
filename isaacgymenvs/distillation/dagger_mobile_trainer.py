@@ -18,7 +18,6 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 import yaml
 import os
 import time
-import numbers
 
 from rl_games.algos_torch import torch_ext
 from rl_games.algos_torch.model_builder import ModelBuilder
@@ -26,7 +25,7 @@ import wandb
 
 from typing import Dict
 from pathlib import Path
-from isaacgymenvs.tasks import FrankaLEAPMobileDistillation
+from isaacgymenvs.tasks import FrankaLEAPMobile
 
 
 class DaggerMobile:
@@ -63,29 +62,17 @@ class DaggerMobile:
         self.chunk_size = cfg.chunk_size
         self.device = cfg['sim_device']
         self.seed = cfg.seed
-        self.delayed_update_steps = int(cfg.dagger["delayed_update_steps"])
-        self.update_epochs_per_rollout = int(cfg.dagger["update_epochs_per_rollout"])
-        self.rank_seed = int(self.seed) + (int(self.global_rank) if self.multi_gpu else 0)  # CODEX
-        base_exp_name = str(cfg.experiment) if str(cfg.experiment) != "" else str(cfg.train.params.config.name)
-        if self.multi_gpu:
-            # CODEX: ensure all ranks use exactly one shared run name/checkpoint dir.
-            shared_time_suffix = ""
-            if self.global_rank == 0:
-                shared_time_suffix = "{date:%d-%H-%M-%S}".format(date=datetime.now())
-            shared_name_list = [shared_time_suffix]
-            dist.broadcast_object_list(shared_name_list, src=0)
-            self.exp_name = base_exp_name + "_" + shared_name_list[0]
-        else:
-            self.exp_name = base_exp_name + '_{date:%d-%H-%M-%S}'.format(date=datetime.now())
-        set_seed_and_precision(self.seed, (int(self.global_rank) if self.multi_gpu else 0))  # CODEX
+        self.exp_name = cfg.experiment
+        set_seed_and_precision(self.seed)
 
         self.learning_rate = cfg.dagger.learning_rate
         self.weight_decay = cfg.dagger.weight_decay
         # load env
-        run_name = self.exp_name  # CODEX: keep local video run folder consistent with experiment+timestamp naming.
-        def create_isaacgym_env(**kwargs) -> FrankaLEAPMobileDistillation:
+        time_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        run_name = f"{cfg.wandb_name}_{time_str}"
+        def create_isaacgym_env(**kwargs) -> FrankaLEAPMobile:
             envs = isaacgymenvs.make(
-                self.rank_seed,
+                cfg.seed,
                 cfg.task_name,
                 cfg.task.env.numEnvs,
                 cfg.sim_device,
@@ -115,15 +102,6 @@ class DaggerMobile:
         self.env.delta_franka_action = self.cfg.action_space.delta_franka_action
         self.env.delta_leap_action = self.cfg.action_space.delta_leap_action
         self.env.delta_arx_action = self.cfg.action_space.delta_arx_action
-        self.student_action_dim = int(self.env.teacher_actions_converted.shape[1]) # @ray need to update student action dim in runtime
-        # @ray we override success/lifting with early termination logic
-        reset_window_steps = int(self.reaching_reset_threshold)
-        self.env.reward_settings["success_timeout_steps"] = torch.full(
-            (self.env.num_envs,), reset_window_steps, dtype=torch.int32, device=self.device
-        )
-        self.env.reward_settings["lifting_timeout_steps"] = torch.full(
-            (self.env.num_envs,), reset_window_steps, dtype=torch.int32, device=self.device
-        )
 
         # load teacher
         self.value_size = 1 # not sure why, but seems most cases its 1
@@ -146,8 +124,6 @@ class DaggerMobile:
         self.is_teacher_rnn = self.teacher_model.is_rnn()
 
         # load student network
-        if "q_hand_ctrl_delta" in cfg.model.state_encoders_cfg:
-            cfg.model.state_encoders_cfg.q_hand_ctrl_delta.input_dim = self.student_action_dim
         self.student_model = instantiate(self.cfg.model).to(self.device)
         self.optimizer = optim.AdamW(
             self.student_model.parameters(),
@@ -169,7 +145,7 @@ class DaggerMobile:
 
         self.use_wandb = self.cfg.wandb_activate
         self.wandb_project = self.cfg.wandb_project
-        self.wandb_name = self.exp_name  # CODEX: enforce display name consistency (experiment + timestamp).
+        self.wandb_name = self.cfg.wandb_name
         self.wandb_id = None
 
         self.state_encoders_keys = self.cfg.model.state_encoders_cfg.keys()
@@ -178,17 +154,8 @@ class DaggerMobile:
         self.save_dir = Path("dagger_ckpts") / self.exp_name
         self.save_freq = self.cfg.dagger.save_freq
         os.makedirs(self.save_dir, exist_ok=True)
-        if (not self.multi_gpu) or (self.global_rank == 0):  # CODEX
-            colorprint(f"Checkpoint dir: {self.save_dir.resolve()}", color="magenta")  # CODEX
 
         self.eval_freq = self.cfg.dagger.eval_freq
-        self.eval_only_teacher = bool(self.cfg.dagger.get("eval_only_teacher", False))  # CODEX
-        self.debug_teacher_eval = bool(self.cfg.dagger.get("debug_teacher_eval", False))  # CODEX
-        self.latest_eval_wandb_logs = {}  # CODEX
-        self.last_eval_episode = -1  # CODEX
-        self.last_student_actions = torch.zeros(
-            (self.env.num_envs, self.student_action_dim), device=self.device
-        )
 
         if self.multi_gpu:            
             self.use_wandb = (self.cfg.wandb_activate and self.global_rank == 0)
@@ -222,31 +189,10 @@ class DaggerMobile:
             )
 
         # aux
-        aux_weight = float(self.cfg.model["aux_weight"])
-        self.has_aux_input = "aux_object_state" in self.state_encoders_keys
-        self.has_aux_prediction = aux_weight > 0.0
-        self.aux_prediction_mode = str(self.cfg.model["aux_prediction_mode"]).lower()
-        self.aux_delta_scale = float(self.cfg.model["aux_delta_scale"])
-        if self.aux_prediction_mode not in ["absolute", "delta"]:
-            raise ValueError(f"aux_prediction_mode must be 'absolute' or 'delta', got {self.aux_prediction_mode}")
-        self.aux_feedback_to_policy = bool(self.cfg.dagger["aux_feedback_to_policy"])
-        self.aux_init_only = bool(self.cfg.dagger["aux_init_only"]) and (not self.aux_feedback_to_policy)
-        self.aux_switch_steps = int(self.cfg.dagger["aux_feedback_start_steps"])
-        self.aux_buffer = torch.zeros(self.env.num_envs, self.chunk_size, 3, device=self.device) # @ray store aux prediction for each step of chunk_size
+        self.aux_enable = "aux_object_state" in self.state_encoders_keys
+        self.aux_switch_steps = 30000
+        self.aux_buffer = torch.zeros(self.env.num_envs, 1, 3, device=self.device)
 
-    def _sanitize_wandb_logs(self, logs: Dict) -> Dict:
-        out = {}
-        for k, v in logs.items():
-            if isinstance(v, torch.Tensor):
-                if v.numel() == 1:
-                    out[k] = float(v.detach().item())
-            elif isinstance(v, np.ndarray):
-                if v.size == 1:
-                    out[k] = float(v.reshape(-1)[0])
-            elif isinstance(v, numbers.Number):
-                out[k] = float(v)
-        return out
-    
     # teacher loading utils
     def load_param_dict(self, cfg_path) -> Dict:
         base_dir = os.path.dirname(__file__)
@@ -331,7 +277,6 @@ class DaggerMobile:
         obs['full_pcd_t'] = torch.cat([obs["full_scene_pcd_t"], obs["robot_pcd_t"]], dim=1)
 
         if self.env.pcd_spec_dict['simulate_depth_cam']:
-            # based on scene pointcloud, simulate a partial pointcloud from the robot camera
             num_full_pcd_points = self.env.pcd_spec_dict['num_static_points'] + \
                                   self.env.pcd_spec_dict['num_robot_points'] + \
                                   self.env.pcd_spec_dict['num_object_points']
@@ -368,7 +313,7 @@ class DaggerMobile:
         # )
 
         if "local_pcd_t" in self.pcd_encoders_keys:
-            # sample local pointcloud around the eef and (optionally object)
+            # Codex
             num_points = self.cfg.model.pcd_encoders_cfg["local_pcd_t"]["num_points"] # [num cylindrical points, num spherical eef points, num spherical aux points]
             local_ranges = self.local_pcd_range
             local_eef_spherical_range = local_ranges[1]
@@ -381,20 +326,18 @@ class DaggerMobile:
             # local eef pcd in global frame
             obs["local_eef_pcd_t"] = eef_spherical_local_pcd_t + eef_pos.unsqueeze(1) # back to global frame for now, will be converted to franka base frame later
 
-            # aux-centered local pcd in global frame
+            # Codex: aux-centered local pcd in global frame
             aux_crop_origin = eef_pos
             if "aux_object_state" in self.state_encoders_keys:
-                # @ray feed noised ground truth object position for some training steps before switching to the model's own prediction
                 noisy_object_center_pos = self.env.states["object_center_pos"].clone()
                 # add noise (-0.05m ~ 0.05m)
                 noisy_object_center_pos = noisy_object_center_pos + 0.1 * ( torch.rand(self.env.num_envs, 3, device=self.device) - 0.5 )
-                if not self._use_aux_feedback():
+                if self.total_steps < self.aux_switch_steps:
                     aux_crop_origin = noisy_object_center_pos
                 else:
-                    aux_crop_origin = self.aux_buffer.clone() # @ray autoregressively feed the model's own prediction
+                    aux_crop_origin = self.aux_buffer.clone()
                     if aux_crop_origin.ndim == 3:
                         aux_crop_origin = aux_crop_origin[:, 0, :]
-                    # @ray except for object resets, where we feed object position to model for the first step
                     if hasattr(self.env, "object_reset_mask") and torch.any(self.env.object_reset_mask):
                         aux_crop_origin[self.env.object_reset_mask] = noisy_object_center_pos[self.env.object_reset_mask]
             aux_full_pcd_shifted = obs['full_pcd_t'] - aux_crop_origin.unsqueeze(1) # (num_envs, N, 3)
@@ -468,6 +411,7 @@ class DaggerMobile:
                 obs_student["full_pcd_t"] = downsample_pcd_batched(obs["full_pcd_t"], num_points_full_pcd_t)
 
         if "local_pcd_t" in self.pcd_encoders_keys:
+            # Codex
             num_points = self.cfg.model.pcd_encoders_cfg["local_pcd_t"]["num_points"] # [num cylindrical points, num spherical eef points, num spherical aux points]
             cylindrical_local_pcd_t, cylindrical_crop_logs = crop_local_pcd(obs['full_pcd_t'], self.local_pcd_range[0], num_points[0], is_cylindrical=True) # (num_envs, num_local_points, 3)
             obs_student["local_pcd_t"] = torch.cat([cylindrical_local_pcd_t, obs["local_eef_pcd_t"], obs["local_aux_pcd_t"]], dim=1)
@@ -476,7 +420,9 @@ class DaggerMobile:
                 wandb_logs.update(cylindrical_crop_logs)
                 wandb_logs.update(eef_spherical_crop_logs)
                 wandb_logs.update({
+                    # Codex
                     "local_spherical_crop_aux/avg_num_valid_points": aux_spherical_crop_logs["local_spherical_crop/avg_num_valid_points"],
+                    # Codex
                     "local_spherical_crop_aux/min_num_valid_points": aux_spherical_crop_logs["local_spherical_crop/min_num_valid_points"],
                 })
 
@@ -497,6 +443,7 @@ class DaggerMobile:
 
         return obs_student, wandb_logs
 
+    # Codex
     def _get_object_center_pos_in_base_frame(self):
         object_center_pos = self.env.states["object_center_pos"].clone()
 
@@ -508,52 +455,9 @@ class DaggerMobile:
         point_shifted = (object_center_pos - franka_base_pos).unsqueeze(1) # (num_envs, 1, 3)
         point_base_frame = torch.bmm(point_shifted, rot_global2base) # (num_envs, N, 3)
         return point_base_frame[:, 0, :] # (num_envs, 3)
-    
-    def _expand_aux_to_chunk(self, aux_tensor):
-        if aux_tensor.ndim == 2:
-            return aux_tensor.unsqueeze(1).expand(-1, self.chunk_size, -1)
-        if aux_tensor.ndim == 3 and aux_tensor.shape[1] == 1 and self.chunk_size > 1:
-            return aux_tensor.expand(-1, self.chunk_size, -1)
-        return aux_tensor
-    
-    def _decode_aux_prediction(self, aux_pred, prev_abs_aux):
-        prev_abs_aux_chunk = self._expand_aux_to_chunk(prev_abs_aux)
-        if self.aux_prediction_mode == "delta":
-            aux_delta = torch.clamp(aux_pred, -1.0, 1.0)
-            return prev_abs_aux_chunk + self.aux_delta_scale * aux_delta
-        return self._expand_aux_to_chunk(aux_pred)
-
-    def _use_aux_feedback(self):
-        return self.has_aux_input and self.has_aux_prediction and self.aux_feedback_to_policy and (self.total_steps >= self.aux_switch_steps)
-
-    def _get_aux_target(self, object_center_pos, prev_abs_aux):
-        prev_abs_aux_chunk = self._expand_aux_to_chunk(prev_abs_aux)
-        object_center_chunk = self._expand_aux_to_chunk(object_center_pos)
-        if self.aux_prediction_mode == "delta":
-            target_delta = (object_center_chunk - prev_abs_aux_chunk) / self.aux_delta_scale
-            return torch.clamp(target_delta, -1.0, 1.0)
-        return object_center_chunk
-
-    def _compute_aux_metrics(self, aux_pred, prev_abs_aux, object_center_pos):
-        aux_pred_abs = self._decode_aux_prediction(aux_pred, prev_abs_aux)
-        aux_gt_abs = self._expand_aux_to_chunk(object_center_pos)
-        aux_target = self._get_aux_target(object_center_pos, prev_abs_aux)
-        aux_pred_target = self._expand_aux_to_chunk(aux_pred)
-        aux_diff_l2 = torch.linalg.norm(aux_pred_abs - aux_gt_abs, dim=-1).mean()
-        aux_loss = torch.mean((aux_pred_target - aux_target) ** 2)
-        return {
-            "aux_diff_l2": float(aux_diff_l2.item()),
-            "aux_loss": float(aux_loss.item()),
-        }
 
     def train_episode(self):
         count_reaching = torch.zeros(self.env.num_envs, device=self.device).int()
-        rollout_obs_buffer = []
-        rollout_target_buffer = []
-        episode_loss_sums = {"action": 0.0, "aux": 0.0, "total": 0.0}
-        episode_update_count = 0
-        latest_input_wandb_logs = {}
-        latest_train_aux_metrics = None
 
         # get teacher forcing envs
         teacher_forcing_prop = 0.0
@@ -566,7 +470,7 @@ class DaggerMobile:
         teacher_forcing_env_idx = np.random.choice(self.env.num_envs, size=num_teacher_forcing_envs, replace=False)
         self.teacher_forcing_prop = teacher_forcing_prop # for logging purposes
 
-        for step_idx in tqdm(range(self.steps_per_episode), desc=f"Training {self.episode+1}/{self.total_episodes}", \
+        for _ in tqdm(range(self.steps_per_episode), desc=f"Training {self.episode+1}/{self.total_episodes}", \
             ncols=None, dynamic_ncols=True, disable=(self.multi_gpu and self.global_rank != 0) ):
             self.total_steps += 1
 
@@ -591,17 +495,17 @@ class DaggerMobile:
                 ("hand_pcd_t", hand_pcd_t),
             ])
             obs_input_a0, input_wandb_logs = self.preprocess_inputs(obs_dict_a0)
-            latest_input_wandb_logs = input_wandb_logs
 
             # prepare state inputs
             q_arm_manip = self.env.states['q'][:, 3:10].clone() # (num_envs, 7)
             q_arm_vision = self.env.states['q'][:, 26:].clone() # (num_envs, 6)
             q_hand = self.env.states['q'][:, 10:26].clone() # (num_envs, 16)
+
             obs_input_a0["q_arm_manip"] = self.env.normalize_robot_joints(q_arm_manip, robot="franka", delta=False)
             obs_input_a0["q_arm_vision"] = self.env.normalize_robot_joints(q_arm_vision, robot="arx", delta=False)
             obs_input_a0["q_hand"] = self.env.normalize_robot_joints(q_hand, robot="leap", delta=False)
             if "q_hand_ctrl_delta" in self.state_encoders_keys:
-                obs_input_a0["q_hand_ctrl_delta"] = self.last_student_actions.clone()
+                obs_input_a0["q_hand_ctrl_delta"] = self.env.normalize_robot_joints(q_hand - self.env.abs_actions[:, 10:26], robot="leap", delta=True)
             if "objxyz_t0" in self.state_encoders_keys:
                 obs_input_a0["objxyz_t0"] = self.env._object_center_init_state.clone()
 
@@ -614,20 +518,24 @@ class DaggerMobile:
                 point_base_frame = torch.bmm(point_shifted, rot_global2base) # (num_envs, N, 3), bmm is like matmul but specifically made for batches of 2D matrices (input has to be 3D), faster than matmul
                 obs_input_a0["objxyz_t0"] = point_base_frame[:, 0, :] # (num_envs, 3)
             if "aux_object_state" in self.state_encoders_keys:
+                # Codex
                 noisy_object_center_pos = self._get_object_center_pos_in_base_frame()
                 # add noise (-0.05m ~ 0.05m)
                 noisy_object_center_pos = noisy_object_center_pos + 0.1 * ( torch.rand(self.env.num_envs, 3, device=self.device) - 0.5 )
 
-                if not self._use_aux_feedback():
-                    obs_input_a0["aux_object_state"] = self._expand_aux_to_chunk(noisy_object_center_pos)
+                if self.total_steps < self.aux_switch_steps:
+                    obs_input_a0["aux_object_state"] = noisy_object_center_pos
                 else:
                     aux_object_state = self.aux_buffer.clone()
+                    # Codex
                     if hasattr(self.env, "object_reset_mask") and torch.any(self.env.object_reset_mask):
-                        aux_object_state[self.env.object_reset_mask] = self._expand_aux_to_chunk(
-                            noisy_object_center_pos[self.env.object_reset_mask]
-                        )
+                        if aux_object_state.ndim == 3:
+                            aux_object_state[self.env.object_reset_mask, 0, :] = noisy_object_center_pos[self.env.object_reset_mask]
+                        else:
+                            aux_object_state[self.env.object_reset_mask, :] = noisy_object_center_pos[self.env.object_reset_mask]
                     obs_input_a0["aux_object_state"] = aux_object_state
 
+                # Codex
                 if hasattr(self.env, "object_reset_mask"):
                     self.env.object_reset_mask[:] = False
 
@@ -643,19 +551,10 @@ class DaggerMobile:
                 student_model.eval()
                 output = student_model(obs_input_a0)
                 student_actions_chunk = output["action"]
-                train_aux_metrics = None
-                if self.has_aux_prediction:
-                    object_center_pos = self._get_object_center_pos_in_base_frame()
-                    train_aux_metrics = self._compute_aux_metrics(
-                        output["aux"],
-                        obs_input_a0["aux_object_state"],
-                        object_center_pos,
-                    )
-                    self.aux_buffer[:] = self._decode_aux_prediction(output["aux"], obs_input_a0["aux_object_state"])
-                latest_train_aux_metrics = train_aux_metrics
+                if self.aux_enable:
+                    self.aux_buffer[:] = output["aux"].clone()
 
             teacher_preds_buffer = []
-            aux_ref_state = obs_input_a0["aux_object_state"] if self.has_aux_prediction else None
 
             for action_idx in range(self.chunk_size):
                 # get teacher action
@@ -679,34 +578,11 @@ class DaggerMobile:
                 else:
                     teacher_actions = action
                 teacher_actions = torch.clamp(teacher_actions, -self.env.clip_actions, self.env.clip_actions)
-                # CODEX+
-                # Compute teacher absolute targets and converted student-space targets.
-                teacher_actions_abs = self.env._pre_physics_step_teacher(teacher_actions)
+                self.env._pre_physics_step_teacher(teacher_actions)
                 teacher_actions = self.env.teacher_actions_converted.clone()
-                # CODEX+
-                # Debug parity check: converted->student decode should reconstruct teacher abs hand joints.
-                if num_teacher_forcing_envs > 0:
-                    with torch.no_grad():
-                        decoded_abs = self.env._pre_physics_step_student(teacher_actions)
-                        hand_abs_teacher = teacher_actions_abs[:, 10:26]
-                        hand_abs_decoded = decoded_abs[:, 10:26]
-                        hand_abs_err = torch.abs(hand_abs_teacher - hand_abs_decoded)
-                        tf_idx_t = torch.as_tensor(teacher_forcing_env_idx, device=hand_abs_err.device, dtype=torch.long)
-                        tf_err = hand_abs_err[tf_idx_t]
-                        tf_mean = float(tf_err.mean().item()) if tf_err.numel() > 0 else 0.0
-                        tf_max = float(tf_err.max().item()) if tf_err.numel() > 0 else 0.0
-                        env0_mean = float(hand_abs_err[0].mean().item())
-                        env0_max = float(hand_abs_err[0].max().item())
                 if "aux_object_state" in self.state_encoders_keys:
                     object_center_pos = self._get_object_center_pos_in_base_frame()
-                    if self.aux_prediction_mode == "delta":
-                        prev_aux_step = aux_ref_state[:, action_idx, :] if aux_ref_state.ndim == 3 else aux_ref_state
-                        aux_target = torch.clamp(
-                            (object_center_pos - prev_aux_step) / self.aux_delta_scale, -1.0, 1.0
-                        )
-                    else:
-                        aux_target = object_center_pos
-                    teacher_pred = torch.cat([teacher_actions, aux_target], dim=1) # add aux info, object_xyz_pos
+                    teacher_pred = torch.cat([teacher_actions, object_center_pos], dim=1) # add aux info, object_xyz_pos
                 else:
                     teacher_pred = teacher_actions
 
@@ -726,67 +602,46 @@ class DaggerMobile:
                     if (count_reaching >= self.reaching_reset_threshold).any():
                         reached_reset_flags = (count_reaching >= self.reaching_reset_threshold)
                         reset_ids = torch.where(reached_reset_flags)[0]
-                        # Finalize episode counters before env post_physics_step reset clears duration/latch states.
-                        self.env.finalize_episode_metrics_before_reset(
-                            reset_ids,
-                            mark_success=True,
-                            mark_lifting=True,
-                        )
                         self.env.reset_buf[reset_ids] = 1
                         count_reaching[reached_reset_flags] = 0
 
                 # sync distillation steps for wandb video logging
                 self.env.distillation_steps = self.total_steps
                 self.env.step(step_actions)
-                self.last_student_actions[:] = step_actions.detach()
 
                 # count continuous reaching success
                 count_reaching += self.env.success_5cm_per_step
                 count_reaching *= self.env.success_5cm_per_step
 
             teacher_preds_buffer = torch.stack(teacher_preds_buffer, dim=1) # (num_envs, chunk_size, action_dim)
-            rollout_obs_buffer.append({k: v.detach().clone() for k, v in obs_input_a0.items()})
-            rollout_target_buffer.append(teacher_preds_buffer.detach().clone())
 
-            # @ray delayed updates after each chunk
-            should_update = (
-                ((step_idx + 1) % self.delayed_update_steps == 0)
-                or (step_idx == self.steps_per_episode - 1)
-            )
+            self.student_model.train()
+            n_batches = self.env.num_envs // self.batch_size # now this is 1
+            indices = torch.randperm(self.env.num_envs, device=self.device)
+            ave_loss = {
+                "action": 0.0,
+                "aux": 0.0,
+                "total": 0.0,
+            }
+            for i in range(n_batches):
+                batch_indices = indices[i * self.batch_size:(i + 1) * self.batch_size]
+                batch_obs = {k: v[batch_indices] for k, v in obs_input_a0.items()}
+                batch_actions = teacher_preds_buffer[batch_indices]
+                # NOTE: supervise student model on first step
+                loss = self.student_model.forward(batch_obs, batch_actions, action_chunk_idx=0)
+                self.optimizer.zero_grad()
+                loss["total"].backward()
+                torch.nn.utils.clip_grad_norm_(self.student_model.parameters(), max_norm=self.max_grad_norm) 
+                self.optimizer.step()
 
-            ave_loss = {"action": 0.0, "aux": 0.0, "total": 0.0}
-            num_update_batches = 0
-            if should_update:
-                self.student_model.train()
-                rollout_obs = {
-                    k: torch.cat([step_obs[k] for step_obs in rollout_obs_buffer], dim=0)
-                    for k in rollout_obs_buffer[0].keys()
-                }
-                rollout_actions = torch.cat(rollout_target_buffer, dim=0)
-                n_samples = rollout_actions.shape[0]
-                for _ in range(self.update_epochs_per_rollout):  # CODEX
-                    indices = torch.randperm(n_samples, device=self.device)  # CODEX
-                    for batch_start in range(0, n_samples, self.batch_size):  # CODEX
-                        batch_indices = indices[batch_start:batch_start + self.batch_size]  # CODEX
-                        batch_obs = {k: v[batch_indices] for k, v in rollout_obs.items()}  # CODEX
-                        batch_actions = rollout_actions[batch_indices]  # CODEX
-                        loss = self.student_model.forward(batch_obs, batch_actions, action_chunk_idx=0)  # CODEX
-                        self.optimizer.zero_grad()  # CODEX
-                        loss["total"].backward()  # CODEX
-                        torch.nn.utils.clip_grad_norm_(self.student_model.parameters(), max_norm=self.max_grad_norm)  # CODEX
-                        self.optimizer.step()  # CODEX
-                        num_update_batches += 1  # CODEX
-                        episode_update_count += 1  # CODEX
-                        for key in ave_loss.keys():  # CODEX
-                            ave_loss[key] += loss[key].item()  # CODEX
-                            episode_loss_sums[key] += loss[key].item()  # CODEX
+                for key in loss.keys():
+                    ave_loss[key] += loss[key].item()
 
-                for key in ave_loss.keys():
-                    ave_loss[key] /= max(num_update_batches, 1)
-                rollout_obs_buffer.clear()
-                rollout_target_buffer.clear()
-                if self.scheduler is not None:
-                    self.scheduler.step()
+            for key in ave_loss.keys():
+                ave_loss[key] /= n_batches
+
+            if self.scheduler is not None:
+                self.scheduler.step()
 
             mem_allocated_GB = float(torch.cuda.memory_allocated() / 1024**3)
             mem_reserved_GB = float(torch.cuda.memory_reserved() / 1024**3)
@@ -798,62 +653,24 @@ class DaggerMobile:
                     "mem/allocated_GB": mem_allocated_GB,
                     "mem/reserved_GB": mem_reserved_GB,
                 }
-                wandb_logs.update(self._sanitize_wandb_logs(input_wandb_logs))
-                if self.has_aux_prediction:
+                wandb_logs.update(input_wandb_logs)
+                if "aux_object_state" in self.state_encoders_keys:
                     aux_wandb_logs = {
                         "train/loss_aux": ave_loss["aux"],
                         "train/loss_action": ave_loss["action"],
-                        "train/aux_diff_l2": train_aux_metrics["aux_diff_l2"],
                     }
                     wandb_logs.update(aux_wandb_logs)
 
-                train_log_step = int(self.total_steps)
-                if wandb.run is not None and wandb.run.step is not None:
-                    train_log_step = max(train_log_step, int(wandb.run.step))
-                wandb.log(self._sanitize_wandb_logs(wandb_logs), step=train_log_step)
+                wandb.log(wandb_logs, step=self.total_steps)
 
-        if episode_update_count == 0:
-            return {"action": 0.0, "aux": 0.0, "total": 0.0}
-        return {k: v / episode_update_count for k, v in episode_loss_sums.items()}
-    
-    def eval(self, policy_source: str = "student", capture_video: bool = True):
-        if policy_source not in ("student", "teacher"):
-            raise ValueError(f"Unsupported policy_source={policy_source}. Expected 'student' or 'teacher'.")
-        metric_prefix = "eval" if policy_source == "student" else "teacher_eval"  # CODEX
+        return ave_loss
 
-        prev_teleport_enable = bool(self.env.object_teleport_args["enable"])  # CODEX
-        self.env.object_teleport_args["enable"] = False  # CODEX: disable object teleport during eval rollout.
-        # CODEX: snapshot cumulative episode counters so eval per-episode rates are computed
-        # from this eval rollout only (delta), not from historical training totals.
-        pre_total_eps = int(self.env.per_object_episode_counts.sum().item()) if hasattr(self.env, "per_object_episode_counts") else None
-        pre_total_succ = int(self.env.per_object_success_counts.sum().item()) if hasattr(self.env, "per_object_success_counts") else None
-        pre_total_lift = int(self.env.per_object_lifting_counts.sum().item()) if hasattr(self.env, "per_object_lifting_counts") else None
-
+    def eval(self):
         self.env.reset_idx()
         self.env.compute_observations()
         self.env.abs_actions[:] = self.env.states['q'].clone()
-        if self.has_aux_prediction:
-            noisy_object_center_pos = self._get_object_center_pos_in_base_frame()
-            noisy_object_center_pos = noisy_object_center_pos + 0.1 * (torch.rand(self.env.num_envs, 3, device=self.device) - 0.5)
-            self.aux_buffer[:] = self._expand_aux_to_chunk(noisy_object_center_pos)
-        self.env.progress_buf[:] = 0  # CODEX: start eval from the beginning of an episode horizon.
-        self.env.reset_buf[:] = 0  # CODEX: clear any pending resets before fixed-horizon eval rollout.
-        total_eval_sim_steps = int(self.env.max_episode_length)  # CODEX: evaluate for exactly one env episode horizon.
-        if capture_video and self.env.video_logging["capture"] and policy_source == "student":
-            # CODEX: hard-reset video mode flags before enabling eval capture to avoid phase leakage.
-            self.env.train_video_active = False
-            self.env.train_video_step_idx = 0
-            self.env.train_video_active = False
-            self.env.eval_video_active = True
-            self.env.eval_video_total_steps = total_eval_sim_steps  # CODEX
-            self.env.eval_video_step_idx = 0
 
-        eval_chunks = (total_eval_sim_steps + self.chunk_size - 1) // self.chunk_size  # CODEX
-        eval_sim_step = 0  # CODEX
-        eval_aux_diff_l2_sum = 0.0
-        eval_aux_loss_sum = 0.0
-        eval_aux_metric_count = 0
-        for _ in tqdm(range(eval_chunks), desc="Evaluating", \
+        for _ in tqdm(range(self.steps_per_episode), desc="Evaluating", \
             ncols=None, dynamic_ncols=True, disable=(self.multi_gpu and self.global_rank != 0) ):
 
             # get obs t_a0 for student, q_hand, rel_pcd
@@ -879,11 +696,12 @@ class DaggerMobile:
             q_arm_manip = self.env.states['q'][:, 3:10].clone() # (num_envs, 7)
             q_arm_vision = self.env.states['q'][:, 26:].clone() # (num_envs, 6)
             q_hand = self.env.states['q'][:, 10:26].clone() # (num_envs, 16)
+
             obs_input_a0["q_arm_manip"] = self.env.normalize_robot_joints(q_arm_manip, robot="franka", delta=False)
             obs_input_a0["q_arm_vision"] = self.env.normalize_robot_joints(q_arm_vision, robot="arx", delta=False)
             obs_input_a0["q_hand"] = self.env.normalize_robot_joints(q_hand, robot="leap", delta=False)
             if "q_hand_ctrl_delta" in self.state_encoders_keys:
-                obs_input_a0["q_hand_ctrl_delta"] = self.last_student_actions.clone()
+                obs_input_a0["q_hand_ctrl_delta"] = self.env.normalize_robot_joints(q_hand - self.env.abs_actions[:, 10:26], robot="leap", delta=True)
             if "objxyz_t0" in self.state_encoders_keys:
                 obs_input_a0["objxyz_t0"] = self.env._object_center_init_state.clone()
 
@@ -896,65 +714,60 @@ class DaggerMobile:
                 point_base_frame = torch.bmm(point_shifted, rot_global2base) # (num_envs, N, 3), bmm is like matmul but specifically made for batches of 2D matrices (input has to be 3D), faster than matmul
                 obs_input_a0["objxyz_t0"] = point_base_frame[:, 0, :] # (num_envs, 3)
             if "aux_object_state" in self.state_encoders_keys:
-                if self._use_aux_feedback():
-                    obs_input_a0["aux_object_state"] = self.aux_buffer.clone()
-                else:
-                    obs_input_a0["aux_object_state"] = self._expand_aux_to_chunk(
-                        self._get_object_center_pos_in_base_frame()
-                    )
+                obs_input_a0["aux_object_state"] = self.aux_buffer.clone()
+
+            # Viser debug utils
+            # env_id = self.env.viser_visualizer.env_id
+            # self.env.viser_visualizer.update_point_cloud(
+            #     point_cloud_type="obj_point_t",
+            #     point_cloud=obs_input_a0["objxyz_t0"][env_id].reshape(1, 3).cpu().numpy()
+            # )
 
             with torch.no_grad():
                 student_model = self.student_model.module if self.multi_gpu else self.student_model
                 student_model.eval()
                 output = student_model(obs_input_a0)
                 student_actions_chunk = output["action"]
-                if self.has_aux_prediction:
-                    object_center_pos = self._get_object_center_pos_in_base_frame()
-                    eval_aux_metrics = self._compute_aux_metrics(
-                        output["aux"],
-                        obs_input_a0["aux_object_state"],
-                        object_center_pos,
-                    )
-                    eval_aux_diff_l2_sum += eval_aux_metrics["aux_diff_l2"]
-                    eval_aux_loss_sum += eval_aux_metrics["aux_loss"]
-                    eval_aux_metric_count += 1
-                    self.aux_buffer[:] = self._decode_aux_prediction(output["aux"], obs_input_a0["aux_object_state"])
+                if self.aux_enable:
+                    self.aux_buffer[:] = output["aux"].clone()
 
             for action_idx in range(self.chunk_size):
-                if eval_sim_step >= total_eval_sim_steps:  # CODEX: support partial tail chunk.
-                    break
+                # # get teacher action
+                # teacher_obs = self.env.obs_buf.clone()
+                # batch_dict = {
+                #     "is_train": False,
+                #     "obs": teacher_obs,
+                #     "prev_actions": None,
+                # }
 
-                if policy_source == "student":
-                    student_actions = student_actions_chunk[:, action_idx, :]
-                    step_actions = torch.clamp(student_actions, -self.env.clip_actions, self.env.clip_actions)
-                else:
-                    # CODEX: teacher-only eval under the same eval rollout conditions.
-                    teacher_obs = self.env.obs_buf.clone()
-                    batch_dict = {
-                        "is_train": False,
-                        "obs": teacher_obs,
-                        "prev_actions": None,
-                    }
-                    with torch.no_grad():
-                        res_dict = self.teacher_model(batch_dict)
-                    teacher_actions_raw = res_dict["mus"]
-                    self.states = res_dict["rnn_states"]
-                    teacher_actions_raw = torch.clamp(teacher_actions_raw, -self.env.clip_actions, self.env.clip_actions)
-                    self.env._pre_physics_step_teacher(teacher_actions_raw)
-                    step_actions = self.env.teacher_actions_converted.clone()
+                # is_deterministic = True
 
-                # CODEX: keep distillation step synced during eval so wandb video logs carry the current trainer step.
-                self.env.distillation_steps = self.total_steps
-                self.env.reset_buf[:] = 0  # CODEX: disable early termination resets during eval (e.g., object-fall).
+                # with torch.no_grad():
+                #     res_dict = self.teacher_model(batch_dict)
+
+                # mu = res_dict['mus']
+                # action = res_dict['actions']
+                # self.states = res_dict['rnn_states']
+                # if is_deterministic:
+                #     teacher_actions = mu
+                # else:
+                #     teacher_actions = action
+                # teacher_actions = torch.clamp(teacher_actions, -self.env.clip_actions, self.env.clip_actions)
+                # self.env._pre_physics_step_teacher(teacher_actions)
+                # teacher_actions = self.env.teacher_actions_converted.clone()
+
+                student_actions = student_actions_chunk[:, action_idx, :]
+                step_actions = student_actions # for debugging purposes, this can be changed to teacher_actions to see teacher performance
+                # step with student actions
+                step_actions = torch.clamp(step_actions, -self.env.clip_actions, self.env.clip_actions)
+
+                self.env.progress_buf[:] = 0 # since we are only evaling one episode, just disable env resets, it might mess up loggings a little bit
+
                 self.env.step(step_actions)
-                self.last_student_actions[:] = step_actions.detach()
-                self.env.reset_buf[:] = 0  # CODEX: keep fixed-horizon rollout even if reward logic marks done.
-                eval_sim_step += 1  # CODEX
 
         # set env state back for training
         self.env.reset_idx()
         self.env.compute_observations()
-        self.last_student_actions.zero_()
         self.env.progress_buf = torch.randint(
             0, self.env.max_episode_length,
             (self.env.num_envs,),
@@ -962,122 +775,49 @@ class DaggerMobile:
             dtype=self.env.progress_buf.dtype,
         )
         self.env.abs_actions[:] = self.env.states['q'].clone()
-        self.env.object_teleport_args["enable"] = prev_teleport_enable  # CODEX
-
-        eval_success_rate_per_ep = self.env.extras["metrics/success_rate_5cm_per_ep"]
-        eval_lifting_rate_per_ep = self.env.extras["metrics/lifting_rate_5cm_per_ep"]
-        if pre_total_eps is not None and pre_total_succ is not None and pre_total_lift is not None:
-            post_total_eps = int(self.env.per_object_episode_counts.sum().item())
-            post_total_succ = int(self.env.per_object_success_counts.sum().item())
-            post_total_lift = int(self.env.per_object_lifting_counts.sum().item())
-            delta_eps = post_total_eps - pre_total_eps
-            delta_succ = post_total_succ - pre_total_succ
-            delta_lift = post_total_lift - pre_total_lift
-            if delta_eps > 0:
-                eval_success_rate_per_ep = float(delta_succ) / float(delta_eps)
-                eval_lifting_rate_per_ep = float(delta_lift) / float(delta_eps)
 
         eval_wandb_logs = {
-            f"{metric_prefix}/eval_success_rate_5cm_per_step": self.env.extras["metrics/success_rate_5cm_per_step"],
-            f"{metric_prefix}/eval_success_rate_5cm_per_ep_instant": self.env.extras["metrics/success_rate_5cm_per_ep_instant"],
-            f"{metric_prefix}/eval_success_rate_5cm_per_ep": eval_success_rate_per_ep,
-            f"{metric_prefix}/eval_lifting_rate_5cm_per_step": self.env.extras["metrics/lifting_rate_5cm_per_step"],
-            f"{metric_prefix}/eval_lifting_rate_5cm_per_ep_instant": self.env.extras["metrics/lifting_rate_5cm_per_ep_instant"],
-            f"{metric_prefix}/eval_lifting_rate_5cm_per_ep": eval_lifting_rate_per_ep,
+            "metrics/eval_success_rate_5cm_final_step": self.env.extras["metrics/success_rate_5cm_per_step"],
+            "metrics/eval_success_rate_5cm_per_ep": self.env.extras["metrics/success_rate_5cm_per_ep"],
+            "metrics/eval_lifting_rate_5cm_final_step": self.env.extras["metrics/lifting_rate_5cm_per_step"],
+            "metrics/eval_lifting_rate_5cm_per_ep": self.env.extras["metrics/lifting_rate_5cm_per_ep"],
         }
-        if policy_source == "student" and self.has_aux_prediction and eval_aux_metric_count > 0:
-            eval_wandb_logs[f"{metric_prefix}/aux_diff_l2"] = eval_aux_diff_l2_sum / eval_aux_metric_count
-            eval_wandb_logs[f"{metric_prefix}/aux_loss"] = eval_aux_loss_sum / eval_aux_metric_count
-
-        success_key = f"{metric_prefix}/eval_success_rate_5cm_per_ep"  # CODEX
-        lift_key = f"{metric_prefix}/eval_lifting_rate_5cm_per_ep"  # CODEX
-        print(
-            f"[{metric_prefix}] episode={self.episode} "
-            f"success_rate_5cm_per_ep={float(eval_wandb_logs[success_key]):.4f} "
-            f"lifting_rate_5cm_per_ep={float(eval_wandb_logs[lift_key]):.4f}"
-        )  # CODEX
 
         return eval_wandb_logs
 
     def train(self):
         while self.episode < self.total_episodes:
-            train_metrics = {}
-            eval_metrics = None
+            metrics = {}
 
             start_time = time.time()
             remaining_episodes = self.total_episodes - self.episode
-            eval_policy = (self.eval_freq > 0) and (self.episode % self.eval_freq == 0)
-
-            # Start training-video capture before training rollout begins.
-            if self.env.video_logging["capture"] and eval_policy:
-                self.env.eval_video_active = False
-                self.env.train_video_active = True
-                self.env.train_video_total_steps = int(self.steps_per_episode * self.chunk_size)
-                self.env.train_video_step_idx = 0
-
-            # while True:
-            #     self.eval()
 
             train_loss = self.train_episode()
-            # CODEX: snapshot train extras before eval so eval cannot contaminate train metrics.
-            train_env_extras = {}
-            for k, v in self.env.extras.items():
-                if torch.is_tensor(v):
-                    train_env_extras[k] = v.detach().clone()
-                else:
-                    train_env_extras[k] = v
+
+            eval_policy = (self.eval_freq > 0) and (self.episode % self.eval_freq == 0)
             if eval_policy:
-                if self.eval_only_teacher:
-                    eval_wandb_logs = self.eval(policy_source="teacher", capture_video=False)  # CODEX
-                    self.latest_eval_wandb_logs = eval_wandb_logs.copy()  # CODEX
-                    self.last_eval_episode = int(self.episode)  # CODEX
-                else:
-                    eval_wandb_logs = self.eval(policy_source="student", capture_video=True)
-                    self.latest_eval_wandb_logs = eval_wandb_logs.copy()  # CODEX
-                    self.last_eval_episode = int(self.episode)  # CODEX
-                    if self.debug_teacher_eval:
-                        teacher_eval_wandb_logs = self.eval(policy_source="teacher", capture_video=False)  # CODEX
-                        self.latest_eval_wandb_logs.update(teacher_eval_wandb_logs)  # CODEX
+                eval_wandb_logs = self.eval()
 
             if (not self.multi_gpu) or (self.global_rank == 0):
                 episode_time = time.time() - start_time
                 estimated_finish_time = start_time + episode_time * remaining_episodes
 
-                train_metrics["train/loss_episode"] = train_loss
-                train_metrics["time/episode_time"] = episode_time
-                train_metrics["episode"] = self.episode
-                train_metrics["train/teacher_forcing_prop"] = self.teacher_forcing_prop
-                train_metrics.update(self._sanitize_wandb_logs(train_env_extras))
-                if eval_policy and self.latest_eval_wandb_logs:
-                    eval_metrics = self.latest_eval_wandb_logs.copy()  # CODEX
-                    eval_metrics["eval/triggered"] = 1.0 if eval_policy else 0.0  # CODEX
-                    eval_metrics["eval/episodes_since_last_eval"] = float(self.episode - self.last_eval_episode)  # CODEX
-                    eval_metrics["episode"] = self.episode  # CODEX
+                metrics["train/loss_episode"] = train_loss
+                metrics["time/episode_time"] = episode_time
+                metrics["episode"] = self.episode
+                metrics["train/teacher_forcing_prop"] = self.teacher_forcing_prop
+                metrics.update(self.env.extras)
+                if eval_policy:
+                    metrics.update(eval_wandb_logs)
 
                 if self.use_wandb:
-                    wandb_payload = dict(train_metrics)
-                    if eval_metrics is not None:
-                        wandb_payload.update(eval_metrics)
-                    merged_log_step = int(self.total_steps)  # CODEX
-                    if wandb.run is not None and wandb.run.step is not None:  # CODEX
-                        merged_log_step = max(merged_log_step, int(wandb.run.step))  # CODEX
-                    wandb.log(self._sanitize_wandb_logs(wandb_payload), step=merged_log_step)  # CODEX
-                # TODO: add args: save ckpt? frequency?
-                if eval_policy:
-                    if self.eval_only_teacher:
-                        eval_lifting = eval_wandb_logs.get("teacher_eval/eval_lifting_rate_5cm_per_ep", None)  # CODEX
-                    else:
-                        eval_lifting = eval_wandb_logs.get("eval/eval_lifting_rate_5cm_per_ep", None)  # CODEX
-                else:
-                    eval_lifting = None  # CODEX
-                self.save_checkpoint(self.episode, train_metrics["metrics/success_rate_5cm_per_ep"], eval_lifting)
+                    wandb.log(metrics, step=self.total_steps)
 
-                log_metrics = dict(train_metrics)
-                if eval_metrics is not None:
-                    log_metrics.update(eval_metrics)
+                # TODO: add args: save ckpt? frequency?
+                self.save_checkpoint(self.episode, metrics["metrics/success_rate_5cm_per_ep"], metrics.get("metrics/eval_lifting_rate_5cm_per_ep", None))
 
                 colorprint(f"Episode {self.episode + 1}/{self.total_episodes} completed in {timedelta(seconds=int(episode_time))}", color="magenta")
-                for metric, value in log_metrics.items():
+                for metric, value in metrics.items():
                     if type(value) == float:
                         colorprint(f"{metric}: {value:.4f}", color="green")
                 colorprint(f"Average episodes per hour: {1/episode_time*3600:.2f}")
