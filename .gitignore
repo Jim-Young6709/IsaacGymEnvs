@@ -42,3 +42,4 @@ dagger_ckpts_archive/
 /build
 /presampled_envs/scene_only
 /presampled_envs/completed/
+assets/franka_cmd/

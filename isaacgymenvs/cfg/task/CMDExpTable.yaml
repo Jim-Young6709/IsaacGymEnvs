@@ -12,7 +12,7 @@ env:
 
   asset:
     assetRoot: "../../assets"
-    assetFileNameFranka: "franka_cmd/franka_cmd_left.urdf"
+    assetFileNameFranka: "franka_cmd/P0Y12/franka_left_hand.urdf"
 
   mesh:
     mesh_dir: "./meshes_69"
