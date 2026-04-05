@@ -9,6 +9,7 @@ from omegaconf import DictConfig
 import hydra
 from isaacgymenvs.distillation.dagger_trainer import Dagger
 from isaacgymenvs.distillation.dagger_mobile_trainer import DaggerMobile
+from isaacgymenvs.distillation.dagger_mobile_multi_trainer import DaggerMobileMultiExp
 
 
 _RELAUNCH_ENV_KEY = "DAGGER_TRAINING_CHILD"
@@ -43,7 +44,11 @@ def _maybe_set_resume_checkpoint(cfg: DictConfig) -> None:
 def main(cfg: DictConfig):
     _maybe_set_resume_checkpoint(cfg)
 
-    if 'Mobile' in cfg['task']['name']:
+    if cfg['task']['type'] == "WBCMultiExp":
+        dagger_trainer = DaggerMobileMultiExp(
+            cfg=cfg,
+        )
+    elif cfg['task']['type'] == "WBC":
         dagger_trainer = DaggerMobile(
             cfg=cfg,
         )

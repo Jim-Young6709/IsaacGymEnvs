@@ -3,6 +3,8 @@
 defaults:
   - LEAPExpBase
 
+type: "WBC" # "WBCMultiExp", "WBC", "Local"
+
 # if given, will override the device setting in gym. 
 env:
   episodeLength: 1000
