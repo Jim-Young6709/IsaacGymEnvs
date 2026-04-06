@@ -56,7 +56,7 @@ class DaggerMobileMultiExp:
             cfg.seed = max(cfg.seed, 1) * (self.global_rank + 1)
 
             num_experts = len(cfg.teacher.ckpt)
-            expert_idx = self.local_rank // num_experts
+            expert_idx = self.local_rank % num_experts
             cfg.teacher.ckpt = cfg.teacher.ckpt[expert_idx]
             cfg.task.env.mesh.mesh_dir = cfg.task.env.mesh.mesh_dir[expert_idx]
 
