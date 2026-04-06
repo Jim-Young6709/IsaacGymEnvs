@@ -59,7 +59,6 @@ class DaggerMobileMultiExp:
             expert_idx = self.local_rank // num_experts
             cfg.teacher.ckpt = cfg.teacher.ckpt[expert_idx]
             cfg.task.env.mesh.mesh_dir = cfg.task.env.mesh.mesh_dir[expert_idx]
-            import ipdb ; ipdb.set_trace()
 
         self.cfg = cfg
         self.total_episodes = cfg.dagger.total_episodes
