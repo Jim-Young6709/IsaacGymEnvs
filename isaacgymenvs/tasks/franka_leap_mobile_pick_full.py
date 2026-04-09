@@ -363,9 +363,13 @@ class FrankaLEAPMobilePickFull(FrankaLEAPMobile):
     def _update_states(self):
         super()._update_states()
         eef_rot_mat = quaternion_to_matrix_ig(self._eef_state[:, 3:7])
+        eef_rot_mat_T = eef_rot_mat.transpose(1, 2)
         box_rot_mat = quaternion_to_matrix_ig(self.box_quats)
-        box_to_eef_rot_mat = torch.matmul(eef_rot_mat.transpose(1, 2), box_rot_mat)
+        box_to_eef_rot_mat = torch.matmul(eef_rot_mat_T, box_rot_mat)
         box_to_eef_rot_6d = matrix_to_rotation_6d(box_to_eef_rot_mat)
+
+        box_to_eef_world = self.box_pos - self._eef_state[:, :3] # note box_pos here is box bottom center not box center
+        box_to_eef = torch.matmul(eef_rot_mat_T, box_to_eef_world.unsqueeze(-1)).squeeze(-1)
 
         lift_5cm = self.states["object_center_pos"][:, 2] - self._object_center_init_state[:, 2] > 0.05
 
@@ -377,7 +381,7 @@ class FrankaLEAPMobilePickFull(FrankaLEAPMobile):
 
         self.states.update({
             # Box region
-            "box_to_eef_pos": self.box_pos - self._eef_state[:, :3],
+            "box_bottom_to_eef": box_to_eef,
             "box_dims": self.box_dims,
             "box_to_eef_rot_6d": box_to_eef_rot_6d,
             "obj_to_box_center_xy": self._object_state[:, :2] - self.box_pos[:, :2],
