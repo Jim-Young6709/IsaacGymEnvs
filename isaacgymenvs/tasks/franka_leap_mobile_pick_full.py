@@ -77,8 +77,8 @@ class FrankaLEAPMobilePickFull(FrankaLEAPMobile):
         self.switching_target_pos = self._object_state[:, :3].clone()
         self.switching_target_pos += self.switch_pos_offset
         self.switching_target_pos[:, 2] += self.mesh_aabb_extents[:, 2] / 2
-        rot_local_x_180 = torch.tensor([[1.0, 0.0, 0.0, 0.0]]*self.num_envs, device=self.device)  # 180 degrees around local x-axis
-        self.switching_target_quat = rot_local_x_180 # default hand orientation is facing up, so need to rotate 180
+        self._switching_target_down_quat = torch.tensor([[1.0, 0.0, 0.0, 0.0]] * self.num_envs, device=self.device)  # 180 degrees around local x-axis
+        self.switching_target_quat = self._switching_target_down_quat # default hand orientation is facing up, so need to rotate 180
 
     def _create_envs(self, spacing, num_per_row):
         """
@@ -313,9 +313,6 @@ class FrankaLEAPMobilePickFull(FrankaLEAPMobile):
         self.reward_settings["w_colli"] = to_torch(self.cfg["reward"]["weights"]["w_colli"], device=self.device)
 
     def draw_box_lines(self, env_idx, pos_xyz, quat_xyzw, dims_xyz, color=(1.0, 0.2, 0.2)):
-        import numpy as np
-        from isaacgym import gymapi
-
         px, py, pz = pos_xyz
         qx, qy, qz, qw = quat_xyzw
         sx, sy, sz = dims_xyz
@@ -360,6 +357,24 @@ class FrankaLEAPMobilePickFull(FrankaLEAPMobile):
 
         self.gym.add_lines(self.viewer, self.envs[env_idx], len(edges), line_points, line_colors)
 
+        axis_len = min(hx, hy, hz) * 0.6
+        axis_endpoints = []
+        axis_colors = []
+        for axis_local, axis_color in (
+            (gymapi.Vec3(axis_len, 0.0, 0.0), (1.0, 0.0, 0.0)),
+            (gymapi.Vec3(0.0, axis_len, 0.0), (0.0, 1.0, 0.0)),
+            (gymapi.Vec3(0.0, 0.0, axis_len), (0.0, 0.0, 1.0)),
+        ):
+            axis_world = gymapi.Quat.rotate(q, axis_local)
+            axis_endpoints.append(center)
+            axis_endpoints.append(gymapi.Vec3(center.x + axis_world.x, center.y + axis_world.y, center.z + axis_world.z))
+            axis_colors.append(axis_color)
+
+        axis_points = np.array([[p.x, p.y, p.z] for p in axis_endpoints], dtype=np.float32)
+        axis_colors = np.array(axis_colors, dtype=np.float32)
+
+        self.gym.add_lines(self.viewer, self.envs[env_idx], len(axis_colors), axis_points, axis_colors)
+
     def _update_states(self):
         super()._update_states()
         eef_rot_mat = quaternion_to_matrix_ig(self._eef_state[:, 3:7])
@@ -378,6 +393,7 @@ class FrankaLEAPMobilePickFull(FrankaLEAPMobile):
 
         self.switching_target_pos = self.states['object_center_pos'].clone()
         self.switching_target_pos += self.switch_pos_offset
+        self.switching_target_quat = quat_mul(self.box_quats, self._switching_target_down_quat)
 
         self.states.update({
             # Box region
