@@ -416,13 +416,13 @@ class FrankaLEAPMobilePickFull(FrankaLEAPMobile):
     def compute_observations(self):
         self._refresh()
 
-        if self.cfg.env.numObservations == 49:
+        if self.num_observations == 49:
             obs_components = ["q_hand",
                             "eef_finger1_pos_relative", "eef_finger2_pos_relative",
                             "eef_finger3_pos_relative", "eef_finger4_pos_relative",
                             "object_to_eef", "object_to_eef_rot_6d",
                             "target_to_eef", "target_to_eef_rot_6d"]
-        elif self.cfg.env.numObservations == 61:
+        elif self.num_observations == 61:
             obs_components = ["q_hand",
                             "eef_finger1_pos_relative", "eef_finger2_pos_relative",
                             "eef_finger3_pos_relative", "eef_finger4_pos_relative",
@@ -430,14 +430,14 @@ class FrankaLEAPMobilePickFull(FrankaLEAPMobile):
                             "object_to_eef", "object_to_eef_rot_6d",
                             "target_to_eef", "target_to_eef_rot_6d"]
 
-        if self.cfg.env.numStates == 94:
+        if self.num_states == 94:
             states_components = ["q", "qd",
                                 "eef_pos", "eef_rot_6d", "eef_vel",
                                 "eef_finger1_pos_relative", "eef_finger2_pos_relative",
                                 "eef_finger3_pos_relative", "eef_finger4_pos_relative",
                                 "object_to_eef", "object_to_eef_rot_6d",
                                 "target_to_eef", "target_to_eef_rot_6d"]
-        elif self.cfg.env.numStates == 106:
+        elif self.num_states == 106:
             states_components = ["q", "qd",
                                 "eef_pos", "eef_rot_6d", "eef_vel",
                                 "eef_finger1_pos_relative", "eef_finger2_pos_relative",
