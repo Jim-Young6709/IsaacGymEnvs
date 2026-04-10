@@ -28,8 +28,8 @@ env:
     franka: 0.0 # joint angle
     arx: 0.0 # joint angle
 
-  numObservations: 49
-  numStates: 94
+  numObservations: 61 # 49, 61
+  numStates: 106 # 94, 106
   numActions: 22 # delta eef actions 6 (xyz, rpy) + normalized hand joint actions 16
 
 pcd_spec:

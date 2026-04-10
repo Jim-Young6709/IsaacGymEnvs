@@ -416,18 +416,35 @@ class FrankaLEAPMobilePickFull(FrankaLEAPMobile):
     def compute_observations(self):
         self._refresh()
 
-        obs_components = ["q_hand",
-                          "eef_finger1_pos_relative", "eef_finger2_pos_relative",
-                          "eef_finger3_pos_relative", "eef_finger4_pos_relative",
-                          "object_to_eef", "object_to_eef_rot_6d",
-                          "target_to_eef", "target_to_eef_rot_6d"]
+        if self.cfg.env.numObservations == 49:
+            obs_components = ["q_hand",
+                            "eef_finger1_pos_relative", "eef_finger2_pos_relative",
+                            "eef_finger3_pos_relative", "eef_finger4_pos_relative",
+                            "object_to_eef", "object_to_eef_rot_6d",
+                            "target_to_eef", "target_to_eef_rot_6d"]
+        elif self.cfg.env.numObservations == 61:
+            obs_components = ["q_hand",
+                            "eef_finger1_pos_relative", "eef_finger2_pos_relative",
+                            "eef_finger3_pos_relative", "eef_finger4_pos_relative",
+                            "box_bottom_to_eef", "box_dims", "box_to_eef_rot_6d",
+                            "object_to_eef", "object_to_eef_rot_6d",
+                            "target_to_eef", "target_to_eef_rot_6d"]
 
-        states_components = ["q", "qd",
-                             "eef_pos", "eef_rot_6d", "eef_vel",
-                             "eef_finger1_pos_relative", "eef_finger2_pos_relative",
-                             "eef_finger3_pos_relative", "eef_finger4_pos_relative",
-                             "object_to_eef", "object_to_eef_rot_6d",
-                             "target_to_eef", "target_to_eef_rot_6d"]
+        if self.cfg.env.numStates == 94:
+            states_components = ["q", "qd",
+                                "eef_pos", "eef_rot_6d", "eef_vel",
+                                "eef_finger1_pos_relative", "eef_finger2_pos_relative",
+                                "eef_finger3_pos_relative", "eef_finger4_pos_relative",
+                                "object_to_eef", "object_to_eef_rot_6d",
+                                "target_to_eef", "target_to_eef_rot_6d"]
+        elif self.cfg.env.numStates == 106:
+            states_components = ["q", "qd",
+                                "eef_pos", "eef_rot_6d", "eef_vel",
+                                "eef_finger1_pos_relative", "eef_finger2_pos_relative",
+                                "eef_finger3_pos_relative", "eef_finger4_pos_relative",
+                                "box_bottom_to_eef", "box_dims", "box_to_eef_rot_6d",
+                                "object_to_eef", "object_to_eef_rot_6d",
+                                "target_to_eef", "target_to_eef_rot_6d"]
 
         obs_buf = torch.cat([self.states[ob] for ob in obs_components], dim=-1)
         states_buf = torch.cat([self.states[st] for st in states_components], dim=-1)

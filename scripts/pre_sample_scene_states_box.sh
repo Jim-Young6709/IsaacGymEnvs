@@ -18,7 +18,7 @@ NUM_ENVS_LIST=(1000)
 
 BASE_INIT_RANGE="[[-1.0, -0.5, -1.5], [-0.2, 0.5, 1.5]]"
 SEED=1
-TASK_NAME="box_top_t0inview_Apr9"
+TASK_NAME="inhand_part2_box_top_t0inview_Apr9"
 TEACHER_CKPT="./rl_ckpts/exp_top_Apr9.pth"
 SCENE_DIR="./presampled_envs/scene_only"
 HEADLESS="True"
@@ -38,7 +38,7 @@ for num_envs in "${NUM_ENVS_LIST[@]}"; do
 
     sample_idx=$((range_idx + 1))
     hdf5_name="${TASK_NAME}_idx${sample_idx}_0.0-0.8tableheight_${num_envs}.hdf5"
-    scene_hdf5_path="${SCENE_DIR}/${hdf5_name}"
+    scene_hdf5_path="${SCENE_DIR}/box10k_Apr9_inhand_part2.hdf5"
 
     python isaacgymenvs/presampling/pre_sample_robot_init_pose.py \
     task=DexMobileExpFull num_envs="${num_envs}" seed="${SEED}" \
