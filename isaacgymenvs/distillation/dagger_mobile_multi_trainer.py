@@ -61,6 +61,7 @@ class DaggerMobileMultiExp:
             cfg.task.env.mesh.mesh_dir = cfg.task.env.mesh.mesh_dir[expert_idx]
             cfg.task.env.numObservations = cfg.task.env.numObservations[expert_idx]
             cfg.task.env.numStates = cfg.task.env.numStates[expert_idx]
+            cfg.task.env.scene.hdf5_path = cfg.task.env.scene.hdf5_path[expert_idx]
 
         self.cfg = cfg
         self.total_episodes = cfg.dagger.total_episodes
