@@ -15,7 +15,7 @@ env:
     assetFileNameFranka: "franka_cmd/P5Y12_new/franka_left_hand.urdf"
 
   mesh:
-    mesh_dir: "./meshes_69"
+    mesh_dir: "./meshes_69_new"
     obj_list: ["all"]
 
   resetNoiseScale:
