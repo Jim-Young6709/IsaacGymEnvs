@@ -23,6 +23,7 @@ from tqdm import tqdm
 
 class FrankaLEAPMobilePickFull(FrankaLEAPMobile):
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
+        self.cfg_override = cfg["cfg_override"]
         cfg = self._config_override(cfg)
         super().__init__(
             cfg=cfg,
@@ -38,27 +39,26 @@ class FrankaLEAPMobilePickFull(FrankaLEAPMobile):
             for i in range(self.num_envs):
                 self.draw_box_lines(i, self.box_pos[i].clone(), self.box_quats[i].clone(), self.box_dims[i].clone())
 
-    @staticmethod
-    def _config_override(cfg):
+    def _config_override(self, cfg):
         # TopdownTable, TopdownConstrained, SideTable, SideConstrained
-        if cfg.cfg_override == "TopdownTable":
-            cfg.env.numObservations = 49
-            cfg.env.numStates = 94
-        elif cfg.cfg_override == "TopdownConstrained":
-            cfg.env.numObservations = 61
-            cfg.env.numStates = 106
-            cfg.env.robot_init.switch_pos_offset = [-0.3,0.0,0.1]
-            cfg.env.robot_init.switch_tol = 0.1
-            cfg.reward.params.target_quat = [0.5, -0.5, 0.5, -0.5]
-        elif cfg.cfg_override == "SideTable":
-            cfg.env.numObservations = 49
-            cfg.env.numStates = 94
-        elif cfg.cfg_override == "SideConstrained":
-            cfg.env.numObservations = 61
-            cfg.env.numStates = 106
-            cfg.env.robot_init.switch_pos_offset = [-0.3,0.0,0.1] # TODO: the x offset should be along box_quat's x-axis, but now its the global x axis, update this later
-            cfg.env.robot_init.switch_tol = 0.1
-            cfg.reward.params.target_quat = [0.5, -0.5, 0.5, -0.5]
+        if self.cfg_override == "TopdownTable":
+            cfg["env"]["numObservations"] = 49
+            cfg["env"]["numStates"] = 94
+        elif self.cfg_override == "TopdownConstrained":
+            cfg["env"]["numObservations"] = 61
+            cfg["env"]["numStates"] = 106
+            cfg["env"]["robot_init"]["switch_pos_offset"] = [-0.3,0.0,0.1]
+            cfg["env"]["robot_init"]["switch_tol"] = 0.1
+            cfg["reward"]["params"]["target_quat"] = [0.5, -0.5, 0.5, -0.5]
+        elif self.cfg_override == "SideTable":
+            cfg["env"]["numObservations"] = 49
+            cfg["env"]["numStates"] = 94
+        elif self.cfg_override == "SideConstrained":
+            cfg["env"]["numObservations"] = 61
+            cfg["env"]["numStates"] = 106
+            cfg["env"]["robot_init"]["switch_pos_offset"] = [-0.3,0.0,0.1] # TODO: the x offset should be along box_quat's x-axis, but now its the global x axis, update this later
+            cfg["env"]["robot_init"]["switch_tol"] = 0.1
+            cfg["reward"]["params"]["target_quat"] = [0.5, -0.5, 0.5, -0.5]
 
         return cfg
 
@@ -102,7 +102,7 @@ class FrankaLEAPMobilePickFull(FrankaLEAPMobile):
         self.switching_target_pos = self._object_state[:, :3].clone()
         self.switching_target_pos += self.switch_pos_offset
         self.switching_target_pos[:, 2] += self.mesh_aabb_extents[:, 2] / 2
-        if self.cfg.cfg_override == "SideConstrained":
+        if self.cfg_override == "SideConstrained":
             self._switching_target_quat_precomputed = torch.tensor([[0.5, -0.5, 0.5, -0.5]] * self.num_envs, device=self.device)
         else:
             self._switching_target_quat_precomputed = torch.tensor([[1.0, 0.0, 0.0, 0.0]] * self.num_envs, device=self.device)  # 180 degrees around local x-axis
@@ -435,15 +435,15 @@ class FrankaLEAPMobilePickFull(FrankaLEAPMobile):
         lift_5cm = self.states["object_center_pos"][:, 2] - self._object_center_init_state[:, 2] > 0.05
 
         # need to do in place assignment for self.obj_pos_target, since it affects the reward computation
-        if self.cfg.cfg_override == "TopdownTable":
+        if self.cfg_override == "TopdownTable":
             self.obj_pos_target[~lift_5cm, :2] = self.states["object_center_pos"][~lift_5cm, :2]  # x, y
             self.obj_pos_target[:, 2] = self.table_surface_height + self.reward_settings['target_lift_dis']
-        elif self.cfg.cfg_override == "TopdownConstrained":
+        elif self.cfg_override == "TopdownConstrained":
             self.obj_pos_target[:, :2] = self.box_pos[:, :2]
             self.obj_pos_target[:, 2] = self.box_pos[:, 2] + self.box_dims[:, 2] + 0.2
-        elif self.cfg.cfg_override == "SideTable":
+        elif self.cfg_override == "SideTable":
             pass
-        elif self.cfg.cfg_override == "SideConstrained":
+        elif self.cfg_override == "SideConstrained":
             self.obj_pos_target[:] = self.box_pos.clone()
             self.obj_pos_target[:, 0] -= (self.box_dims[:, 0] / 2 + 0.1)
             self.obj_pos_target[:, 2] += self.box_dims[:, 2] / 2
