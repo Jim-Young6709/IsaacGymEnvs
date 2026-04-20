@@ -23,6 +23,7 @@ from tqdm import tqdm
 
 class FrankaLEAPMobilePickFull(FrankaLEAPMobile):
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
+        cfg = self._config_override(cfg)
         super().__init__(
             cfg=cfg,
             rl_device=rl_device,
@@ -36,6 +37,30 @@ class FrankaLEAPMobilePickFull(FrankaLEAPMobile):
         if not self.headless:
             for i in range(self.num_envs):
                 self.draw_box_lines(i, self.box_pos[i].clone(), self.box_quats[i].clone(), self.box_dims[i].clone())
+
+    @staticmethod
+    def _config_override(cfg):
+        # TopdownTable, TopdownConstrained, SideTable, SideConstrained
+        if cfg.cfg_override == "TopdownTable":
+            cfg.env.numObservations = 49
+            cfg.env.numStates = 94
+        elif cfg.cfg_override == "TopdownConstrained":
+            cfg.env.numObservations = 61
+            cfg.env.numStates = 106
+            cfg.env.robot_init.switch_pos_offset = [-0.3,0.0,0.1]
+            cfg.env.robot_init.switch_tol = 0.1
+            cfg.reward.params.target_quat = [0.5, -0.5, 0.5, -0.5]
+        elif cfg.cfg_override == "SideTable":
+            cfg.env.numObservations = 49
+            cfg.env.numStates = 94
+        elif cfg.cfg_override == "SideConstrained":
+            cfg.env.numObservations = 61
+            cfg.env.numStates = 106
+            cfg.env.robot_init.switch_pos_offset = [-0.3,0.0,0.1] # TODO: the x offset should be along box_quat's x-axis, but now its the global x axis, update this later
+            cfg.env.robot_init.switch_tol = 0.1
+            cfg.reward.params.target_quat = [0.5, -0.5, 0.5, -0.5]
+
+        return cfg
 
     def _init_env_config(self):
         # hdf5 scene loading
@@ -77,8 +102,11 @@ class FrankaLEAPMobilePickFull(FrankaLEAPMobile):
         self.switching_target_pos = self._object_state[:, :3].clone()
         self.switching_target_pos += self.switch_pos_offset
         self.switching_target_pos[:, 2] += self.mesh_aabb_extents[:, 2] / 2
-        self._switching_target_down_quat = torch.tensor([[1.0, 0.0, 0.0, 0.0]] * self.num_envs, device=self.device)  # 180 degrees around local x-axis
-        self.switching_target_quat = self._switching_target_down_quat # default hand orientation is facing up, so need to rotate 180
+        if self.cfg.cfg_override == "SideConstrained":
+            self._switching_target_quat_precomputed = torch.tensor([[0.5, -0.5, 0.5, -0.5]] * self.num_envs, device=self.device)
+        else:
+            self._switching_target_quat_precomputed = torch.tensor([[1.0, 0.0, 0.0, 0.0]] * self.num_envs, device=self.device)  # 180 degrees around local x-axis
+        self.switching_target_quat = quat_mul(self.box_quats, self._switching_target_quat_precomputed)
 
     def _create_envs(self, spacing, num_per_row):
         """
@@ -316,10 +344,10 @@ class FrankaLEAPMobilePickFull(FrankaLEAPMobile):
         px, py, pz = pos_xyz
         qx, qy, qz, qw = quat_xyzw
         sx, sy, sz = dims_xyz
-        sx -= 0.0001
-        sy -= 0.0001
-        sz -= 0.0001
-        pz += sz / 2
+        sx = sx - 0.0001
+        sy = sy - 0.0001
+        sz = sz - 0.0001
+        pz = pz + sz / 2
 
         center = gymapi.Vec3(px, py, pz)
         q = gymapi.Quat(qx, qy, qz, qw)
@@ -375,6 +403,24 @@ class FrankaLEAPMobilePickFull(FrankaLEAPMobile):
 
         self.gym.add_lines(self.viewer, self.envs[env_idx], len(axis_colors), axis_points, axis_colors)
 
+    def draw_switching_target_pose(self, axis_len=0.08):
+        pos = self.switching_target_pos.detach()
+        axis_dirs = quaternion_to_matrix_ig(self.switching_target_quat.detach()).transpose(1, 2) * axis_len
+        axis_starts = pos[:, None, :].expand(-1, 3, -1)
+        axis_ends = pos[:, None, :] + axis_dirs
+        axis_points = torch.stack((axis_starts, axis_ends), dim=2).reshape(self.num_envs, 6, 3).cpu().numpy()
+        axis_colors = np.array(
+            [
+                [1.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+                [0.0, 0.0, 1.0],
+            ],
+            dtype=np.float32,
+        )
+
+        for env_idx in range(self.num_envs):
+            self.gym.add_lines(self.viewer, self.envs[env_idx], 3, axis_points[env_idx], axis_colors)
+
     def _update_states(self):
         super()._update_states()
         eef_rot_mat = quaternion_to_matrix_ig(self._eef_state[:, 3:7])
@@ -388,12 +434,27 @@ class FrankaLEAPMobilePickFull(FrankaLEAPMobile):
 
         lift_5cm = self.states["object_center_pos"][:, 2] - self._object_center_init_state[:, 2] > 0.05
 
-        self.obj_pos_target[~lift_5cm, :2] = self.states["object_center_pos"][~lift_5cm, :2]  # x, y
-        self.obj_pos_target[:, 2] = self.table_surface_height + self.reward_settings['target_lift_dis']
+        # need to do in place assignment for self.obj_pos_target, since it affects the reward computation
+        if self.cfg.cfg_override == "TopdownTable":
+            self.obj_pos_target[~lift_5cm, :2] = self.states["object_center_pos"][~lift_5cm, :2]  # x, y
+            self.obj_pos_target[:, 2] = self.table_surface_height + self.reward_settings['target_lift_dis']
+        elif self.cfg.cfg_override == "TopdownConstrained":
+            self.obj_pos_target[:, :2] = self.box_pos[:, :2]
+            self.obj_pos_target[:, 2] = self.box_pos[:, 2] + self.box_dims[:, 2] + 0.2
+        elif self.cfg.cfg_override == "SideTable":
+            pass
+        elif self.cfg.cfg_override == "SideConstrained":
+            self.obj_pos_target[:] = self.box_pos.clone()
+            self.obj_pos_target[:, 0] -= (self.box_dims[:, 0] / 2 + 0.1)
+            self.obj_pos_target[:, 2] += self.box_dims[:, 2] / 2
 
         self.switching_target_pos = self.states['object_center_pos'].clone()
         self.switching_target_pos += self.switch_pos_offset
-        self.switching_target_quat = quat_mul(self.box_quats, self._switching_target_down_quat)
+        if self.viewer is not None:
+            self.gym.clear_lines(self.viewer)
+            for i in range(self.num_envs):
+                self.draw_box_lines(i, self.box_pos[i], self.box_quats[i], self.box_dims[i])
+            self.draw_switching_target_pose()
 
         self.states.update({
             # Box region
