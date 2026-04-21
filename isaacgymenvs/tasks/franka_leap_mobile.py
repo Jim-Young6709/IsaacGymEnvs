@@ -181,8 +181,8 @@ class FrankaLEAPMobile(VecTask):
             self.canonical_joint_config = torch.tensor(
                 [
                     [0.0, 0.0, 0.0] + \
-                    # [0.0, -0.25*np.pi, 0.0, -0.75*np.pi, 0.0, 0.5*np.pi, 0.0] + \
-                    [-0.5*np.pi, -0.25*np.pi, 0.0, -0.75*np.pi, 0.5*np.pi, 0.5*np.pi, 0.0] + \
+                    [0.0, -0.25*np.pi, 0.0, -0.75*np.pi, 0.0, 0.5*np.pi, 0.0] + \
+                    # [-0.5*np.pi, -0.25*np.pi, 0.0, -0.75*np.pi, 0.5*np.pi, 0.5*np.pi, 0.0] + \
                     # [-0.25*np.pi, -0.25*np.pi, 0.0, -0.75*np.pi, 0.25*np.pi, 0.5*np.pi, 0.0] + \
                     [0.0, 0.0, 0.0, 0.0,
                      0.0, 0.0, 1.0, 0.57,
