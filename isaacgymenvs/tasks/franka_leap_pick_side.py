@@ -34,7 +34,8 @@ class FrankaLEAPPickSide(FrankaLEAP):
 
     def _post_init_buffers(self):
         super()._post_init_buffers()
-        self.ik_regularization_config = torch.tensor([[-0.5*np.pi, -0.25*np.pi, 0.0, -0.75*np.pi, 0.5*np.pi, 0.5*np.pi, 0.0]], device=self.device)
+        # self.ik_regularization_config = torch.tensor([[-0.5*np.pi, -0.25*np.pi, 0.0, -0.75*np.pi, 0.5*np.pi, 0.5*np.pi, -0.5*np.pi]], device=self.device)
+        self.ik_regularization_config = torch.tensor([[-1.41111064, -1.20421876, 1.11514925, -2.30643184, 0.97677832, 1.59482316, -0.73056353]], device=self.device)
         if self.eef_init["enable"]:
             dis_open_range = self.eef_init["dis_open_range"]
             dis_open = torch.rand(self.num_envs, device=self.device) * (dis_open_range[1] - dis_open_range[0]) + dis_open_range[0]
@@ -50,9 +51,11 @@ class FrankaLEAPPickSide(FrankaLEAP):
             box_center_pos = self.box_pos.clone()
             box_center_pos[:, 2] += self.box_dims[:, 2] / 2
 
-            eef_init_quat = A2B_quaternion(eef_init_pos, box_center_pos, max_angle_deg=20, right_axis="x")
-            rot_local_z_180 = torch.tensor([[0.0, 0.0, 1.0, 0.0]]*self.num_envs, device=self.device)  # 180 degrees around local z-axis
-            eef_init_quat = quat_mul(eef_init_quat, rot_local_z_180)  # rotate by 180 degrees around local z-axis
+            eef_init_quat = A2B_quaternion(eef_init_pos, box_center_pos, max_angle_deg=60, right_axis="x")
+            # rot_local_z_180 = torch.tensor([[0.0, 0.0, 1.0, 0.0]]*self.num_envs, device=self.device)  # 180 degrees around local z-axis
+            # eef_init_quat = quat_mul(eef_init_quat, rot_local_z_180)  # rotate by 180 degrees around local z-axis
+            rot_local_z_90 = torch.tensor([[0.0, 0.0, 0.7071, 0.7071]]*self.num_envs, device=self.device)  # 90 degrees around local z-axis
+            eef_init_quat = quat_mul(eef_init_quat, rot_local_z_90)  # rotate by 90 degrees around local z-axis
 
             eef_init_pos7 = torch.cat((eef_init_pos, eef_init_quat), dim=-1)  # (num_envs, 7)
 
