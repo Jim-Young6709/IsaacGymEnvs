@@ -34,6 +34,7 @@ class FrankaLEAPPickSide(FrankaLEAP):
 
     def _post_init_buffers(self):
         super()._post_init_buffers()
+        self.ik_regularization_config = torch.tensor([[-0.5*np.pi, -0.25*np.pi, 0.0, -0.75*np.pi, 0.5*np.pi, 0.5*np.pi, 0.0]], device=self.device)
         if self.eef_init["enable"]:
             dis_open_range = self.eef_init["dis_open_range"]
             dis_open = torch.rand(self.num_envs, device=self.device) * (dis_open_range[1] - dis_open_range[0]) + dis_open_range[0]
@@ -57,9 +58,7 @@ class FrankaLEAPPickSide(FrankaLEAP):
 
             # TODO: resampling mechanism here when IK failed
             self.canonical_joint_config[:, :7] = self.get_joint_from_ee(eef_init_pos7)
-
             self.default_reset_joint_config = self.canonical_joint_config.clone()
-            self.ik_regularization_config = self.canonical_joint_config[:, :7]
 
     def _create_envs(self, spacing, num_per_row):
         """
