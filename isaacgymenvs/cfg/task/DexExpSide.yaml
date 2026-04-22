@@ -27,7 +27,7 @@ env:
     canonical_quat: [-0.5, -0.5, -0.5, -0.5] # xyzw
     # canonical_quat: [0.5, -0.5, 0.5, -0.5] # xyzw
     # canonical_quat: [0.7071, 0.0, 0.7071, 0.0]
-    quat_init_rand: 0 # degrees
+    quat_init_rand: 60 # degrees
 
   numObservations: 61
   numStates: 106
