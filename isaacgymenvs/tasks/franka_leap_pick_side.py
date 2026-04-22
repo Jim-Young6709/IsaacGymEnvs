@@ -34,6 +34,7 @@ class FrankaLEAPPickSide(FrankaLEAP):
 
     def _post_init_buffers(self):
         super()._post_init_buffers()
+        # TODO: 90shift
         # self.ik_regularization_config = torch.tensor([[-0.5*np.pi, -0.25*np.pi, 0.0, -0.75*np.pi, 0.5*np.pi, 0.5*np.pi, -0.5*np.pi]], device=self.device)
         self.ik_regularization_config = torch.tensor([[-1.41111064, -1.20421876, 1.11514925, -2.30643184, 0.97677832, 1.59482316, -0.73056353]], device=self.device)
         if self.eef_init["enable"]:

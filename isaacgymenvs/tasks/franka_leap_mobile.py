@@ -178,6 +178,7 @@ class FrankaLEAPMobile(VecTask):
             base_init_pose = torch.rand((self.num_envs, 3), device=self.device) * (base_init_range[1] - base_init_range[0]) + base_init_range[0]
             base_init_pose[:, 1] += getattr(self, "box_pos", torch.zeros_like(base_init_pose))[:, 1]
 
+            # TODO: 90shift
             self.canonical_joint_config = torch.tensor(
                 [
                     [0.0, 0.0, 0.0] + \
