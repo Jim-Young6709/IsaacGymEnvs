@@ -56,7 +56,7 @@ reward:
     w_obj_drag: 0.0 # should fix drag reward later, now its based on xy which doesn't make sense
     w_lift: 2.0
     w_curl: 0.5
-    w_ori_guide: 0.5
+    w_ori_guide: 0.0
     w_colli: -1.0
     w_actionreg: -0.001
 
