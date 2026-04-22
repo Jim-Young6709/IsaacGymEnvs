@@ -24,6 +24,9 @@ env:
     enable: True
     dis_open_range: [0.3, 0.35]
     dis_side_range: -0.1
+    # canonical_quat: [0.5, -0.5, 0.5, -0.5] # xyzw
+    canonical_quat: [0.7071, 0.0, 0.7071, 0.0]
+    quat_init_rand: 60 # degrees
 
   numObservations: 61
   numStates: 106
@@ -33,6 +36,7 @@ reward:
   params:
     target_pos: [0.5, 0.0, 0.3]
     target_lift_dis: 0.1
+    # target_quat: [0.5, -0.5, 0.5, -0.5] # xyzw
     target_quat: [0.7071, 0.0, 0.7071, 0.0]
     curl_reaching_threshold: 0.15
 
@@ -42,6 +46,7 @@ reward:
     beta_object_drag: 10.0
     beta_lift: 0.0 # set this to 0 to use a 0-1 lift reward
     beta_curl: 0.05
+    beta_ori_guide: 1.0
 
   weights:
     w_hand_obj: 1.0
@@ -49,6 +54,7 @@ reward:
     w_obj_drag: 0.0 # should fix drag reward later, now its based on xy which doesn't make sense
     w_lift: 2.0
     w_curl: 0.5
+    w_ori_guide: 0.5
     w_colli: -1.0
     w_actionreg: -0.001
 

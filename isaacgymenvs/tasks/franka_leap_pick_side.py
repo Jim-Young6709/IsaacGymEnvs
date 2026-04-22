@@ -51,11 +51,15 @@ class FrankaLEAPPickSide(FrankaLEAP):
             box_center_pos = self.box_pos.clone()
             box_center_pos[:, 2] += self.box_dims[:, 2] / 2
 
-            eef_init_quat = A2B_quaternion(eef_init_pos, box_center_pos, max_angle_deg=60, right_axis="x")
-            # rot_local_z_180 = torch.tensor([[0.0, 0.0, 1.0, 0.0]]*self.num_envs, device=self.device)  # 180 degrees around local z-axis
-            # eef_init_quat = quat_mul(eef_init_quat, rot_local_z_180)  # rotate by 180 degrees around local z-axis
-            rot_local_z_90 = torch.tensor([[0.0, 0.0, 0.7071, 0.7071]]*self.num_envs, device=self.device)  # 90 degrees around local z-axis
-            eef_init_quat = quat_mul(eef_init_quat, rot_local_z_90)  # rotate by 90 degrees around local z-axis
+            eef_init_quat = torch.tensor([self.eef_init["canonical_quat"]]*self.num_envs, device=self.device)
+            # Add small random rotation
+            if self.eef_init["quat_init_rand"] > 0:
+                max_angle_rad = self.eef_init["quat_init_rand"] * torch.pi / 180.0
+                rand_axis = torch.rand(self.num_envs, 3, device=self.device)
+                rand_axis = rand_axis / torch.norm(rand_axis, dim=-1, keepdim=True)
+                rand_angle = (torch.rand(self.num_envs, device=self.device) - 0.5) * 2 * max_angle_rad
+                rand_quat = quat_from_angle_axis(rand_angle, rand_axis)
+                eef_init_quat = quat_mul(eef_init_quat, rand_quat)
 
             eef_init_pos7 = torch.cat((eef_init_pos, eef_init_quat), dim=-1)  # (num_envs, 7)
 
@@ -427,6 +431,16 @@ def compute_franka_leap_reward(states, reward_settings):
     r_curl= torch.exp(-beta_curl * finger_pos_diff)
     r_curl = torch.where(near_object, r_curl, 0.0)
 
+    # R6: Orientation guide reward
+    ori_eef = states["eef_quat"]
+    ori_guide = reward_settings["ori_guide_quat"]
+    ori_eef = ori_eef / ori_eef.norm(dim=-1, keepdim=True).clamp_min(1e-8)
+    ori_guide = ori_guide / ori_guide.norm(dim=-1, keepdim=True).clamp_min(1e-8)
+    ori_diff = torch.sum(ori_eef * ori_guide, dim=-1).abs().clamp(0.0, 1.0)
+    theta = 2.0 * torch.arccos(ori_diff) # in [0, pi]
+    beta_ori_guide = reward_settings["beta_ori_guide"]
+    r_ori_guide = torch.exp(-beta_ori_guide * theta * theta)
+
     # R6: Colli Penalty
     r_colli = torch.where(states["collision"], -1.0, 0.0)
 
@@ -435,8 +449,9 @@ def compute_franka_leap_reward(states, reward_settings):
     w_obj_drag = reward_settings["w_obj_drag"]
     w_lift = reward_settings["w_lift"]
     w_curl = reward_settings["w_curl"]
+    w_ori_guide = reward_settings["w_ori_guide"]
 
-    r_total = w_hand_obj*r_hand_obj + w_obj_goal*r_obj_goal + w_obj_drag*r_obj_drag + w_lift*r_lift + w_curl*r_curl + r_colli
+    r_total = w_hand_obj*r_hand_obj + w_obj_goal*r_obj_goal + w_obj_drag*r_obj_drag + w_lift*r_lift + w_curl*r_curl + w_ori_guide*r_ori_guide + r_colli
 
     rewards = {
         "r_hand_obj": w_hand_obj*r_hand_obj,
@@ -444,6 +459,7 @@ def compute_franka_leap_reward(states, reward_settings):
         "r_obj_goal": w_obj_goal*r_obj_goal,
         "r_obj_drag": w_obj_drag*r_obj_drag,
         "r_curl": w_curl*r_curl,
+        "r_ori_guide": w_ori_guide*r_ori_guide,
         "r_colli": r_colli,
         "r_total": r_total,
         "d_hand_obj": d_hand_obj,
