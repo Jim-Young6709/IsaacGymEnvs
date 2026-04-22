@@ -450,10 +450,6 @@ class FrankaLEAP(VecTask):
         target_quat_norm = torch.norm(target_quat, dim=1, keepdim=True)  # normalize quaternion
         target_quat = target_quat / (target_quat_norm + 1e-10)
 
-        ori_guide_quat = to_torch(self.cfg["env"]["eef_init"]["canonical_quat"], device=self.device).unsqueeze(0).repeat(self.num_envs, 1)
-        ori_guide_quat_norm = torch.norm(ori_guide_quat, dim=1, keepdim=True)  # normalize quaternion
-        ori_guide_quat = ori_guide_quat / (ori_guide_quat_norm + 1e-10)
-
         # finger indexing: 0-3:index ; 4-7:thumb ; 8-11:middle ; 12-15:ring
         # @ray curl config
         grasp_default_1 = [
@@ -485,9 +481,6 @@ class FrankaLEAP(VecTask):
             "target_quat": target_quat,
             "target_rot_6d": matrix_to_rotation_6d(quaternion_to_matrix_ig(target_quat)),
 
-            "ori_guide_quat": ori_guide_quat,
-            "ori_guide_rot_6d": matrix_to_rotation_6d(quaternion_to_matrix_ig(ori_guide_quat)),
-
             "curl_reaching_threshold": to_torch(self.cfg["reward"]["params"]["curl_reaching_threshold"], device=self.device),
             "success_timeout": to_torch(self.cfg["reward"]["params"]["success_timeout"], device=self.device),
             "lifting_timeout": to_torch(self.cfg["reward"]["params"]["lifting_timeout"], device=self.device),
@@ -503,7 +496,6 @@ class FrankaLEAP(VecTask):
             "w_obj_goal": to_torch(self.cfg["reward"]["weights"]["w_obj_goal"], device=self.device),
             "w_lift": to_torch(self.cfg["reward"]["weights"]["w_lift"], device=self.device),
             "w_curl": to_torch(self.cfg["reward"]["weights"]["w_curl"], device=self.device),
-            "w_ori_guide": to_torch(self.cfg["reward"]["weights"]["w_ori_guide"], device=self.device),
             "w_actionreg": to_torch(self.cfg["reward"]["weights"]["w_actionreg"], device=self.device),
 
             # @ray what rewards to use, for running ablations

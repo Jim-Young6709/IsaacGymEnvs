@@ -236,9 +236,18 @@ class FrankaLEAPPickSide(FrankaLEAP):
 
     def init_data(self, actor_num):
         super().init_data(actor_num=actor_num)
+
+        ori_guide_quat = to_torch(self.cfg["env"]["eef_init"]["canonical_quat"], device=self.device).unsqueeze(0).repeat(self.num_envs, 1)
+        ori_guide_quat_norm = torch.norm(ori_guide_quat, dim=1, keepdim=True)  # normalize quaternion
+        ori_guide_quat = ori_guide_quat / (ori_guide_quat_norm + 1e-10)
+
+        self.reward_settings["ori_guide_quat"] = ori_guide_quat
+        self.reward_settings["ori_guide_rot_6d"] = matrix_to_rotation_6d(quaternion_to_matrix_ig(ori_guide_quat))
         self.reward_settings["target_pos"] = self.obj_pos_target
         self.reward_settings["beta_object_drag"] = to_torch(self.cfg["reward"]["exp"]["beta_object_drag"], device=self.device)
+        self.reward_settings["beta_ori_guide"] = to_torch(self.cfg["reward"]["exp"]["beta_ori_guide"], device=self.device)
         self.reward_settings["w_obj_drag"] = to_torch(self.cfg["reward"]["weights"]["w_obj_drag"], device=self.device)
+        self.reward_settings["w_ori_guide"] = to_torch(self.cfg["reward"]["weights"]["w_ori_guide"], device=self.device)
 
     def _create_box(self):
         wall_thickness = self.scene_box_cfg["wall_thickness"]
