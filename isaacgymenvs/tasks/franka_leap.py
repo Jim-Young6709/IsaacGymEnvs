@@ -175,8 +175,8 @@ class FrankaLEAP(VecTask):
 
             self.canonical_joint_config = torch.tensor(
                 [
-                    [0, 0, 0, -3*torch.pi/4, 0, 3*torch.pi/4, 0] + \
-                    # TODO: 90shift
+                    # [0, 0, 0, -3*torch.pi/4, 0, 3*torch.pi/4, 0] + \ # original version
+                    [0, 0, 0, -3*torch.pi/4, 0, 3*torch.pi/4, -torch.pi/2] + \
                     self.hand_default
                 ] * self.num_envs
             ).to(self.device)
@@ -464,9 +464,12 @@ class FrankaLEAP(VecTask):
         self.grasp_finger_dof_pos = torch.tensor(self.grasp_default, device=self.device)
 
         # for visualization purposes
-        # TODO: 90shift
         self.canonical_grasp_config = torch.tensor(
-            [[0, 0, 0, -3*torch.pi/4, 0, 3*torch.pi/4, 0] + self.grasp_finger_dof_pos.tolist()] * self.num_envs
+            [
+                # [0, 0, 0, -3*torch.pi/4, 0, 3*torch.pi/4, 0] \ # original version
+                [0, 0, 0, -3*torch.pi/4, 0, 3*torch.pi/4, -torch.pi/2] \
+                + self.grasp_finger_dof_pos.tolist()
+            ] * self.num_envs
         ).to(self.device)
 
         self.reward_settings = {
