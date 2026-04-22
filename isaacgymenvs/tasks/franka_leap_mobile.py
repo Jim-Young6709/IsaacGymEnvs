@@ -267,7 +267,7 @@ class FrankaLEAPMobile(VecTask):
 
     def _init_cuRobo_ik_solver(self):
         """
-        IK is solved with respect to Franka link "panda_link7"
+        (Archive) IK is solved with respect to Franka link "panda_link7"
         """
         from curobo.types.base import TensorDeviceType
         from curobo.types.robot import RobotConfig
@@ -1434,7 +1434,7 @@ class FrankaLEAPMobile(VecTask):
         return unnormalized
 
     def get_joint_from_ee(self, eef_pose):
-        # TODO: update this
+        # (Archive)
         """
         Get the joint angles from the end effector pose. This func is well tested
         Args:

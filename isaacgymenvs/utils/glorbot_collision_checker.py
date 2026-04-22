@@ -557,7 +557,17 @@ def test_filter_pointcloud_outside_spheres(
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Visualize Glorbot collision spheres.")
+    parser = argparse.ArgumentParser(
+        description="Visualize Glorbot collision spheres.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Example:\n"
+            "  python ./isaacgymenvs/utils/glorbot_collision_checker.py \\\n"
+            "      --urdf_path /path/to/glorbot.urdf \\\n"
+            "      --samples_per_sphere 300 \\\n"
+            "      --sphere_noise 0.002\n"
+        ),
+    )
     parser.add_argument("--urdf_path", type=str, required=True, help="Path to robot URDF.")
     parser.add_argument(
         "--joint_angles",
