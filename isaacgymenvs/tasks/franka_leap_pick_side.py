@@ -434,8 +434,8 @@ def compute_franka_leap_reward(states, reward_settings):
     # R6: Orientation guide reward
     ori_eef = states["eef_quat"]
     ori_guide = reward_settings["ori_guide_quat"]
-    ori_eef = ori_eef / ori_eef.norm(dim=-1, keepdim=True).clamp_min(1e-8)
-    ori_guide = ori_guide / ori_guide.norm(dim=-1, keepdim=True).clamp_min(1e-8)
+    ori_eef = ori_eef / torch.norm(ori_eef, p=2, dim=-1, keepdim=True).clamp_min(1e-8)
+    ori_guide = ori_guide / torch.norm(ori_guide, p=2, dim=-1, keepdim=True).clamp_min(1e-8)
     ori_diff = torch.sum(ori_eef * ori_guide, dim=-1).abs().clamp(0.0, 1.0)
     theta = 2.0 * torch.arccos(ori_diff) # in [0, pi]
     beta_ori_guide = reward_settings["beta_ori_guide"]
