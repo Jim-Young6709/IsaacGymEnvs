@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "baseball_cap_4",
+  "base_name": "baseball_cap_4",
+  "full_name": "baseball_cap_4",
+  "category": "small",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-03-15 02:42:41",
+  "transform": {
+    "dilate_x": 1.04,
+    "dilate_y": 1.0,
+    "dilate_z": 0.9299999999999999,
+    "dilate_x_min": 0.7199999999999998,
+    "dilate_x_max": 1.3600000000000003,
+    "dilate_y_min": 0.5799999999999996,
+    "dilate_y_max": 1.4200000000000004,
+    "dilate_z_min": 0.7399999999999998,
+    "dilate_z_max": 1.12,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 0.7199999999999998,
+      "max": 1.3600000000000003
+    },
+    "y": {
+      "min": 0.5799999999999996,
+      "max": 1.4200000000000004
+    },
+    "z": {
+      "min": 0.7399999999999998,
+      "max": 1.12
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.05674,
+        0.10028791,
+        0.05116906
+      ],
+      "volume": 0.00015966465776653285,
+      "max_dim": 0.10028791
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.0590096,
+        0.10028791,
+        0.0475872258
+      ],
+      "volume": 0.00015442765699179056,
+      "max_dim": 0.10028791
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/baseball_cap_4/v000/baseball_cap_4_v000.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/baseball_cap_4/v000/baseball_cap_4_v000.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/baseball_cap_4/v000/baseball_cap_4_v000.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/baseball_cap_4/v000/baseball_cap_4_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/baseball_cap_4/baseball_cap_4.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/baseball_cap_4/baseball_cap_4.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/baseball_cap_4/baseball_cap_4.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/baseball_cap_4/baseball_cap_4.urdf"
+    }
+  }
+}

@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "bird_3",
+  "base_name": "bird_3",
+  "full_name": "bird_3",
+  "category": "small",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-03-15 03:01:14",
+  "transform": {
+    "dilate_x": 0.8999999999999999,
+    "dilate_y": 1.3500000000000003,
+    "dilate_z": 0.7199999999999998,
+    "dilate_x_min": 0.6399999999999997,
+    "dilate_x_max": 1.1600000000000001,
+    "dilate_y_min": 0.8599999999999999,
+    "dilate_y_max": 1.8400000000000007,
+    "dilate_z_min": 0.6399999999999997,
+    "dilate_z_max": 0.7999999999999998,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 0.6399999999999997,
+      "max": 1.1600000000000001
+    },
+    "y": {
+      "min": 0.8599999999999999,
+      "max": 1.8400000000000007
+    },
+    "z": {
+      "min": 0.6399999999999997,
+      "max": 0.7999999999999998
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.11416432,
+        0.07679856,
+        0.0897889
+      ],
+      "volume": 0.00024158992300333843,
+      "max_dim": 0.11416432
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.10274788799999998,
+        0.10367805600000002,
+        0.06464800799999998
+      ],
+      "volume": 0.0002113428646433204,
+      "max_dim": 0.10367805600000002
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/bird_3/v000/bird_3_v000.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/bird_3/v000/bird_3_v000.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/bird_3/v000/bird_3_v000.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/bird_3/v000/bird_3_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/bird_3/bird_3.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/bird_3/bird_3.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/bird_3/bird_3.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/bird_3/bird_3.urdf"
+    }
+  }
+}

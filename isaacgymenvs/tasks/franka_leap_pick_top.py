@@ -95,6 +95,7 @@ class FrankaLEAPPickTop(FrankaLEAP):
 
         # load all meshes first
         all_meshes_list = self.create_all_meshes()
+        self.num_objects = len(all_meshes_list) # @ray record number of objects for per-object success rate tracking
 
         # Create environments
         for i in tqdm(range(self.num_envs), desc="Creating Envs"):
@@ -274,13 +275,17 @@ class FrankaLEAPPickTop(FrankaLEAP):
     def _update_states(self):
         super()._update_states()
         eef_rot_mat = quaternion_to_matrix_ig(self._eef_state[:, 3:7])
+        eef_rot_mat_T = eef_rot_mat.transpose(1, 2)
         box_rot_mat = quaternion_to_matrix_ig(self.box_quats)
-        box_to_eef_rot_mat = torch.matmul(eef_rot_mat.transpose(1, 2), box_rot_mat)
+        box_to_eef_rot_mat = torch.matmul(eef_rot_mat_T, box_rot_mat)
         box_to_eef_rot_6d = matrix_to_rotation_6d(box_to_eef_rot_mat)
+
+        box_to_eef_world = self.box_pos - self._eef_state[:, :3] # note box_pos here is box bottom center not box center
+        box_to_eef = torch.matmul(eef_rot_mat_T, box_to_eef_world.unsqueeze(-1)).squeeze(-1)
 
         self.states.update({
             # Box region
-            "box_to_eef_pos": self.box_pos - self._eef_state[:, :3],
+            "box_bottom_to_eef": box_to_eef,
             "box_dims": self.box_dims,
             "box_to_eef_rot_6d": box_to_eef_rot_6d,
             "obj_to_box_center_xy": self._object_state[:, :2] - self.box_pos[:, :2],
@@ -300,7 +305,7 @@ class FrankaLEAPPickTop(FrankaLEAP):
         obs_components = ["q_hand",
                           "eef_finger1_pos_relative", "eef_finger2_pos_relative",
                           "eef_finger3_pos_relative", "eef_finger4_pos_relative",
-                          "box_to_eef_pos", "box_dims", "box_to_eef_rot_6d",
+                          "box_bottom_to_eef", "box_dims", "box_to_eef_rot_6d",
                           "object_to_eef", "object_to_eef_rot_6d",
                           "target_to_eef", "target_to_eef_rot_6d"]
 
@@ -308,7 +313,7 @@ class FrankaLEAPPickTop(FrankaLEAP):
                              "eef_pos", "eef_rot_6d", "eef_vel",
                              "eef_finger1_pos_relative", "eef_finger2_pos_relative",
                              "eef_finger3_pos_relative", "eef_finger4_pos_relative",
-                             "box_to_eef_pos", "box_dims", "box_to_eef_rot_6d",
+                             "box_bottom_to_eef", "box_dims", "box_to_eef_rot_6d",
                              "object_to_eef", "object_to_eef_rot_6d",
                              "target_to_eef", "target_to_eef_rot_6d"]
 
@@ -396,7 +401,7 @@ def compute_franka_leap_reward(states, reward_settings):
         r_lift = torch.where(states["lift"], 1.0, torch.zeros_like(object_height))
 
     # R3: Object goal distance reward (based on average point matching distance)
-    d_eef_point_goal = states["point_matching_err"]
+    d_eef_point_goal = states["point_matching_err_target"]
     beta_object_goal = reward_settings["beta_object_goal"]
     r_obj_goal = torch.exp(-beta_object_goal * d_eef_point_goal)
     r_obj_goal = torch.where(states["lift"], r_obj_goal, 0.0)

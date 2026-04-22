@@ -23,7 +23,12 @@ pip install -e ./isaacgym/python/
 git clone -b eef git@github.com:Jim-Young6709/IsaacGymEnvs.git
 pip install -e IsaacGymEnvs/
 
-pip install tqdm ipdb geometrout==0.0.3.4 numpy==1.23.0 open3d urchin h5py
+# fabric
+pip install warp-lang==0.13.0 ghalton
+git clone -b Feb24 git@github.com:JasonJZLiu/fabric_sim_mobile.git
+pip install -e fabric_sim_mobile/
+
+pip install tqdm ipdb geometrout==0.0.3.4 numpy==1.23.0 open3d urchin h5py imageio-ffmpeg
 
 ```
 

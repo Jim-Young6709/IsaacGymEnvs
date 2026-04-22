@@ -29,10 +29,10 @@ env:
       y_offset_range: [0.2, 0.5]
       cuboids:
         num: 0 # 1
-        size_range: [[0.15, 0.15, 0.4], [0.25, 0.25, 0.6]]
+        size_range: [[0.15, 0.15, 0.3], [0.25, 0.25, 1.7]]
       capsules:
         num: 0 # 1
-        size_range: [[0.1, 0.4], [0.15, 0.6]] # radius & entire height of the capsule
+        size_range: [[0.1, 0.3], [0.15, 1.7]] # radius & entire height of the capsule
 
     safety_box:
       wall_thickness: 0.01

@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "bell_1",
+  "base_name": "bell_1",
+  "full_name": "bell_1",
+  "category": "small",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-03-15 02:58:33",
+  "transform": {
+    "dilate_x": 0.7999999999999998,
+    "dilate_y": 1.1300000000000001,
+    "dilate_z": 0.6399999999999997,
+    "dilate_x_min": 0.5999999999999996,
+    "dilate_x_max": 1.0,
+    "dilate_y_min": 0.5999999999999996,
+    "dilate_y_max": 1.6600000000000006,
+    "dilate_z_min": 0.5999999999999996,
+    "dilate_z_max": 0.6799999999999997,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 0.5999999999999996,
+      "max": 1.0
+    },
+    "y": {
+      "min": 0.5999999999999996,
+      "max": 1.6600000000000006
+    },
+    "z": {
+      "min": 0.5999999999999996,
+      "max": 0.6799999999999997
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.0830909,
+        0.08437272,
+        0.09992575
+      ],
+      "volume": 0.0002529349089695504,
+      "max_dim": 0.09992575
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.06647271999999999,
+        0.0953411736,
+        0.06395247999999996
+      ],
+      "volume": 0.000146338020933423,
+      "max_dim": 0.0953411736
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/bell_1/v000/bell_1_v000.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/bell_1/v000/bell_1_v000.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/bell_1/v000/bell_1_v000.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/bell_1/v000/bell_1_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/bell_1/bell_1.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/bell_1/bell_1.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/bell_1/bell_1.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/bell_1/bell_1.urdf"
+    }
+  }
+}

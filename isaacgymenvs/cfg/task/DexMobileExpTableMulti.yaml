@@ -13,14 +13,14 @@ env:
 
     add_on_obstacles:
       cuboids:
-        num: 2
+        num: 3
         size_xy: [[0.05, 0.05], [0.1, 0.1]]
         size_z_min: 0.1
       spheres:
         num: 0 # 1
         r_min: 0.05
       capsules:
-        num: 1 # currently don't have this supported in pcd utils
+        num: 0 # currently don't have this supported in pcd utils
         r_min: 0.025
         l_min: 0.025 # this is semi-length of the cylindrical part
 
@@ -29,16 +29,16 @@ env:
       y_offset_range: [0.2, 0.5]
       cuboids:
         num: 0 # 1
-        size_range: [[0.15, 0.15, 0.4], [0.25, 0.25, 0.6]]
+        size_range: [[0.15, 0.15, 0.3], [0.4, 0.4, 1.7]]
       capsules:
         num: 0 # 1
-        size_range: [[0.1, 0.4], [0.15, 0.6]] # radius & entire height of the capsule
+        size_range: [[0.1, 0.3], [0.15, 1.7]] # radius & entire height of the capsule
 
     safety_box:
       wall_thickness: 0.01
       # size: [[0.25, 0.25, 0.15], [0.5, 0.5, 0.25]] # x, y, z
-      size: [[0.5, 0.5, 0.1], [0.5, 0.5, 0.1]] # x, y, z
-      x_shift_range: [0.3, 0.7]
+      size: [[0.4, 0.4, 0.1], [0.4, 0.4, 0.1]] # x, y, z
+      x_shift_range: [0.35, 0.65]
       y_shift_range: [-0.3, 0.3]
       z: [-0.2, 0.5]
       r: [0.2, 0.4] # rot_ex radius

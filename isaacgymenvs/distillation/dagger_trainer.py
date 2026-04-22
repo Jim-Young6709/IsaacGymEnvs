@@ -249,7 +249,7 @@ class Dagger:
 
         obs['full_pcd_t'] = torch.cat([obs["full_scene_pcd_t"], obs["robot_pcd_t"]], dim=1)
 
-        if self.env.pcd_spec_dict['simulate_depth_cam']:
+        if self.env.pcd_spec_dict['simulate_sensor_pcd']:
             num_full_pcd_points = self.env.pcd_spec_dict['num_static_points'] + \
                                   self.env.pcd_spec_dict['num_robot_points'] + \
                                   self.env.pcd_spec_dict['num_object_points']
@@ -437,4 +437,3 @@ class Dagger:
                 print("\n")
             
             self.episode += 1
-

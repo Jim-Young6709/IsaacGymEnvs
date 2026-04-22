@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "bear_0",
+  "base_name": "bear_0",
+  "full_name": "bear_0",
+  "category": "small",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-03-15 02:55:22",
+  "transform": {
+    "dilate_x": 1.05,
+    "dilate_y": 1.5300000000000005,
+    "dilate_z": 0.5199999999999996,
+    "dilate_x_min": 0.7199999999999998,
+    "dilate_x_max": 1.3800000000000003,
+    "dilate_y_min": 0.94,
+    "dilate_y_max": 2.120000000000001,
+    "dilate_z_min": 0.4599999999999995,
+    "dilate_z_max": 0.5799999999999996,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 0.7199999999999998,
+      "max": 1.3800000000000003
+    },
+    "y": {
+      "min": 0.94,
+      "max": 2.120000000000001
+    },
+    "z": {
+      "min": 0.4599999999999995,
+      "max": 0.5799999999999996
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.04871434,
+        0.045948539999999996,
+        0.09977525
+      ],
+      "volume": 0.0001817359578649658,
+      "max_dim": 0.09977525
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.051150057000000006,
+        0.07030126620000002,
+        0.05188312999999996
+      ],
+      "volume": 0.00015181858448123502,
+      "max_dim": 0.07030126620000002
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/bear_0/v000/bear_0_v000.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/bear_0/v000/bear_0_v000.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/bear_0/v000/bear_0_v000.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/bear_0/v000/bear_0_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/bear_0/bear_0.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/bear_0/bear_0.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/bear_0/bear_0.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/bear_0/bear_0.urdf"
+    }
+  }
+}

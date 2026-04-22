@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "birdhouse_2",
+  "base_name": "birdhouse_2",
+  "full_name": "birdhouse_2",
+  "category": "small",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-03-15 03:02:41",
+  "transform": {
+    "dilate_x": 1.05,
+    "dilate_y": 0.8799999999999999,
+    "dilate_z": 0.6699999999999997,
+    "dilate_x_min": 0.6199999999999997,
+    "dilate_x_max": 1.4800000000000004,
+    "dilate_y_min": 0.6199999999999997,
+    "dilate_y_max": 1.1400000000000001,
+    "dilate_z_min": 0.6199999999999997,
+    "dilate_z_max": 0.7199999999999998,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 90.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 0.6199999999999997,
+      "max": 1.4800000000000004
+    },
+    "y": {
+      "min": 0.6199999999999997,
+      "max": 1.1400000000000001
+    },
+    "z": {
+      "min": 0.6199999999999997,
+      "max": 0.7199999999999998
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.07139608,
+        0.06162726,
+        0.08640595
+      ],
+      "volume": 0.00015494343925527698,
+      "max_dim": 0.08640595
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.05423198879999999,
+        0.07496588400000001,
+        0.05789198649999997
+      ],
+      "volume": 9.592238437415683e-05,
+      "max_dim": 0.07496588400000001
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/birdhouse_2/v000/birdhouse_2_v000.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/birdhouse_2/v000/birdhouse_2_v000.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/birdhouse_2/v000/birdhouse_2_v000.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/birdhouse_2/v000/birdhouse_2_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/birdhouse_2/birdhouse_2.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/birdhouse_2/birdhouse_2.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/birdhouse_2/birdhouse_2.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/birdhouse_2/birdhouse_2.urdf"
+    }
+  }
+}

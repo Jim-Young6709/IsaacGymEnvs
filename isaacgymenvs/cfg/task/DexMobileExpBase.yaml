@@ -3,20 +3,30 @@
 defaults:
   - LEAPExpBase
 
+type: "WBC" # "WBCMultiExp", "WBC", "Local"
+
 # if given, will override the device setting in gym. 
 env:
   episodeLength: 1000
+
   asset:
     assetFileNameFranka: "glorbot/glorbot.urdf"
+
   distractor_settings:
     enable: True
+
+  object_settings:
+    # default obj rest randomization vars for distillation
+    obj_reset_pos_range: [[-0.1, -0.2, 0.2], [0.1, 0.2, 0.25]] # xy is center position, z is BOTTOM height and will always get overridden according to table height so z value doesn't matter much
+    obj_reset_center_xy: [0.45, 0.0] # xy center position for object reset, z is determined by the hdf5 table height + half of object height
+    obj_reset_center_quat: [0.0, 0.0, 0.0, 1.0] # object reset orientation, in xyzw format
 
 pcd_spec:
   num_static_points: 10240
   num_robot_points: 10240
   num_object_points: 5120
   num_distractor_points: 20480
-  simulate_depth_cam: True
+  simulate_sensor_pcd: True
 
 
 # Domain Randomization, decrease dr range for franka, otherwise current fabric tuning might not work

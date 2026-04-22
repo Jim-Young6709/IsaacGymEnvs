@@ -10,7 +10,8 @@ from collections import OrderedDict
 from isaacgymenvs.utils.rotation_conversions import quaternion_to_matrix_ig
 from isaacgymenvs.utils.pcd_utils import downsample_pcd_batched, crop_local_pcd, visualize_pcd
 from isaacgymenvs.utils.training_utils import *
-from isaacgymenvs.utils.simulate_depth_cam import simulate_depth_cam_render_from_pose
+from isaacgymenvs.utils.simulate_depth_cam_compile import simulate_depth_cam_render_from_pose
+from isaacgymenvs.utils.simulate_lidar_compile import simulate_lidar_render_from_pose
 
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -41,6 +42,7 @@ class DaggerMobile:
             self.global_rank = int(os.getenv("RANK", "0"))
             self.world_size = int(os.getenv("WORLD_SIZE", "1"))   
 
+            cfg.task.env.scene.batch_idx = self.global_rank
             cfg.sim_device = f"cuda:{self.local_rank}"
             cfg.rl_device = f"cuda:{self.local_rank}"
             torch.cuda.set_device(self.local_rank)
@@ -50,6 +52,8 @@ class DaggerMobile:
             else:
                 cfg.task.env.video_logging.capture = False # note the actual video logging flag is in task env, not in general cfg.capture_video
                 cfg.graphics_device_id = -1
+
+            cfg.seed = max(cfg.seed, 1) * (self.global_rank + 1)
 
         self.cfg = cfg
         self.total_episodes = cfg.dagger.total_episodes
@@ -124,6 +128,7 @@ class DaggerMobile:
         self.is_teacher_rnn = self.teacher_model.is_rnn()
 
         # load student network
+        self.use_bf16 = True # hardcoded to true for now
         self.student_model = instantiate(self.cfg.model).to(self.device)
         self.optimizer = optim.AdamW(
             self.student_model.parameters(),
@@ -156,6 +161,9 @@ class DaggerMobile:
         os.makedirs(self.save_dir, exist_ok=True)
 
         self.eval_freq = self.cfg.dagger.eval_freq
+        self.profile_timing = bool(self.cfg.dagger.get("profile_timing", True))
+        self.profile_print_freq = int(self.cfg.dagger.get("profile_print_freq", 1))
+        self.profile_cuda_sync = bool(self.cfg.dagger.get("profile_cuda_sync", True))
 
         if self.multi_gpu:            
             self.use_wandb = (self.cfg.wandb_activate and self.global_rank == 0)
@@ -189,8 +197,16 @@ class DaggerMobile:
             )
 
         # aux
-        self.aux_enable = "aux_object_state" in self.state_encoders_keys
-        self.aux_switch_steps = 30000
+        aux_weight = float(self.cfg.model.get("aux_weight", 0.0))
+        self.has_aux_input = "aux_object_state" in self.state_encoders_keys
+        self.has_aux_prediction = aux_weight > 0.0
+        self.aux_prediction_mode = str(self.cfg.model.get("aux_prediction_mode", "absolute")).lower()
+        self.aux_delta_scale = float(self.cfg.model.get("aux_delta_scale", 0.01))
+        if self.aux_prediction_mode not in ["absolute", "delta"]:
+            raise ValueError(f"aux_prediction_mode must be 'absolute' or 'delta', got {self.aux_prediction_mode}")
+        self.aux_feedback_to_policy = bool(self.cfg.dagger.get("aux_feedback_to_policy", True))
+        self.aux_init_only = bool(self.cfg.dagger.get("aux_init_only", False)) and (not self.aux_feedback_to_policy) # if not feeding aux feedback to policy, then aux is effectively only used for initialization
+        self.aux_switch_steps = int(self.cfg.dagger.get("aux_feedback_start_steps", 30000))
         self.aux_buffer = torch.zeros(self.env.num_envs, 1, 3, device=self.device)
 
     # teacher loading utils
@@ -265,74 +281,126 @@ class DaggerMobile:
             self.wandb_project = checkpoint["wandb_project"]
         return checkpoint["train_success_rate_ep"]
 
-    def preprocess_inputs(self, obs):
+    # profiling utils
+    def _sync_for_timing(self):
+        if (not self.profile_timing) or (not self.profile_cuda_sync) or (not torch.cuda.is_available()):
+            return
+        device = torch.device(self.device) if str(self.device).startswith("cuda") else None
+        torch.cuda.synchronize(device=device)
+
+    def _profile_start(self):
+        if not self.profile_timing:
+            return None
+        self._sync_for_timing()
+        return time.perf_counter()
+
+    def _profile_end(self, profile_stats, name, start_time):
+        if start_time is None:
+            return
+        self._sync_for_timing()
+        if profile_stats is None:
+            return
+        profile_stats[name] = profile_stats.get(name, 0.0) + (time.perf_counter() - start_time)
+
+    def _summarize_profile_stats(self, profile_stats, total_key=None, top_k=6):
+        if not profile_stats:
+            return "no timing data"
+
+        total_time = profile_stats.get(total_key, 0.0) if total_key is not None else sum(profile_stats.values())
+        ranked_items = sorted(
+            [(key, value) for key, value in profile_stats.items() if key != total_key and value > 0.0],
+            key=lambda item: item[1],
+            reverse=True,
+        )
+        if not ranked_items:
+            return "no timing data"
+
+        summary_parts = []
+        for key, value in ranked_items[:]:
+            ratio = (100.0 * value / total_time) if total_time > 0.0 else 0.0
+            summary_parts.append(f"{key}={value:.3f}s ({ratio:.1f}%)")
+        return ", ".join(summary_parts)
+
+    def preprocess_inputs(self, obs, profile_stats=None):
+        # TODO(Jim): need a deep cleanup here
         wandb_logs = {}
 
         # franka base states
+        profile_start = self._profile_start()
         franka_base_pos = self.env.states['franka_base_pose7'][:, :3] # (num_envs, 3)
         franka_base_quat = self.env.states['franka_base_pose7'][:, 3:] # (num_envs, 4)
         franka_base_rot_mat = quaternion_to_matrix_ig(franka_base_quat)
         rot_global2base = franka_base_rot_mat.transpose(1, 2) # (num_envs, 3, 3)
 
-        obs['full_pcd_t'] = torch.cat([obs["full_scene_pcd_t"], obs["robot_pcd_t"]], dim=1)
+        obs['gt_pcd_t'] = torch.cat([obs["full_scene_pcd_t"], obs["robot_pcd_t"]], dim=1) # ground truth pcd, sampled from mesh surfaces
+        self._profile_end(profile_stats, "preprocess/base_frame", profile_start)
 
-        if self.env.pcd_spec_dict['simulate_depth_cam']:
+        if self.env.pcd_spec_dict['simulate_sensor_pcd']:
+            profile_start = self._profile_start()
             num_full_pcd_points = self.env.pcd_spec_dict['num_static_points'] + \
                                   self.env.pcd_spec_dict['num_robot_points'] + \
-                                  self.env.pcd_spec_dict['num_object_points']
+                                  self.env.pcd_spec_dict['num_object_points'] + \
+                                  self.env.pcd_spec_dict['num_distractor_points']
+            num_full_pcd_points = min(10000, num_full_pcd_points)
 
             camera_pose7 = self.env.states['camera_pose7'].clone() # (num_envs, 7)
             sim_depth_pcd, sim_depth_render_logs = simulate_depth_cam_render_from_pose(
-                pcd=obs['full_pcd_t'],
+                pcd=obs['gt_pcd_t'],
                 camera_pose=camera_pose7,
                 num_points=num_full_pcd_points,
             )
 
+            self._profile_end(profile_stats, "preprocess/depth_render", profile_start)
+            profile_start = self._profile_start()
+
+            # lidar pcd
+            lidar_pose7 = self.env.states["lidar_pose7"].clone() # (num_envs, 7)
+            sim_lidar_pcd_raw, sim_lidar_render_logs = simulate_lidar_render_from_pose(
+                pcd=obs['gt_pcd_t'],
+                lidar_pose=lidar_pose7,
+                num_points=num_full_pcd_points,
+                num_azimuth=128,
+                num_polar=256,
+                suppress_bins=2,
+                jitter_std_m=0.001,
+            )
+
+            # exclude robot pcd in the lidar pcd (cause in real world the robot lidar pcd is super messy and we are removing it)
+            sim_lidar_pcd = self.env.robot_spherical_representation.filter_pointcloud_outside_spheres(
+                pointclouds=sim_lidar_pcd_raw,
+                joint_angles=self.env.states['q'].clone(),
+            )
+
             if self.use_wandb:
                 wandb_logs.update(sim_depth_render_logs)
+                wandb_logs.update(sim_lidar_render_logs)
 
-            obs['full_pcd_t'] = sim_depth_pcd
-
-        # Viser debug utils
-        # env_id = self.env.viser_visualizer.env_id
-        # self.env.viser_visualizer.update_point_cloud(
-        #     point_cloud_type="rendered_points",
-        #     point_cloud=obs['full_pcd_t'][env_id].cpu().numpy()
-        # )
-        # self.env.viser_visualizer.update_point_cloud(
-        #     point_cloud_type="hand_pcd_t",
-        #     point_cloud=obs["hand_pcd_t"][env_id].cpu().numpy()
-        # )
-        # self.env.viser_visualizer.update_point_cloud(
-        #     point_cloud_type="seg_static_obsacles_t0",
-        #     point_cloud=obs["static_scene_pcd_t0"][env_id].cpu().numpy()
-        # )
-        # self.env.viser_visualizer.update_point_cloud(
-        #     point_cloud_type="seg_static_object_t0",
-        #     point_cloud=obs["object_pcd_t0"][env_id].cpu().numpy()
-        # )
+            obs['depth_pcd_t'] = sim_depth_pcd
+            obs['lidar_pcd_t'] = sim_lidar_pcd
+            obs['full_pcd_t'] = torch.cat([sim_depth_pcd, sim_lidar_pcd], dim=1)
+            self._profile_end(profile_stats, "preprocess/lidar_render", profile_start)
+        else:
+            obs['full_pcd_t'] = obs['gt_pcd_t']
 
         if "local_pcd_t" in self.pcd_encoders_keys:
-            # Codex
-            num_points = self.cfg.model.pcd_encoders_cfg["local_pcd_t"]["num_points"] # [num cylindrical points, num spherical eef points, num spherical aux points]
-            local_ranges = self.local_pcd_range
-            local_eef_spherical_range = local_ranges[1]
-            local_aux_spherical_range = local_ranges[2]
+            profile_start = self._profile_start()
+            # get cropping params
+            num_points = torch.tensor(self.cfg.model.pcd_encoders_cfg["local_pcd_t"]["num_points"], device=self.device, dtype=torch.int) # [num cylindrical points, num spherical eef points, num spherical aux points]
+            depth_pcd_ratio = self.cfg["task"]["pcd_spec"].get("depth_pcd_ratio", 1.0)
+            num_points_dict = {}
+            num_points_dict['depth'] = (num_points * depth_pcd_ratio).to(torch.int)
+            num_points_dict['lidar'] = num_points - num_points_dict['depth']
 
-            # get full pcd in eef frame (only xyz shifted, not rotated)
+            local_ranges = self.local_pcd_range # [base cylindrical crop range, eef spherical crop range, aux spherical crop range]
             eef_pos = self.env.states['eef_pos'] # (num_envs, 3)
-            full_pcd_shifted = obs['full_pcd_t'] - eef_pos.unsqueeze(1) # (num_envs, N, 3)
-            eef_spherical_local_pcd_t, eef_spherical_crop_logs = crop_local_pcd(full_pcd_shifted, local_eef_spherical_range, num_points[1], is_cylindrical=False) # (num_envs, num_local_points, 3)
-            # local eef pcd in global frame
-            obs["local_eef_pcd_t"] = eef_spherical_local_pcd_t + eef_pos.unsqueeze(1) # back to global frame for now, will be converted to franka base frame later
-
-            # Codex: aux-centered local pcd in global frame
+            # get aux origin
             aux_crop_origin = eef_pos
             if "aux_object_state" in self.state_encoders_keys:
                 noisy_object_center_pos = self.env.states["object_center_pos"].clone()
                 # add noise (-0.05m ~ 0.05m)
                 noisy_object_center_pos = noisy_object_center_pos + 0.1 * ( torch.rand(self.env.num_envs, 3, device=self.device) - 0.5 )
-                if self.total_steps < self.aux_switch_steps:
+                if not self._use_aux_feedback():
+                    # TODO: now we are having two different randomization for aux pcd and aux input to the policy, this should be fixed
                     aux_crop_origin = noisy_object_center_pos
                 else:
                     aux_crop_origin = self.aux_buffer.clone()
@@ -340,112 +408,106 @@ class DaggerMobile:
                         aux_crop_origin = aux_crop_origin[:, 0, :]
                     if hasattr(self.env, "object_reset_mask") and torch.any(self.env.object_reset_mask):
                         aux_crop_origin[self.env.object_reset_mask] = noisy_object_center_pos[self.env.object_reset_mask]
-            aux_full_pcd_shifted = obs['full_pcd_t'] - aux_crop_origin.unsqueeze(1) # (num_envs, N, 3)
-            aux_spherical_local_pcd_t, aux_spherical_crop_logs = crop_local_pcd(aux_full_pcd_shifted, local_aux_spherical_range, num_points[2], is_cylindrical=False) # (num_envs, num_local_points, 3)
-            obs["local_aux_pcd_t"] = aux_spherical_local_pcd_t + aux_crop_origin.unsqueeze(1)
 
-        # env_id = self.env.viser_visualizer.env_id
-        # self.env.viser_visualizer.update_point_cloud(
-        #     point_cloud_type="rendered_points",
-        #     point_cloud=obs['full_pcd_t'][env_id].cpu().numpy()
-        # )
-        # self.env.viser_visualizer.update_point_cloud(
-        #     point_cloud_type="hand_pcd_t",
-        #     point_cloud=obs["local_eef_pcd_t"][env_id].cpu().numpy()
-        # )
-        # self.env.viser_visualizer.update_point_cloud(
-        #     point_cloud_type="seg_static_obsacles_t0",
-        #     point_cloud=obs["local_aux_pcd_t"][env_id].cpu().numpy()
-        # )
-        # self.env.viser_visualizer.update_point_cloud(
-        #     point_cloud_type="obj_point_t",
-        #     point_cloud=aux_crop_origin[env_id].reshape(1, 3).cpu().numpy()
-        # )
+            for key in ['depth', 'lidar']:
+                if num_points_dict[key][1] > 0:
+                    eef_spherical_local_pcd_t, eef_spherical_crop_logs = crop_local_pcd(
+                        pcd=obs[f'{key}_pcd_t'],
+                        local_range=local_ranges[1],
+                        num_local_points=num_points_dict[key][1],
+                        is_cylindrical=False,
+                        crop_center=eef_pos,
+                        log_name=f"eef{key}",
+                    ) # (num_envs, num_local_points, 3)
+                else:
+                    eef_spherical_local_pcd_t = torch.zeros((self.env.num_envs, 0, 3), device=self.device)
+                obs[f"local_eef{key}_pcd_t"] = eef_spherical_local_pcd_t # local eef pcd in global frame
 
-        # convert all pcd to franka base frame
-        for key in obs.keys():
-            if "pcd" in key:
-                pcd_shifted = obs[key] - franka_base_pos.unsqueeze(1) # (num_envs, N, 3)
-                pcd_base_frame = torch.bmm(pcd_shifted, rot_global2base) # (num_envs, N, 3), bmm is like matmul but specifically made for batches of 2D matrices, faster than matmul
-                obs[key] = pcd_base_frame
+                aux_spherical_local_pcd_t, aux_spherical_crop_logs = crop_local_pcd(
+                    pcd=obs[f'{key}_pcd_t'],
+                    local_range=local_ranges[2],
+                    num_local_points=num_points_dict[key][2],
+                    is_cylindrical=False,
+                    crop_center=aux_crop_origin,
+                    log_name=f"aux{key}",
+                ) # (num_envs, num_local_points, 3)
+                obs[f"local_aux{key}_pcd_t"] = aux_spherical_local_pcd_t # local aux pcd in global frame
 
-        # Viser debug utils
-        # env_id = self.env.viser_visualizer.env_id
-        # self.env.viser_visualizer.update_point_cloud(
-        #     point_cloud_type="rendered_points",
-        #     point_cloud=obs['full_pcd_t'][env_id].cpu().numpy()
-        # )
-        # self.env.viser_visualizer.update_point_cloud(
-        #     point_cloud_type="hand_pcd_t",
-        #     point_cloud=obs["hand_pcd_t"][env_id].cpu().numpy()
-        # )
-        # self.env.viser_visualizer.update_point_cloud(
-        #     point_cloud_type="seg_static_obsacles_t0",
-        #     point_cloud=obs["static_scene_pcd_t0"][env_id].cpu().numpy()
-        # )
-        # self.env.viser_visualizer.update_point_cloud(
-        #     point_cloud_type="seg_static_object_t0",
-        #     point_cloud=obs["object_pcd_t0"][env_id].cpu().numpy()
-        # )
-        # self.env.viser_visualizer.wheel_odom_frame.position = franka_base_pos[env_id].cpu().numpy()
-        # self.env.viser_visualizer.wheel_odom_frame.wxyz = franka_base_quat[env_id, [3, 0, 1, 2]].cpu().numpy()
+                base_cylindrical_local_pcd_t, base_cylindrical_crop_logs = crop_local_pcd(
+                    pcd=obs[f'{key}_pcd_t'],
+                    local_range=local_ranges[0],
+                    num_local_points=num_points_dict[key][0],
+                    is_cylindrical=True,
+                    crop_center=franka_base_pos,
+                    log_name=f"base{key}",
+                ) # (num_envs, num_local_points, 3)
+                obs[f"local_base{key}_pcd_t"] = base_cylindrical_local_pcd_t # local base pcd in global frame
+
+                if self.use_wandb:
+                    if num_points_dict[key][1] > 0:
+                        wandb_logs.update(eef_spherical_crop_logs)
+                    wandb_logs.update(aux_spherical_crop_logs)
+                    wandb_logs.update(base_cylindrical_crop_logs)
+
+            obs["local_pcd_t"] = torch.cat(
+                [
+                    obs["local_basedepth_pcd_t"],
+                    obs["local_baselidar_pcd_t"],
+                    obs["local_eefdepth_pcd_t"],
+                    obs["local_eeflidar_pcd_t"],
+                    obs["local_auxdepth_pcd_t"],
+                    obs["local_auxlidar_pcd_t"],
+                ],
+                dim=1,
+            )
+            self._profile_end(profile_stats, "preprocess/local_crop", profile_start)
+
+        # for viser visualization
+        if self.env.enable_viser:
+            env_id = self.env.viser_visualizer.env_id
+            self.env.viser_visualizer.update_point_cloud(
+                point_cloud_type="full_points", 
+                point_cloud=obs['gt_pcd_t'][env_id].cpu().numpy()
+            )
+            self.env.viser_visualizer.update_point_cloud(
+                point_cloud_type="rendered_full_points",
+                point_cloud=obs['full_pcd_t'][env_id].cpu().numpy()
+            )
+            self.env.viser_visualizer.update_point_cloud(
+                point_cloud_type="rendered_cam_points",
+                point_cloud=sim_depth_pcd[env_id].cpu().numpy()
+            )
+            self.env.viser_visualizer.update_point_cloud(
+                point_cloud_type="rendered_lidar_points",
+                point_cloud=sim_lidar_pcd[env_id].cpu().numpy()
+            )
+            self.env.viser_visualizer.update_point_cloud(
+                point_cloud_type="policy_input_points",
+                point_cloud=obs["local_pcd_t"][env_id].cpu().numpy()
+            )
 
         obs_student = OrderedDict()
 
-        if "full_scene_pcd_t0" in self.pcd_encoders_keys:
-            obs["full_scene_pcd_t0"] = torch.cat([obs["static_scene_pcd_t0"], obs["object_pcd_t0"]], dim=1)
-
-        for key in self.pcd_encoders_keys:
-            if key in ["static_scene_pcd_t0", "object_pcd_t0", "full_scene_pcd_t0", "full_scene_pcd_t", "robot_pcd_t", "hand_pcd_t"]:
-                num_points_key = self.cfg.model.pcd_encoders_cfg[key]["num_points"]
-                obs_student[key] = downsample_pcd_batched(obs[key], num_points_key)
-
-        if "full_pcd_t" in self.pcd_encoders_keys:
-            num_points_full_pcd_t = self.cfg.model.pcd_encoders_cfg["full_pcd_t"]["num_points"]
-            if self.env.pcd_spec_dict['simulate_depth_cam']:
-                full_pcd_t = obs["full_pcd_t"][:, :num_points_full_pcd_t]
-                # replace nan values as 0s
-                full_pcd_t_zero_padding = torch.nan_to_num(full_pcd_t, nan=0.0)
-                obs_student["full_pcd_t"] = full_pcd_t_zero_padding
-            else:
-                obs_student["full_pcd_t"] = downsample_pcd_batched(obs["full_pcd_t"], num_points_full_pcd_t)
-
         if "local_pcd_t" in self.pcd_encoders_keys:
-            # Codex
-            num_points = self.cfg.model.pcd_encoders_cfg["local_pcd_t"]["num_points"] # [num cylindrical points, num spherical eef points, num spherical aux points]
-            cylindrical_local_pcd_t, cylindrical_crop_logs = crop_local_pcd(obs['full_pcd_t'], self.local_pcd_range[0], num_points[0], is_cylindrical=True) # (num_envs, num_local_points, 3)
-            obs_student["local_pcd_t"] = torch.cat([cylindrical_local_pcd_t, obs["local_eef_pcd_t"], obs["local_aux_pcd_t"]], dim=1)
+            obs_student['local_pcd_t'] = obs['local_pcd_t']
 
-            if self.use_wandb:
-                wandb_logs.update(cylindrical_crop_logs)
-                wandb_logs.update(eef_spherical_crop_logs)
-                wandb_logs.update({
-                    # Codex
-                    "local_spherical_crop_aux/avg_num_valid_points": aux_spherical_crop_logs["local_spherical_crop/avg_num_valid_points"],
-                    # Codex
-                    "local_spherical_crop_aux/min_num_valid_points": aux_spherical_crop_logs["local_spherical_crop/min_num_valid_points"],
-                })
-
-        elif "local_scene_pcd_t" in self.pcd_encoders_keys: # TODO: this is kinda outdated
-            obs_student["local_scene_pcd_t"], crop_logs = crop_local_pcd(obs["full_scene_pcd_t"], self.local_pcd_range[0], self.cfg.model.pcd_encoders_cfg["local_pcd_t"]["num_points"][0], is_cylindrical=True)
-            if self.use_wandb:
-                wandb_logs.update(crop_logs)
-
-        # Viser debug utils
-        # vis_local_pcd_t = obs_student['local_pcd_t'].clone()
-        # vis_local_pcd_t = torch.bmm(vis_local_pcd_t, rot_global2base.transpose(1, 2)) # (num_envs, N, 3), bmm is like matmul but specifically made for batches of 2D matrices, faster than matmul
-        # vis_local_pcd_t = vis_local_pcd_t + franka_base_pos.unsqueeze(1) # (num_envs, N, 3)
-
-        # self.env.viser_visualizer.update_point_cloud(
-        #     point_cloud_type="local_point_t",
-        #     point_cloud=vis_local_pcd_t[env_id].cpu().numpy()
-        # )
+        # convert all pcd to franka base frame
+        profile_start = self._profile_start()
+        for key in obs_student.keys():
+            if "pcd" in key:
+                pcd_shifted = obs_student[key] - franka_base_pos.unsqueeze(1) # (num_envs, N, 3)
+                pcd_base_frame = torch.bmm(pcd_shifted, rot_global2base) # (num_envs, N, 3), bmm is like matmul but specifically made for batches of 2D matrices, faster than matmul
+                obs_student[key] = pcd_base_frame
+        self._profile_end(profile_stats, "preprocess/pcd_to_base", profile_start)
 
         return obs_student, wandb_logs
 
     # Codex
-    def _get_object_center_pos_in_base_frame(self):
-        object_center_pos = self.env.states["object_center_pos"].clone()
+    def _get_object_center_pos_in_base_frame(self, use_initial_frame=False):
+        if use_initial_frame:
+            object_center_pos = self.env._object_center_init_state.clone()
+        else:
+            object_center_pos = self.env.states["object_center_pos"].clone()
 
         franka_base_pos = self.env.states['franka_base_pose7'][:, :3] # (num_envs, 3)
         franka_base_quat = self.env.states['franka_base_pose7'][:, 3:] # (num_envs, 4)
@@ -456,8 +518,68 @@ class DaggerMobile:
         point_base_frame = torch.bmm(point_shifted, rot_global2base) # (num_envs, N, 3)
         return point_base_frame[:, 0, :] # (num_envs, 3)
 
+    def _aux_to_2d(self, aux_tensor):
+        if aux_tensor.ndim == 3:
+            return aux_tensor[:, 0, :]
+        return aux_tensor
+
+    def _decode_aux_prediction(self, aux_pred, prev_abs_aux):
+        prev_abs_aux_2d = self._aux_to_2d(prev_abs_aux)
+        if self.aux_prediction_mode == "delta":
+            aux_delta = torch.clamp(aux_pred, -1.0, 1.0)
+            return prev_abs_aux_2d.unsqueeze(1) + self.aux_delta_scale * aux_delta
+        return self._aux_to_2d(aux_pred).unsqueeze(1)
+
+    def _use_aux_feedback(self):
+        return self.has_aux_input and self.has_aux_prediction and self.aux_feedback_to_policy and (self.total_steps >= self.aux_switch_steps)
+
+    def _get_aux_target(self, object_center_pos, prev_abs_aux):
+        prev_abs_aux_2d = self._aux_to_2d(prev_abs_aux)
+        if self.aux_prediction_mode == "delta":
+            target_delta = (object_center_pos - prev_abs_aux_2d) / self.aux_delta_scale
+            return torch.clamp(target_delta, -1.0, 1.0)
+        return object_center_pos
+
+    def _plot_aux_prediction_in_viewer(self):
+        if (not self.has_aux_prediction) or (not hasattr(self.env, "viewer")) or (self.env.viewer is None):
+            return
+        if (not hasattr(self.env, "draw_box_lines")) or (not hasattr(self.env, "gym")):
+            return
+
+        franka_base_pos = self.env.states['franka_base_pose7'][:, :3]
+        franka_base_quat = self.env.states['franka_base_pose7'][:, 3:]
+        franka_base_rot_mat = quaternion_to_matrix_ig(franka_base_quat)
+
+        aux_base = self._aux_to_2d(self.aux_buffer)
+        aux_world = torch.bmm(aux_base.unsqueeze(1), franka_base_rot_mat)[:, 0, :] + franka_base_pos
+
+        aux_dims = self.env.mesh_aabb_extents
+        aux_box_pos = aux_world.clone()
+        aux_box_pos[:, 2] -= 0.5 * aux_dims[:, 2]
+
+        self.env.gym.clear_lines(self.env.viewer)
+
+        if hasattr(self.env, "box_pos") and hasattr(self.env, "box_quats") and hasattr(self.env, "box_dims"):
+            for env_idx in range(self.env.num_envs):
+                self.env.draw_box_lines(
+                    env_idx,
+                    self.env.box_pos[env_idx].clone(),
+                    self.env.box_quats[env_idx].clone(),
+                    self.env.box_dims[env_idx].clone(),
+                )
+
+        for env_idx in range(self.env.num_envs):
+            self.env.draw_box_lines(
+                env_idx,
+                aux_box_pos[env_idx].clone(),
+                (0.0, 0.0, 0.0, 1.0),
+                aux_dims[env_idx].clone(),
+                color=(0.2, 1.0, 0.2),
+            )
+
     def train_episode(self):
         count_reaching = torch.zeros(self.env.num_envs, device=self.device).int()
+        episode_profile_stats = {}
 
         # get teacher forcing envs
         teacher_forcing_prop = 0.0
@@ -473,30 +595,28 @@ class DaggerMobile:
         for _ in tqdm(range(self.steps_per_episode), desc=f"Training {self.episode+1}/{self.total_episodes}", \
             ncols=None, dynamic_ncols=True, disable=(self.multi_gpu and self.global_rank != 0) ):
             self.total_steps += 1
+            step_start = self._profile_start()
 
             # get obs t_a0 for student, q_hand, rel_pcd
+            profile_start = self._profile_start()
             q_robot = self.env.states['q'].clone() # (num_envs, 32)
 
             if self.env.sim_steps == 0:
                 self.env.abs_actions[:] = q_robot
 
-            static_scene_pcd_t0 = self.env.static_scene_pcd_t0 # scene pcd doesn't include object
-            object_pcd_t0 = self.env.object_pcd_t0
             full_scene_pcd_t = self.env.combined_pcds # scene pcd + object pcd
             robot_pcd_t = self.env.robot_pcd_sampler.sample(q_robot, self.env.torchurdf_to_isaac_idx)
-            hand_pcd_t = self.env.robot_pcd_sampler.sample(q_robot, self.env.torchurdf_to_isaac_idx, hand_only=True)
 
             # prepare pcd inputs
             obs_dict_a0 = OrderedDict([
-                ("static_scene_pcd_t0", static_scene_pcd_t0),
-                ("object_pcd_t0", object_pcd_t0),
                 ("full_scene_pcd_t", full_scene_pcd_t),
                 ("robot_pcd_t", robot_pcd_t),
-                ("hand_pcd_t", hand_pcd_t),
             ])
-            obs_input_a0, input_wandb_logs = self.preprocess_inputs(obs_dict_a0)
+            self._profile_end(episode_profile_stats, "train/obs_collection", profile_start)
+            obs_input_a0, input_wandb_logs = self.preprocess_inputs(obs_dict_a0, profile_stats=episode_profile_stats)
 
             # prepare state inputs
+            profile_start = self._profile_start()
             q_arm_manip = self.env.states['q'][:, 3:10].clone() # (num_envs, 7)
             q_arm_vision = self.env.states['q'][:, 26:].clone() # (num_envs, 6)
             q_hand = self.env.states['q'][:, 10:26].clone() # (num_envs, 16)
@@ -506,24 +626,14 @@ class DaggerMobile:
             obs_input_a0["q_hand"] = self.env.normalize_robot_joints(q_hand, robot="leap", delta=False)
             if "q_hand_ctrl_delta" in self.state_encoders_keys:
                 obs_input_a0["q_hand_ctrl_delta"] = self.env.normalize_robot_joints(q_hand - self.env.abs_actions[:, 10:26], robot="leap", delta=True)
-            if "objxyz_t0" in self.state_encoders_keys:
-                obs_input_a0["objxyz_t0"] = self.env._object_center_init_state.clone()
 
-                franka_base_pos = self.env.states['franka_base_pose7'][:, :3] # (num_envs, 3)
-                franka_base_quat = self.env.states['franka_base_pose7'][:, 3:] # (num_envs, 4)
-                franka_base_rot_mat = quaternion_to_matrix_ig(franka_base_quat)
-                rot_global2base = franka_base_rot_mat.transpose(1, 2) # (num_envs, 3, 3)
-
-                point_shifted = (obs_input_a0["objxyz_t0"] - franka_base_pos).unsqueeze(1) # (num_envs, 1, 3)
-                point_base_frame = torch.bmm(point_shifted, rot_global2base) # (num_envs, N, 3), bmm is like matmul but specifically made for batches of 2D matrices (input has to be 3D), faster than matmul
-                obs_input_a0["objxyz_t0"] = point_base_frame[:, 0, :] # (num_envs, 3)
             if "aux_object_state" in self.state_encoders_keys:
                 # Codex
-                noisy_object_center_pos = self._get_object_center_pos_in_base_frame()
+                noisy_object_center_pos = self._get_object_center_pos_in_base_frame(use_initial_frame=self.aux_init_only)
                 # add noise (-0.05m ~ 0.05m)
                 noisy_object_center_pos = noisy_object_center_pos + 0.1 * ( torch.rand(self.env.num_envs, 3, device=self.device) - 0.5 )
 
-                if self.total_steps < self.aux_switch_steps:
+                if not self._use_aux_feedback():
                     obs_input_a0["aux_object_state"] = noisy_object_center_pos
                 else:
                     aux_object_state = self.aux_buffer.clone()
@@ -538,23 +648,21 @@ class DaggerMobile:
                 # Codex
                 if hasattr(self.env, "object_reset_mask"):
                     self.env.object_reset_mask[:] = False
+            self._profile_end(episode_profile_stats, "train/state_inputs", profile_start)
 
-            # Viser debug utils
-            # env_id = self.env.viser_visualizer.env_id
-            # self.env.viser_visualizer.update_point_cloud(
-            #     point_cloud_type="obj_point_t",
-            #     point_cloud=obs_input_a0["objxyz_t0"][env_id].reshape(1, 3).cpu().numpy()
-            # )
-
+            profile_start = self._profile_start()
             with torch.no_grad():
                 student_model = self.student_model.module if self.multi_gpu else self.student_model
                 student_model.eval()
-                output = student_model(obs_input_a0)
-                student_actions_chunk = output["action"]
-                if self.aux_enable:
-                    self.aux_buffer[:] = output["aux"].clone()
+                with torch.autocast(device_type="cuda", dtype=torch.bfloat16, enabled=self.use_bf16):
+                    output = student_model(obs_input_a0)
+                student_actions_chunk = output["action"].float()
+                if self.has_aux_prediction:
+                    self.aux_buffer[:] = self._decode_aux_prediction(output["aux"], obs_input_a0["aux_object_state"])
+            self._profile_end(episode_profile_stats, "train/student_inference", profile_start)
 
             teacher_preds_buffer = []
+            aux_ref_state = obs_input_a0["aux_object_state"] if self.has_aux_prediction else None
 
             for action_idx in range(self.chunk_size):
                 # get teacher action
@@ -567,9 +675,12 @@ class DaggerMobile:
 
                 is_deterministic = True
 
+                profile_start = self._profile_start()
                 with torch.no_grad():
                     res_dict = self.teacher_model(batch_dict)
+                self._profile_end(episode_profile_stats, "train/teacher_inference", profile_start)
 
+                profile_start = self._profile_start()
                 mu = res_dict['mus']
                 action = res_dict['actions']
                 self.states = res_dict['rnn_states']
@@ -579,10 +690,16 @@ class DaggerMobile:
                     teacher_actions = action
                 teacher_actions = torch.clamp(teacher_actions, -self.env.clip_actions, self.env.clip_actions)
                 self.env._pre_physics_step_teacher(teacher_actions)
+
+                self._profile_end(episode_profile_stats, "train/teacher_fabric", profile_start)
+
+                profile_start = self._profile_start()
+
                 teacher_actions = self.env.teacher_actions_converted.clone()
-                if "aux_object_state" in self.state_encoders_keys:
+                if self.has_aux_prediction:
                     object_center_pos = self._get_object_center_pos_in_base_frame()
-                    teacher_pred = torch.cat([teacher_actions, object_center_pos], dim=1) # add aux info, object_xyz_pos
+                    aux_target = self._get_aux_target(object_center_pos, aux_ref_state)
+                    teacher_pred = torch.cat([teacher_actions, aux_target], dim=1) # add aux info, object_xyz_pos
                 else:
                     teacher_pred = teacher_actions
 
@@ -604,16 +721,21 @@ class DaggerMobile:
                         reset_ids = torch.where(reached_reset_flags)[0]
                         self.env.reset_buf[reset_ids] = 1
                         count_reaching[reached_reset_flags] = 0
+                self._profile_end(episode_profile_stats, "train/teacher_postprocess", profile_start)
 
                 # sync distillation steps for wandb video logging
                 self.env.distillation_steps = self.total_steps
+                profile_start = self._profile_start()
                 self.env.step(step_actions)
+                self._profile_end(episode_profile_stats, "train/env_step", profile_start)
 
                 # count continuous reaching success
                 count_reaching += self.env.success_5cm_per_step
                 count_reaching *= self.env.success_5cm_per_step
 
+            profile_start = self._profile_start()
             teacher_preds_buffer = torch.stack(teacher_preds_buffer, dim=1) # (num_envs, chunk_size, action_dim)
+            self._profile_end(episode_profile_stats, "train/teacher_stack", profile_start)
 
             self.student_model.train()
             n_batches = self.env.num_envs // self.batch_size # now this is 1
@@ -623,12 +745,14 @@ class DaggerMobile:
                 "aux": 0.0,
                 "total": 0.0,
             }
+            profile_start = self._profile_start()
             for i in range(n_batches):
                 batch_indices = indices[i * self.batch_size:(i + 1) * self.batch_size]
                 batch_obs = {k: v[batch_indices] for k, v in obs_input_a0.items()}
                 batch_actions = teacher_preds_buffer[batch_indices]
                 # NOTE: supervise student model on first step
-                loss = self.student_model.forward(batch_obs, batch_actions, action_chunk_idx=0)
+                with torch.autocast(device_type="cuda", dtype=torch.bfloat16, enabled=self.use_bf16):
+                    loss = self.student_model.forward(batch_obs, batch_actions, action_chunk_idx=0)
                 self.optimizer.zero_grad()
                 loss["total"].backward()
                 torch.nn.utils.clip_grad_norm_(self.student_model.parameters(), max_norm=self.max_grad_norm) 
@@ -636,17 +760,21 @@ class DaggerMobile:
 
                 for key in loss.keys():
                     ave_loss[key] += loss[key].item()
+            self._profile_end(episode_profile_stats, "train/optimization", profile_start)
 
             for key in ave_loss.keys():
                 ave_loss[key] /= n_batches
 
             if self.scheduler is not None:
+                profile_start = self._profile_start()
                 self.scheduler.step()
+                self._profile_end(episode_profile_stats, "train/scheduler", profile_start)
 
-            mem_allocated_GB = float(torch.cuda.memory_allocated() / 1024**3)
-            mem_reserved_GB = float(torch.cuda.memory_reserved() / 1024**3)
+            mem_allocated_GB = float(torch.cuda.memory_allocated(self.device) / 1024**3)
+            mem_reserved_GB = float(torch.cuda.memory_reserved(self.device) / 1024**3)
 
             if self.use_wandb:
+                profile_start = self._profile_start()
                 wandb_logs = {
                     "train/loss_total": ave_loss["total"],
                     "train/lr": self.optimizer.param_groups[0]["lr"],
@@ -654,7 +782,7 @@ class DaggerMobile:
                     "mem/reserved_GB": mem_reserved_GB,
                 }
                 wandb_logs.update(input_wandb_logs)
-                if "aux_object_state" in self.state_encoders_keys:
+                if self.has_aux_prediction:
                     aux_wandb_logs = {
                         "train/loss_aux": ave_loss["aux"],
                         "train/loss_action": ave_loss["action"],
@@ -662,8 +790,11 @@ class DaggerMobile:
                     wandb_logs.update(aux_wandb_logs)
 
                 wandb.log(wandb_logs, step=self.total_steps)
+                self._profile_end(episode_profile_stats, "train/wandb_log", profile_start)
 
-        return ave_loss
+            self._profile_end(episode_profile_stats, "train/step_total", step_start)
+
+        return ave_loss, episode_profile_stats
 
     def eval(self):
         self.env.reset_idx()
@@ -676,19 +807,13 @@ class DaggerMobile:
             # get obs t_a0 for student, q_hand, rel_pcd
             q_robot = self.env.states['q'].clone() # (num_envs, 32)
 
-            static_scene_pcd_t0 = self.env.static_scene_pcd_t0 # scene pcd doesn't include object
-            object_pcd_t0 = self.env.object_pcd_t0
             full_scene_pcd_t = self.env.combined_pcds # scene pcd + object pcd
             robot_pcd_t = self.env.robot_pcd_sampler.sample(q_robot, self.env.torchurdf_to_isaac_idx)
-            hand_pcd_t = self.env.robot_pcd_sampler.sample(q_robot, self.env.torchurdf_to_isaac_idx, hand_only=True)
 
             # prepare pcd inputs
             obs_dict_a0 = OrderedDict([
-                ("static_scene_pcd_t0", static_scene_pcd_t0),
-                ("object_pcd_t0", object_pcd_t0),
                 ("full_scene_pcd_t", full_scene_pcd_t),
                 ("robot_pcd_t", robot_pcd_t),
-                ("hand_pcd_t", hand_pcd_t),
             ])
             obs_input_a0, _ = self.preprocess_inputs(obs_dict_a0)
 
@@ -702,62 +827,39 @@ class DaggerMobile:
             obs_input_a0["q_hand"] = self.env.normalize_robot_joints(q_hand, robot="leap", delta=False)
             if "q_hand_ctrl_delta" in self.state_encoders_keys:
                 obs_input_a0["q_hand_ctrl_delta"] = self.env.normalize_robot_joints(q_hand - self.env.abs_actions[:, 10:26], robot="leap", delta=True)
-            if "objxyz_t0" in self.state_encoders_keys:
-                obs_input_a0["objxyz_t0"] = self.env._object_center_init_state.clone()
 
-                franka_base_pos = self.env.states['franka_base_pose7'][:, :3] # (num_envs, 3)
-                franka_base_quat = self.env.states['franka_base_pose7'][:, 3:] # (num_envs, 4)
-                franka_base_rot_mat = quaternion_to_matrix_ig(franka_base_quat)
-                rot_global2base = franka_base_rot_mat.transpose(1, 2) # (num_envs, 3, 3)
-
-                point_shifted = (obs_input_a0["objxyz_t0"] - franka_base_pos).unsqueeze(1) # (num_envs, 1, 3)
-                point_base_frame = torch.bmm(point_shifted, rot_global2base) # (num_envs, N, 3), bmm is like matmul but specifically made for batches of 2D matrices (input has to be 3D), faster than matmul
-                obs_input_a0["objxyz_t0"] = point_base_frame[:, 0, :] # (num_envs, 3)
             if "aux_object_state" in self.state_encoders_keys:
-                obs_input_a0["aux_object_state"] = self.aux_buffer.clone()
+                gt_object_center_pos = self._get_object_center_pos_in_base_frame(use_initial_frame=self.aux_init_only)
+                if self._use_aux_feedback():
+                    aux_object_state = self.aux_buffer.clone()
+                    if hasattr(self.env, "object_reset_mask") and torch.any(self.env.object_reset_mask):
+                        if aux_object_state.ndim == 3:
+                            aux_object_state[self.env.object_reset_mask, 0, :] = gt_object_center_pos[self.env.object_reset_mask]
+                        else:
+                            aux_object_state[self.env.object_reset_mask, :] = gt_object_center_pos[self.env.object_reset_mask]
+                    obs_input_a0["aux_object_state"] = aux_object_state
+                else:
+                    obs_input_a0["aux_object_state"] = gt_object_center_pos
 
-            # Viser debug utils
-            # env_id = self.env.viser_visualizer.env_id
-            # self.env.viser_visualizer.update_point_cloud(
-            #     point_cloud_type="obj_point_t",
-            #     point_cloud=obs_input_a0["objxyz_t0"][env_id].reshape(1, 3).cpu().numpy()
-            # )
+                if hasattr(self.env, "object_reset_mask"):
+                    self.env.object_reset_mask[:] = False
 
             with torch.no_grad():
                 student_model = self.student_model.module if self.multi_gpu else self.student_model
                 student_model.eval()
-                output = student_model(obs_input_a0)
-                student_actions_chunk = output["action"]
-                if self.aux_enable:
-                    self.aux_buffer[:] = output["aux"].clone()
+                with torch.autocast(device_type="cuda", dtype=torch.bfloat16, enabled=self.use_bf16):
+                    output = student_model(obs_input_a0)
+                student_actions_chunk = output["action"].float()
+                if self.has_aux_prediction:
+                    self.aux_buffer[:] = self._decode_aux_prediction(output["aux"], obs_input_a0["aux_object_state"])
+
+            # plot aux prediction in gui
+            if not self.env.headless:
+                self._plot_aux_prediction_in_viewer()
 
             for action_idx in range(self.chunk_size):
-                # # get teacher action
-                # teacher_obs = self.env.obs_buf.clone()
-                # batch_dict = {
-                #     "is_train": False,
-                #     "obs": teacher_obs,
-                #     "prev_actions": None,
-                # }
-
-                # is_deterministic = True
-
-                # with torch.no_grad():
-                #     res_dict = self.teacher_model(batch_dict)
-
-                # mu = res_dict['mus']
-                # action = res_dict['actions']
-                # self.states = res_dict['rnn_states']
-                # if is_deterministic:
-                #     teacher_actions = mu
-                # else:
-                #     teacher_actions = action
-                # teacher_actions = torch.clamp(teacher_actions, -self.env.clip_actions, self.env.clip_actions)
-                # self.env._pre_physics_step_teacher(teacher_actions)
-                # teacher_actions = self.env.teacher_actions_converted.clone()
-
                 student_actions = student_actions_chunk[:, action_idx, :]
-                step_actions = student_actions # for debugging purposes, this can be changed to teacher_actions to see teacher performance
+                step_actions = student_actions
                 # step with student actions
                 step_actions = torch.clamp(step_actions, -self.env.clip_actions, self.env.clip_actions)
 
@@ -792,9 +894,9 @@ class DaggerMobile:
             start_time = time.time()
             remaining_episodes = self.total_episodes - self.episode
 
-            train_loss = self.train_episode()
+            train_loss, train_profile_stats = self.train_episode()
 
-            eval_policy = (self.eval_freq > 0) and (self.episode % self.eval_freq == 0)
+            eval_policy = (self.eval_freq > 0) and (self.episode % self.eval_freq == 0) and (self.episode > 0) # skip eval at episode 0
             if eval_policy:
                 eval_wandb_logs = self.eval()
 
@@ -806,6 +908,18 @@ class DaggerMobile:
                 metrics["time/episode_time"] = episode_time
                 metrics["episode"] = self.episode
                 metrics["train/teacher_forcing_prop"] = self.teacher_forcing_prop
+                if self.profile_timing and train_profile_stats:
+                    avg_step_time = train_profile_stats.get("train/step_total", 0.0) / max(self.steps_per_episode, 1)
+                    ranked_profile_items = sorted(
+                        [(key, value) for key, value in train_profile_stats.items() if key != "train/step_total"],
+                        key=lambda item: item[1],
+                        reverse=True,
+                    )
+                    if ranked_profile_items:
+                        top_name, top_value = ranked_profile_items[0]
+                        metrics["profile/train_top_section_seconds"] = top_value
+                        metrics["profile/train_top_section_pct"] = 100.0 * top_value / max(train_profile_stats.get("train/step_total", 1e-8), 1e-8)
+                        metrics["profile/train_avg_step_seconds"] = avg_step_time
                 metrics.update(self.env.extras)
                 if eval_policy:
                     metrics.update(eval_wandb_logs)
@@ -813,13 +927,17 @@ class DaggerMobile:
                 if self.use_wandb:
                     wandb.log(metrics, step=self.total_steps)
 
-                # TODO: add args: save ckpt? frequency?
                 self.save_checkpoint(self.episode, metrics["metrics/success_rate_5cm_per_ep"], metrics.get("metrics/eval_lifting_rate_5cm_per_ep", None))
 
                 colorprint(f"Episode {self.episode + 1}/{self.total_episodes} completed in {timedelta(seconds=int(episode_time))}", color="magenta")
                 for metric, value in metrics.items():
                     if type(value) == float:
                         colorprint(f"{metric}: {value:.4f}", color="green")
+                if self.profile_timing and train_profile_stats and ((self.episode % self.profile_print_freq) == 0):
+                    colorprint(
+                        f"Timing profile: {self._summarize_profile_stats(train_profile_stats, total_key='train/step_total')}",
+                        color="cyan",
+                    )
                 colorprint(f"Average episodes per hour: {1/episode_time*3600:.2f}")
                 colorprint(f"Estimated completion: {datetime.fromtimestamp(estimated_finish_time).strftime('%Y-%m-%d %H:%M:%S')}")
                 print("\n")

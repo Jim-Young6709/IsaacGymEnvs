@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "baseball_glove_2",
+  "base_name": "baseball_glove_2",
+  "full_name": "baseball_glove_2",
+  "category": "small",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-03-15 02:43:19",
+  "transform": {
+    "dilate_x": 0.9199999999999999,
+    "dilate_y": 0.8599999999999999,
+    "dilate_z": 0.9199999999999999,
+    "dilate_x_min": 0.7599999999999998,
+    "dilate_x_max": 1.08,
+    "dilate_y_min": 0.5599999999999996,
+    "dilate_y_max": 1.1600000000000001,
+    "dilate_z_min": 0.5599999999999996,
+    "dilate_z_max": 1.2800000000000002,
+    "rot_x": 90.0,
+    "rot_y": 90.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 0.7599999999999998,
+      "max": 1.08
+    },
+    "y": {
+      "min": 0.5599999999999996,
+      "max": 1.1600000000000001
+    },
+    "z": {
+      "min": 0.5599999999999996,
+      "max": 1.2800000000000002
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.050795820000000005,
+        0.08019981,
+        0.09920388
+      ],
+      "volume": 0.00016211976673971074,
+      "max_dim": 0.09920388
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.06897183659999999,
+        0.09126756959999999,
+        0.046732154399999996
+      ],
+      "volume": 0.00011800762668890237,
+      "max_dim": 0.09126756959999999
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/baseball_glove_2/v000/baseball_glove_2_v000.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/baseball_glove_2/v000/baseball_glove_2_v000.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/baseball_glove_2/v000/baseball_glove_2_v000.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/baseball_glove_2/v000/baseball_glove_2_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/baseball_glove_2/baseball_glove_2.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/baseball_glove_2/baseball_glove_2.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/baseball_glove_2/baseball_glove_2.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/baseball_glove_2/baseball_glove_2.urdf"
+    }
+  }
+}

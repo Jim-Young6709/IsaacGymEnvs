@@ -125,6 +125,8 @@ class PCDTransformer(BaseModel):
         action_space="delta",
         action_dim=22,
         aux_weight=0.0,
+        aux_prediction_mode="absolute",
+        aux_delta_scale=0.01,
     ):
         super().__init__(
             normalize_state=normalize_state,
@@ -147,6 +149,10 @@ class PCDTransformer(BaseModel):
         self.aux_prediction = (aux_weight > 0)
         self.aux_weight = aux_weight
         self.aux_memory_allowlist = ["local_pcd_t", "aux_object_state"]
+        self.aux_prediction_mode = str(aux_prediction_mode).lower()
+        if self.aux_prediction_mode not in ["absolute", "delta"]:
+            raise ValueError(f"aux_prediction_mode must be 'absolute' or 'delta', got {aux_prediction_mode}")
+        self.aux_delta_scale = float(aux_delta_scale)
 
         # Type embeddings and encodersfor different modalities
         self.type_embeddings = nn.ParameterDict()
@@ -223,6 +229,11 @@ class PCDTransformer(BaseModel):
         type_emb = self.type_embeddings[token_type].expand(B, tokens.shape[1], -1)
         return torch.cat([tokens, type_emb], dim=-1)
 
+    def _postprocess_aux_prediction(self, aux_pred):
+        if self.aux_prediction_mode == "delta":
+            return torch.clamp(aux_pred, -1.0, 1.0)
+        return aux_pred
+
     def _build_decoder_masks(self, query_tokens, token_ranges):
         num_queries = query_tokens.shape[1]
         num_memory_tokens = 0
@@ -288,7 +299,7 @@ class PCDTransformer(BaseModel):
         if self.aux_prediction:
             output_action = output[:, 1:, :]  # (B, chunk_size, H)
             output_aux = output[:, 0:1, :]  # (B, 1, H)
-            pred["aux"] = self.aux_head(output_aux)  # (B, 1, 3)
+            pred["aux"] = self._postprocess_aux_prediction(self.aux_head(output_aux))  # (B, 1, 3)
         else:
             output_action = output  # (B, chunk_size, H)
 

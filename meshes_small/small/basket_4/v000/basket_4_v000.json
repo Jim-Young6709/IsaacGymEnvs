@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "basket_4",
+  "base_name": "basket_4",
+  "full_name": "basket_4",
+  "category": "small",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-03-15 02:44:26",
+  "transform": {
+    "dilate_x": 0.7999999999999998,
+    "dilate_y": 0.94,
+    "dilate_z": 0.6899999999999997,
+    "dilate_x_min": 0.49999999999999956,
+    "dilate_x_max": 1.1,
+    "dilate_y_min": 0.7199999999999998,
+    "dilate_y_max": 1.1600000000000001,
+    "dilate_z_min": 0.5199999999999996,
+    "dilate_z_max": 0.8599999999999999,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 0.49999999999999956,
+      "max": 1.1
+    },
+    "y": {
+      "min": 0.7199999999999998,
+      "max": 1.1600000000000001
+    },
+    "z": {
+      "min": 0.5199999999999996,
+      "max": 0.8599999999999999
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.0630222,
+        0.09997455999999999,
+        0.07437244
+      ],
+      "volume": 0.00028937292164811913,
+      "max_dim": 0.09997455999999999
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.050417759999999985,
+        0.09397608639999999,
+        0.05131698359999998
+      ],
+      "volume": 0.0001501498215847759,
+      "max_dim": 0.09397608639999999
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/basket_4/v000/basket_4_v000.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/basket_4/v000/basket_4_v000.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/basket_4/v000/basket_4_v000.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/basket_4/v000/basket_4_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/basket_4/basket_4.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/basket_4/basket_4.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/basket_4/basket_4.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/basket_4/basket_4.urdf"
+    }
+  }
+}

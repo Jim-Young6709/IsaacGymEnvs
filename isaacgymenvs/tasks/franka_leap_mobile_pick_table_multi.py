@@ -132,7 +132,7 @@ class FrankaLEAPMobilePickTableMulti(FrankaLEAPMobile):
 
         self.mesh_aabb_extents = None  # xyz, axis-aligned bounding box full extents
         self.table_surface_height = torch.zeros((self.num_envs,), device=self.device)
-        self.obj_pos_range = torch.zeros((self.num_envs, 4), device=self.device) # x-min, x-max, y-min, y-max
+        self.obj_reset_pos_range = torch.zeros((self.num_envs, 4), device=self.device) # x-min, x-max, y-min, y-max
         self.obj_pos_target = torch.zeros((self.num_envs, 3), device=self.device) # x, y, z
 
         # setup robot (franka + leap)
@@ -295,10 +295,10 @@ class FrankaLEAPMobilePickTableMulti(FrankaLEAPMobile):
             x_dir_corner = random.choice([-1, 1])
             y_dir_corner = random.choice([-1, 1])
 
-            self.obj_pos_range[i, 0] = (self.box_pos[i][0] + x_dir_corner*(self.box_dims[i][0]/4 - self.scene_box_cfg["obj_wall_tol"])) - self.box_dims[i][0] / 4 # x-min
-            self.obj_pos_range[i, 1] = (self.box_pos[i][0] + x_dir_corner*(self.box_dims[i][0]/4 - self.scene_box_cfg["obj_wall_tol"])) + self.box_dims[i][0] / 4 # x-max
-            self.obj_pos_range[i, 2] = (self.box_pos[i][1] + y_dir_corner*(self.box_dims[i][1]/4 - self.scene_box_cfg["obj_wall_tol"])) - self.box_dims[i][1] / 4 # y-min
-            self.obj_pos_range[i, 3] = (self.box_pos[i][1] + y_dir_corner*(self.box_dims[i][1]/4 - self.scene_box_cfg["obj_wall_tol"])) + self.box_dims[i][1] / 4 # y-max
+            self.obj_reset_pos_range[i, 0] = (x_dir_corner*(self.box_dims[i][0]/4 - self.scene_box_cfg["obj_wall_tol"])) - self.box_dims[i][0] / 4 # x-min
+            self.obj_reset_pos_range[i, 1] = (x_dir_corner*(self.box_dims[i][0]/4 - self.scene_box_cfg["obj_wall_tol"])) + self.box_dims[i][0] / 4 # x-max
+            self.obj_reset_pos_range[i, 2] = (y_dir_corner*(self.box_dims[i][1]/4 - self.scene_box_cfg["obj_wall_tol"])) - self.box_dims[i][1] / 4 # y-min
+            self.obj_reset_pos_range[i, 3] = (y_dir_corner*(self.box_dims[i][1]/4 - self.scene_box_cfg["obj_wall_tol"])) + self.box_dims[i][1] / 4 # y-max
 
             box_quater_length = self.box_dims[i][0]/2 + self.box_dims[i][1]/2
             num_x_dir_obj = round(self.num_corner_obstacles * (self.box_dims[i][0]/2 / box_quater_length))
@@ -488,10 +488,12 @@ class FrankaLEAPMobilePickTableMulti(FrankaLEAPMobile):
         self._object_center_init_state[:, 2] += self.mesh_aabb_extents[:, 2] / 2
 
         # refine obj_rand_pos_range based on mesh AABB
-        self.obj_pos_range[:, 0] += self.mesh_aabb_extents[:, 0] / 2
-        self.obj_pos_range[:, 1] -= self.mesh_aabb_extents[:, 0] / 2
-        self.obj_pos_range[:, 2] += self.mesh_aabb_extents[:, 1] / 2
-        self.obj_pos_range[:, 3] -= self.mesh_aabb_extents[:, 1] / 2
+        self.obj_reset_pos_range[:, 0] += self.mesh_aabb_extents[:, 0] / 2
+        self.obj_reset_pos_range[:, 1] -= self.mesh_aabb_extents[:, 0] / 2
+        self.obj_reset_pos_range[:, 2] += self.mesh_aabb_extents[:, 1] / 2
+        self.obj_reset_pos_range[:, 3] -= self.mesh_aabb_extents[:, 1] / 2
+        self.obj_reset_center_xy = self.box_pos[:, :2].clone()
+        self.obj_reset_center_quat = self.box_quats.clone()
 
         # Setup data
         actor_num = self.tol_add_on_obstacles + self.tol_mobile_obstacles + 1 + 1 + 1 # robot, table, object

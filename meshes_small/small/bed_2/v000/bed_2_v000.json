@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "bed_2",
+  "base_name": "bed_2",
+  "full_name": "bed_2",
+  "category": "small",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-03-15 02:56:58",
+  "transform": {
+    "dilate_x": 0.97,
+    "dilate_y": 0.8699999999999999,
+    "dilate_z": 1.3100000000000003,
+    "dilate_x_min": 0.7199999999999998,
+    "dilate_x_max": 1.2200000000000002,
+    "dilate_y_min": 0.6399999999999997,
+    "dilate_y_max": 1.1,
+    "dilate_z_min": 1.06,
+    "dilate_z_max": 1.5600000000000005,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 0.7199999999999998,
+      "max": 1.2200000000000002
+    },
+    "y": {
+      "min": 0.6399999999999997,
+      "max": 1.1
+    },
+    "z": {
+      "min": 1.06,
+      "max": 1.5600000000000005
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.04650495,
+        0.09798362999999999,
+        0.04271707
+      ],
+      "volume": 0.0001469026421552503,
+      "max_dim": 0.09798362999999999
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.0451098015,
+        0.08524575809999999,
+        0.055959361700000015
+      ],
+      "volume": 0.00016240219302640863,
+      "max_dim": 0.08524575809999999
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/bed_2/v000/bed_2_v000.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/bed_2/v000/bed_2_v000.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/bed_2/v000/bed_2_v000.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_small/small/bed_2/v000/bed_2_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/bed_2/bed_2.obj",
+      "glb": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/bed_2/bed_2.glb",
+      "npy": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/bed_2/bed_2.npy",
+      "urdf": "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new/bed_2/bed_2.urdf"
+    }
+  }
+}
