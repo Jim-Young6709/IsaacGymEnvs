@@ -35,8 +35,8 @@ class FrankaLEAPPickSide(FrankaLEAP):
     def _post_init_buffers(self):
         super()._post_init_buffers()
         # TODO: 90shift
-        # self.ik_regularization_config = torch.tensor([[-0.5*np.pi, -0.25*np.pi, 0.0, -0.75*np.pi, 0.5*np.pi, 0.5*np.pi, -0.5*np.pi]], device=self.device)
-        self.ik_regularization_config = torch.tensor([[-1.41111064, -1.20421876, 1.11514925, -2.30643184, 0.97677832, 1.59482316, -2.30135985]], device=self.device)
+        self.ik_regularization_config = torch.tensor([[-0.5*np.pi, -0.25*np.pi, 0.0, -0.75*np.pi, 0.5*np.pi, 0.5*np.pi, 0.5*np.pi]], device=self.device)
+        # self.ik_regularization_config = torch.tensor([[-1.41111064, -1.20421876, 1.11514925, -2.30643184, 0.97677832, 1.59482316, -2.30135985]], device=self.device)
         if self.eef_init["enable"]:
             dis_open_range = self.eef_init["dis_open_range"]
             dis_open = torch.rand(self.num_envs, device=self.device) * (dis_open_range[1] - dis_open_range[0]) + dis_open_range[0]
@@ -65,7 +65,7 @@ class FrankaLEAPPickSide(FrankaLEAP):
             eef_init_pos7 = torch.cat((eef_init_pos, eef_init_quat), dim=-1)  # (num_envs, 7)
 
             # TODO: resampling mechanism here when IK failed
-            # self.canonical_joint_config[:, :7] = torch.tensor([[-0.5*np.pi, -0.25*np.pi, 0.0, -0.75*np.pi, 0.5*np.pi, 0.5*np.pi, -0.5*np.pi]]*self.num_envs, device=self.device) # for debugging purposes
+            # self.canonical_joint_config[:, :7] = torch.tensor([[-0.5*np.pi, -0.25*np.pi, 0.0, -0.75*np.pi, 0.5*np.pi, 0.5*np.pi, 0.5*np.pi]]*self.num_envs, device=self.device) # for debugging purposes
             self.canonical_joint_config[:, :7] = self.get_joint_from_ee(eef_init_pos7)
             self.default_reset_joint_config = self.canonical_joint_config.clone()
 
