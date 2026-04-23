@@ -43,7 +43,9 @@ def compute_dof_pos_delta(arm_dof_pos: torch.Tensor,
                            current_eef_quat: torch.Tensor,
                            jacobian: torch.Tensor,
                            ctrl_target_eef_pos: torch.Tensor,
-                           ctrl_target_eef_quat: torch.Tensor):
+                           ctrl_target_eef_quat: torch.Tensor,
+                           ik_nullspace_target: torch.Tensor = None,
+                           ik_nullspace_gain: float = 0.0):
     """Compute Franka DOF position delta to move fingertips towards target pose."""
 
     device = arm_dof_pos.device
@@ -57,7 +59,10 @@ def compute_dof_pos_delta(arm_dof_pos: torch.Tensor,
     delta_arm_dof_pos = _get_delta_dof_pos(delta_pose=delta_fingertip_pose,
                                            ik_method="dls",
                                            jacobian=jacobian,
-                                           device=device)
+                                           device=device,
+                                           dof_pos=arm_dof_pos,
+                                           ik_nullspace_target=ik_nullspace_target,
+                                           ik_nullspace_gain=ik_nullspace_gain)
 
     return delta_arm_dof_pos
 
@@ -144,7 +149,14 @@ def get_pose_error(current_eef_pos,
 
 
 
-def _get_delta_dof_pos(delta_pose, ik_method, jacobian, device, k_val=1.0):
+def _get_delta_dof_pos(delta_pose,
+                       ik_method,
+                       jacobian,
+                       device,
+                       k_val=1.0,
+                       dof_pos=None,
+                       ik_nullspace_target=None,
+                       ik_nullspace_gain=0.0):
     """Get delta Franka DOF position from delta pose using specified IK method."""
     # References:
     # 1) https://www.cs.cmu.edu/~15464-s13/lectures/lecture6/iksurvey.pdf
@@ -164,7 +176,15 @@ def _get_delta_dof_pos(delta_pose, ik_method, jacobian, device, k_val=1.0):
         lambda_val = 0.1
         jacobian_T = torch.transpose(jacobian, dim0=1, dim1=2)
         lambda_matrix = (lambda_val ** 2) * torch.eye(n=jacobian.shape[1], device=device)
-        delta_dof_pos = jacobian_T @ torch.inverse(jacobian @ jacobian_T + lambda_matrix) @ delta_pose.unsqueeze(-1)
+        jacobian_pinv = jacobian_T @ torch.inverse(jacobian @ jacobian_T + lambda_matrix)
+        delta_dof_pos = jacobian_pinv @ delta_pose.unsqueeze(-1)
+
+        if ik_nullspace_target is not None and ik_nullspace_gain > 0.0:
+            num_dofs = jacobian.shape[2]
+            identity = torch.eye(n=num_dofs, device=device).unsqueeze(0)
+            nullspace_error = (ik_nullspace_target - dof_pos).unsqueeze(-1)
+            delta_dof_pos = delta_dof_pos + ik_nullspace_gain * (identity - jacobian_pinv @ jacobian) @ nullspace_error
+
         delta_dof_pos = k_val * delta_dof_pos.squeeze(-1)
 
     elif ik_method == 'svd':  # adaptive SVD

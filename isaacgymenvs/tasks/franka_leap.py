@@ -1717,6 +1717,7 @@ class FrankaLEAP(VecTask):
             # Local-frame composition: q_target = q_current * q_delta_local.
             ctrl_target_eef_quat = quat_mul(self.states["eef_quat"], rot_actions_quat_local) # xyzw format
 
+            ik_nullspace_target = self.ik_regularization_config
             delta_arm_joint_actions_unnormalized = eef_ctrl.compute_dof_pos_delta(
                 arm_dof_pos=self.states['q'][:, :7],
                 current_eef_pos=self.states['eef_pos'],
@@ -1724,6 +1725,8 @@ class FrankaLEAP(VecTask):
                 jacobian=self._j_eef,
                 ctrl_target_eef_pos=ctrl_target_eef_pos,
                 ctrl_target_eef_quat=ctrl_target_eef_quat,
+                ik_nullspace_target=ik_nullspace_target,
+                ik_nullspace_gain=0.05,
             )
 
             hand_actions = actions[:, 6:] * self.action_scale["leap"] * self.dt
