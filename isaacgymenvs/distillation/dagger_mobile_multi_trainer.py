@@ -59,7 +59,7 @@ class DaggerMobileMultiExp:
             expert_idx = self.local_rank % num_experts
             cfg.teacher.ckpt = cfg.teacher.ckpt[expert_idx]
             cfg.task.env.mesh.mesh_dir = cfg.task.env.mesh.mesh_dir[expert_idx]
-            cfg.task.cfg_overrideb = cfg.task.cfg_overrideb[expert_idx]
+            cfg.task.cfg_override = cfg.task.cfg_override[expert_idx]
             cfg.task.env.scene.hdf5_path = cfg.task.env.scene.hdf5_path[expert_idx]
 
         self.cfg = cfg
