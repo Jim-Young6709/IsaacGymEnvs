@@ -1725,8 +1725,8 @@ class FrankaLEAP(VecTask):
                 jacobian=self._j_eef,
                 ctrl_target_eef_pos=ctrl_target_eef_pos,
                 ctrl_target_eef_quat=ctrl_target_eef_quat,
-                ik_nullspace_target=ik_nullspace_target,
-                ik_nullspace_gain=0.05,
+                # ik_nullspace_target=ik_nullspace_target, # uncomment if to use ik reg
+                # ik_nullspace_gain=0.05,
             )
 
             hand_actions = actions[:, 6:] * self.action_scale["leap"] * self.dt
