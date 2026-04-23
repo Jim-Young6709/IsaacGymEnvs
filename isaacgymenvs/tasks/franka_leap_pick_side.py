@@ -259,36 +259,37 @@ class FrankaLEAPPickSide(FrankaLEAP):
 
         # for simple debugging scenario training
         x_shift = self.scene_box_cfg["x_shift"]
+        y_shift = self.scene_box_cfg["y_shift"]
         z_shift = self.scene_box_cfg["z_shift"]
 
         self.box_dims.append(size.tolist())
-        self.box_pos.append([x_shift, 0.0, z_shift])
+        self.box_pos.append([x_shift, y_shift, z_shift])
         self.box_quats.append([0.0, 0.0, 0.0, 1.0])
 
         walls = [
             # bottom wall
             self._create_cube(
-                pos=[x_shift+0.0, 0.0, z_shift-wall_thickness/2],
+                pos=[x_shift+0.0, y_shift+0.0, z_shift-wall_thickness/2],
                 size=[size[0]+wall_thickness*2, size[1]+wall_thickness*2, wall_thickness],
             ),
             # top wall
             self._create_cube(
-                pos=[x_shift+0.0, 0.0, z_shift+size[2]+wall_thickness/2],
+                pos=[x_shift+0.0, y_shift+0.0, z_shift+size[2]+wall_thickness/2],
                 size=[size[0]+wall_thickness*2, size[1]+wall_thickness*2, wall_thickness],
             ),
             # left wall
             self._create_cube(
-                pos=[x_shift+0.0, size[1]/2 + wall_thickness/2, z_shift+size[2]/2],
+                pos=[x_shift+0.0, y_shift+size[1]/2 + wall_thickness/2, z_shift+size[2]/2],
                 size=[size[0]+wall_thickness*2, wall_thickness, size[2]],
             ),
             # right wall
             self._create_cube(
-                pos=[x_shift+0.0, -size[1]/2 - wall_thickness/2, z_shift+size[2]/2],
+                pos=[x_shift+0.0, y_shift-size[1]/2 - wall_thickness/2, z_shift+size[2]/2],
                 size=[size[0]+wall_thickness*2, wall_thickness, size[2]],
             ),
             # back wall
             self._create_cube(
-                pos=[x_shift+size[0]/2 + wall_thickness/2, 0.0, z_shift+size[2]/2],
+                pos=[x_shift+size[0]/2 + wall_thickness/2, y_shift+0.0, z_shift+size[2]/2],
                 size=[wall_thickness, size[1], size[2]],
             ),
         ]
