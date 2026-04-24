@@ -55,7 +55,7 @@ class FrankaLEAPMobilePickFull(FrankaLEAPMobile):
             cfg["env"]["numStates"] = 106
             cfg["env"]["robot_init"]["switch_pos_offset"] = [-0.3,0.0,0.1] # TODO: the x offset should be along box_quat's x-axis, but now its the global x axis, update this later
             cfg["env"]["robot_init"]["switch_tol"] = 0.1
-            cfg["reward"]["params"]["target_quat"] = [0.5, -0.5, 0.5, -0.5]
+            cfg["reward"]["params"]["target_quat"] = [-0.5, -0.5, -0.5, -0.5]
 
         return cfg
 
@@ -100,7 +100,7 @@ class FrankaLEAPMobilePickFull(FrankaLEAPMobile):
         self.switching_target_pos += self.switch_pos_offset
         self.switching_target_pos[:, 2] += self.mesh_aabb_extents[:, 2] / 2
         if self.cfg_override == "SideConstrained":
-            self._switching_target_quat_precomputed = torch.tensor([[0.5, -0.5, 0.5, -0.5]] * self.num_envs, device=self.device)
+            self._switching_target_quat_precomputed = torch.tensor([[-0.5, -0.5, -0.5, -0.5]] * self.num_envs, device=self.device)
         else:
             self._switching_target_quat_precomputed = torch.tensor([[1.0, 0.0, 0.0, 0.0]] * self.num_envs, device=self.device)  # 180 degrees around local x-axis
         self.switching_target_quat = quat_mul(self.box_quats, self._switching_target_quat_precomputed)
