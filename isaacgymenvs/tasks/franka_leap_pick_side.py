@@ -62,7 +62,7 @@ class FrankaLEAPPickSide(FrankaLEAP):
                 rand_quat = quat_from_angle_axis(rand_angle, rand_axis)
                 eef_init_quat = quat_mul(eef_init_quat, rand_quat)
 
-            eef_init_quat = A2B_quaternion(eef_init_pos, box_center_pos, max_angle_deg=20, right_axis="x") # old version
+            # eef_init_quat = A2B_quaternion(eef_init_pos, box_center_pos, max_angle_deg=20, right_axis="x") # old version
 
             eef_init_pos7 = torch.cat((eef_init_pos, eef_init_quat), dim=-1)  # (num_envs, 7)
 
