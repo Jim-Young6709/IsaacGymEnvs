@@ -40,7 +40,5 @@ dagger_ckpts_archive/
 /isaacgymenvs/ref
 *.zip
 /build
-/presampled_envs/scene_only/archive
-/presampled_envs/completed/archive
-/presampled_envs/final/archive
+/presampled_envs/
 assets/franka_cmd/
