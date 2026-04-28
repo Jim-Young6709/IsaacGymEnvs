@@ -56,6 +56,9 @@ from fabrics_sim.integrator.integrators import DisplacementIntegrator
 from fabrics_sim.worlds.world_mesh_model import WorldMeshesModel
 from fabrics_sim.utils.utils import initialize_warp
 
+from drp.model.impact import IMPACT
+from drp.utils.pcd_utils import FrankaSampler
+
 
 
 class FrankaLEAPMobile(VecTask):
@@ -111,6 +114,8 @@ class FrankaLEAPMobile(VecTask):
         if self.enable_viser:
             self._init_viser_visualizer()
         self._build_joint_mapping()
+
+        self._init_drp()
 
         # Reset all environments
         self._refresh() # TODO: what is this for?
@@ -190,10 +195,10 @@ class FrankaLEAPMobile(VecTask):
                     [0.0, -0.25*np.pi, 0.0, -0.75*np.pi, 0.0, 0.5*np.pi, -np.pi/2] + \
                     # [-0.5*np.pi, -0.25*np.pi, 0.0, -0.75*np.pi, 0.5*np.pi, 0.5*np.pi, 0.0] + \
                     # [-0.25*np.pi, -0.25*np.pi, 0.0, -0.75*np.pi, 0.25*np.pi, 0.5*np.pi, 0.0] + \
-                    [0.0, 0.0, 0.0, 0.0,
-                     0.0, 0.0, 1.0, 0.57,
-                     0.0, 0.0, 0.0, 0.0,
-                     0.0, 0.0, 0.0, 0.0,] + \
+                    [0.0, 0.0, 1.57, 1.57,
+                     0.0, 0.0, 1.0,  0.57,
+                     0.0, 0.0, 1.57, 1.57,
+                     0.0, 0.0, 1.57, 1.57,] + \
                     [0.0, 1.0, 2.0, -1.0, 0.0, 0.0]
                 ] * self.num_envs
             ).to(self.device)
@@ -423,6 +428,17 @@ class FrankaLEAPMobile(VecTask):
         self.switch_tol = self.cfg['env']['robot_init']['switch_tol']
 
         self._setup_fabric_switching_target()
+
+    def _init_drp(self):
+        torch.backends.cudnn.benchmark = True
+        torch.set_float32_matmul_precision("medium")
+        torch.backends.cuda.matmul.allow_tf32 = True
+        torch.backends.cudnn.allow_tf32 = True
+        torch._dynamo.config.suppress_errors = True
+
+        drp_model = IMPACT.from_pretrained("jimyoung6709/DRP")
+        self.drp_model = torch.compile(drp_model).to(self.device).float()
+        self.drp_fk_sampler = FrankaSampler(self.device, use_cache=True, default_prismatic_value=0.04)
 
     def init_data(self, actor_num):
         # Setup sim handles
@@ -1719,6 +1735,43 @@ class FrankaLEAPMobile(VecTask):
             teacher_actions_abs[self.fabric_switch_enable, 10:26] = self.canonical_joint_config[self.fabric_switch_enable, 10:26]
             teacher_actions_abs[:, 26:] = abs_full_joint_actions_fabric[:, 10:]
             teacher_actions_abs[:, :2] = abs_full_joint_actions_fabric[:, :2] # always use fabric's base action regardless of the switching status # TODO: this caused the rotation issue?
+
+        # if enable drp
+        franka_base_pose7 = self.states["franka_base_pose7"]
+        franka_base_pos = franka_base_pose7[:, :3]
+        franka_base_quat = franka_base_pose7[:, 3:]
+        franka_base_quat_inv = franka_base_quat.clone()
+        franka_base_quat_inv[:, :3] = -franka_base_quat_inv[:, :3]
+
+        drp_target_eef_pos = quat_apply(
+            franka_base_quat_inv,
+            self.switching_target_pos - franka_base_pos,
+        )
+        drp_target_eef_quat = quat_mul(
+            franka_base_quat_inv,
+            self.switching_target_quat,
+        )
+
+        goal_joint_pos = self.get_joint_from_ee(torch.cat((drp_target_eef_pos, drp_target_eef_quat), dim=-1))
+
+        current_angles = self.states["q"][:, 3:10]
+        current_robot_pcd = self.drp_fk_sampler.sample(current_angles, 256)
+
+        scene_pcd = self.combined_pcds.clone()
+        shuffle_idx = torch.rand(scene_pcd.shape[:2], device=scene_pcd.device).argsort(dim=1)
+        scene_pcd = scene_pcd.gather(
+            1, shuffle_idx[:, :2048].unsqueeze(-1).expand(-1, -1, scene_pcd.shape[-1])
+        ).float()
+
+        obs_dict = dict()
+        obs_dict["current_angles"] = current_angles.float()
+        obs_dict["goal_angles"] = goal_joint_pos.float()
+        obs_dict["scene_pcd"] = scene_pcd
+        obs_dict["robot_pcd"] = current_robot_pcd.float()
+
+        action_chunk = self.drp_model.get_action(obs_dict)
+        abs_franka_joint_action = action_chunk[:, 0]
+        teacher_actions_abs[self.fabric_switch_enable, 3:10] = abs_franka_joint_action[self.fabric_switch_enable]
 
         if self.distillation_mode:
             # get teacher actions for student to regress on
