@@ -194,6 +194,10 @@ class FrankaLEAPMobile(VecTask):
                      0.0, 0.0, 1.0, 0.57,
                      0.0, 0.0, 0.0, 0.0,
                      0.0, 0.0, 0.0, 0.0,] + \
+                    # [0.0, 0.0, 1.57, 1.57,
+                    #  0.0, 0.0, 1.0,  0.57,
+                    #  0.0, 0.0, 1.57, 1.57,
+                    #  0.0, 0.0, 1.57, 1.57,] + \
                     [0.0, 1.0, 2.0, -1.0, 0.0, 0.0]
                 ] * self.num_envs
             ).to(self.device)
@@ -202,7 +206,7 @@ class FrankaLEAPMobile(VecTask):
         if not hasattr(self, 'default_reset_joint_config'):
             self.default_reset_joint_config = self.canonical_joint_config.clone()
 
-        self.ik_regularization_config = self.canonical_joint_config[:, :10]
+        self.ik_regularization_config = self.canonical_joint_config[:, 3:10]
         self.delta_joint_actions = torch.zeros((self.num_envs, self.num_robot_dofs), device=self.device, dtype=torch.float) # Current delta actions to be deployed
         self.delta_eef_actions = torch.zeros((self.num_envs, self.num_robot_dofs-1), device=self.device, dtype=torch.float) # Current delta actions to be deployed at the end effector
         self.success_flags = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device) # 1 if success condition has been achieved at any step, 0 otherwise
