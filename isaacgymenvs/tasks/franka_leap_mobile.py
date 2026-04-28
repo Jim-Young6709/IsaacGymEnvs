@@ -161,6 +161,11 @@ class FrankaLEAPMobile(VecTask):
         self.static_scene_pcd_t0 = None
         self.object_pcd_t0 = None
 
+        # load franka asset path
+        self.asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), self.cfg["env"]["asset"]["assetRoot"])
+        self.robot_asset_file = self.cfg["env"]["asset"]["assetFileNameFranka"]
+        self.full_robot_asset_path = os.path.join(self.asset_root, self.robot_asset_file)
+
         # init fabric
         if self.enable_fabric:
             self.obstacle_count = 0
@@ -267,21 +272,16 @@ class FrankaLEAPMobile(VecTask):
 
     def _init_cuRobo_ik_solver(self):
         """
-        (Archive) IK is solved with respect to Franka link "panda_link7"
+        IK is solved with respect to Franka link "panda_link7"
         """
         from curobo.types.base import TensorDeviceType
         from curobo.types.robot import RobotConfig
-        from curobo.util_file import get_robot_configs_path, join_path, load_yaml
         from curobo.wrap.reacher.ik_solver import IKSolver, IKSolverConfig
 
         tensor_args = TensorDeviceType()
-        config_file = load_yaml(join_path(get_robot_configs_path(), "franka.yml"))
-        urdf_file = config_file["robot_cfg"]["kinematics"][
-            "urdf_path"
-        ]  # Send global path starting with "/"
-        base_link = config_file["robot_cfg"]["kinematics"]["base_link"]
-        ee_link = "panda_link7"
-        robot_cfg = RobotConfig.from_basic(urdf_file, base_link, ee_link, tensor_args)
+        base_link = "panda_link0"
+        ee_link = "palm_center"
+        robot_cfg = RobotConfig.from_basic(self.full_robot_asset_path, base_link, ee_link, tensor_args)
 
         ik_config = IKSolverConfig.load_from_robot_config(
             robot_cfg,
@@ -297,6 +297,22 @@ class FrankaLEAPMobile(VecTask):
             grad_iters=None
         )
         self.ik_solver = IKSolver(ik_config)
+
+        if self.debug_viz:
+            ik_config_debug = IKSolverConfig.load_from_robot_config(
+                robot_cfg,
+                None,
+                rotation_threshold=0.05,
+                position_threshold=0.005,
+                num_seeds=10,
+                self_collision_check=False,
+                self_collision_opt=False,
+                tensor_args=tensor_args,
+                use_cuda_graph=False,
+                regularization=True,
+                grad_iters=None
+            )
+            self.ik_solver_debug = IKSolver(ik_config_debug)
 
     def create_sim(self):
         self.sim_params.up_axis = gymapi.UP_AXIS_Z
@@ -319,22 +335,13 @@ class FrankaLEAPMobile(VecTask):
         self.gym.add_ground(self.sim, plane_params)
 
     def _create_franka_leap(self):
-        asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../assets")
-        robot_asset_file = "urdf/franka_hand/robots/franka_leap_right.urdf"
-        # robot_asset_file = "franka_hand/franka_leap.urdf"
-
-        if "asset" in self.cfg["env"]:
-            asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), self.cfg["env"]["asset"].get("assetRoot", asset_root))
-            robot_asset_file = self.cfg["env"]["asset"].get("assetFileNameFranka", robot_asset_file)
-
-        full_robot_asset_path = os.path.join(asset_root, robot_asset_file)
         self.robot_pcd_sampler = GlorbotSampler(
-            urdf_path=full_robot_asset_path,
+            urdf_path=self.full_robot_asset_path,
             device=self.device,
             num_points=self.pcd_spec_dict["num_robot_points"],
         )
         self.robot_spherical_representation = GlorbotCollisionChecker(
-            urdf_path=full_robot_asset_path,
+            urdf_path=self.full_robot_asset_path,
             device=self.device,
         )
 
@@ -351,7 +358,7 @@ class FrankaLEAPMobile(VecTask):
         # NOTE: convex decomposition: disable this for now due to penetration of meshes
         asset_options.vhacd_enabled = False
 
-        robot_asset = self.gym.load_asset(self.sim, asset_root, robot_asset_file, asset_options)
+        robot_asset = self.gym.load_asset(self.sim, self.asset_root, self.robot_asset_file, asset_options)
         self.robot_asset = robot_asset
 
         # currently only support joint position control
@@ -1433,8 +1440,7 @@ class FrankaLEAPMobile(VecTask):
             ) + lower_limits
         return unnormalized
 
-    def get_joint_from_ee(self, eef_pose):
-        # (Archive)
+    def get_joint_from_ee(self, eef_pose, return_success=False, use_debug=False):
         """
         Get the joint angles from the end effector pose. This func is well tested
         Args:
@@ -1458,15 +1464,20 @@ class FrankaLEAPMobile(VecTask):
             eef_quat_wxyz = torch.cat((eef_quat_wxyz, eef_quat_wxyz_dummy), dim=0)
 
         goal = Pose(eef_pos, eef_quat_wxyz) # Pose need quat in wxyz format
-        result = self.ik_solver.solve_batch(
+        solver = self.ik_solver_debug if use_debug else self.ik_solver
+        result = solver.solve_batch(
             goal_pose=goal,
             retract_config=self.ik_regularization_config,
         )
         if torch.any(result.success[:B] == False):
-            print(f"IK solver failed for some environments: {sum(result.success)}/{result.success.shape[0]}")
+            # @ray report only the real envs
+            failed = (~result.success[:B]).nonzero(as_tuple=False).squeeze(-1)
+            # print(f"IK solver failed for some environments: {failed}/{B}")
             # TODO: need to think a bit how to handle such cases
 
         q_solution = result.solution[:B, 0]
+        if return_success:
+            return q_solution, result.success[:B]
         return q_solution
 
     def get_ee_from_joint(self, joint_angles):
@@ -1707,7 +1718,7 @@ class FrankaLEAPMobile(VecTask):
             teacher_actions_abs[self.fabric_switch_enable, :10] = abs_full_joint_actions_fabric[self.fabric_switch_enable, :10]
             teacher_actions_abs[self.fabric_switch_enable, 10:26] = self.canonical_joint_config[self.fabric_switch_enable, 10:26]
             teacher_actions_abs[:, 26:] = abs_full_joint_actions_fabric[:, 10:]
-            teacher_actions_abs[:, :2] = abs_full_joint_actions_fabric[:, :2] # always use fabric's base action regardless of the switching status
+            teacher_actions_abs[:, :2] = abs_full_joint_actions_fabric[:, :2] # always use fabric's base action regardless of the switching status # TODO: this caused the rotation issue?
 
         if self.distillation_mode:
             # get teacher actions for student to regress on
@@ -2149,7 +2160,7 @@ class FrankaLEAPMobile(VecTask):
 
         full_robot_asset_path = os.path.join(asset_root, robot_asset_file)
         self.viser_visualizer = ViserVisualizer(
-            urdf_path=full_robot_asset_path,
+            urdf_path=self.full_robot_asset_path,
             num_envs=self.num_envs,
         )
 
