@@ -129,6 +129,7 @@ class PresampleInitPose:
         # cfgs
         # cfg_base_init_range = [[-1.0, -0.25, -0.3], [-0.2, 0.25, 0.3]]
         self.cfg_base_init_range = self.cfg.presample.rand_cfg.base_init_range
+        # self.cfg_franka_canonical = [0.0, -0.25*np.pi, 0.0, -0.75*np.pi, 0.0, 0.5*np.pi, 0.5*np.pi] # shelf debug config
         self.cfg_franka_canonical = [0.0, -0.25*np.pi, 0.0, -0.75*np.pi, 0.0, 0.5*np.pi, 0.0]
         self.cfg_franka_noise = 0.5
         self.cfg_leap_canonical = [0.0,]*16
