@@ -10,7 +10,7 @@ env:
   episodeLength: 1000
 
   asset:
-    assetFileNameFranka: "glorbot/glorbot_90shift.urdf"
+    assetFileNameFranka: "glorbot/glorbot.urdf"
 
   distractor_settings:
     enable: True
