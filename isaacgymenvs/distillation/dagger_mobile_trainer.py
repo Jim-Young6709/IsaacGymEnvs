@@ -755,7 +755,7 @@ class DaggerMobile:
                     batch_actions = teacher_preds_buffer[batch_indices]
                     # NOTE: supervise student model on first step
                     with torch.autocast(device_type="cuda", dtype=torch.bfloat16, enabled=self.use_bf16):
-                        loss = self.student_model.forward(batch_obs, batch_actions, action_chunk_idx=0)
+                        loss = self.student_model.forward(batch_obs, batch_actions)
                     self.optimizer.zero_grad()
                     loss["total"].backward()
                     torch.nn.utils.clip_grad_norm_(self.student_model.parameters(), max_norm=self.max_grad_norm) 

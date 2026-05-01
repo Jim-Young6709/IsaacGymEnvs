@@ -263,7 +263,7 @@ class PCDTransformer(BaseModel):
 
         return tgt_mask, memory_mask
 
-    def forward(self, obs, target=None, action_chunk_idx=None):
+    def forward(self, obs, target=None):
         # Get inputs
         obs_dict = copy.deepcopy(obs)
         B = obs_dict["q_hand"].shape[0]
@@ -307,19 +307,19 @@ class PCDTransformer(BaseModel):
 
         # If target is provided, compute loss and return it
         if target is not None:
-            loss = self.compute_loss(pred, target, action_chunk_idx)
+            loss = self.compute_loss(pred, target)
             return loss
 
         return pred
 
-    def compute_loss(self, pred, target, action_chunk_idx=None):
+    def compute_loss(self, pred, target):
         assert len(target.shape) == 3
 
         loss = {}
 
         if self.aux_prediction:
             loss["action"] = torch.nn.functional.mse_loss(pred["action"], target[..., :-3])
-            loss["aux"] = torch.nn.functional.mse_loss(pred["aux"], target[..., -3:])
+            loss["aux"] = torch.nn.functional.mse_loss(pred["aux"], target[:, 0:1, -3:])
             loss["total"] = loss["action"] + self.aux_weight * loss["aux"]
         else:
             loss["total"] = torch.nn.functional.mse_loss(pred["action"], target)
