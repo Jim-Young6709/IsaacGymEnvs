@@ -64,6 +64,7 @@ teacher:
 
 dagger:
   batch_size: ${num_envs}
+  grad_updates_per_step: 1
   total_episodes: 10000
   steps_per_episode: ${task.env.episodeLength}
   save_freq: 1
