@@ -147,6 +147,7 @@ class DaggerMobile:
         self.total_steps = 0
         self.batch_idx = 0
         self.batch_size = self.cfg.dagger.batch_size
+        self.grad_updates_per_step = self.cfg.dagger.grad_updates_per_step
 
         self.use_wandb = self.cfg.wandb_activate
         self.wandb_project = self.cfg.wandb_project
@@ -190,6 +191,7 @@ class DaggerMobile:
                 resume="must" if self.wandb_id else None,
                 config={
                     "batch_size": self.batch_size,
+                    "grad_updates_per_step": self.grad_updates_per_step,
                     "num_episodes": self.total_episodes,
                     "learning_rate": self.learning_rate,
                     "weight_decay": self.weight_decay,
@@ -746,20 +748,21 @@ class DaggerMobile:
                 "total": 0.0,
             }
             profile_start = self._profile_start()
-            for i in range(n_batches):
-                batch_indices = indices[i * self.batch_size:(i + 1) * self.batch_size]
-                batch_obs = {k: v[batch_indices] for k, v in obs_input_a0.items()}
-                batch_actions = teacher_preds_buffer[batch_indices]
-                # NOTE: supervise student model on first step
-                with torch.autocast(device_type="cuda", dtype=torch.bfloat16, enabled=self.use_bf16):
-                    loss = self.student_model.forward(batch_obs, batch_actions, action_chunk_idx=0)
-                self.optimizer.zero_grad()
-                loss["total"].backward()
-                torch.nn.utils.clip_grad_norm_(self.student_model.parameters(), max_norm=self.max_grad_norm) 
-                self.optimizer.step()
+            for _ in range(self.grad_updates_per_step):
+                for i in range(n_batches):
+                    batch_indices = indices[i * self.batch_size:(i + 1) * self.batch_size]
+                    batch_obs = {k: v[batch_indices] for k, v in obs_input_a0.items()}
+                    batch_actions = teacher_preds_buffer[batch_indices]
+                    # NOTE: supervise student model on first step
+                    with torch.autocast(device_type="cuda", dtype=torch.bfloat16, enabled=self.use_bf16):
+                        loss = self.student_model.forward(batch_obs, batch_actions, action_chunk_idx=0)
+                    self.optimizer.zero_grad()
+                    loss["total"].backward()
+                    torch.nn.utils.clip_grad_norm_(self.student_model.parameters(), max_norm=self.max_grad_norm) 
+                    self.optimizer.step()
 
-                for key in loss.keys():
-                    ave_loss[key] += loss[key].item()
+                    for key in loss.keys():
+                        ave_loss[key] += loss[key].item()
             self._profile_end(episode_profile_stats, "train/optimization", profile_start)
 
             for key in ave_loss.keys():
