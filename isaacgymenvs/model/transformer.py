@@ -124,6 +124,7 @@ class PCDTransformer(BaseModel):
         action_std=None,
         action_space="delta",
         action_dim=22,
+        action_history_len=0,
         aux_weight=0.0,
         aux_prediction_mode="absolute",
         aux_delta_scale=0.01,
@@ -144,6 +145,7 @@ class PCDTransformer(BaseModel):
         self.pcd_encoders_cfg = pcd_encoders_cfg
         self.state_encoders_cfg = state_encoders_cfg
         self.transformer_cfg = transformer_cfg
+        self.action_history_len = int(action_history_len)
 
         # update config for auxiliary object state prediction
         self.aux_prediction = (aux_weight > 0)
@@ -165,6 +167,14 @@ class PCDTransformer(BaseModel):
             if cfg["use_state"]:
                 self.type_embeddings[key] = nn.Parameter(nn.init.xavier_uniform_(torch.zeros(1, 1, type_dim)))
                 self.encoders[key] = StateEncoder(cfg["input_dim"], cfg["hidden_dims"], self.hidden_dim-self.type_dim, cfg["dropout"])
+
+        self.action_history_pos_embedding = None
+        if ("action_history" in self.encoders) and (self.action_history_len > 0):
+            self.action_history_pos_embedding = nn.Parameter(
+                nn.init.xavier_uniform_(
+                    torch.zeros(1, self.action_history_len, self.hidden_dim - self.type_dim)
+                )
+            )
 
         # Query tokens
         if self.aux_prediction:
@@ -229,6 +239,13 @@ class PCDTransformer(BaseModel):
         type_emb = self.type_embeddings[token_type].expand(B, tokens.shape[1], -1)
         return torch.cat([tokens, type_emb], dim=-1)
 
+    def _add_action_history_position_embeddings(self, tokens, token_type):
+        if token_type != "action_history" or self.action_history_pos_embedding is None:
+            return tokens
+        assert tokens.shape[1] == self.action_history_pos_embedding.shape[1], f"Token sequence length {tokens.shape[1]} does not match action_history_pos_embedding length {self.action_history_pos_embedding.shape[1]}"
+
+        return tokens + self.action_history_pos_embedding # (B, action_history_len, hidden_dim-type_dim) + (1, action_history_len, hidden_dim-type_dim) -> (B, action_history_len, hidden_dim-type_dim)
+
     def _postprocess_aux_prediction(self, aux_pred):
         if self.aux_prediction_mode == "delta":
             return torch.clamp(aux_pred, -1.0, 1.0)
@@ -274,6 +291,7 @@ class PCDTransformer(BaseModel):
 
         for key in self.encoders.keys():
             tokens = self.encoders[key](obs_dict[key])
+            tokens = self._add_action_history_position_embeddings(tokens, key)
             if len(tokens.shape) == 2:
                 tokens = tokens.unsqueeze(1)
             typed_tokens = self._add_type_embeddings(tokens, key)

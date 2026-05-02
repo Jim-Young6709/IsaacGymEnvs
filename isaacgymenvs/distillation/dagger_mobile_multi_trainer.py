@@ -635,6 +635,8 @@ class DaggerMobileMultiExp:
             obs_input_a0["q_hand"] = self.env.normalize_robot_joints(q_hand, robot="leap", delta=False)
             if "q_hand_ctrl_delta" in self.state_encoders_keys:
                 obs_input_a0["q_hand_ctrl_delta"] = self.env.normalize_robot_joints(q_hand - self.env.abs_actions[:, 10:26], robot="leap", delta=True)
+            if "action_history" in self.state_encoders_keys:
+                obs_input_a0["action_history"] = self.env.action_history_buf.clone()
 
             if "aux_object_state" in self.state_encoders_keys:
                 # Codex
@@ -837,6 +839,8 @@ class DaggerMobileMultiExp:
             obs_input_a0["q_hand"] = self.env.normalize_robot_joints(q_hand, robot="leap", delta=False)
             if "q_hand_ctrl_delta" in self.state_encoders_keys:
                 obs_input_a0["q_hand_ctrl_delta"] = self.env.normalize_robot_joints(q_hand - self.env.abs_actions[:, 10:26], robot="leap", delta=True)
+            if "action_history" in self.state_encoders_keys:
+                obs_input_a0["action_history"] = self.env.action_history_buf.clone()
 
             if "aux_object_state" in self.state_encoders_keys:
                 gt_object_center_pos = self._get_object_center_pos_in_base_frame(use_initial_frame=self.aux_init_only)

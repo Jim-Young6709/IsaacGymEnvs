@@ -97,6 +97,7 @@ action_space:
   delta_leap_action: True
   delta_arx_action: True
 chunk_size: 1
+action_history_len: 0
 
 
 # set default task and default training config based on task
