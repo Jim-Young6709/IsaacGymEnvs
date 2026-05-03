@@ -135,7 +135,7 @@ def parse_args():
 
 def main():
     args = parse_args()
-    merge_hdf5_files(args.input_specs, args.output_path)
+    merge_hdf5_files(args.input, args.output)
 
 
 if __name__ == "__main__":
