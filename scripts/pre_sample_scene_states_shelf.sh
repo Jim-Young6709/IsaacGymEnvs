@@ -52,7 +52,7 @@ run_sample() {
     headless=True
 }
 
-# Set these two variables only.
+# ----------------------------------------------------------------------------
 TABLE_HEIGHT_RANGES=(
   "0.0 0.0"
   "0.0 0.0"
@@ -62,19 +62,19 @@ TABLE_HEIGHT_RANGES=(
   "0.0 0.0"
   "0.0 0.0"
   "0.0 0.0"
-  "0.0 0.0"
-  "0.0 0.0"
 )
-NUM_ENVS_LIST=(1000)
+NUM_ENVS_LIST=(1250)
 
 BASE_INIT_RANGE="[[-1.0, -0.5, -0.3], [-0.6, 0.5, 0.3]]"
 SEED=1
-TASK_NAME="inhand_part1_shelf_side_t0inview_Apr19"
+TASK_NAME="inhand_part1_shelf_side_t0inview_May2"
 TEACHER_CKPT="./rl_ckpts/exp_shelf_Apr19.pth"
 SCENE_DIR="./presampled_envs/scene_only"
+SCENE_HDF5="shelf10k_Apr30_inhand_part1.hdf5"
 HEADLESS="True"
 SCENE_GEN_ONLY="False"
 OBJECT_T0="True"
+# ----------------------------------------------------------------------------
 
 job_idx=0
 for num_envs in "${NUM_ENVS_LIST[@]}"; do
@@ -90,7 +90,7 @@ for num_envs in "${NUM_ENVS_LIST[@]}"; do
 
     sample_idx=$((range_idx + 1))
     hdf5_name="${TASK_NAME}_idx${sample_idx}_0.0tableheight_${num_envs}.hdf5"
-    scene_hdf5_path="${SCENE_DIR}/shelf10k_Apr19_inhand_part1.hdf5"
+    scene_hdf5_path="${SCENE_DIR}/${SCENE_HDF5}"
 
     gpu_id="${GPU_IDS[$((job_idx % GPU_COUNT))]}"
     echo "Launching ${hdf5_name} on GPU ${gpu_id} with ${num_envs} envs"
