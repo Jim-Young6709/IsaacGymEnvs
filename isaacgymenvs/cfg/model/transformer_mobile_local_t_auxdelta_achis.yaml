@@ -14,7 +14,7 @@ normalize_action: ${normalize_action}
 action_std: 1 # provide action_std for relative or delta action space
 action_space: ${action_space}
 action_dim: 32  # Glorbot (3+7+4*4+6)
-action_history_len: ${resolve_default:0,${action_history_len}}
+action_history_len: ${oc.select:action_history_len,0}
 aux_weight: 0.1 # weight for auxiliary object state loss (if enabled)
 aux_prediction_mode: "delta" # options: ["absolute", "delta"]
 aux_delta_scale: 0.01 # absolute update: aux_abs = aux_prev_abs + aux_delta_scale * pred_delta

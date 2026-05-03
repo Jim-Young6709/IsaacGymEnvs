@@ -8,7 +8,7 @@ type: "WBC" # "WBCMultiExp", "WBC", "Local"
 # if given, will override the device setting in gym. 
 env:
   episodeLength: 1000
-  action_history_len: ${resolve_default:0,${action_history_len}}
+  action_history_len: ${oc.select:action_history_len,0}
 
   asset:
     assetFileNameFranka: "glorbot/glorbot.urdf"
