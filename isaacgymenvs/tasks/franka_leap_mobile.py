@@ -73,6 +73,7 @@ class FrankaLEAPMobile(VecTask):
         self.object_teleport_args = self.cfg["env"]["object_teleport"]
         self.eef_init = self.cfg["env"]["eef_init"]
         self.distractor_settings = self.cfg["env"]["distractor_settings"]
+        self.action_history_len = int(self.cfg["env"].get("action_history_len", 0))
         self.enable_fabric = self.cfg['fabric']['enable']
         self.video_logging = self.cfg["env"]["video_logging"]
         self.video_dir = os.path.join('videos', self.cfg["name"] + '_{date:%d-%H-%M-%S}'.format(date=datetime.now()))
@@ -221,6 +222,11 @@ class FrankaLEAPMobile(VecTask):
         self.distillation_steps = 0 # if use distillation mode, this should get tracked in the distillation script
         self.abs_actions = torch.zeros(self.num_envs, 32, device=self.device)
         self.teacher_actions_converted = torch.zeros(self.num_envs, 32, device=self.device)
+        self.action_history_buf = torch.zeros(
+            (self.num_envs, self.action_history_len, self.abs_actions.shape[1]),
+            device=self.device,
+            dtype=torch.float,
+        )
         # student policy actions space (should get overridden in the distillation class)
         self.delta_franka_action = True
         self.delta_leap_action = True
@@ -1848,6 +1854,10 @@ class FrankaLEAPMobile(VecTask):
             actions (torch.Tensor): if teacher action: normalized delta joint angles (num_selected_envs, 7+4*4)
                                     if student action: (num_selected_envs, 3+7+4*4+6)
         """
+        if self.distillation_mode and self.action_history_len > 0:
+            self.action_history_buf = torch.roll(self.action_history_buf, shifts=-1, dims=1)
+            self.action_history_buf[:, -1, :] = actions
+
         if self.distillation_mode:
             self.abs_actions[:] = self._pre_physics_step_student(actions)
         else:
@@ -1975,6 +1985,8 @@ class FrankaLEAPMobile(VecTask):
         self.lifting_flags[env_ids] = 0
         self.progress_buf[env_ids] = 0
         self.reset_buf[env_ids] = 0
+        if self.action_history_len > 0:
+            self.action_history_buf[env_ids] = 0.0
 
         if self.object_wrench_args["enable"]:
             self.object_applied_forces[env_ids] = 0.0

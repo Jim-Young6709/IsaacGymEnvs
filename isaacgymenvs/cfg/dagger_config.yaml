@@ -64,6 +64,7 @@ teacher:
 
 dagger:
   batch_size: ${num_envs}
+  grad_updates_per_step: 1
   total_episodes: 10000
   steps_per_episode: ${task.env.episodeLength}
   save_freq: 1
@@ -96,6 +97,7 @@ action_space:
   delta_leap_action: True
   delta_arx_action: True
 chunk_size: 1
+action_history_len: 0
 
 
 # set default task and default training config based on task

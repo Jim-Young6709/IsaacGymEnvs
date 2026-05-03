@@ -68,6 +68,12 @@ class WBCPolicyTransformer:
         self.arx_dof_upper_limits = self.robot_dof_upper_limits[26:32]
         self.abs_hand_actions = torch.zeros(16, device=self.device)
         self.steps = 0
+        self.action_history_len = int(self.ckpt_cfg["task"]["env"].get("action_history_len", 0))
+        self.action_history = torch.zeros(
+            (1, self.action_history_len, int(self.ckpt_cfg["model"]["action_dim"])),
+            device=self.device,
+            dtype=torch.float,
+        )
 
     def generate_random_inputs(self):
         """
@@ -127,6 +133,12 @@ class WBCPolicyTransformer:
             aux_delta = torch.clamp(aux_pred, -1.0, 1.0)
             return prev_abs_aux_2d.unsqueeze(1) + self.aux_delta_scale * aux_delta
         return self._aux_to_2d(aux_pred).unsqueeze(1)
+
+    def reset_policy_state(self):
+        self.abs_hand_actions.zero_()
+        self.steps = 0
+        if self.action_history_len > 0:
+            self.action_history.zero_()
 
     def normalize_robot_joints(self, joint_angles: torch.Tensor, robot: bool, delta: bool = False) -> torch.Tensor:
         """
@@ -315,9 +327,15 @@ class WBCPolicyTransformer:
             ("q_hand", q_hand_b),
             ("q_hand_ctrl_delta", q_hand_ctrl_delta_b*2) # *2 helps with sim-to-real
         ])
+        if self.action_history_len > 0:
+            obs_dict["action_history"] = self.action_history.clone()
 
         # inference policy
         step_action, aux_pred, obs_dict = self.inference_policy(obs_dict)
+
+        if self.action_history_len > 0:
+            self.action_history = torch.roll(self.action_history, shifts=-1, dims=1)
+            self.action_history[:, -1, :] = step_action.unsqueeze(0)
 
         # get unnormalized absolute actions for execution
         actions_abs = step_action.clone() # (32,)
