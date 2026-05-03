@@ -197,6 +197,12 @@ def main():
     if not os.path.isfile(input_path):
         raise FileNotFoundError(input_path)
 
+    with h5py.File(input_path, "r") as hdf5_file:
+        already_postprocessed = bool(hdf5_file.attrs.get("distractor_postprocessed", False))
+
+    if already_postprocessed:
+        raise RuntimeError(f"HDF5 is already post-processed: {input_path}")
+
     if not inplace:
         output_dir = os.path.dirname(output_path)
         if output_dir:
