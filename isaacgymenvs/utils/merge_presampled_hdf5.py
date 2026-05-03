@@ -120,13 +120,13 @@ def parse_args():
         description="Merge multiple presampled HDF5 files into one file."
     )
     parser.add_argument(
-        "--input_specs",
+        "--input",
         nargs="+",
         required=True,
         help="Input specs: /path/to/file.hdf5 or /path/to/file.hdf5:num_demos",
     )
     parser.add_argument(
-        "--output_path",
+        "--output",
         required=True,
         help="Output merged HDF5 file path.",
     )

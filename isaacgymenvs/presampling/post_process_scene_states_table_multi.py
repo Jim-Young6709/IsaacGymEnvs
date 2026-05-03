@@ -181,8 +181,8 @@ def process_demo(demo_group, demo_idx: int, base_seed: int, distractor_params):
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input_path", required=True)
-    parser.add_argument("--output_path", default="")
+    parser.add_argument("--input", required=True)
+    parser.add_argument("--output", default="")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--task_name", default="DexMobileExpBase")
     return parser.parse_args()
@@ -190,8 +190,8 @@ def parse_args():
 
 def main():
     args = parse_args()
-    input_path = os.path.abspath(args.input_path)
-    output_path = os.path.abspath(args.output_path.strip() or input_path)
+    input_path = os.path.abspath(args.input)
+    output_path = os.path.abspath(args.output.strip() or input_path)
     inplace = input_path == output_path
 
     if not os.path.isfile(input_path):
