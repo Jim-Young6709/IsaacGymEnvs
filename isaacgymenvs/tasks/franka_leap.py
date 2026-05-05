@@ -446,10 +446,10 @@ class FrankaLEAP(VecTask):
         # finger indexing: 0-3:index ; 4-7:thumb ; 8-11:middle ; 12-15:ring
         # @ray curl config
         grasp_default_1 = [
-            0.65,  0.0,  0.65,  0.65,
-            1.57,  0.0,  0.10,  0.40,
-            0.65,  0.0,  0.65,  0.65,
-            0.65,  0.0,  0.65,  0.65,
+            0.95, -0.2,  0.95,  0.95,
+            1.0,   1.57, 1.0,   1.14,
+            0.9,  0.0,  0.9,  0.9,
+            0.95,  0.2,  0.95,  0.95,
         ]
         # @ray default is 2
         grasp_default_2 = [
