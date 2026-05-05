@@ -18,13 +18,13 @@ class CylinderSpec:
 
 @dataclass
 class AppConfig:
-    mesh_root: str = "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new"
-    output_root: str = "/home/rayliu/grogu/IsaacGymEnvs/meshes_small"
+    mesh_root: str = "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/default"
+    output_root: str = "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/"
     history_keep: int = 10
     discard_dir: str = "discard"
     max_scale: float = 10.0
-    leap_hand_path: str = "/home/rayliu/grogu/IsaacGymEnvs/assets/franka_hand/franka_leap.urdf"
-    leap_hand_assets_root: str = "/home/rayliu/grogu/IsaacGymEnvs/assets/franka_hand"
+    leap_hand_path: str = "/home/jimyoung/Dex/IsaacGymEnvs/assets/franka_hand/franka_leap.urdf"
+    leap_hand_assets_root: str = "/home/jimyoung/Dex/IsaacGymEnvs/assets/franka_hand"
     leap_hand_joint_order: Optional[List[str]] = None
     leap_hand_presets: Optional[Dict[str, List[float]]] = None
     default_urdf_scale: List[float] = None
