@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "cabin_car",
+  "base_name": "2",
+  "full_name": "cabin_car_2",
+  "category": "default",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-05-04 20:09:26",
+  "transform": {
+    "dilate_x": 1.0,
+    "dilate_y": 1.0,
+    "dilate_z": 1.0,
+    "dilate_x_min": 1.0,
+    "dilate_x_max": 1.0,
+    "dilate_y_min": 1.0,
+    "dilate_y_max": 1.0,
+    "dilate_z_min": 1.0,
+    "dilate_z_max": 1.0,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 1.0,
+      "max": 1.0
+    },
+    "y": {
+      "min": 1.0,
+      "max": 1.0
+    },
+    "z": {
+      "min": 1.0,
+      "max": 1.0
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.062785459,
+        0.065809109,
+        0.065409177
+      ],
+      "volume": 0.00021741210900709466,
+      "max_dim": 0.065809109
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.062785459,
+        0.065809109,
+        0.065409177
+      ],
+      "volume": 0.00021741210900709466,
+      "max_dim": 0.065809109
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/default/cabin_car_2/v000/cabin_car_2_v000.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/default/cabin_car_2/v000/cabin_car_2_v000.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/default/cabin_car_2/v000/cabin_car_2_v000.npy",
+      "urdf": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/default/cabin_car_2/v000/cabin_car_2_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/cabin_car/2.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/cabin_car/2.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/cabin_car/2.npy",
+      "urdf": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/cabin_car/2.urdf"
+    }
+  }
+}

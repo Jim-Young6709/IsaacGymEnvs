@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "automatic_washer_4",
+  "base_name": "automatic_washer_4",
+  "full_name": "automatic_washer_4",
+  "category": "default",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-05-04 19:58:00",
+  "transform": {
+    "dilate_x": 1.0,
+    "dilate_y": 1.0,
+    "dilate_z": 1.0,
+    "dilate_x_min": 1.0,
+    "dilate_x_max": 1.0,
+    "dilate_y_min": 1.0,
+    "dilate_y_max": 1.0,
+    "dilate_z_min": 1.0,
+    "dilate_z_max": 1.0,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 1.0,
+      "max": 1.0
+    },
+    "y": {
+      "min": 1.0,
+      "max": 1.0
+    },
+    "z": {
+      "min": 1.0,
+      "max": 1.0
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.06335326,
+        0.06690298,
+        0.08975045
+      ],
+      "volume": 0.00035258078330899836,
+      "max_dim": 0.08975045
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.06335326,
+        0.06690298,
+        0.08975045
+      ],
+      "volume": 0.00035258078330899836,
+      "max_dim": 0.08975045
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/default/automatic_washer_4/v000/automatic_washer_4_v000.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/default/automatic_washer_4/v000/automatic_washer_4_v000.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/default/automatic_washer_4/v000/automatic_washer_4_v000.npy",
+      "urdf": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/default/automatic_washer_4/v000/automatic_washer_4_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_69_new/automatic_washer_4/automatic_washer_4.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_69_new/automatic_washer_4/automatic_washer_4.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_69_new/automatic_washer_4/automatic_washer_4.npy",
+      "urdf": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_69_new/automatic_washer_4/automatic_washer_4.urdf"
+    }
+  }
+}

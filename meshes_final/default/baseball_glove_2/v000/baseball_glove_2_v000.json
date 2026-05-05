@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "baseball_glove_2",
+  "base_name": "baseball_glove_2",
+  "full_name": "baseball_glove_2",
+  "category": "default",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-05-04 19:58:12",
+  "transform": {
+    "dilate_x": 1.0,
+    "dilate_y": 1.0,
+    "dilate_z": 1.0,
+    "dilate_x_min": 1.0,
+    "dilate_x_max": 1.0,
+    "dilate_y_min": 1.0,
+    "dilate_y_max": 1.0,
+    "dilate_z_min": 1.0,
+    "dilate_z_max": 1.0,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 1.0,
+      "max": 1.0
+    },
+    "y": {
+      "min": 1.0,
+      "max": 1.0
+    },
+    "z": {
+      "min": 1.0,
+      "max": 1.0
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.050795820000000005,
+        0.08019981,
+        0.09920388
+      ],
+      "volume": 0.00016211976673971074,
+      "max_dim": 0.09920388
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.050795820000000005,
+        0.08019981,
+        0.09920388
+      ],
+      "volume": 0.00016211976673971074,
+      "max_dim": 0.09920388
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/default/baseball_glove_2/v000/baseball_glove_2_v000.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/default/baseball_glove_2/v000/baseball_glove_2_v000.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/default/baseball_glove_2/v000/baseball_glove_2_v000.npy",
+      "urdf": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/default/baseball_glove_2/v000/baseball_glove_2_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_69_new/baseball_glove_2/baseball_glove_2.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_69_new/baseball_glove_2/baseball_glove_2.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_69_new/baseball_glove_2/baseball_glove_2.npy",
+      "urdf": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_69_new/baseball_glove_2/baseball_glove_2.urdf"
+    }
+  }
+}

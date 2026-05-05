@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "broccoli",
+  "base_name": "1",
+  "full_name": "broccoli_1",
+  "category": "default",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-05-04 20:08:17",
+  "transform": {
+    "dilate_x": 1.0,
+    "dilate_y": 1.0,
+    "dilate_z": 1.0,
+    "dilate_x_min": 1.0,
+    "dilate_x_max": 1.0,
+    "dilate_y_min": 1.0,
+    "dilate_y_max": 1.0,
+    "dilate_z_min": 1.0,
+    "dilate_z_max": 1.0,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 1.0,
+      "max": 1.0
+    },
+    "y": {
+      "min": 1.0,
+      "max": 1.0
+    },
+    "z": {
+      "min": 1.0,
+      "max": 1.0
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.068751302,
+        0.076466874,
+        0.096818524
+      ],
+      "volume": 0.00020836035900154902,
+      "max_dim": 0.096818524
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.068751302,
+        0.076466874,
+        0.096818524
+      ],
+      "volume": 0.00020836035900154902,
+      "max_dim": 0.096818524
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/default/broccoli_1/v000/broccoli_1_v000.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/default/broccoli_1/v000/broccoli_1_v000.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/default/broccoli_1/v000/broccoli_1_v000.npy",
+      "urdf": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/default/broccoli_1/v000/broccoli_1_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/broccoli/1.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/broccoli/1.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/broccoli/1.npy",
+      "urdf": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/broccoli/1.urdf"
+    }
+  }
+}
