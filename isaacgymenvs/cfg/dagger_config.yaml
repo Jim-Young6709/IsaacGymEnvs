@@ -71,7 +71,7 @@ dagger:
   eval_freq: 10
   aux_init_only: False
   aux_feedback_to_policy: True
-  aux_feedback_start_steps: 30000
+  aux_feedback_start_steps: 0
 
   teacher_forcing:
     enable: True
