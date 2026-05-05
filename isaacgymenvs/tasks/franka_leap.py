@@ -159,10 +159,10 @@ class FrankaLEAP(VecTask):
         if not hasattr(self, 'canonical_joint_config'):
             # @ray during reset hand is randomized around these joints
             hand_default_1 = [
-                0.5,  0.0,  0.5,  0.5,
-                1.57,  0.0, -0.3,  0.3,
-                0.5,  0.0,  0.5,  0.5,
-                0.5,  0.0,  0.5,  0.5,
+                1.57, 0.0, 1.57, 0.0,
+                0.0, 0.0, 1.0,  0.57,
+                1.57, 0.0, 1.57, 0.0,
+                1.57, 0.0, 1.57, 0.0,
             ]
             hand_default_2 = [
                 0.7, -0.2,  0.7,  0.7,
@@ -175,8 +175,8 @@ class FrankaLEAP(VecTask):
 
             self.canonical_joint_config = torch.tensor(
                 [
-                    # [0, 0, 0, -3*torch.pi/4, 0, 3*torch.pi/4, 0] + \ # original version
-                    [0, 0, 0, -3*torch.pi/4, 0, 3*torch.pi/4, -torch.pi/2] + \
+                    [0, 0, 0, -3*torch.pi/4, 0, 3*torch.pi/4, 0] + \
+                    # [0, 0, 0, -3*torch.pi/4, 0, 3*torch.pi/4, -torch.pi/2] + \
                     self.hand_default
                 ] * self.num_envs
             ).to(self.device)
@@ -466,8 +466,8 @@ class FrankaLEAP(VecTask):
         # for visualization purposes
         self.canonical_grasp_config = torch.tensor(
             [
-                # [0, 0, 0, -3*torch.pi/4, 0, 3*torch.pi/4, 0] \ # original version
-                [0, 0, 0, -3*torch.pi/4, 0, 3*torch.pi/4, -torch.pi/2] \
+                [0, 0, 0, -3*torch.pi/4, 0, 3*torch.pi/4, 0] \
+                # [0, 0, 0, -3*torch.pi/4, 0, 3*torch.pi/4, -torch.pi/2] \
                 + self.grasp_finger_dof_pos.tolist()
             ] * self.num_envs
         ).to(self.device)

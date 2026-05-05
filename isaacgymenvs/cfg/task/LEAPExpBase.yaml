@@ -35,7 +35,7 @@ env:
 
   asset:
     assetRoot: "../../assets"
-    assetFileNameFranka: "franka_hand/franka_leap_90shift.urdf"
+    assetFileNameFranka: "franka_hand/franka_leap.urdf"
 
   mesh:
     mesh_dir: "./meshes_69_new"
@@ -171,14 +171,14 @@ task:
     frequency: 720   # Define how many simulation steps between generating new randomizations
     schedule_steps_default: 200000
     observations:
-      range: [0, .002] # range for the white noise
+      range: [0, .02] # range for the white noise
       range_correlated: [0, .001] # range for correlated noise, refreshed with freq `frequency`
       operation: "additive"
       distribution: "gaussian"
       schedule: "linear"   # "constant" is to turn on noise after `schedule_steps` num steps
       schedule_steps: ${..schedule_steps_default}
     actions:
-      range: [0., .05]
+      range: [0., .1]
       range_correlated: [0, .015] # range for correlated noise, refreshed with freq `frequency`
       operation: "additive"
       distribution: "gaussian"

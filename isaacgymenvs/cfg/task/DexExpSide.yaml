@@ -25,8 +25,8 @@ env:
     enable: True
     dis_open_range: [0.2, 0.25]
     dis_side_range: -0.1
-    canonical_quat: [-0.5, -0.5, -0.5, -0.5] # xyzw
-    # canonical_quat: [0.5, -0.5, 0.5, -0.5] # xyzw
+    # canonical_quat: [-0.5, -0.5, -0.5, -0.5] # xyzw
+    canonical_quat: [0.5, -0.5, 0.5, -0.5] # xyzw
     # canonical_quat: [0.7071, 0.0, 0.7071, 0.0]
     quat_init_rand: 30 # degrees
 
@@ -38,8 +38,8 @@ reward:
   params:
     target_pos: [0.5, 0.0, 0.3]
     target_lift_dis: 0.1
-    target_quat: [-0.5, -0.5, -0.5, -0.5] # xyzw
-    # target_quat: [0.5, -0.5, 0.5, -0.5] # xyzw
+    # target_quat: [-0.5, -0.5, -0.5, -0.5] # xyzw
+    target_quat: [0.5, -0.5, 0.5, -0.5] # xyzw
     # target_quat: [0.7071, 0.0, 0.7071, 0.0]
     curl_reaching_threshold: 0.15
 
