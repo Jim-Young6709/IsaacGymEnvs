@@ -901,6 +901,33 @@ class DaggerMobileMultiExp:
 
         return eval_wandb_logs
 
+    def _get_per_gpu_metric_logs(self):
+        metric_keys = (
+            "metrics/success_rate_5cm_per_step",
+            "metrics/lifting_rate_5cm_per_step",
+            "metrics/success_rate_5cm_per_ep",
+            "metrics/lifting_rate_5cm_per_ep",
+        )
+        if not self.multi_gpu:
+            return {}
+
+        local_metrics = torch.tensor(
+            [float(self.env.extras[key]) for key in metric_keys],
+            device=self.device,
+            dtype=torch.float32,
+        )
+        gathered_metrics = [torch.empty_like(local_metrics) for _ in range(self.world_size)]
+        dist.all_gather(gathered_metrics, local_metrics)
+
+        if self.global_rank != 0:
+            return {}
+
+        per_gpu_logs = {}
+        for rank, rank_metrics in enumerate(gathered_metrics):
+            for key, value in zip(metric_keys, rank_metrics):
+                per_gpu_logs[f"{key}/gpu_{rank}"] = value.item()
+        return per_gpu_logs
+
     def train(self):
         while self.episode < self.total_episodes:
             metrics = {}
@@ -913,6 +940,8 @@ class DaggerMobileMultiExp:
             eval_policy = (self.eval_freq > 0) and (self.episode % self.eval_freq == 0) and (self.episode > 0) # skip eval at episode 0
             if eval_policy:
                 eval_wandb_logs = self.eval()
+
+            per_gpu_metric_logs = self._get_per_gpu_metric_logs()
 
             if (not self.multi_gpu) or (self.global_rank == 0):
                 episode_time = time.time() - start_time
@@ -935,6 +964,7 @@ class DaggerMobileMultiExp:
                         metrics["profile/train_top_section_pct"] = 100.0 * top_value / max(train_profile_stats.get("train/step_total", 1e-8), 1e-8)
                         metrics["profile/train_avg_step_seconds"] = avg_step_time
                 metrics.update(self.env.extras)
+                metrics.update(per_gpu_metric_logs)
                 if eval_policy:
                     metrics.update(eval_wandb_logs)
 
