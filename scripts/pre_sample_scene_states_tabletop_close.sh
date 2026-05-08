@@ -45,7 +45,7 @@ run_sample() {
     teacher.ckpt="${TEACHER_CKPT}" \
     task.env.scene.hdf5_path="${scene_hdf5_path}" \
     task.env.scene.batch_idx="${range_idx}" \
-    task.cfg_override="TopdownConstrained" \
+    task.cfg_override="TopdownTable" \
     presample.assume_obj_in_view_t0="${OBJECT_T0}" \
     presample.output_hdf5_name="${hdf5_name}" \
     presample.rand_cfg.base_init_range="${BASE_INIT_RANGE}" \
@@ -65,12 +65,12 @@ TABLE_HEIGHT_RANGES=(
 )
 NUM_ENVS_LIST=(1250)
 
-BASE_INIT_RANGE="[[-1.0, -0.5, -1.5], [-0.2, 0.5, 1.5]]"
+BASE_INIT_RANGE="[[-0.3, -0.5, -1.5], [-0.2, 0.5, 1.5]]"
 SEED=1
-TASK_NAME="May8_drawer_t0inview_part2"
-TEACHER_CKPT="./rl_ckpts/exp_top_Apr9.pth"
+TASK_NAME="May8_tabletop_t0inview_close"
+TEACHER_CKPT="./rl_ckpts/exp_tabletop_Feb23.pth"
 SCENE_DIR="./presampled_envs/scene_only"
-SCENE_HDF5="May8_drawer10k_part2.hdf5"
+SCENE_HDF5="May8_tabletop10k_part2.hdf5"
 HEADLESS="True"
 SCENE_GEN_ONLY="False"
 OBJECT_T0="True"

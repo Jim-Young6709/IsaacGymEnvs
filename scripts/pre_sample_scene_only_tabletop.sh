@@ -18,7 +18,7 @@ NUM_ENVS_LIST=(1000)
 
 BASE_INIT_RANGE="[[-1.0, -0.5, -1.5], [-0.2, 0.5, 1.5]]"
 SEED=1
-TASK_NAME="May8_tabletop_10k"
+TASK_NAME="May8_tabletop_10k_part2"
 TEACHER_CKPT="./ckpts/exp_tabletop_Feb23.pth"
 SCENE_DIR="./presampled_envs/scene_only"
 HEADLESS="True"

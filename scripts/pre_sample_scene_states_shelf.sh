@@ -67,10 +67,10 @@ NUM_ENVS_LIST=(1250)
 
 BASE_INIT_RANGE="[[-1.0, -0.5, -0.3], [-0.6, 0.5, 0.3]]"
 SEED=1
-TASK_NAME="inhand_part1_shelf_side_t0inview_May2"
-TEACHER_CKPT="./rl_ckpts/exp_shelf_Apr19.pth"
+TASK_NAME="May8_shelf_t0inview_part5"
+TEACHER_CKPT="./rl_ckpts/exp_shelf_May6.pth"
 SCENE_DIR="./presampled_envs/scene_only"
-SCENE_HDF5="shelf10k_Apr30_inhand_part1.hdf5"
+SCENE_HDF5="May8_shelf10k_part5.hdf5"
 HEADLESS="True"
 SCENE_GEN_ONLY="False"
 OBJECT_T0="True"
