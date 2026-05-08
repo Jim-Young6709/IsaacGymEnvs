@@ -61,7 +61,7 @@ action_space:
 
 presample:
   batch_size: ${num_envs}
-  total_episodes: 3
+  total_episodes: 5
   steps_per_episode: ${task.env.episodeLength}
 
   assume_obj_in_view_t0: True
