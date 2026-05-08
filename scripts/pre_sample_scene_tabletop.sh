@@ -13,18 +13,15 @@ TABLE_HEIGHT_RANGES=(
   "0.0 0.8"
   "0.0 0.8"
   "0.0 0.8"
-  "0.0 0.8"
-  "0.0 0.8"
 )
-NUM_ENVS_LIST=(1024)
+NUM_ENVS_LIST=(1000)
 
 BASE_INIT_RANGE="[[-1.0, -0.5, -1.5], [-0.2, 0.5, 1.5]]"
 SEED=1
-TASK_NAME="table_multi_Mar23"
-TEACHER_CKPT="./ckpts/exp_table_Feb23.pth"
+TASK_NAME="May8_tabletop_10k"
+TEACHER_CKPT="./ckpts/exp_tabletop_Feb23.pth"
 SCENE_DIR="./presampled_envs/scene_only"
 HEADLESS="True"
-SCENE_GEN_ONLY="False"
 
 for num_envs in "${NUM_ENVS_LIST[@]}"; do
   for range_idx in "${!TABLE_HEIGHT_RANGES[@]}"; do
@@ -46,14 +43,5 @@ for num_envs in "${NUM_ENVS_LIST[@]}"; do
       task.env.scene.mobile_obstacles.cuboids.num=1 \
       presample.output_hdf5_name="${hdf5_name}"
 
-    if [[ "$SCENE_GEN_ONLY" == "False" ]]; then
-        python isaacgymenvs/presampling/pre_sample_robot_init_pose.py \
-        task=DexMobileExpFull num_envs="${num_envs}" seed="${SEED}" \
-        teacher.ckpt="${TEACHER_CKPT}" \
-        task.env.scene.hdf5_path="${scene_hdf5_path}" \
-        presample.output_hdf5_name="${hdf5_name}" \
-        presample.rand_cfg.base_init_range="${BASE_INIT_RANGE}" \
-        headless=True
-    fi
   done
 done
