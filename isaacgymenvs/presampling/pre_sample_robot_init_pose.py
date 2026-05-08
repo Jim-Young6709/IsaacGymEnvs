@@ -132,7 +132,10 @@ class PresampleInitPose:
         # self.cfg_franka_canonical = [0.0, -0.25*np.pi, 0.0, -0.75*np.pi, 0.0, 0.5*np.pi, 0.5*np.pi] # shelf debug config
         self.cfg_franka_canonical = [0.0, -0.25*np.pi, 0.0, -0.75*np.pi, 0.0, 0.5*np.pi, 0.0]
         self.cfg_franka_noise = 0.5
-        self.cfg_leap_canonical = [0.0,]*16
+        self.cfg_leap_canonical = [1.57, 0.0, 1.57, 0.0,
+                                   0.0, 0.0, 1.0,  0.57,
+                                   1.57, 0.0, 1.57, 0.0,
+                                   1.57, 0.0, 1.57, 0.0,]
         self.cfg_leap_noise = 0.5
         self.cfg_arx_canonical = [0.0, 1.0, 2.0, -1.0, 0.0, 0.0]
         self.cfg_arx_noise = 0.5
@@ -200,7 +203,6 @@ class PresampleInitPose:
         if self.cfg.presample.assume_obj_in_view_t0:
             self.adjust_vision_arm_pose()
             self.env.default_reset_joint_config[:, 26:32] = self.env.states['q'][:, 26:32].clone()
-            self.env.default_reset_joint_config[:, 26:32] += (torch.rand((self.env.num_envs, 6), device=self.device) - 0.5) * 2 * self.cfg_arx_noise
             self.env.reset_idx()
 
     def adjust_vision_arm_pose(self, gaze_err_tol_deg=5.0):
