@@ -1,0 +1,4 @@
+category,min_correct,median_correct,max_correct,zero_correct,below_32,below_16,below_8
+afar,2,26.0,63,0,1421,239,19
+near_recovery,0,15.0,40,6,1988,1045,465
+far_recovery,1,26.0,54,0,1363,417,76

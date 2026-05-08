@@ -1,0 +1,4 @@
+category,num_variants,stored_total,attempt_total,success_total,complete_32_variants,below_32_variants,min_stored,p25_stored,median_stored,p75_stored,max_stored,mean_success_rate,mean_stored_rate,mean_attempt_steps,median_attempt_steps_per_stored,mean_attempt_steps_per_stored
+afar,2048,97030,236664,221464,1698,350,7,36.0,46.0,59.0,112,0.9375316476362816,0.4103705260180763,428.1109445822458,1054.0032377428306,1201.9550849161114
+far_recovery,2048,0,0,0,0,2048,0,0.0,0.0,0.0,0,,,,,
+near_recovery,2048,0,0,0,0,2048,0,0.0,0.0,0.0,0,,,,,

@@ -1,0 +1,38 @@
+run_dir: /home/rayliu/grogu/IsaacGymEnvs/teacher_state_bank_3/run_correct_only_2
+overall_success_rate: 0.3965
+total_attempts: 74978
+total_successes: 29732
+total_failures: 45246
+
+worst_objects:
+  object 12: success_rate=0.083 attempts=2963 failures=2718
+  object 25: success_rate=0.113 attempts=2934 failures=2602
+  object 4: success_rate=0.114 attempts=2780 failures=2463
+  object 5: success_rate=0.152 attempts=2779 failures=2357
+  object 26: success_rate=0.157 attempts=2795 failures=2356
+  object 17: success_rate=0.160 attempts=2301 failures=1933
+  object 27: success_rate=0.171 attempts=2742 failures=2273
+  object 6: success_rate=0.179 attempts=2726 failures=2239
+  object 13: success_rate=0.190 attempts=3339 failures=2706
+  object 2: success_rate=0.226 attempts=2692 failures=2084
+
+worst_variants:
+  variant 1629 object=12 success_rate=0.018 attempts=57 z_shift=0.689 table=(0.695,0.823) mass=0.206
+  variant 1855 object=12 success_rate=0.019 attempts=52 z_shift=0.668 table=(0.593,0.606) mass=0.785
+  variant 1644 object=12 success_rate=0.020 attempts=49 z_shift=0.498 table=(0.534,0.835) mass=0.719
+  variant 1862 object=25 success_rate=0.021 attempts=48 z_shift=0.417 table=(0.513,0.902) mass=0.333
+  variant 634 object=12 success_rate=0.021 attempts=48 z_shift=0.519 table=(0.567,1.199) mass=0.423
+  variant 53 object=12 success_rate=0.022 attempts=45 z_shift=0.551 table=(0.528,1.144) mass=0.789
+  variant 364 object=25 success_rate=0.023 attempts=44 z_shift=0.682 table=(0.609,0.839) mass=0.415
+  variant 1099 object=12 success_rate=0.023 attempts=43 z_shift=0.603 table=(0.681,1.118) mass=0.677
+  variant 355 object=4 success_rate=0.029 attempts=35 z_shift=0.744 table=(0.639,0.942) mass=0.305
+  variant 983 object=25 success_rate=0.034 attempts=59 z_shift=0.734 table=(0.606,1.055) mass=0.292
+  variant 462 object=26 success_rate=0.034 attempts=59 z_shift=0.746 table=(0.557,1.030) mass=0.205
+  variant 1986 object=12 success_rate=0.036 attempts=55 z_shift=0.756 table=(0.646,0.886) mass=0.441
+  variant 879 object=12 success_rate=0.038 attempts=53 z_shift=0.435 table=(0.510,1.125) mass=0.325
+  variant 1280 object=12 success_rate=0.038 attempts=52 z_shift=0.603 table=(0.610,1.153) mass=0.598
+  variant 883 object=12 success_rate=0.040 attempts=50 z_shift=0.742 table=(0.645,1.056) mass=0.259
+
+stored_state_geometry:
+  success |obj_rel_base_y| mean=0.1685 p90=0.3315
+  failure |obj_rel_base_y| mean=0.1866 p90=0.3850

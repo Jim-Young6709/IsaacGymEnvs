@@ -1,0 +1,465 @@
+{
+  "format": "teacher_bank_variations_v1",
+  "mode": "training",
+  "seed": 1,
+  "num_variants": 16,
+  "num_objects": 32,
+  "world_size": 1,
+  "envs_per_rank": 16,
+  "z_shift_range": [
+    0.4,
+    0.8
+  ],
+  "table_size_range": [
+    [
+      0.5,
+      0.6,
+      0.05
+    ],
+    [
+      0.7,
+      1.2,
+      0.05
+    ]
+  ],
+  "object_mass_range": [
+    0.2,
+    0.8
+  ],
+  "variants": [
+    {
+      "variant_id": 0,
+      "object_id": 12,
+      "z_shift": 0.6890473961830139,
+      "table_size": [
+        0.6952309608459473,
+        0.8230245113372803,
+        0.05000000074505806
+      ],
+      "object_mass": 0.2064771056175232,
+      "source_variant_id": 1629
+    },
+    {
+      "variant_id": 1,
+      "object_id": 25,
+      "z_shift": 0.4171399772167206,
+      "table_size": [
+        0.5129929780960083,
+        0.9017603397369385,
+        0.05000000074505806
+      ],
+      "object_mass": 0.33344829082489014,
+      "source_variant_id": 1862
+    },
+    {
+      "variant_id": 2,
+      "object_id": 4,
+      "z_shift": 0.7441689372062683,
+      "table_size": [
+        0.6388928294181824,
+        0.9417421817779541,
+        0.05000000074505806
+      ],
+      "object_mass": 0.3054260015487671,
+      "source_variant_id": 355
+    },
+    {
+      "variant_id": 3,
+      "object_id": 26,
+      "z_shift": 0.7459139823913574,
+      "table_size": [
+        0.556654691696167,
+        1.0296660661697388,
+        0.05000000074505806
+      ],
+      "object_mass": 0.2050400823354721,
+      "source_variant_id": 462
+    },
+    {
+      "variant_id": 4,
+      "object_id": 17,
+      "z_shift": 0.4000515043735504,
+      "table_size": [
+        0.529752254486084,
+        0.628440260887146,
+        0.05000000074505806
+      ],
+      "object_mass": 0.7072356939315796,
+      "source_variant_id": 1985
+    },
+    {
+      "variant_id": 5,
+      "object_id": 27,
+      "z_shift": 0.7796696424484253,
+      "table_size": [
+        0.6991190314292908,
+        0.6059018969535828,
+        0.05000000074505806
+      ],
+      "object_mass": 0.5134996771812439,
+      "source_variant_id": 377
+    },
+    {
+      "variant_id": 6,
+      "object_id": 6,
+      "z_shift": 0.42375800013542175,
+      "table_size": [
+        0.5273309350013733,
+        0.9237935543060303,
+        0.05000000074505806
+      ],
+      "object_mass": 0.28655433654785156,
+      "source_variant_id": 648
+    },
+    {
+      "variant_id": 7,
+      "object_id": 13,
+      "z_shift": 0.40680691599845886,
+      "table_size": [
+        0.609184205532074,
+        0.6639010310173035,
+        0.05000000074505806
+      ],
+      "object_mass": 0.24261276423931122,
+      "source_variant_id": 1634
+    },
+    {
+      "variant_id": 8,
+      "object_id": 5,
+      "z_shift": 0.47206297516822815,
+      "table_size": [
+        0.6514708995819092,
+        0.734597384929657,
+        0.05000000074505806
+      ],
+      "object_mass": 0.38468319177627563,
+      "source_variant_id": 778
+    },
+    {
+      "variant_id": 9,
+      "object_id": 2,
+      "z_shift": 0.43392080068588257,
+      "table_size": [
+        0.569681704044342,
+        1.1673673391342163,
+        0.05000000074505806
+      ],
+      "object_mass": 0.4476604163646698,
+      "source_variant_id": 1846
+    },
+    {
+      "variant_id": 10,
+      "object_id": 11,
+      "z_shift": 0.515434741973877,
+      "table_size": [
+        0.6913468241691589,
+        0.6324479579925537,
+        0.05000000074505806
+      ],
+      "object_mass": 0.5645385980606079,
+      "source_variant_id": 506
+    },
+    {
+      "variant_id": 11,
+      "object_id": 23,
+      "z_shift": 0.41765496134757996,
+      "table_size": [
+        0.6195469498634338,
+        0.975586473941803,
+        0.05000000074505806
+      ],
+      "object_mass": 0.43066325783729553,
+      "source_variant_id": 772
+    },
+    {
+      "variant_id": 12,
+      "object_id": 9,
+      "z_shift": 0.6574743986129761,
+      "table_size": [
+        0.5001973509788513,
+        0.6501412391662598,
+        0.05000000074505806
+      ],
+      "object_mass": 0.4099377691745758,
+      "source_variant_id": 1056
+    },
+    {
+      "variant_id": 13,
+      "object_id": 31,
+      "z_shift": 0.7806364297866821,
+      "table_size": [
+        0.5421580076217651,
+        0.757906973361969,
+        0.05000000074505806
+      ],
+      "object_mass": 0.449567973613739,
+      "source_variant_id": 1773
+    },
+    {
+      "variant_id": 14,
+      "object_id": 21,
+      "z_shift": 0.7746114730834961,
+      "table_size": [
+        0.6587635278701782,
+        1.187279462814331,
+        0.05000000074505806
+      ],
+      "object_mass": 0.30724310874938965,
+      "source_variant_id": 1936
+    },
+    {
+      "variant_id": 15,
+      "object_id": 24,
+      "z_shift": 0.7666527032852173,
+      "table_size": [
+        0.6516868472099304,
+        0.7280260920524597,
+        0.05000000074505806
+      ],
+      "object_mass": 0.5910906791687012,
+      "source_variant_id": 1760
+    }
+  ],
+  "entries": [
+    {
+      "variant_id": 0,
+      "object_id": 12,
+      "z_shift": 0.6890473961830139,
+      "table_size": [
+        0.6952309608459473,
+        0.8230245113372803,
+        0.05000000074505806
+      ],
+      "object_mass": 0.2064771056175232,
+      "rank": 0,
+      "local_env_id": 0,
+      "global_slot_id": 0,
+      "source_variant_id": 1629
+    },
+    {
+      "variant_id": 1,
+      "object_id": 25,
+      "z_shift": 0.4171399772167206,
+      "table_size": [
+        0.5129929780960083,
+        0.9017603397369385,
+        0.05000000074505806
+      ],
+      "object_mass": 0.33344829082489014,
+      "rank": 0,
+      "local_env_id": 1,
+      "global_slot_id": 1,
+      "source_variant_id": 1862
+    },
+    {
+      "variant_id": 2,
+      "object_id": 4,
+      "z_shift": 0.7441689372062683,
+      "table_size": [
+        0.6388928294181824,
+        0.9417421817779541,
+        0.05000000074505806
+      ],
+      "object_mass": 0.3054260015487671,
+      "rank": 0,
+      "local_env_id": 2,
+      "global_slot_id": 2,
+      "source_variant_id": 355
+    },
+    {
+      "variant_id": 3,
+      "object_id": 26,
+      "z_shift": 0.7459139823913574,
+      "table_size": [
+        0.556654691696167,
+        1.0296660661697388,
+        0.05000000074505806
+      ],
+      "object_mass": 0.2050400823354721,
+      "rank": 0,
+      "local_env_id": 3,
+      "global_slot_id": 3,
+      "source_variant_id": 462
+    },
+    {
+      "variant_id": 4,
+      "object_id": 17,
+      "z_shift": 0.4000515043735504,
+      "table_size": [
+        0.529752254486084,
+        0.628440260887146,
+        0.05000000074505806
+      ],
+      "object_mass": 0.7072356939315796,
+      "rank": 0,
+      "local_env_id": 4,
+      "global_slot_id": 4,
+      "source_variant_id": 1985
+    },
+    {
+      "variant_id": 5,
+      "object_id": 27,
+      "z_shift": 0.7796696424484253,
+      "table_size": [
+        0.6991190314292908,
+        0.6059018969535828,
+        0.05000000074505806
+      ],
+      "object_mass": 0.5134996771812439,
+      "rank": 0,
+      "local_env_id": 5,
+      "global_slot_id": 5,
+      "source_variant_id": 377
+    },
+    {
+      "variant_id": 6,
+      "object_id": 6,
+      "z_shift": 0.42375800013542175,
+      "table_size": [
+        0.5273309350013733,
+        0.9237935543060303,
+        0.05000000074505806
+      ],
+      "object_mass": 0.28655433654785156,
+      "rank": 0,
+      "local_env_id": 6,
+      "global_slot_id": 6,
+      "source_variant_id": 648
+    },
+    {
+      "variant_id": 7,
+      "object_id": 13,
+      "z_shift": 0.40680691599845886,
+      "table_size": [
+        0.609184205532074,
+        0.6639010310173035,
+        0.05000000074505806
+      ],
+      "object_mass": 0.24261276423931122,
+      "rank": 0,
+      "local_env_id": 7,
+      "global_slot_id": 7,
+      "source_variant_id": 1634
+    },
+    {
+      "variant_id": 8,
+      "object_id": 5,
+      "z_shift": 0.47206297516822815,
+      "table_size": [
+        0.6514708995819092,
+        0.734597384929657,
+        0.05000000074505806
+      ],
+      "object_mass": 0.38468319177627563,
+      "rank": 0,
+      "local_env_id": 8,
+      "global_slot_id": 8,
+      "source_variant_id": 778
+    },
+    {
+      "variant_id": 9,
+      "object_id": 2,
+      "z_shift": 0.43392080068588257,
+      "table_size": [
+        0.569681704044342,
+        1.1673673391342163,
+        0.05000000074505806
+      ],
+      "object_mass": 0.4476604163646698,
+      "rank": 0,
+      "local_env_id": 9,
+      "global_slot_id": 9,
+      "source_variant_id": 1846
+    },
+    {
+      "variant_id": 10,
+      "object_id": 11,
+      "z_shift": 0.515434741973877,
+      "table_size": [
+        0.6913468241691589,
+        0.6324479579925537,
+        0.05000000074505806
+      ],
+      "object_mass": 0.5645385980606079,
+      "rank": 0,
+      "local_env_id": 10,
+      "global_slot_id": 10,
+      "source_variant_id": 506
+    },
+    {
+      "variant_id": 11,
+      "object_id": 23,
+      "z_shift": 0.41765496134757996,
+      "table_size": [
+        0.6195469498634338,
+        0.975586473941803,
+        0.05000000074505806
+      ],
+      "object_mass": 0.43066325783729553,
+      "rank": 0,
+      "local_env_id": 11,
+      "global_slot_id": 11,
+      "source_variant_id": 772
+    },
+    {
+      "variant_id": 12,
+      "object_id": 9,
+      "z_shift": 0.6574743986129761,
+      "table_size": [
+        0.5001973509788513,
+        0.6501412391662598,
+        0.05000000074505806
+      ],
+      "object_mass": 0.4099377691745758,
+      "rank": 0,
+      "local_env_id": 12,
+      "global_slot_id": 12,
+      "source_variant_id": 1056
+    },
+    {
+      "variant_id": 13,
+      "object_id": 31,
+      "z_shift": 0.7806364297866821,
+      "table_size": [
+        0.5421580076217651,
+        0.757906973361969,
+        0.05000000074505806
+      ],
+      "object_mass": 0.449567973613739,
+      "rank": 0,
+      "local_env_id": 13,
+      "global_slot_id": 13,
+      "source_variant_id": 1773
+    },
+    {
+      "variant_id": 14,
+      "object_id": 21,
+      "z_shift": 0.7746114730834961,
+      "table_size": [
+        0.6587635278701782,
+        1.187279462814331,
+        0.05000000074505806
+      ],
+      "object_mass": 0.30724310874938965,
+      "rank": 0,
+      "local_env_id": 14,
+      "global_slot_id": 14,
+      "source_variant_id": 1936
+    },
+    {
+      "variant_id": 15,
+      "object_id": 24,
+      "z_shift": 0.7666527032852173,
+      "table_size": [
+        0.6516868472099304,
+        0.7280260920524597,
+        0.05000000074505806
+      ],
+      "object_mass": 0.5910906791687012,
+      "rank": 0,
+      "local_env_id": 15,
+      "global_slot_id": 15,
+      "source_variant_id": 1760
+    }
+  ]
+}
