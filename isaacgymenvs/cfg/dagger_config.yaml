@@ -68,10 +68,10 @@ dagger:
   total_episodes: 10000
   steps_per_episode: ${task.env.episodeLength}
   save_freq: 1
-  eval_freq: 10
+  eval_freq: 0
   aux_init_only: False
   aux_feedback_to_policy: True
-  aux_feedback_start_steps: 0
+  aux_feedback_start_steps: 30000
 
   teacher_forcing:
     enable: True

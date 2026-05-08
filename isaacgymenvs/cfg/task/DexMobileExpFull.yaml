@@ -26,9 +26,9 @@ env:
 
   # no reset noise cause we are loading presampled init poses
   resetNoiseScale:
-    leap: 0.0
-    franka: 0.0 # joint angle
-    arx: 0.0 # joint angle
+    leap: 0.5
+    franka: 0.2 # joint angle
+    arx: 0.2 # joint angle
 
   numObservations: 61 # 49, 61
   numStates: 106 # 94, 106
