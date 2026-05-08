@@ -29,6 +29,7 @@
 from .franka_leap import FrankaLEAP
 from .franka_leap_pick_table import FrankaLEAPPickTable
 from .franka_leap_pick_table_side import FrankaLEAPPickTableSide
+from .franka_leap_pick_table_side_copy import FrankaLEAPPickTableSide as FrankaLEAPPickTableSideCopy
 from .franka_leap_pick_top import FrankaLEAPPickTop
 from .franka_leap_pick_side import FrankaLEAPPickSide
 from .franka_leap_pick_full import FrankaLEAPPickFull
@@ -41,6 +42,8 @@ from .franka_leap_pick_top_full import FrankaLEAPPickTopFull
 from .franka_leap_mobile_distillation import FrankaLEAPMobileDistillation
 from .franka_leap_mobile_distillation_pick_top import FrankaLEAPMobileDistillationPickTop
 from .franka_leap_mobile_distillation_pick_side import FrankaLEAPMobileDistillationPickSide
+from .franka_leap_mobile_distillation_pick_top_long import FrankaLEAPMobileDistillationPickTopLong
+from .franka_leap_mobile_distillation_pick_top_long_recovery import FrankaLEAPMobileDistillationPickTopLongRecovery
 # from .franka_cmd import FrankaCMD
 # from .franka_cmd_pick_table import FrankaCMDPickTable
 
@@ -51,6 +54,7 @@ isaacgym_task_map = {
     "FrankaLEAP": FrankaLEAP,
     "FrankaLEAPPickTable": FrankaLEAPPickTable,
     "FrankaLEAPPickTableSide": FrankaLEAPPickTableSide,
+    "FrankaLEAPPickTableSideCopy": FrankaLEAPPickTableSideCopy,
     "FrankaLEAPPickTop": FrankaLEAPPickTop,
     "FrankaLEAPPickSide": FrankaLEAPPickSide,
     "FrankaLEAPPickFull": FrankaLEAPPickFull,
@@ -59,6 +63,8 @@ isaacgym_task_map = {
     "FrankaLEAPMobileDistillation": FrankaLEAPMobileDistillation,
     "FrankaLEAPMobileDistillationPickTop": FrankaLEAPMobileDistillationPickTop,
     "FrankaLEAPMobileDistillationPickSide": FrankaLEAPMobileDistillationPickSide,
+    "FrankaLEAPMobileDistillationPickTopLong": FrankaLEAPMobileDistillationPickTopLong,
+    "FrankaLEAPMobileDistillationPickTopLongRecovery": FrankaLEAPMobileDistillationPickTopLongRecovery,
     # "FrankaLEAPMobilePickTable": FrankaLEAPMobilePickTable,
     # "FrankaLEAPMobilePickTableMulti": FrankaLEAPMobilePickTableMulti,
     # "FrankaLEAPMobilePickTopFull": FrankaLEAPMobilePickTopFull,

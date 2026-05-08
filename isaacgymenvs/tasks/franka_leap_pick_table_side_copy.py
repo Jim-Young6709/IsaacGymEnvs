@@ -1,14 +1,14 @@
 """
 Franka + LEAP Hand Pick Env
 """
-import ast
 import time
 import json
 import os
-import random
-from collections.abc import Sequence
+import csv
+from pathlib import Path
 
 import hydra
+import h5py
 import isaacgym
 import numpy as np
 import torch
@@ -21,6 +21,9 @@ from isaacgymenvs.utils.reformat import omegaconf_to_dict
 from omegaconf import DictConfig
 from tqdm import tqdm
 import wandb
+
+
+SNAPSHOT_RESET_MODE_NAMES = ("afar", "near_recovery", "far_recovery")
 
 
 def _quat_xyzw_to_rot_np(quat_xyzw):
@@ -91,52 +94,24 @@ def _sample_box_surface_np(center, dims, quat_xyzw, num_points):
     return (points @ rot.T + center[None, :]).astype(np.float32)
 
 
-def _cfg_to_float_array(value, name="value"):
-    def _normalize(v):
-        if isinstance(v, str):
-            s = v.strip()
-            if len(s) == 0:
-                raise ValueError(f"Empty string in {name}")
-            if s[0] in "[(" and s[-1] in "])":
-                return _normalize(ast.literal_eval(s))
-            if "=" in s:
-                raise ValueError(
-                    f"Invalid numeric token {s!r} in {name}. "
-                    "This usually means the Hydra override string is malformed."
-                )
-            return float(s)
-        if isinstance(v, np.ndarray):
-            return _normalize(v.tolist())
-        if torch.is_tensor(v):
-            return _normalize(v.detach().cpu().tolist())
-        if isinstance(v, Sequence) and not isinstance(v, (bytes, bytearray)):
-            return [_normalize(x) for x in v]
-        return v
-
-    try:
-        return np.asarray(_normalize(value), dtype=np.float32)
-    except Exception as exc:
-        raise ValueError(
-            f"Could not parse {name}={value!r} as a float array. "
-            'Expected syntax like "[[0.45, -0.10, 0.2], [0.62, 0.10, 0.25]]".'
-        ) from exc
-
-
 class FrankaLEAPPickTableSide(FrankaLEAP):
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
         self.object_grasp_target_z_scale = float(cfg["env"]["object_settings"]["object_grasp_target_z_scale"])
         self.lie_flat_prob = float(cfg["env"]["object_settings"].get("lie_flat_prob", 0.0))
         self._reset_object_mirror_y_prob = float(cfg["env"]["object_settings"].get("mirror_y_prob", 0.5))
         self._reset_object_xyz_range_cfg = cfg["env"]["object_settings"]["xyz_range"]
-        self._reset_flat_object_mirror_y_prob = float(cfg["env"]["object_settings"].get("flat_mirror_y_prob", 0.0))
-        self._reset_flat_object_xyz_range_cfg = cfg["env"]["object_settings"].get(
-            "flat_xyz_range",
-            self._reset_object_xyz_range_cfg,
-        )
         self._fixed_table_surface_height = float(cfg["env"]["scene"]["table_surface_height"])
+        self._fixed_table_size = torch.tensor(
+            cfg["env"]["scene"].get(
+                "table_size",
+                [0.7, 1.2, float(cfg["env"]["table_thickness"])],
+            ),
+            dtype=torch.float32,
+        )
+        self._franka_mount_offset_from_mobile_base = torch.tensor([0.178, 0.0, 0.444775], dtype=torch.float32)
+        self._snapshot_variation_assignment_json = cfg["env"]["scene"].get("teacher_bank_variation_json", None)
         self.side_mode = str(cfg["env"]["eef_init"]["side_mode"])
         self._reset_flat_side_recovery_prob = float(cfg["env"]["eef_init"].get("flat_side_recovery_prob", 0.25))
-        self._reset_wrong_side_sample_prob = float(cfg["env"]["eef_init"].get("wrong_side_sample_prob", 0.5))
         self._reset_eef_rel_object_min_cfg = cfg["env"]["eef_init"].get(
             "rel_object_min",
             [-0.1178, 0.05, 0.0282],
@@ -153,44 +128,30 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
             "flat_rel_object_max",
             [0.08, 0.08, 0.32],
         )
-        self._reset_flat_topdown_rel_object_min_cfg = cfg["env"]["eef_init"].get(
-            "flat_topdown_rel_object_min",
-            [-0.08, -0.08, 0.30],
-        )
-        self._reset_flat_topdown_rel_object_max_cfg = cfg["env"]["eef_init"].get(
-            "flat_topdown_rel_object_max",
-            [0.08, 0.08, 0.45],
-        )
         self._reset_yaw_noise_deg = float(cfg["env"]["eef_init"].get("yaw_noise_deg", 45.0))
         self._reset_pitch_roll_noise_deg = float(cfg["env"]["eef_init"].get("pitch_roll_noise_deg", 45.0))
+        self._reset_min_palm_object_dist_cfg = float(cfg["env"]["eef_init"].get("min_palm_object_dist", 0.05))
+        snapshot_bank_cfg = cfg["env"].get("activation_snapshot_bank", {})
+        self._activation_snapshot_bank_enable = bool(snapshot_bank_cfg.get("enable", False))
+        self._activation_snapshot_bank_hdf5_path = str(snapshot_bank_cfg.get("hdf5_path", "") or "")
+        self._activation_snapshot_bank_sampling_probs_cfg = snapshot_bank_cfg.get("sampling_probs", {})
+        snapshot_reset_noise_cfg = snapshot_bank_cfg.get("reset_noise", {})
+        self._activation_snapshot_object_xy_noise_cfg = snapshot_reset_noise_cfg.get("object_xy", [0.0, 0.0])
+        self._activation_snapshot_arm_joint_noise_deg = float(snapshot_reset_noise_cfg.get("arm_joint_deg", 0.0))
+        self._activation_snapshot_hand_joint_noise_deg = float(snapshot_reset_noise_cfg.get("hand_joint_deg", 0.0))
+        self._activation_snapshot_hand_yaw_noise_deg = float(snapshot_reset_noise_cfg.get("hand_yaw_deg", 0.0))
+        self._activation_snapshot_hand_pitch_noise_deg = float(snapshot_reset_noise_cfg.get("hand_pitch_deg", 0.0))
+        self._activation_snapshot_hand_roll_noise_deg = float(snapshot_reset_noise_cfg.get("hand_roll_deg", 0.0))
+        self._activation_snapshot_debug_print_limit_cfg = int(snapshot_bank_cfg.get("debug_print_limit", 0))
+        self._copy_debug_env_ids = set()
+        self._copy_debug_all4 = False
+        self._copy_debug_print_limit = 0
+        self._copy_debug_print_count = 0
+        self._copy_debug_follow_steps = 0
+        self._activation_snapshot_bank_loaded = False
+        self._post_reset_grace_steps = 0
+        self._snapshot_table_pin_steps_after_reset = 0
         self._init_reset_config()
-        hand_obj_gate_success_cfg = cfg["reward"]["params"].get("hand_obj_gate_success_curriculum", {})
-        hand_obj_gate_num_increments = max(int(hand_obj_gate_success_cfg.get("num_increments", 1)), 1)
-        hand_obj_gate_start_stage = int(hand_obj_gate_success_cfg.get("start_stage", 0))
-        hand_obj_gate_start_stage = max(0, min(hand_obj_gate_start_stage, hand_obj_gate_num_increments))
-        self.hand_obj_gate_curriculum_stage = hand_obj_gate_start_stage
-        self.hand_obj_gate_curriculum_stable_steps = 0
-        self.hand_obj_gate_curriculum_scale = (
-            min(float(hand_obj_gate_start_stage) / float(hand_obj_gate_num_increments), 1.0)
-            if bool(hand_obj_gate_success_cfg.get("enable", False))
-            else 1.0
-        )
-        self.disable_wrong_side_logic = bool(self.lie_flat_prob > 0.0) and (
-            not bool(cfg["reward"]["params"].get("wrong_side_logic_for_flat_objects", False))
-        )
-        self.profile_step_timing = os.getenv("ISAACGYM_SIDE_PROFILE", "0") == "1"
-        self.profile_step_timing_every = max(1, int(os.getenv("ISAACGYM_SIDE_PROFILE_EVERY", "100")))
-        print(
-            "[FrankaLEAPPickTableSide/init] "
-            f"patch=toplong_disable_wrong_side_logic "
-            f"lie_flat_prob={self.lie_flat_prob} "
-            f"wrong_side_logic_for_flat_objects={bool(cfg['reward']['params'].get('wrong_side_logic_for_flat_objects', False))} "
-            f"disable_wrong_side_logic={self.disable_wrong_side_logic} "
-            f"teleport_enable={bool(cfg['env']['object_teleport'].get('enable', False))} "
-            f"teleport_mode={str(cfg['env']['object_teleport'].get('mode', 'schedule'))} "
-            f"profile_step_timing={self.profile_step_timing} "
-            f"profile_every={self.profile_step_timing_every}"
-        )
         super().__init__(
             cfg=cfg,
             rl_device=rl_device,
@@ -204,41 +165,87 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
     def _post_init_buffers(self):
         super()._post_init_buffers()
         self.side_is_left = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
-        self.teleport_swap_frequency = max(
-            1,
-            int(self.object_teleport_args.get("swap_frequency", self.object_teleport_args.get("swap_freq", 1))),
+        self._desired_table_pos_world = self.cuboid_pos[:, 0, :].clone()
+        self._desired_table_quat_world = self.cuboid_quats[:, 0, :].clone()
+        self._snapshot_object_center_nominal = self._object_center_init_state.clone()
+        self._snapshot_table_pin_buf = torch.zeros(self.num_envs, device=self.device, dtype=torch.long)
+        self._post_reset_grace_buf = torch.zeros(self.num_envs, device=self.device, dtype=torch.long)
+        self._copy_debug_follow_buf = torch.zeros(self.num_envs, device=self.device, dtype=torch.long)
+        self._activation_snapshot_debug_print_limit = (
+            self._activation_snapshot_debug_print_limit_cfg
+            if self._activation_snapshot_debug_print_limit_cfg > 0
+            else (8 if self.debug_viz else 0)
         )
-        self.teleport_cached_env_ids = torch.empty((0,), dtype=torch.long, device=self.device)
-        self.teleport_cached_event_count = 0
-        self.object_teleport_last_count = 0
-        self.object_teleport_total_events = 0
-        self.object_teleport_total_env_teleports = 0
-        self.flat_reset_active_buf = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
-        self._init_reset_bank()
+        self._activation_snapshot_debug_print_count = 0
+        self._activation_snapshot_debug_pending = None
+        if self._activation_snapshot_bank_enable:
+            self._load_activation_snapshot_bank_hdf5()
+        else:
+            self._init_reset_bank()
+
+    def _finalize_reset_bookkeeping(self, env_ids, joint_config, target_quat, left_mask, object_center_world):
+        self.reward_settings["object_init_height"][env_ids] = object_center_world[:, 2]
+        self._resample_target_pos(env_ids)
+        self.side_is_left[env_ids] = left_mask
+        self.reward_settings["target_quat"][env_ids] = target_quat
+        self.reward_settings["target_rot_6d"][env_ids] = matrix_to_rotation_6d(quaternion_to_matrix_ig(target_quat))
+        self.set_robot_joint_state(joint_config, env_ids=env_ids)
+
+        self.success_flags_instant[env_ids] = 0
+        self.lifting_flags_instant[env_ids] = 0
+        self.success_flags[env_ids] = self.success_long_enough[env_ids].float()
+        self.lifting_flags[env_ids] = self.lifting_long_enough[env_ids].float()
+        self.success_duration[env_ids] = 0
+        self.lifting_duration[env_ids] = 0
+        self.success_long_enough[env_ids] = False
+        self.lifting_long_enough[env_ids] = False
+        self.progress_buf[env_ids] = 0
+        self.reset_buf[env_ids] = 0
+        self._post_reset_grace_buf[env_ids] = int(self._post_reset_grace_steps)
+        if self._copy_debug_env_ids and self._copy_debug_follow_steps > 0:
+            debug_env_ids = [int(x) for x in env_ids.detach().cpu().tolist() if int(x) in self._copy_debug_env_ids]
+            if debug_env_ids:
+                debug_env_ids_t = torch.tensor(debug_env_ids, device=self.device, dtype=torch.long)
+                self._copy_debug_follow_buf[debug_env_ids_t] = int(self._copy_debug_follow_steps)
+
+        if self.object_wrench_args["enable"]:
+            self.object_applied_forces[env_ids] = 0.0
+            self.object_applied_torques[env_ids] = 0.0
+            self.rigid_body_forces[env_ids] = 0
+            self.rigid_body_torques[env_ids] = 0
 
     def _init_reset_config(self):
         # Empirical activation ranges. Widen these manually when needed.
-        object_xyz_range = _cfg_to_float_array(self._reset_object_xyz_range_cfg, "object_settings.xyz_range")
+        object_xyz_range = self._reset_object_xyz_range_cfg
         self._reset_object_xy_min = torch.tensor(object_xyz_range[0][:2], dtype=torch.float32)
         self._reset_object_xy_max = torch.tensor(object_xyz_range[1][:2], dtype=torch.float32)
-        flat_object_xyz_range = _cfg_to_float_array(self._reset_flat_object_xyz_range_cfg, "object_settings.flat_xyz_range")
-        self._reset_flat_object_xy_min = torch.tensor(flat_object_xyz_range[0][:2], dtype=torch.float32)
-        self._reset_flat_object_xy_max = torch.tensor(flat_object_xyz_range[1][:2], dtype=torch.float32)
-        self._reset_eef_rel_object_min = torch.tensor(_cfg_to_float_array(self._reset_eef_rel_object_min_cfg, "eef_init.rel_object_min"), dtype=torch.float32)
-        self._reset_eef_rel_object_max = torch.tensor(_cfg_to_float_array(self._reset_eef_rel_object_max_cfg, "eef_init.rel_object_max"), dtype=torch.float32)
-        self._reset_flat_eef_rel_object_min = torch.tensor(_cfg_to_float_array(self._reset_flat_eef_rel_object_min_cfg, "eef_init.flat_rel_object_min"), dtype=torch.float32)
-        self._reset_flat_eef_rel_object_max = torch.tensor(_cfg_to_float_array(self._reset_flat_eef_rel_object_max_cfg, "eef_init.flat_rel_object_max"), dtype=torch.float32)
+        self._reset_eef_rel_object_min = torch.tensor(self._reset_eef_rel_object_min_cfg, dtype=torch.float32)
+        self._reset_eef_rel_object_max = torch.tensor(self._reset_eef_rel_object_max_cfg, dtype=torch.float32)
+        self._reset_flat_eef_rel_object_min = torch.tensor(self._reset_flat_eef_rel_object_min_cfg, dtype=torch.float32)
+        self._reset_flat_eef_rel_object_max = torch.tensor(self._reset_flat_eef_rel_object_max_cfg, dtype=torch.float32)
         self._reset_base_rel_eef_min = torch.tensor([-0.5523, 0.0161, -0.7124], dtype=torch.float32)
         self._reset_base_rel_eef_max = torch.tensor([-0.3286, 0.3031, -0.1116], dtype=torch.float32)
         self._reset_flat_base_rel_eef_min = torch.tensor([-0.65, -0.55, -0.80], dtype=torch.float32)
         self._reset_flat_base_rel_eef_max = torch.tensor([-0.20, 0.55, -0.05], dtype=torch.float32)
-        self._reset_flat_topdown_rel_object_min = torch.tensor(_cfg_to_float_array(self._reset_flat_topdown_rel_object_min_cfg, "eef_init.flat_topdown_rel_object_min"), dtype=torch.float32)
-        self._reset_flat_topdown_rel_object_max = torch.tensor(_cfg_to_float_array(self._reset_flat_topdown_rel_object_max_cfg, "eef_init.flat_topdown_rel_object_max"), dtype=torch.float32)
+        self._reset_flat_topdown_box_size_min = torch.tensor([0.25, 0.25, 0.15], dtype=torch.float32)
+        self._reset_flat_topdown_box_size_max = torch.tensor([0.5, 0.5, 0.25], dtype=torch.float32)
+        self._reset_flat_topdown_dis_open_range = torch.tensor([0.3, 0.35], dtype=torch.float32)
+        self._reset_flat_topdown_dis_side_range = -0.1
+        self._reset_flat_topdown_obj_wall_tol = 0.03
         self._reset_yaw_noise_rad = float(np.deg2rad(self._reset_yaw_noise_deg))
         self._reset_pitch_roll_noise_rad = float(np.deg2rad(self._reset_pitch_roll_noise_deg))
-        self._reset_min_palm_object_dist = 0.14
+        self._reset_min_palm_object_dist = self._reset_min_palm_object_dist_cfg
         self._reset_side_clearance = 0.025
         self._reset_hand_joint_noise_deg = 20.0
+        self._activation_snapshot_object_xy_noise = torch.tensor(
+            self._activation_snapshot_object_xy_noise_cfg,
+            dtype=torch.float32,
+        )
+        self._activation_snapshot_arm_joint_noise_rad = float(np.deg2rad(self._activation_snapshot_arm_joint_noise_deg))
+        self._activation_snapshot_hand_joint_noise_rad = float(np.deg2rad(self._activation_snapshot_hand_joint_noise_deg))
+        self._activation_snapshot_hand_yaw_noise_rad = float(np.deg2rad(self._activation_snapshot_hand_yaw_noise_deg))
+        self._activation_snapshot_hand_pitch_noise_rad = float(np.deg2rad(self._activation_snapshot_hand_pitch_noise_deg))
+        self._activation_snapshot_hand_roll_noise_rad = float(np.deg2rad(self._activation_snapshot_hand_roll_noise_deg))
         self._reset_hand_joint_noise_rad = torch.full(
             (16,),
             float(np.deg2rad(self._reset_hand_joint_noise_deg)),
@@ -250,7 +257,7 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         # subtracting this local z offset rotated into world.
         self._palm_center_from_link7_local = torch.tensor([0.0, 0.0, 0.115], dtype=torch.float32)
         self._flat_object_quat_base = torch.tensor([0.0, 0.70710678, 0.0, 0.70710678], dtype=torch.float32)
-        self._reset_bank_size = 4096
+        self._reset_bank_size = 16384
         self._reset_bank_max_ik_goals = 4096
 
     def _init_reset_bank(self):
@@ -264,7 +271,6 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         self._reset_bank_object_center_world_cpu = torch.empty((num_objects, bank_size, 3), dtype=dtype, device="cpu")
         self._reset_bank_object_quat_world_cpu = torch.empty((num_objects, bank_size, 4), dtype=dtype, device="cpu")
         self._reset_bank_side_is_left_cpu = torch.empty((num_objects, bank_size), dtype=torch.bool, device="cpu")
-        self._reset_bank_flat_reset_active_cpu = torch.empty((num_objects, bank_size), dtype=torch.bool, device="cpu")
 
         rep_env_ids_cpu = torch.full((num_objects,), -1, dtype=torch.long)
         env_object_ids_cpu = self.env_object_ids.detach().to(device="cpu", dtype=torch.long)
@@ -289,7 +295,6 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
                 joint_config,
                 target_quat,
                 left_mask,
-                flat_reset_active,
                 object_center_world,
                 object_quat_world,
             ) = self._sample_reset_joint_and_target_quat(
@@ -301,14 +306,12 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
             joint_config = joint_config.reshape(cur_slots, num_objects, self.num_dofs).transpose(0, 1).contiguous().cpu()
             target_quat = target_quat.reshape(cur_slots, num_objects, 4).transpose(0, 1).contiguous().cpu()
             left_mask = left_mask.reshape(cur_slots, num_objects).transpose(0, 1).contiguous().cpu()
-            flat_reset_active = flat_reset_active.reshape(cur_slots, num_objects).transpose(0, 1).contiguous().cpu()
             object_center_world = object_center_world.reshape(cur_slots, num_objects, 3).transpose(0, 1).contiguous().cpu()
             object_quat_world = object_quat_world.reshape(cur_slots, num_objects, 4).transpose(0, 1).contiguous().cpu()
 
             self._reset_bank_joint_config_cpu[:, start:end].copy_(joint_config)
             self._reset_bank_target_quat_cpu[:, start:end].copy_(target_quat)
             self._reset_bank_side_is_left_cpu[:, start:end].copy_(left_mask)
-            self._reset_bank_flat_reset_active_cpu[:, start:end].copy_(flat_reset_active)
             self._reset_bank_object_center_world_cpu[:, start:end].copy_(object_center_world)
             self._reset_bank_object_quat_world_cpu[:, start:end].copy_(object_quat_world)
             progress.update(cur_slots)
@@ -319,14 +322,833 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
             self._reset_bank_target_quat_cpu.element_size() * self._reset_bank_target_quat_cpu.numel() +
             self._reset_bank_object_center_world_cpu.element_size() * self._reset_bank_object_center_world_cpu.numel() +
             self._reset_bank_object_quat_world_cpu.element_size() * self._reset_bank_object_quat_world_cpu.numel() +
-            self._reset_bank_side_is_left_cpu.element_size() * self._reset_bank_side_is_left_cpu.numel() +
-            self._reset_bank_flat_reset_active_cpu.element_size() * self._reset_bank_flat_reset_active_cpu.numel()
+            self._reset_bank_side_is_left_cpu.element_size() * self._reset_bank_side_is_left_cpu.numel()
         )
         elapsed = time.time() - t0
         print(
             f"Built side reset bank: num_envs={num_envs}, num_objects={num_objects}, bank_size={bank_size}, slots_per_round={slots_per_round}, "
             f"cpu_mem={bank_bytes / (1024 ** 3):.3f} GB, elapsed={elapsed:.1f}s"
         )
+
+    def _load_snapshot_variation_assignment_json(self, assignment_json_path, num_objects):
+        assignment_path = Path(assignment_json_path).expanduser()
+        if not assignment_path.is_absolute():
+            assignment_path = Path(os.getcwd()) / assignment_path
+        if not assignment_path.exists():
+            raise FileNotFoundError(f"snapshot variation assignment JSON not found: {assignment_path}")
+
+        with assignment_path.open("r") as f:
+            payload = json.load(f)
+
+        def _slice_global_entries(num_entries):
+            local_num_envs = int(self.num_envs)
+            if num_entries == local_num_envs:
+                return 0, local_num_envs
+            world_size = max(int(getattr(self, "world_size", 1)), 1)
+            global_rank = int(getattr(self, "global_rank", 0))
+            expected_global_entries = local_num_envs * world_size
+            if num_entries == expected_global_entries:
+                start = global_rank * local_num_envs
+                return start, start + local_num_envs
+            raise ValueError(
+                "snapshot variation assignment JSON has wrong length: "
+                f"expected local {local_num_envs} or global {expected_global_entries}, got {num_entries}"
+            )
+
+        if isinstance(payload, dict) and "entries" in payload:
+            entries = payload["entries"]
+        elif isinstance(payload, list):
+            entries = payload
+        else:
+            raise ValueError(f"Unsupported snapshot variation assignment JSON format: {assignment_path}")
+
+        if len(entries) == 0 or not isinstance(entries[0], dict):
+            raise ValueError(f"snapshot variation assignment JSON must contain object entries: {assignment_path}")
+
+        start_idx, end_idx = _slice_global_entries(len(entries))
+        entries_local = entries[start_idx:end_idx]
+
+        if "variant_id" in entries_local[0]:
+            variation_ids = torch.tensor(
+                [int(entry["variant_id"]) for entry in entries_local],
+                dtype=torch.long,
+                device=self.device,
+            )
+        else:
+            variation_ids = torch.arange(int(self.num_envs), dtype=torch.long, device=self.device)
+
+        if "object_id" not in entries_local[0] and "object_name" not in entries_local[0]:
+            raise ValueError(
+                "snapshot variation assignment JSON entries must contain object_id or object_name: "
+                f"{assignment_path}"
+            )
+
+        object_name_to_index = {
+            str(name): int(idx)
+            for idx, name in enumerate(getattr(self, "object_id_to_name", []))
+        }
+        variant_object_name_map, variant_object_name_map_path = self._discover_snapshot_variant_object_name_map(
+            assignment_path
+        )
+        resolved_object_ids = []
+        stable_resolved = 0
+        legacy_fallback = 0
+        missing_object_names = set()
+        for entry in entries_local:
+            resolved_idx = None
+            object_name = None
+            if "object_name" in entry and entry["object_name"] not in (None, ""):
+                object_name = str(entry["object_name"])
+            elif variant_object_name_map and "variant_id" in entry:
+                object_name = variant_object_name_map.get(int(entry["variant_id"]))
+
+            if object_name is not None:
+                resolved_idx = object_name_to_index.get(object_name)
+                if resolved_idx is None:
+                    missing_object_names.add(object_name)
+
+            if resolved_idx is None:
+                if "object_id" not in entry:
+                    raise ValueError(
+                        "snapshot variation assignment JSON cannot resolve object without object_id fallback: "
+                        f"path={assignment_path}"
+                    )
+                resolved_idx = int(entry["object_id"])
+                legacy_fallback += 1
+            else:
+                stable_resolved += 1
+
+            resolved_object_ids.append(resolved_idx)
+
+        object_ids = torch.tensor(
+            resolved_object_ids,
+            dtype=torch.long,
+            device=self.device,
+        )
+        if bool(torch.any((object_ids < 0) | (object_ids >= int(num_objects)))):
+            raise ValueError(
+                "snapshot variation assignment JSON resolved object_id outside available range: "
+                f"path={assignment_path} valid_ids=[0, {int(num_objects) - 1}]"
+            )
+        if stable_resolved > 0:
+            source_text = str(variant_object_name_map_path) if variant_object_name_map_path is not None else "inline object_name"
+            print(
+                "[SnapshotAssignment] "
+                f"resolved_by_name={stable_resolved} legacy_fallback={legacy_fallback} "
+                f"source={source_text}",
+                flush=True,
+            )
+        if missing_object_names:
+            missing_sorted = sorted(missing_object_names)
+            preview = missing_sorted[:8]
+            suffix = " ..." if len(missing_sorted) > len(preview) else ""
+            print(
+                "[SnapshotAssignment] WARNING: "
+                "stable object names not present in current mesh catalog; "
+                f"falling back to legacy object_id for {preview}{suffix}",
+                flush=True,
+            )
+
+        if "table_surface_height" in entries_local[0]:
+            table_surface_height = torch.tensor(
+                [float(entry["table_surface_height"]) for entry in entries_local],
+                dtype=torch.float32,
+                device=self.device,
+            )
+        elif "z_shift" in entries_local[0]:
+            table_surface_height = torch.tensor(
+                [float(entry["z_shift"]) for entry in entries_local],
+                dtype=torch.float32,
+                device=self.device,
+            )
+        else:
+            table_surface_height = torch.full(
+                (int(self.num_envs),),
+                float(self._fixed_table_surface_height),
+                dtype=torch.float32,
+                device=self.device,
+            )
+        if "table_size" in entries_local[0]:
+            table_size = torch.tensor(
+                [entry["table_size"] for entry in entries_local],
+                dtype=torch.float32,
+                device=self.device,
+            )
+            if table_size.ndim != 2 or int(table_size.shape[-1]) != 3:
+                raise ValueError(
+                    f"snapshot variation assignment JSON table_size must be shape [N,3]: {assignment_path}"
+                )
+        else:
+            table_size = self._fixed_table_size.to(device=self.device).unsqueeze(0).repeat(int(self.num_envs), 1)
+        return table_surface_height, object_ids, variation_ids, table_size
+
+    def _discover_snapshot_variant_object_name_map(self, assignment_path):
+        object_name_to_index = getattr(self, "object_id_to_name", None)
+        if not object_name_to_index:
+            return {}, None
+
+        root_candidates = [assignment_path.parent]
+        if assignment_path.parent.parent != assignment_path.parent:
+            root_candidates.append(assignment_path.parent.parent)
+
+        best_map = {}
+        best_path = None
+        for root in root_candidates:
+            if not root.exists():
+                continue
+            for csv_path in sorted(root.rglob("*.csv")):
+                try:
+                    with csv_path.open("r", newline="") as f:
+                        reader = csv.DictReader(f)
+                        if reader.fieldnames is None:
+                            continue
+                        header = set(reader.fieldnames)
+                        if "variant_id" not in header or "object_name" not in header:
+                            continue
+                        candidate_map = {}
+                        inconsistent = False
+                        for row in reader:
+                            variant_raw = row.get("variant_id", "")
+                            object_name_raw = row.get("object_name", "")
+                            if variant_raw in (None, "") or object_name_raw in (None, ""):
+                                continue
+                            variant_id = int(variant_raw)
+                            object_name = str(object_name_raw)
+                            prev_name = candidate_map.get(variant_id)
+                            if prev_name is None:
+                                candidate_map[variant_id] = object_name
+                            elif prev_name != object_name:
+                                inconsistent = True
+                                break
+                        if inconsistent or len(candidate_map) == 0:
+                            continue
+                        if len(candidate_map) > len(best_map):
+                            best_map = candidate_map
+                            best_path = csv_path
+                except Exception:
+                    continue
+            if best_map:
+                break
+        return best_map, best_path
+
+    def _get_activation_snapshot_bank_path(self):
+        if not self._activation_snapshot_bank_hdf5_path:
+            raise ValueError("activation_snapshot_bank.enable=True but hdf5_path is empty")
+        bank_path = Path(self._activation_snapshot_bank_hdf5_path).expanduser()
+        if not bank_path.is_absolute():
+            bank_path = Path(os.getcwd()) / bank_path
+        return bank_path
+
+    def _load_activation_snapshot_bank_hdf5(self):
+        bank_path = self._get_activation_snapshot_bank_path()
+        if not bank_path.exists():
+            raise FileNotFoundError(f"activation snapshot bank not found: {bank_path}")
+
+        with h5py.File(bank_path, "r") as f:
+            counts_np = f["counts"][...]
+            if counts_np.ndim != 2:
+                raise ValueError(f"activation snapshot bank counts must be rank-2: {bank_path}")
+            if counts_np.shape[0] != len(SNAPSHOT_RESET_MODE_NAMES):
+                raise ValueError(
+                    "activation snapshot bank counts has wrong mode dimension: "
+                    f"path={bank_path} expected={len(SNAPSHOT_RESET_MODE_NAMES)} got={counts_np.shape[0]}"
+                )
+            self._activation_snapshot_bank_counts_cpu = torch.from_numpy(counts_np.astype(np.int32)).to(dtype=torch.int32)
+            self._activation_snapshot_bank_num_variants = int(self._activation_snapshot_bank_counts_cpu.shape[1])
+
+            if "joint_config" in f:
+                joint_np = f["joint_config"][...]
+                last_dim = int(joint_np.shape[-1])
+                mobile_base_pose_cpu = None
+                if last_dim == int(self.num_dofs):
+                    joint_config_cpu = torch.from_numpy(joint_np).to(dtype=self._q.dtype)
+                elif last_dim >= int(self.num_dofs) + 3:
+                    mobile_base_pose_cpu = torch.from_numpy(joint_np[..., :3]).to(dtype=self._q.dtype)
+                    joint_config_cpu = torch.from_numpy(
+                        joint_np[..., 3: 3 + int(self.num_dofs)]
+                    ).to(dtype=self._q.dtype)
+                else:
+                    raise ValueError(
+                        "activation snapshot bank joint_config has incompatible last dim: "
+                        f"path={bank_path} got={last_dim} expected={self.num_dofs}, "
+                        f"{self.num_dofs + 3}, or a mobile layout with arm+hand slice [3:26]"
+                    )
+            elif ("q_arm" in f) and ("q_hand" in f):
+                q_arm_cpu = torch.from_numpy(f["q_arm"][...]).to(dtype=self._q.dtype)
+                q_hand_cpu = torch.from_numpy(f["q_hand"][...]).to(dtype=self._q.dtype)
+                if q_arm_cpu.shape[:-1] != q_hand_cpu.shape[:-1]:
+                    raise ValueError(f"activation snapshot bank q_arm/q_hand shape mismatch: {bank_path}")
+                if int(q_arm_cpu.shape[-1]) != 7 or int(q_hand_cpu.shape[-1]) != 16:
+                    raise ValueError(f"activation snapshot bank q_arm/q_hand dims must be 7 and 16: {bank_path}")
+                joint_config_cpu = torch.zeros(
+                    (*q_arm_cpu.shape[:-1], self.num_dofs),
+                    dtype=self._q.dtype,
+                    device="cpu",
+                )
+                joint_config_cpu[..., :7] = q_arm_cpu
+                joint_config_cpu[..., 7:23] = q_hand_cpu
+                mobile_base_pose_cpu = None
+            else:
+                raise ValueError(
+                    f"activation snapshot bank must contain joint_config or (q_arm, q_hand): {bank_path}"
+                )
+
+            self._activation_snapshot_bank_joint_config_cpu = joint_config_cpu.contiguous()
+            self._activation_snapshot_bank_mobile_base_pose_cpu = (
+                mobile_base_pose_cpu.contiguous() if mobile_base_pose_cpu is not None else None
+            )
+            self._activation_snapshot_bank_object_center_world_cpu = torch.from_numpy(
+                f["object_center_world"][...]
+            ).to(dtype=self._q.dtype)
+            self._activation_snapshot_bank_object_quat_world_cpu = torch.from_numpy(
+                f["object_quat_world"][...]
+            ).to(dtype=self._q.dtype)
+            self._activation_snapshot_bank_side_is_left_cpu = torch.from_numpy(
+                f["side_is_left"][...].astype(np.bool_)
+            ).to(dtype=torch.bool)
+
+            if "table_pos_world" in f:
+                self._activation_snapshot_bank_table_pos_world_cpu = torch.from_numpy(
+                    f["table_pos_world"][...]
+                ).to(dtype=self._q.dtype)
+            else:
+                if "table_surface_height" not in f:
+                    raise ValueError(
+                        f"activation snapshot bank must contain table_pos_world or table_surface_height: {bank_path}"
+                    )
+                table_surface_height_cpu = torch.from_numpy(f["table_surface_height"][...]).to(dtype=self._q.dtype)
+                table_pos_cpu = torch.zeros(
+                    (*table_surface_height_cpu.shape, 3),
+                    dtype=self._q.dtype,
+                    device="cpu",
+                )
+                table_pos_cpu[..., 0] = 0.5
+                table_pos_cpu[..., 1] = 0.0
+                table_pos_cpu[..., 2] = table_surface_height_cpu - 0.5 * float(self.table_thickness)
+                self._activation_snapshot_bank_table_pos_world_cpu = table_pos_cpu
+
+            if "table_quat_world" in f:
+                self._activation_snapshot_bank_table_quat_world_cpu = torch.from_numpy(
+                    f["table_quat_world"][...]
+                ).to(dtype=self._q.dtype)
+            else:
+                table_quat_cpu = torch.zeros(
+                    (*self._activation_snapshot_bank_table_pos_world_cpu.shape[:-1], 4),
+                    dtype=self._q.dtype,
+                    device="cpu",
+                )
+                table_quat_cpu[..., 3] = 1.0
+                self._activation_snapshot_bank_table_quat_world_cpu = table_quat_cpu
+
+            if "target_quat_world" in f:
+                self._activation_snapshot_bank_target_quat_world_cpu = torch.from_numpy(
+                    f["target_quat_world"][...]
+                ).to(dtype=self._q.dtype)
+            else:
+                self._activation_snapshot_bank_target_quat_world_cpu = None
+
+            if "table_size" in f:
+                file_table_size_cpu = torch.from_numpy(f["table_size"][...]).to(dtype=self._q.dtype)
+                if file_table_size_cpu.ndim != 2 or int(file_table_size_cpu.shape[-1]) != 3:
+                    raise ValueError(f"activation snapshot bank table_size must be shape [N,3]: {bank_path}")
+                if "variation_id" in f:
+                    file_variation_ids_cpu = torch.from_numpy(f["variation_id"][...]).to(dtype=torch.long)
+                    if file_variation_ids_cpu.ndim != 1 or int(file_variation_ids_cpu.numel()) != int(file_table_size_cpu.shape[0]):
+                        raise ValueError(
+                            "activation snapshot bank variation_id/table_size shape mismatch: "
+                            f"path={bank_path}"
+                        )
+                    variant_table_size_cpu = torch.full(
+                        (self._activation_snapshot_bank_num_variants, 3),
+                        float("nan"),
+                        dtype=self._q.dtype,
+                        device="cpu",
+                    )
+                    for i in range(int(file_variation_ids_cpu.numel())):
+                        variation_id = int(file_variation_ids_cpu[i].item())
+                        if variation_id < 0 or variation_id >= self._activation_snapshot_bank_num_variants:
+                            raise ValueError(
+                                f"activation snapshot bank variation_id out of range for table_size: path={bank_path}"
+                            )
+                        table_size_i = file_table_size_cpu[i]
+                        existing_i = variant_table_size_cpu[variation_id]
+                        if torch.isnan(existing_i).any():
+                            variant_table_size_cpu[variation_id] = table_size_i
+                        elif not torch.allclose(existing_i, table_size_i, atol=1.0e-6, rtol=0.0):
+                            raise ValueError(
+                                "activation snapshot bank has inconsistent table_size for one variation: "
+                                f"path={bank_path} variation_id={variation_id}"
+                            )
+                    env_expected_table_size_cpu = variant_table_size_cpu[
+                        self.env_variation_ids.detach().to(device="cpu", dtype=torch.long)
+                    ]
+                    if torch.isnan(env_expected_table_size_cpu).any():
+                        raise ValueError(
+                            f"activation snapshot bank missing table_size for some env variation ids: {bank_path}"
+                        )
+                    if not torch.allclose(
+                        env_expected_table_size_cpu,
+                        self.env_table_size_init.detach().to(device="cpu", dtype=self._q.dtype),
+                        atol=1.0e-6,
+                        rtol=0.0,
+                    ):
+                        raise ValueError(
+                            f"activation snapshot bank table_size mismatch against current env variation layout: {bank_path}"
+                        )
+                elif int(file_table_size_cpu.shape[0]) == int(self._activation_snapshot_bank_num_variants):
+                    env_expected_table_size_cpu = file_table_size_cpu[
+                        self.env_variation_ids.detach().to(device="cpu", dtype=torch.long)
+                    ]
+                    if not torch.allclose(
+                        env_expected_table_size_cpu,
+                        self.env_table_size_init.detach().to(device="cpu", dtype=self._q.dtype),
+                        atol=1.0e-6,
+                        rtol=0.0,
+                    ):
+                        raise ValueError(
+                            f"activation snapshot bank table_size mismatch against current env variation layout: {bank_path}"
+                        )
+                elif int(file_table_size_cpu.shape[0]) == int(self.num_envs):
+                    if not torch.allclose(
+                        file_table_size_cpu,
+                        self.env_table_size_init.detach().to(device="cpu", dtype=self._q.dtype),
+                        atol=1.0e-6,
+                        rtol=0.0,
+                    ):
+                        raise ValueError(
+                            f"activation snapshot bank per-env table_size mismatch: {bank_path}"
+                        )
+                else:
+                    raise ValueError(
+                        "activation snapshot bank table_size has unsupported leading dimension: "
+                        f"path={bank_path} shape={tuple(file_table_size_cpu.shape)}"
+                    )
+
+        max_env_variation_id = int(self.env_variation_ids.max().item()) if self.env_variation_ids.numel() > 0 else -1
+        if max_env_variation_id >= self._activation_snapshot_bank_num_variants:
+            raise ValueError(
+                "activation snapshot bank does not cover current env variation ids: "
+                f"path={bank_path} max_env_variation_id={max_env_variation_id} "
+                f"num_variants={self._activation_snapshot_bank_num_variants}"
+            )
+
+        sampling_probs = torch.tensor(
+            [
+                float(self._activation_snapshot_bank_sampling_probs_cfg.get(mode_name, 1.0 / len(SNAPSHOT_RESET_MODE_NAMES)))
+                for mode_name in SNAPSHOT_RESET_MODE_NAMES
+            ],
+            dtype=torch.float32,
+            device="cpu",
+        )
+        if bool(torch.any(sampling_probs < 0.0)):
+            raise ValueError(f"activation snapshot bank sampling_probs must be non-negative: {bank_path}")
+        if float(sampling_probs.sum().item()) <= 0.0:
+            raise ValueError(f"activation snapshot bank sampling_probs must sum to > 0: {bank_path}")
+        self._activation_snapshot_bank_mode_probs_cpu = sampling_probs / sampling_probs.sum()
+        self._activation_snapshot_bank_loaded = True
+
+    def _sample_activation_snapshot_bank_entries(self, env_ids):
+        env_variation_ids_cpu = self.env_variation_ids[env_ids].detach().to(device="cpu", dtype=torch.long)
+        num_envs = int(env_ids.numel())
+        chosen_mode_cpu = torch.zeros((num_envs,), dtype=torch.long, device="cpu")
+        chosen_slot_cpu = torch.zeros((num_envs,), dtype=torch.long, device="cpu")
+
+        for i in range(num_envs):
+            variation_id = int(env_variation_ids_cpu[i].item())
+            counts_for_variation = self._activation_snapshot_bank_counts_cpu[:, variation_id].to(dtype=torch.float32)
+            probs = self._activation_snapshot_bank_mode_probs_cpu.clone()
+            probs[counts_for_variation <= 0] = 0.0
+            if float(probs.sum().item()) <= 0.0:
+                raise RuntimeError(
+                    "No activation snapshot entries available for variation: "
+                    f"variation_id={variation_id}"
+                )
+            probs = probs / probs.sum()
+            mode_id = int(torch.multinomial(probs, num_samples=1).item())
+            count = int(self._activation_snapshot_bank_counts_cpu[mode_id, variation_id].item())
+            chosen_mode_cpu[i] = mode_id
+            chosen_slot_cpu[i] = int(torch.randint(low=0, high=count, size=(1,), device="cpu", dtype=torch.long).item())
+
+        joint_config = self._activation_snapshot_bank_joint_config_cpu[
+            chosen_mode_cpu, env_variation_ids_cpu, chosen_slot_cpu
+        ].to(device=self.device, dtype=self._q.dtype)
+        object_center_world = self._activation_snapshot_bank_object_center_world_cpu[
+            chosen_mode_cpu, env_variation_ids_cpu, chosen_slot_cpu
+        ].to(device=self.device, dtype=self._q.dtype)
+        object_quat_world = self._activation_snapshot_bank_object_quat_world_cpu[
+            chosen_mode_cpu, env_variation_ids_cpu, chosen_slot_cpu
+        ].to(device=self.device, dtype=self._q.dtype)
+        side_is_left = self._activation_snapshot_bank_side_is_left_cpu[
+            chosen_mode_cpu, env_variation_ids_cpu, chosen_slot_cpu
+        ].to(device=self.device, dtype=torch.bool)
+        table_pos_world = self._activation_snapshot_bank_table_pos_world_cpu[
+            chosen_mode_cpu, env_variation_ids_cpu, chosen_slot_cpu
+        ].to(device=self.device, dtype=self._q.dtype)
+        table_quat_world = self._activation_snapshot_bank_table_quat_world_cpu[
+            chosen_mode_cpu, env_variation_ids_cpu, chosen_slot_cpu
+        ].to(device=self.device, dtype=self._q.dtype)
+        raw_table_pos_world = table_pos_world.clone()
+        raw_table_quat_world = table_quat_world.clone()
+        raw_object_center_world = object_center_world.clone()
+        raw_object_quat_world = object_quat_world.clone()
+
+        if self._activation_snapshot_bank_target_quat_world_cpu is not None:
+            target_quat_world = self._activation_snapshot_bank_target_quat_world_cpu[
+                chosen_mode_cpu, env_variation_ids_cpu, chosen_slot_cpu
+            ].to(device=self.device, dtype=self._q.dtype)
+        else:
+            target_quat_world = None
+        raw_target_quat_world = target_quat_world.clone() if target_quat_world is not None else None
+
+        mobile_base_pose = None
+        franka_base_pose7 = None
+
+        if self._activation_snapshot_bank_mobile_base_pose_cpu is not None:
+            mobile_base_pose = self._activation_snapshot_bank_mobile_base_pose_cpu[
+                chosen_mode_cpu, env_variation_ids_cpu, chosen_slot_cpu
+            ].to(device=self.device, dtype=self._q.dtype)
+            franka_base_pose7 = self._get_franka_base_pose7_from_mobile_base_pose(
+                mobile_base_pose,
+                dtype=self._q.dtype,
+            )
+            franka_base_pos_world = franka_base_pose7[:, :3]
+            franka_base_quat_world = franka_base_pose7[:, 3:7]
+            franka_base_quat_inv = self._quat_conjugate_tensor(franka_base_quat_world)
+
+            table_pos_world = quat_apply(franka_base_quat_inv, table_pos_world - franka_base_pos_world)
+            object_center_world = quat_apply(franka_base_quat_inv, object_center_world - franka_base_pos_world)
+            table_quat_world = self._normalize_quat_tensor(quat_mul(franka_base_quat_inv, table_quat_world))
+            object_quat_world = self._normalize_quat_tensor(quat_mul(franka_base_quat_inv, object_quat_world))
+            if target_quat_world is not None:
+                target_quat_world = self._normalize_quat_tensor(
+                    quat_mul(franka_base_quat_inv, target_quat_world)
+                )
+
+        debug_payload = {
+            "env_ids": env_ids.clone(),
+            "variation_id": self.env_variation_ids[env_ids].detach().clone(),
+            "mode_id": chosen_mode_cpu.to(device=self.device, dtype=torch.long),
+            "slot_id": chosen_slot_cpu.to(device=self.device, dtype=torch.long),
+            "mobile_base_pose": mobile_base_pose.clone() if mobile_base_pose is not None else None,
+            "franka_base_pose7": franka_base_pose7.clone() if franka_base_pose7 is not None else None,
+            "raw_table_pos_world": raw_table_pos_world.clone(),
+            "raw_table_quat_world": raw_table_quat_world.clone(),
+            "raw_object_center_world": raw_object_center_world.clone(),
+            "raw_object_quat_world": raw_object_quat_world.clone(),
+            "raw_target_quat_world": raw_target_quat_world.clone() if raw_target_quat_world is not None else None,
+            "table_pos_replay_world": table_pos_world.clone(),
+            "table_quat_replay_world": table_quat_world.clone(),
+            "object_center_replay_world": object_center_world.clone(),
+            "object_quat_replay_world": object_quat_world.clone(),
+            "target_quat_replay_world": target_quat_world.clone() if target_quat_world is not None else None,
+            "joint_config": joint_config.clone(),
+        }
+
+        return (
+            joint_config,
+            side_is_left,
+            object_center_world,
+            object_quat_world,
+            table_pos_world,
+            table_quat_world,
+            target_quat_world,
+            debug_payload,
+        )
+
+    def _apply_activation_snapshot_reset_noise(
+        self,
+        joint_config,
+        object_center_world,
+        object_quat_world,
+        table_quat_world,
+    ):
+        num_envs = int(joint_config.shape[0])
+        if num_envs == 0:
+            return joint_config, object_center_world, object_quat_world
+
+        dtype = self._q.dtype
+        device = self.device
+        joint_config = joint_config.clone()
+        object_center_world = object_center_world.clone()
+        object_quat_world = object_quat_world.clone()
+
+        object_xy_noise = self._activation_snapshot_object_xy_noise.to(device=device, dtype=dtype)
+        if bool(torch.any(object_xy_noise > 0.0)):
+            object_noise_local = (torch.rand((num_envs, 2), device=device, dtype=dtype) * 2.0 - 1.0) * object_xy_noise.unsqueeze(0)
+            object_noise_local_3 = torch.zeros((num_envs, 3), device=device, dtype=dtype)
+            object_noise_local_3[:, :2] = object_noise_local
+            object_noise_world = quat_apply(table_quat_world.to(device=device, dtype=dtype), object_noise_local_3)
+            object_center_world = object_center_world + object_noise_world
+
+        hand_yaw_noise = self._activation_snapshot_hand_yaw_noise_rad
+        hand_pitch_noise = self._activation_snapshot_hand_pitch_noise_rad
+        hand_roll_noise = self._activation_snapshot_hand_roll_noise_rad
+        if max(hand_yaw_noise, hand_pitch_noise, hand_roll_noise) > 0.0:
+            eef_pose = self.get_ee_from_joint(joint_config[:, :7])
+            eef_pos = eef_pose[:, :3]
+            eef_quat = eef_pose[:, 3:7]
+
+            yaw_axis = torch.zeros((num_envs, 3), device=device, dtype=dtype)
+            yaw_axis[:, 2] = 1.0
+            yaw_angle = (torch.rand((num_envs,), device=device, dtype=dtype) * 2.0 - 1.0) * hand_yaw_noise
+            q_yaw_noise = quat_from_angle_axis(yaw_angle, yaw_axis)
+
+            hand_x_axis = quat_apply(
+                eef_quat,
+                torch.tensor([[1.0, 0.0, 0.0]], device=device, dtype=dtype).repeat(num_envs, 1),
+            )
+            hand_y_axis = quat_apply(
+                eef_quat,
+                torch.tensor([[0.0, 1.0, 0.0]], device=device, dtype=dtype).repeat(num_envs, 1),
+            )
+            roll_angle = (torch.rand((num_envs,), device=device, dtype=dtype) * 2.0 - 1.0) * hand_roll_noise
+            pitch_angle = (torch.rand((num_envs,), device=device, dtype=dtype) * 2.0 - 1.0) * hand_pitch_noise
+            q_roll_noise = quat_from_angle_axis(roll_angle, hand_x_axis)
+            q_pitch_noise = quat_from_angle_axis(pitch_angle, hand_y_axis)
+            noisy_eef_quat = quat_mul(q_pitch_noise, quat_mul(q_roll_noise, quat_mul(q_yaw_noise, eef_quat)))
+            noisy_eef_quat = noisy_eef_quat / torch.norm(noisy_eef_quat, dim=-1, keepdim=True).clamp_min(1.0e-8)
+            noisy_eef_pose = torch.cat([eef_pos, noisy_eef_quat], dim=-1)
+            with torch.enable_grad():
+                arm_q_ik, success = self.get_joint_from_ee(
+                    noisy_eef_pose,
+                    return_success=True,
+                    use_reset_solver=True,
+                )
+            success = success.bool().reshape(-1)
+            if bool(torch.any(success)):
+                joint_config[success, :7] = arm_q_ik[success]
+
+        return joint_config, object_center_world, object_quat_world
+
+    def _queue_activation_snapshot_debug(self, env_ids, debug_payload):
+        if self._activation_snapshot_debug_print_limit <= 0:
+            return
+        remaining = self._activation_snapshot_debug_print_limit - self._activation_snapshot_debug_print_count
+        if remaining <= 0:
+            return
+        take = min(int(env_ids.numel()), int(remaining))
+        if take <= 0:
+            return
+        idx = slice(0, take)
+        queued = {}
+        for key, value in debug_payload.items():
+            if value is None:
+                queued[key] = None
+            elif torch.is_tensor(value):
+                queued[key] = value[idx].detach().clone()
+            else:
+                queued[key] = value
+        self._activation_snapshot_debug_pending = queued
+
+    def _debug_env_selected(self, env_id):
+        return (
+            env_id in self._copy_debug_env_ids
+            and self._copy_debug_print_count < self._copy_debug_print_limit
+        )
+
+    def _debug_print_copy_reset(self, env_ids, joint_config, object_center_world, object_quat_world, table_pos_world, table_quat_world):
+        if not self._copy_debug_env_ids:
+            return
+        for local_i, env_id_t in enumerate(env_ids.detach().cpu().tolist()):
+            env_id = int(env_id_t)
+            if not self._debug_env_selected(env_id):
+                continue
+            lines = [
+                f"[CopyResetDebug/reset] step={int(self.sim_steps)} env={env_id}",
+                f"  variation_id={int(self.env_variation_ids[env_id].item())}",
+                f"  table_root_target={table_pos_world[local_i].detach().cpu().tolist()}",
+                f"  table_quat_target={table_quat_world[local_i].detach().cpu().tolist()}",
+                f"  object_center_target={object_center_world[local_i].detach().cpu().tolist()}",
+                f"  object_quat_target={object_quat_world[local_i].detach().cpu().tolist()}",
+                f"  object_root_written={self._root_state[env_id, self._object_id, :3].detach().cpu().tolist()}",
+                f"  table_root_written={self._root_state[env_id, 1, :3].detach().cpu().tolist()}",
+                f"  arm_q_target={joint_config[local_i, :7].detach().cpu().tolist()}",
+                f"  arm_q_written={self._q[env_id, :7].detach().cpu().tolist()}",
+                f"  table_surface_height={float(self.table_surface_height[env_id].item()):.6f}",
+                f"  post_reset_grace={int(self._post_reset_grace_buf[env_id].item())}",
+            ]
+            print("\n".join(lines), flush=True)
+            self._copy_debug_print_count += 1
+            if self._copy_debug_print_count >= self._copy_debug_print_limit:
+                break
+
+    def _debug_print_copy_done_reason(self, reason, env_ids, below_table=None, dist_to_table_center_xy=None):
+        if not self._copy_debug_env_ids:
+            return
+        for env_id_t in env_ids.detach().cpu().tolist():
+            env_id = int(env_id_t)
+            if not self._debug_env_selected(env_id):
+                continue
+            lines = [
+                f"[CopyResetDebug/done] step={int(self.sim_steps)} env={env_id} reason={reason}",
+                f"  variation_id={int(self.env_variation_ids[env_id].item())}",
+                f"  object_center_world={self.states['object_center_pos'][env_id].detach().cpu().tolist()}",
+                f"  object_root_world={self._object_state[env_id, :3].detach().cpu().tolist()}",
+                f"  table_root_world={self._root_state[env_id, 1, :3].detach().cpu().tolist()}",
+                f"  table_surface_height={float(self.table_surface_height[env_id].item()):.6f}",
+                f"  eef_pos_world={self.states['eef_pos'][env_id].detach().cpu().tolist()}",
+                f"  progress_buf={int(self.progress_buf[env_id].item())}",
+                f"  post_reset_grace={int(self._post_reset_grace_buf[env_id].item())}",
+            ]
+            if below_table is not None:
+                lines.append(f"  below_table={bool(below_table[env_id].item())}")
+            if dist_to_table_center_xy is not None:
+                lines.append(f"  dist_to_table_center_xy={float(dist_to_table_center_xy[env_id].item()):.6f}")
+            print("\n".join(lines), flush=True)
+            self._copy_debug_print_count += 1
+            if self._copy_debug_print_count >= self._copy_debug_print_limit:
+                break
+
+    def _debug_print_reset_dispatch(self, env_ids):
+        if not self._copy_debug_env_ids:
+            return
+        for env_id_t in env_ids.detach().cpu().tolist():
+            env_id = int(env_id_t)
+            if not self._debug_env_selected(env_id):
+                continue
+            lines = [
+                f"[CopyResetDebug/dispatch] step={int(self.sim_steps)} env={env_id}",
+                f"  variation_id={int(self.env_variation_ids[env_id].item())}",
+                f"  reset_buf={int(self.reset_buf[env_id].item())}",
+                f"  progress_buf={int(self.progress_buf[env_id].item())}",
+                f"  post_reset_grace={int(self._post_reset_grace_buf[env_id].item())}",
+                f"  object_center_world={self.states['object_center_pos'][env_id].detach().cpu().tolist()}",
+                f"  table_surface_height={float(self.table_surface_height[env_id].item()):.6f}",
+            ]
+            print("\n".join(lines), flush=True)
+            self._copy_debug_print_count += 1
+            if self._copy_debug_print_count >= self._copy_debug_print_limit:
+                break
+
+    def _debug_print_follow_after_reset(self):
+        if not self._copy_debug_env_ids:
+            return
+        active_env_ids = (self._copy_debug_follow_buf > 0).nonzero(as_tuple=False).squeeze(-1)
+        if active_env_ids.numel() == 0:
+            return
+        table_center_xy = self.cuboid_pos[:, 0, :2]
+        object_center_xy = self.states["object_center_pos"][:, :2]
+        dist_to_table_center_xy = torch.norm(object_center_xy - table_center_xy, dim=-1)
+        for env_id_t in active_env_ids.detach().cpu().tolist():
+            env_id = int(env_id_t)
+            if not self._debug_env_selected(env_id):
+                continue
+            lines = [
+                f"[CopyResetDebug/follow] step={int(self.sim_steps)} env={env_id}",
+                f"  follow_steps_left={int(self._copy_debug_follow_buf[env_id].item())}",
+                f"  object_center_world={self.states['object_center_pos'][env_id].detach().cpu().tolist()}",
+                f"  object_root_world={self._object_state[env_id, :3].detach().cpu().tolist()}",
+                f"  table_root_world={self._root_state[env_id, 1, :3].detach().cpu().tolist()}",
+                f"  table_surface_height={float(self.table_surface_height[env_id].item()):.6f}",
+                f"  eef_pos_world={self.states['eef_pos'][env_id].detach().cpu().tolist()}",
+                f"  table_collision={bool(self.table_collision[env_id].item())}",
+                f"  dist_to_table_center_xy={float(dist_to_table_center_xy[env_id].item()):.6f}",
+                f"  progress_buf={int(self.progress_buf[env_id].item())}",
+                f"  post_reset_grace={int(self._post_reset_grace_buf[env_id].item())}",
+            ]
+            print("\n".join(lines), flush=True)
+            self._copy_debug_print_count += 1
+            if self._copy_debug_print_count >= self._copy_debug_print_limit:
+                break
+
+    def _debug_print_all4_object_table(self):
+        if self.num_envs != 4:
+            return
+        lines = [f"[CopyResetDebug/all4] step={int(self.sim_steps)}"]
+        for env_id in range(self.num_envs):
+            reset_object_center_world = self._object_center_init_state[env_id].detach().cpu().tolist()
+            live_object_center_world = self.states["object_center_pos"][env_id].detach().cpu().tolist()
+            object_center_minus_table = float(self.states["object_center_pos"][env_id, 2].item()) - float(self.table_surface_height[env_id].item())
+            lines.append(
+                "  "
+                f"env={env_id} "
+                f"variation_id={int(self.env_variation_ids[env_id].item())} "
+                f"reset_object_center_world={reset_object_center_world} "
+                f"live_object_center_world={live_object_center_world} "
+                f"table_surface_height_world={float(self.table_surface_height[env_id].item()):.6f} "
+                f"obj_center_minus_table={object_center_minus_table:.6f} "
+                f"reset_buf={int(self.reset_buf[env_id].item())} "
+                f"progress_buf={int(self.progress_buf[env_id].item())} "
+                f"post_reset_grace={int(self._post_reset_grace_buf[env_id].item())}"
+            )
+        print("\n".join(lines), flush=True)
+
+    def _print_activation_snapshot_debug(self):
+        payload = self._activation_snapshot_debug_pending
+        if payload is None or self._activation_snapshot_debug_print_limit <= 0:
+            return
+        num_entries = int(payload["env_ids"].numel())
+        for i in range(num_entries):
+            env_id = int(payload["env_ids"][i].item())
+            variation_id = int(payload["variation_id"][i].item())
+            mode_id = int(payload["mode_id"][i].item())
+            slot_id = int(payload["slot_id"][i].item())
+            mode_name = SNAPSHOT_RESET_MODE_NAMES[mode_id]
+            lines = [
+                (
+                    "[SnapshotDebug] "
+                    f"env={env_id} variation_id={variation_id} mode={mode_name} slot={slot_id}"
+                ),
+            ]
+            if payload["mobile_base_pose"] is not None:
+                lines.append(
+                    f"  mobile_base_pose_xyyaw={payload['mobile_base_pose'][i].detach().cpu().tolist()}"
+                )
+            if payload["franka_base_pose7"] is not None:
+                lines.append(
+                    f"  distill_franka_base_pose7={payload['franka_base_pose7'][i].detach().cpu().tolist()}"
+                )
+            lines.append(
+                f"  raw_table_center_world={payload['raw_table_pos_world'][i].detach().cpu().tolist()}"
+            )
+            lines.append(
+                f"  replay_table_center_world={payload['table_pos_replay_world'][i].detach().cpu().tolist()}"
+            )
+            lines.append(
+                f"  applied_table_root_world={self._root_state[env_id, 1, :3].detach().cpu().tolist()}"
+            )
+            lines.append(
+                f"  raw_object_center_world={payload['raw_object_center_world'][i].detach().cpu().tolist()}"
+            )
+            lines.append(
+                f"  replay_object_center_world={payload['object_center_replay_world'][i].detach().cpu().tolist()}"
+            )
+            lines.append(
+                f"  applied_object_center_world={self.states['object_center_pos'][env_id].detach().cpu().tolist()}"
+            )
+            lines.append(
+                f"  eef_pos_world={self.states['eef_pos'][env_id].detach().cpu().tolist()}"
+            )
+            lines.append(
+                f"  table_surface_height={float(self.table_surface_height[env_id].item()):.6f}"
+            )
+            lines.append(
+                f"  object_root_world={self._object_state[env_id, :3].detach().cpu().tolist()}"
+            )
+            lines.append(
+                f"  sampled_arm_q={payload['joint_config'][i, :7].detach().cpu().tolist()}"
+            )
+            lines.append(
+                f"  live_arm_q={self._q[env_id, :7].detach().cpu().tolist()}"
+            )
+            print("\n".join(lines), flush=True)
+            self._activation_snapshot_debug_print_count += 1
+            if self._activation_snapshot_debug_print_count >= self._activation_snapshot_debug_print_limit:
+                break
+        self._activation_snapshot_debug_pending = None
+
+    def _compose_snapshot_target_quat_world(self, side_is_left, table_quat_world):
+        num_envs = int(side_is_left.numel())
+        target_quat_world = self._compose_table_frame_quat_to_world(
+            table_quat_world,
+            self.target_quat_right_canonical.to(device=self.device, dtype=self._q.dtype).repeat(num_envs, 1),
+        )
+        if int(side_is_left.sum().item()) > 0:
+            target_quat_world[side_is_left] = self._compose_table_frame_quat_to_world(
+                table_quat_world[side_is_left],
+                self.target_quat_left_canonical.to(device=self.device, dtype=self._q.dtype).repeat(int(side_is_left.sum().item()), 1),
+            )
+        return target_quat_world
 
     def _sample_reset_from_bank(self, env_ids):
         object_ids_cpu = self.env_object_ids[env_ids].detach().to(device="cpu", dtype=torch.long)
@@ -341,13 +1163,9 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         joint_config = self._reset_bank_joint_config_cpu[object_ids_cpu, bank_idx_cpu].to(device=self.device, dtype=self._q.dtype)
         target_quat = self._reset_bank_target_quat_cpu[object_ids_cpu, bank_idx_cpu].to(device=self.device, dtype=self._q.dtype)
         left_mask = self._reset_bank_side_is_left_cpu[object_ids_cpu, bank_idx_cpu].to(device=self.device)
-        flat_reset_active = self._reset_bank_flat_reset_active_cpu[object_ids_cpu, bank_idx_cpu].to(device=self.device)
         object_center_world = self._reset_bank_object_center_world_cpu[object_ids_cpu, bank_idx_cpu].to(device=self.device, dtype=self._q.dtype)
         object_quat_world = self._reset_bank_object_quat_world_cpu[object_ids_cpu, bank_idx_cpu].to(device=self.device, dtype=self._q.dtype)
-        if self.lie_flat_prob <= 0.0:
-            object_quat_world.zero_()
-            object_quat_world[:, 3] = 1.0
-        return joint_config, target_quat, left_mask, flat_reset_active, object_center_world, object_quat_world
+        return joint_config, target_quat, left_mask, object_center_world, object_quat_world
 
     def _apply_object_center_state(self, env_ids, object_center_world, object_quat=None):
         num_resets = int(env_ids.numel())
@@ -374,323 +1192,193 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
 
         self.teleport_buf[env_ids] = 0
 
-    def _sample_step_teleport_env_ids(self, exclude_env_ids=None):
-        if not self.object_teleport_args["enable"] or self.num_teleport_envs <= 0:
-            return torch.empty((0,), dtype=torch.long, device=self.device)
-
-        curri_factor = self._get_object_teleport_curriculum_scale()
-        self.object_teleport_curriculum_scale = curri_factor
-        mode = str(self.object_teleport_args.get("mode", self.object_teleport_mode))
-        schedule_len = int(self.teleport_probs.shape[0])
-        if schedule_len <= 0:
-            return torch.empty((0,), dtype=torch.long, device=self.device)
-
-        if mode == "fixed_prob":
-            env_proportion = max(float(self.object_teleport_args.get("env_proportion", 0.0)), 1.0e-8)
-            event_prob = min(float(self.object_teleport_fixed_prob) / env_proportion, 1.0) * float(curri_factor)
-        else:
-            event_idx = int(self.sim_steps) % schedule_len
-            event_prob = float(self.teleport_probs[event_idx].item()) * float(curri_factor)
-        if event_prob <= 0.0 or random.random() >= event_prob:
-            return torch.empty((0,), dtype=torch.long, device=self.device)
-
-        candidate_env_ids = torch.where(self.reset_buf == 0)[0]
-        if exclude_env_ids is not None and exclude_env_ids.numel() > 0:
-            candidate_env_ids = candidate_env_ids[~torch.isin(candidate_env_ids, exclude_env_ids)]
-        if candidate_env_ids.numel() == 0:
-            return torch.empty((0,), dtype=torch.long, device=self.device)
-
-        refresh_subset = (
-            self.teleport_cached_env_ids.numel() == 0
-            or self.teleport_cached_event_count >= self.teleport_swap_frequency
-        )
-        if refresh_subset:
-            num_pick = min(int(self.num_teleport_envs), int(candidate_env_ids.numel()))
-            perm = torch.randperm(int(candidate_env_ids.numel()), device=self.device)[:num_pick]
-            self.teleport_cached_env_ids = candidate_env_ids[perm]
-            self.teleport_cached_event_count = 0
-
-        cached_mask = self.reset_buf[self.teleport_cached_env_ids] == 0
-        if exclude_env_ids is not None and exclude_env_ids.numel() > 0:
-            cached_mask = cached_mask & (~torch.isin(self.teleport_cached_env_ids, exclude_env_ids))
-        teleport_env_ids = self.teleport_cached_env_ids[cached_mask]
-        if teleport_env_ids.numel() > 0:
-            self.teleport_cached_event_count += 1
-            return teleport_env_ids
-
-        num_pick = min(int(self.num_teleport_envs), int(candidate_env_ids.numel()))
-        perm = torch.randperm(int(candidate_env_ids.numel()), device=self.device)[:num_pick]
-        self.teleport_cached_env_ids = candidate_env_ids[perm]
-        self.teleport_cached_event_count = 1
-        return self.teleport_cached_env_ids
-
-    def _get_object_teleport_expected_envs_per_step(self):
-        if not self.object_teleport_args["enable"]:
-            return 0.0
-        curri_factor = float(self._get_object_teleport_curriculum_scale())
-        mode = str(self.object_teleport_args.get("mode", self.object_teleport_mode))
-        if mode == "fixed_prob":
-            return float(self.num_envs) * float(self.object_teleport_fixed_prob) * curri_factor
-        schedule_len = int(self.teleport_probs.shape[0])
-        if schedule_len <= 0:
-            return 0.0
-        return float(self.num_teleport_envs) * float(torch.mean(self.teleport_probs).item()) * curri_factor
-
-    def _hand_obj_gate_success_curriculum_enabled(self):
-        success_cfg = self.cfg["reward"]["params"].get("hand_obj_gate_success_curriculum", {})
-        return bool(success_cfg.get("enable", False))
-
-    def _hand_obj_gate_used_for_run(self):
-        return self.lie_flat_prob < 1.0 - 1.0e-6
-
-    def _get_hand_obj_gate_curriculum_scale(self):
-        if self._hand_obj_gate_success_curriculum_enabled():
-            success_cfg = self.cfg["reward"]["params"].get("hand_obj_gate_success_curriculum", {})
-            num_increments = max(int(success_cfg.get("num_increments", 1)), 1)
-            return min(float(self.hand_obj_gate_curriculum_stage) / float(num_increments), 1.0)
-        return 1.0
-
-    def _update_hand_obj_gate_success_curriculum(self, success_rate):
-        if not self._hand_obj_gate_used_for_run():
-            return
-        if not self._hand_obj_gate_success_curriculum_enabled():
-            self.hand_obj_gate_curriculum_scale = self._get_hand_obj_gate_curriculum_scale()
-            self.reward_settings["hand_obj_gate_curriculum_scale"] = to_torch(
-                float(self.hand_obj_gate_curriculum_scale),
-                device=self.device,
-            )
-            return
-
-        success_cfg = self.cfg["reward"]["params"].get("hand_obj_gate_success_curriculum", {})
-        success_threshold = float(success_cfg.get("success_threshold", 0.5))
-        success_steps = max(int(success_cfg.get("success_steps", 1)), 1)
-        num_increments = max(int(success_cfg.get("num_increments", 1)), 1)
-
-        if self.hand_obj_gate_curriculum_stage >= num_increments:
-            self.hand_obj_gate_curriculum_stable_steps = 0
-            self.hand_obj_gate_curriculum_scale = 1.0
-        else:
-            if float(success_rate) >= success_threshold:
-                self.hand_obj_gate_curriculum_stable_steps += 1
-            else:
-                self.hand_obj_gate_curriculum_stable_steps = 0
-
-            if self.hand_obj_gate_curriculum_stable_steps >= success_steps:
-                self.hand_obj_gate_curriculum_stage += 1
-                self.hand_obj_gate_curriculum_stable_steps = 0
-                self.hand_obj_gate_curriculum_scale = self._get_hand_obj_gate_curriculum_scale()
-                print(
-                    f"[hand_obj_gate_curriculum] stage={self.hand_obj_gate_curriculum_stage}/{num_increments} "
-                    f"scale={self.hand_obj_gate_curriculum_scale:.3f} "
-                    f"success_rate={float(success_rate):.3f}"
-                )
-            else:
-                self.hand_obj_gate_curriculum_scale = self._get_hand_obj_gate_curriculum_scale()
-
-        self.reward_settings["hand_obj_gate_curriculum_scale"] = to_torch(
-            float(self.hand_obj_gate_curriculum_scale),
-            device=self.device,
-        )
-
-    def _teleport_object_state(self, teleport_env_ids):
-        if teleport_env_ids is None or teleport_env_ids.numel() == 0:
-            return
-
-        env_ids = teleport_env_ids.clone()
+    def _apply_snapshot_scene_state(
+        self,
+        env_ids,
+        table_center_world,
+        table_quat_world,
+        object_center_world,
+        object_quat_world,
+    ):
         num_resets = int(env_ids.numel())
-        device = self.device
-        dtype = self._q.dtype
+        if num_resets == 0:
+            return
 
-        table_center_y = self.cuboid_pos[env_ids, 0, 1].to(dtype=dtype)
-        current_object_center_y = self.states["object_center_pos"][env_ids, 1].to(dtype=dtype)
-        mirror_mask = current_object_center_y > table_center_y
-        xy_min, xy_max = self._get_reset_object_xy_bounds(env_ids, mirror_mask, dtype)
-        eef_xy = self._eef_state[env_ids, :2]
-        min_xy_dist_to_eef = float(self.object_teleport_args.get("min_xy_dist_to_eef", 0.05))
-        min_xy_dist_to_hand_points = float(
-            self.object_teleport_args.get("min_xy_dist_to_hand_points", min_xy_dist_to_eef)
+        dtype = self._root_state.dtype
+        table_center_world = table_center_world.to(device=self.device, dtype=dtype)
+        table_quat_world = self._normalize_quat_tensor(
+            table_quat_world.to(device=self.device, dtype=dtype)
         )
-        min_xy_resample_rounds = int(self.object_teleport_args.get("min_xy_dist_resample_rounds", 12))
-        force_right_of_eef = bool(self.object_teleport_args.get("force_right_of_eef", False))
-
-        reset_xy = torch.zeros((num_resets, 2), device=device, dtype=dtype)
-
-        def _sample_xy_for_rows(row_mask):
-            if not torch.any(row_mask):
-                return
-            row_idx = row_mask.nonzero(as_tuple=False).squeeze(-1)
-            n = int(row_idx.numel())
-            reset_xy[row_idx, 0] = (
-                torch.rand(n, device=device, dtype=dtype) * (xy_max[row_idx, 0] - xy_min[row_idx, 0]) + xy_min[row_idx, 0]
-            )
-            reset_xy[row_idx, 1] = (
-                torch.rand(n, device=device, dtype=dtype) * (xy_max[row_idx, 1] - xy_min[row_idx, 1]) + xy_min[row_idx, 1]
-            )
-
-        _sample_xy_for_rows(torch.ones(num_resets, dtype=torch.bool, device=device))
-
-        if min_xy_dist_to_eef > 0.0:
-            for _ in range(min_xy_resample_rounds):
-                too_close = torch.norm(reset_xy - eef_xy, dim=-1) < min_xy_dist_to_eef
-                if not torch.any(too_close):
-                    break
-                _sample_xy_for_rows(too_close)
-
-        if force_right_of_eef:
-            prev_xy = self._object_state[env_ids, :2].clone()
-            prev_y = prev_xy[:, 1]
-            y_lo = torch.maximum(xy_min[:, 1], prev_y + 1.0e-4)
-            y_hi = xy_max[:, 1]
-            can_move = y_hi > y_lo
-            if torch.any(can_move):
-                move_idx = can_move.nonzero(as_tuple=False).squeeze(-1)
-                reset_xy[move_idx, 0] = prev_xy[move_idx, 0]
-                reset_xy[move_idx, 1] = (
-                    torch.rand(int(move_idx.numel()), device=device, dtype=dtype)
-                    * (y_hi[move_idx] - y_lo[move_idx])
-                    + y_lo[move_idx]
-                )
-            if torch.any(~can_move):
-                stay_idx = (~can_move).nonzero(as_tuple=False).squeeze(-1)
-                reset_xy[stay_idx] = prev_xy[stay_idx]
-
-        object_quat_world = torch.zeros((num_resets, 4), device=device, dtype=dtype)
-        object_quat_world[:, 3] = 1.0
-        if self.lie_flat_prob >= 1.0 - 1.0e-6:
-            yaw_axis = torch.zeros((num_resets, 3), device=device, dtype=dtype)
-            yaw_axis[:, 2] = 1.0
-            yaw_angle = torch.rand(num_resets, device=device, dtype=dtype) * (2.0 * torch.pi)
-            flat_q_yaw = quat_from_angle_axis(yaw_angle, yaw_axis)
-            flat_quat_base = self._flat_object_quat_base.to(device=device, dtype=dtype).unsqueeze(0).repeat(num_resets, 1)
-            object_quat_world = quat_mul(flat_q_yaw, flat_quat_base)
-            object_quat_world = object_quat_world / torch.norm(object_quat_world, dim=-1, keepdim=True).clamp_min(1.0e-8)
-        elif self.lie_flat_prob > 0.0:
-            local_z = torch.zeros((num_resets, 3), device=device, dtype=dtype)
-            local_z[:, 2] = 1.0
-            current_z_axis = quat_apply(self._object_state[env_ids, 3:7], local_z)
-            current_flat_mask = torch.abs(current_z_axis[:, 2]) <= self.reward_settings["flat_object_axis_z_abs_max"]
-            if torch.any(current_flat_mask):
-                n_flat = int(current_flat_mask.sum().item())
-                yaw_axis = torch.zeros((n_flat, 3), device=device, dtype=dtype)
-                yaw_axis[:, 2] = 1.0
-                yaw_angle = torch.rand(n_flat, device=device, dtype=dtype) * (2.0 * torch.pi)
-                flat_q_yaw = quat_from_angle_axis(yaw_angle, yaw_axis)
-                flat_quat_base = self._flat_object_quat_base.to(device=device, dtype=dtype).unsqueeze(0).repeat(n_flat, 1)
-                flat_object_quat = quat_mul(flat_q_yaw, flat_quat_base)
-                flat_object_quat = flat_object_quat / torch.norm(flat_object_quat, dim=-1, keepdim=True).clamp_min(1.0e-8)
-                object_quat_world[current_flat_mask] = flat_object_quat
-
-        local_half_extents = 0.5 * self.mesh_aabb_extents[env_ids]
-        object_rot_mat = quaternion_to_matrix_ig(object_quat_world)
-        vertical_half_extent = torch.sum(torch.abs(object_rot_mat[:, 2, :]) * local_half_extents, dim=-1)
-        object_xy_half_extent = torch.sum(
-            torch.abs(object_rot_mat[:, :2, :]) * local_half_extents.unsqueeze(1),
-            dim=-1,
+        object_center_world = object_center_world.to(device=self.device, dtype=dtype)
+        object_quat_world = self._normalize_quat_tensor(
+            object_quat_world.to(device=self.device, dtype=dtype)
         )
-        object_xy_radius = torch.linalg.norm(object_xy_half_extent, dim=-1)
 
-        object_center_world = torch.zeros((num_resets, 3), device=device, dtype=dtype)
-        object_center_world[:, :2] = reset_xy
-        object_center_world[:, 2] = self.table_surface_height[env_ids] + vertical_half_extent
+        local_offset = torch.zeros((num_resets, 3), device=self.device, dtype=dtype)
+        local_offset[:, 2] = self.mesh_aabb_extents[env_ids, 2] * self.object_center_z_scale
+        object_root_pos = object_center_world - quat_apply(object_quat_world, local_offset)
 
-        hand_points_xy = torch.stack(
+        self._root_state[env_ids, 1, :3] = table_center_world
+        self._root_state[env_ids, 1, 3:7] = table_quat_world
+        self._root_state[env_ids, 1, 7:13] = 0.0
+
+        self._root_state[env_ids, self._object_id, :3] = object_root_pos
+        self._root_state[env_ids, self._object_id, 3:7] = object_quat_world
+        self._root_state[env_ids, self._object_id, 7:13] = 0.0
+
+        self.cuboid_pos[env_ids, 0] = table_center_world
+        self.cuboid_quats[env_ids, 0] = table_quat_world
+        self.table_surface_height[env_ids] = table_center_world[:, 2] + 0.5 * self.cuboid_dims[env_ids, 0, 2]
+        self._object_center_init_state[env_ids] = object_center_world
+
+        if hasattr(self, "_static_pcd_local"):
+            local_static = self._static_pcd_local[env_ids]
+            table_rot_mat = quaternion_to_matrix_ig(table_quat_world)
+            static_pcd_world = torch.matmul(table_rot_mat, local_static.transpose(1, 2)).transpose(1, 2)
+            static_pcd_world = static_pcd_world + table_center_world.unsqueeze(1)
+            self.static_pcds[env_ids] = static_pcd_world
+            num_static_points = self.pcd_spec_dict["num_static_points"]
+            self.combined_pcds[env_ids, :num_static_points] = static_pcd_world
+
+        actor_ids = torch.stack(
             [
-                self._eef_state[env_ids, :2],
-                self._eef_wrist_state[env_ids, :2],
-                self._eef_finger1_state[env_ids, :2],
-                self._eef_finger2_state[env_ids, :2],
-                self._eef_finger3_state[env_ids, :2],
-                self._eef_finger4_state[env_ids, :2],
+                self._global_indices[env_ids, 1],
+                self._global_indices[env_ids, self._object_id],
             ],
             dim=1,
+        ).reshape(-1)
+        self.gym.set_actor_root_state_tensor_indexed(
+            self.sim,
+            gymtorch.unwrap_tensor(self._root_state),
+            gymtorch.unwrap_tensor(actor_ids),
+            len(actor_ids),
         )
-        min_center_to_hand_xy = object_xy_radius + min_xy_dist_to_hand_points
 
-        def _hand_clearance_mask(center_world):
-            center_xy = center_world[:, :2]
-            dists_xy = torch.norm(hand_points_xy - center_xy.unsqueeze(1), dim=-1)
-            return torch.any(dists_xy < min_center_to_hand_xy.unsqueeze(1), dim=-1)
+        self.teleport_buf[env_ids] = 0
 
-        hand_overlap_mask = _hand_clearance_mask(object_center_world)
-        if torch.any(hand_overlap_mask):
-            for _ in range(min_xy_resample_rounds):
-                _sample_xy_for_rows(hand_overlap_mask)
-                if force_right_of_eef:
-                    prev_xy = self._object_state[env_ids, :2].clone()
-                    prev_y = prev_xy[:, 1]
-                    y_lo = torch.maximum(xy_min[:, 1], prev_y + 1.0e-4)
-                    y_hi = xy_max[:, 1]
-                    can_move = y_hi > y_lo
-                    move_mask = hand_overlap_mask & can_move
-                    if torch.any(move_mask):
-                        move_idx = move_mask.nonzero(as_tuple=False).squeeze(-1)
-                        reset_xy[move_idx, 0] = prev_xy[move_idx, 0]
-                        reset_xy[move_idx, 1] = (
-                            torch.rand(int(move_idx.numel()), device=device, dtype=dtype)
-                            * (y_hi[move_idx] - y_lo[move_idx])
-                            + y_lo[move_idx]
-                        )
-                    stay_mask = hand_overlap_mask & (~can_move)
-                    if torch.any(stay_mask):
-                        stay_idx = stay_mask.nonzero(as_tuple=False).squeeze(-1)
-                        reset_xy[stay_idx] = prev_xy[stay_idx]
-                object_center_world[:, :2] = reset_xy
-                hand_overlap_mask = _hand_clearance_mask(object_center_world)
-                if not torch.any(hand_overlap_mask):
-                    break
+    @staticmethod
+    def _normalize_quat_tensor(quat):
+        return quat / torch.norm(quat, dim=-1, keepdim=True).clamp_min(1.0e-8)
 
-        self._apply_object_center_state(env_ids, object_center_world, object_quat_world)
-        self.reward_settings["object_init_height"][env_ids] = object_center_world[:, 2]
-        self._resample_target_pos(env_ids)
-        # Teleport is an in-episode disturbance, not a full reset. Keep the
-        # episode-level lifting / success buffers latched so metrics are not
-        # wiped mid-episode. The next reward step will naturally recompute the
-        # current lifting / success conditions against the teleported object.
+    @staticmethod
+    def _quat_conjugate_tensor(quat):
+        quat_conj = quat.clone()
+        quat_conj[..., :3] = -quat_conj[..., :3]
+        return quat_conj
 
-        if self.object_wrench_args["enable"]:
-            self.object_applied_forces[env_ids] = 0.0
-            self.object_applied_torques[env_ids] = 0.0
-            self.rigid_body_forces[env_ids] = 0
-            self.rigid_body_torques[env_ids] = 0
+    def _get_franka_base_pose7_from_mobile_base_pose(self, mobile_base_pose, dtype=None):
+        if dtype is None:
+            dtype = mobile_base_pose.dtype
+        if mobile_base_pose.numel() == 0:
+            return torch.empty((0, 7), device=self.device, dtype=dtype)
 
-    def _get_reset_object_xy_bounds(self, env_ids, mirror_mask, dtype, flat_mask=None):
+        yaw = mobile_base_pose[:, 2]
+        half_yaw = 0.5 * yaw
+        mobile_quat = torch.zeros((mobile_base_pose.shape[0], 4), device=self.device, dtype=dtype)
+        mobile_quat[:, 2] = torch.sin(half_yaw)
+        mobile_quat[:, 3] = torch.cos(half_yaw)
+
+        mobile_base_pos_world = torch.zeros((mobile_base_pose.shape[0], 3), device=self.device, dtype=dtype)
+        mobile_base_pos_world[:, :2] = mobile_base_pose[:, :2]
+        mount_offset = self._franka_mount_offset_from_mobile_base.to(
+            device=self.device,
+            dtype=dtype,
+        ).unsqueeze(0).repeat(mobile_base_pose.shape[0], 1)
+        franka_base_pos_world = mobile_base_pos_world + quat_apply(mobile_quat, mount_offset)
+        return torch.cat([franka_base_pos_world, mobile_quat], dim=-1)
+
+    def _get_table_frame_data(self):
+        table_pos_world = self.cuboid_pos[:, 0, :]
+        table_quat_world = self.cuboid_quats[:, 0, :]
+        table_rot_mat = quaternion_to_matrix_ig(table_quat_world)
+        table_rot_mat_t = table_rot_mat.transpose(1, 2)
+        return table_pos_world, table_quat_world, table_rot_mat, table_rot_mat_t
+
+    def _world_vectors_to_table_frame(self, vectors_world, table_rot_mat_t=None):
+        if table_rot_mat_t is None:
+            _, _, _, table_rot_mat_t = self._get_table_frame_data()
+        return torch.matmul(table_rot_mat_t, vectors_world.unsqueeze(-1)).squeeze(-1)
+
+    def _world_points_to_table_frame(self, points_world, table_pos_world=None, table_rot_mat_t=None):
+        if table_pos_world is None or table_rot_mat_t is None:
+            table_pos_world, _, _, table_rot_mat_t = self._get_table_frame_data()
+        return torch.matmul(
+            table_rot_mat_t,
+            (points_world - table_pos_world).unsqueeze(-1),
+        ).squeeze(-1)
+
+    def _compose_table_frame_quat_to_world(self, table_quat_world, local_quat):
+        return self._normalize_quat_tensor(quat_mul(table_quat_world, local_quat))
+
+    def _apply_table_state(self, env_ids, table_center_world, table_quat_world=None):
+        num_resets = int(env_ids.numel())
+        if num_resets == 0:
+            return
+
+        if table_quat_world is None:
+            table_quat_world = torch.zeros((num_resets, 4), device=self.device, dtype=self._root_state.dtype)
+            table_quat_world[:, 3] = 1.0
+        table_quat_world = self._normalize_quat_tensor(table_quat_world.to(device=self.device, dtype=self._root_state.dtype))
+        table_center_world = table_center_world.to(device=self.device, dtype=self._root_state.dtype)
+
+        self._root_state[env_ids, 1, :3] = table_center_world
+        self._root_state[env_ids, 1, 3:7] = table_quat_world
+        self._root_state[env_ids, 1, 7:13] = 0.0
+
+        self.cuboid_pos[env_ids, 0] = table_center_world
+        self.cuboid_quats[env_ids, 0] = table_quat_world
+        self.table_surface_height[env_ids] = table_center_world[:, 2] + 0.5 * self.cuboid_dims[env_ids, 0, 2]
+
+        if hasattr(self, "_static_pcd_local"):
+            local_static = self._static_pcd_local[env_ids]
+            table_rot_mat = quaternion_to_matrix_ig(table_quat_world)
+            static_pcd_world = torch.matmul(table_rot_mat, local_static.transpose(1, 2)).transpose(1, 2)
+            static_pcd_world = static_pcd_world + table_center_world.unsqueeze(1)
+            self.static_pcds[env_ids] = static_pcd_world
+            num_static_points = self.pcd_spec_dict["num_static_points"]
+            self.combined_pcds[env_ids, :num_static_points] = static_pcd_world
+
+        multi_env_ids_int32 = self._global_indices[env_ids, 1].flatten()
+        self.gym.set_actor_root_state_tensor_indexed(
+            self.sim,
+            gymtorch.unwrap_tensor(self._root_state),
+            gymtorch.unwrap_tensor(multi_env_ids_int32),
+            len(multi_env_ids_int32),
+        )
+
+    def _create_movable_table_cube(self, pos, size, quat=[0, 0, 0, 1]):
+        opts = gymapi.AssetOptions()
+        opts.fix_base_link = True
+        opts.disable_gravity = True
+        asset = self.gym.create_box(self.sim, *size, opts)
+        start_pose = gymapi.Transform()
+        start_pose.p = gymapi.Vec3(*pos)
+        start_pose.r = gymapi.Quat(*quat)
+        self.cuboid_dims.append(size)
+        self.cuboid_pos.append(pos)
+        self.cuboid_quats.append(quat)
+        return asset, start_pose
+
+    def _get_reset_object_xy_bounds(self, env_ids, mirror_mask, dtype):
         table_center_xy = self.cuboid_pos[env_ids, 0, :2].to(dtype=dtype)
         table_half_xy = 0.5 * self.cuboid_dims[env_ids, 0, :2].to(dtype=dtype)
         table_xy_min = table_center_xy - table_half_xy
         table_xy_max = table_center_xy + table_half_xy
 
-        if flat_mask is None:
-            flat_mask = torch.zeros(env_ids.numel(), device=self.device, dtype=torch.bool)
-        else:
-            flat_mask = flat_mask.to(device=self.device, dtype=torch.bool)
+        canonical_min = self._reset_object_xy_min.to(device=self.device, dtype=dtype)
+        canonical_max = self._reset_object_xy_max.to(device=self.device, dtype=dtype)
 
-        canonical_min_normal = self._reset_object_xy_min.to(device=self.device, dtype=dtype)
-        canonical_max_normal = self._reset_object_xy_max.to(device=self.device, dtype=dtype)
-        canonical_min_flat = self._reset_flat_object_xy_min.to(device=self.device, dtype=dtype)
-        canonical_max_flat = self._reset_flat_object_xy_max.to(device=self.device, dtype=dtype)
-
-        canonical_min = torch.where(
-            flat_mask.unsqueeze(-1),
-            canonical_min_flat.unsqueeze(0).repeat(env_ids.numel(), 1),
-            canonical_min_normal.unsqueeze(0).repeat(env_ids.numel(), 1),
-        )
-        canonical_max = torch.where(
-            flat_mask.unsqueeze(-1),
-            canonical_max_flat.unsqueeze(0).repeat(env_ids.numel(), 1),
-            canonical_max_normal.unsqueeze(0).repeat(env_ids.numel(), 1),
-        )
-
-        x_min = canonical_min[:, 0]
-        x_max = canonical_max[:, 0]
+        x_min = torch.full((env_ids.numel(),), canonical_min[0], device=self.device, dtype=dtype)
+        x_max = torch.full((env_ids.numel(),), canonical_max[0], device=self.device, dtype=dtype)
         y_min = torch.where(
             mirror_mask,
-            -canonical_max[:, 1],
-            canonical_min[:, 1],
+            torch.full((env_ids.numel(),), -canonical_max[1], device=self.device, dtype=dtype),
+            torch.full((env_ids.numel(),), canonical_min[1], device=self.device, dtype=dtype),
         )
         y_max = torch.where(
             mirror_mask,
-            -canonical_min[:, 1],
-            canonical_max[:, 1],
+            torch.full((env_ids.numel(),), -canonical_min[1], device=self.device, dtype=dtype),
+            torch.full((env_ids.numel(),), canonical_max[1], device=self.device, dtype=dtype),
         )
 
         empirical_xy_min = torch.stack([x_min, y_min], dim=-1)
@@ -703,6 +1391,7 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         num_envs = int(env_ids.numel())
         device = self.device
         dtype = self._q.dtype
+        table_quat_world = self.cuboid_quats[env_ids, 0, :].to(device=device, dtype=dtype)
 
         side_mode = self.side_mode
         if side_mode == "left":
@@ -713,21 +1402,28 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
             left_mask = torch.rand(num_envs, device=device) < 0.5
         else:
             raise ValueError(f"Unsupported eef_init.side_mode={side_mode}. Expected one of: left, right, both.")
-        reward_target_quat_out = self.target_quat_right.repeat(num_envs, 1)
+        object_mirror_mask = torch.rand(num_envs, device=device, dtype=dtype) < self._reset_object_mirror_y_prob
+
+        target_quat_right_world = self._compose_table_frame_quat_to_world(
+            table_quat_world,
+            self.target_quat_right_canonical.to(device=device, dtype=dtype).repeat(num_envs, 1),
+        )
+        target_quat_left_world = self._compose_table_frame_quat_to_world(
+            table_quat_world,
+            self.target_quat_left_canonical.to(device=device, dtype=dtype).repeat(num_envs, 1),
+        )
+        target_quat_flat_world = self._compose_table_frame_quat_to_world(
+            table_quat_world,
+            self.target_quat_flat_canonical.to(device=device, dtype=dtype).repeat(num_envs, 1),
+        )
+
+        reward_target_quat_out = target_quat_right_world.clone()
         if int(left_mask.sum().item()) > 0:
-            reward_target_quat_out[left_mask] = self.target_quat_left.repeat(int(left_mask.sum().item()), 1)
+            reward_target_quat_out[left_mask] = target_quat_left_world[left_mask]
         side_init_quat = reward_target_quat_out.clone()
         lie_flat_mask = torch.rand(num_envs, device=device) < self.lie_flat_prob
         if bool(torch.any(lie_flat_mask)):
-            reward_target_quat_out[lie_flat_mask] = self.target_quat_flat.repeat(int(lie_flat_mask.sum().item()), 1)
-        object_mirror_prob = torch.full((num_envs,), self._reset_object_mirror_y_prob, device=device, dtype=dtype)
-        if self._reset_flat_object_mirror_y_prob != self._reset_object_mirror_y_prob:
-            object_mirror_prob = torch.where(
-                lie_flat_mask,
-                torch.full((num_envs,), self._reset_flat_object_mirror_y_prob, device=device, dtype=dtype),
-                object_mirror_prob,
-            )
-        object_mirror_mask = torch.rand(num_envs, device=device, dtype=dtype) < object_mirror_prob
+            reward_target_quat_out[lie_flat_mask] = target_quat_flat_world[lie_flat_mask]
 
         joint_config = torch.zeros((num_envs, self.num_dofs), device=device, dtype=dtype)
         joint_config[:, 7:23] = self.canonical_flat_hand_config.unsqueeze(0).repeat(num_envs, 1).to(dtype=dtype)
@@ -741,21 +1437,19 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         rel_max = self._reset_eef_rel_object_max.to(device=device, dtype=dtype)
         flat_rel_min = self._reset_flat_eef_rel_object_min.to(device=device, dtype=dtype)
         flat_rel_max = self._reset_flat_eef_rel_object_max.to(device=device, dtype=dtype)
-        flat_topdown_rel_min = self._reset_flat_topdown_rel_object_min.to(device=device, dtype=dtype)
-        flat_topdown_rel_max = self._reset_flat_topdown_rel_object_max.to(device=device, dtype=dtype)
         base_rel_eef_min = self._reset_base_rel_eef_min.to(device=device, dtype=dtype)
         base_rel_eef_max = self._reset_base_rel_eef_max.to(device=device, dtype=dtype)
         flat_base_rel_eef_min = self._reset_flat_base_rel_eef_min.to(device=device, dtype=dtype)
         flat_base_rel_eef_max = self._reset_flat_base_rel_eef_max.to(device=device, dtype=dtype)
+        flat_box_size_min = self._reset_flat_topdown_box_size_min.to(device=device, dtype=dtype)
+        flat_box_size_max = self._reset_flat_topdown_box_size_max.to(device=device, dtype=dtype)
+        flat_dis_open_range = self._reset_flat_topdown_dis_open_range.to(device=device, dtype=dtype)
+        flat_dis_side_range = torch.tensor(self._reset_flat_topdown_dis_side_range, device=device, dtype=dtype)
+        flat_obj_wall_tol = torch.tensor(self._reset_flat_topdown_obj_wall_tol, device=device, dtype=dtype)
         hand_joint_noise = self._reset_hand_joint_noise_rad.to(device=device, dtype=dtype)
         table_center_xy = self.cuboid_pos[env_ids, 0, :2].to(dtype=dtype)
         table_half_xy = 0.5 * self.cuboid_dims[env_ids, 0, :2].to(dtype=dtype)
-        object_xy_min, object_xy_max = self._get_reset_object_xy_bounds(
-            env_ids,
-            object_mirror_mask,
-            dtype,
-            flat_mask=lie_flat_mask,
-        )
+        object_xy_min, object_xy_max = self._get_reset_object_xy_bounds(env_ids, object_mirror_mask, dtype)
         while remaining.numel() > 0:
             batch = int(remaining.numel())
             remaining_flat_mask = lie_flat_mask[remaining]
@@ -763,10 +1457,12 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
                 torch.rand(batch, device=device, dtype=dtype) < self._reset_flat_side_recovery_prob
             )
             remaining_flat_topdown_mask = remaining_flat_mask & (~remaining_flat_side_mask)
+            flat_box_dims = flat_box_size_min.unsqueeze(0) + torch.rand((batch, 3), device=device, dtype=dtype) * (
+                flat_box_size_max - flat_box_size_min
+            ).unsqueeze(0)
             rel = torch.rand((batch, 3), device=device, dtype=dtype)
             rel_upright = rel_min.unsqueeze(0) + rel * (rel_max - rel_min).unsqueeze(0)
             rel_flat = flat_rel_min.unsqueeze(0) + rel * (flat_rel_max - flat_rel_min).unsqueeze(0)
-            rel_flat_topdown = flat_topdown_rel_min.unsqueeze(0) + rel * (flat_topdown_rel_max - flat_topdown_rel_min).unsqueeze(0)
             grasp_side_sign = torch.where(
                 left_mask[remaining],
                 torch.ones(batch, device=device, dtype=dtype),
@@ -778,16 +1474,17 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
                 torch.ones(batch, device=device, dtype=dtype),
             )
             rel_y_sign = grasp_side_sign * mirror_sign
-            wrong_side_mask = (~remaining_flat_mask) & (
-                torch.rand(batch, device=device, dtype=dtype) < self._reset_wrong_side_sample_prob
-            )
-            sampled_rel_y_sign = torch.where(wrong_side_mask, -rel_y_sign, rel_y_sign)
-            rel_upright[:, 1] = sampled_rel_y_sign * torch.abs(rel_upright[:, 1])
-            rel_flat[:, 1] = rel_y_sign * torch.abs(rel_flat[:, 1])
+            rel_upright[:, 1] = rel_y_sign * rel_upright[:, 1]
+            rel_flat[:, 1] = rel_y_sign * rel_flat[:, 1]
 
             object_xy_rand = torch.rand((batch, 2), device=device, dtype=dtype)
             upright_object_xy = object_xy_min[remaining] + object_xy_rand * (object_xy_max[remaining] - object_xy_min[remaining])
-            object_xy = upright_object_xy
+            object_half_xy = 0.5 * self.mesh_aabb_extents[env_ids[remaining], :2].to(dtype=dtype)
+            flat_object_xy_min = table_center_xy[remaining] - 0.5 * flat_box_dims[:, :2] + object_half_xy + flat_obj_wall_tol
+            flat_object_xy_max = table_center_xy[remaining] + 0.5 * flat_box_dims[:, :2] - object_half_xy - flat_obj_wall_tol
+            flat_object_xy = flat_object_xy_min + object_xy_rand * (flat_object_xy_max - flat_object_xy_min).clamp_min(0.0)
+            flat_object_range_valid = torch.all(flat_object_xy_min <= flat_object_xy_max, dim=-1)
+            object_xy = torch.where(remaining_flat_topdown_mask.unsqueeze(-1), flat_object_xy, upright_object_xy)
 
             candidate_object_quat = torch.zeros((batch, 4), device=device, dtype=dtype)
             candidate_object_quat[:, 3] = 1.0
@@ -804,18 +1501,25 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
                     flat_object_quat,
                     candidate_object_quat,
                 )
-            local_half_extents = 0.5 * self.mesh_aabb_extents[env_ids[remaining]].to(dtype=dtype)
-            object_rot_mat = quaternion_to_matrix_ig(candidate_object_quat)
-            vertical_half_extent = torch.sum(torch.abs(object_rot_mat[:, 2, :]) * local_half_extents, dim=-1)
+            local_offset = torch.zeros((batch, 3), device=device, dtype=dtype)
+            local_offset[:, 2] = self.mesh_aabb_extents[env_ids[remaining], 2].to(dtype=dtype) * self.object_center_z_scale
+            rotated_offset = quat_apply(candidate_object_quat, local_offset)
 
             object_center_candidate = torch.zeros((batch, 3), device=device, dtype=dtype)
             object_center_candidate[:, :2] = object_xy
-            object_center_candidate[:, 2] = table_surface_height[remaining] + vertical_half_extent
+            object_center_candidate[:, 2] = table_surface_height[remaining] + rotated_offset[:, 2]
 
             solved_batch_mask = torch.zeros(batch, device=device, dtype=torch.bool)
 
             eef_pos_upright = object_center_candidate + rel_upright
-            eef_pos_flat = object_center_candidate + rel_flat_topdown
+            flat_eef_xy_span = (0.5 * flat_box_dims[:, :2] + flat_dis_side_range).clamp_min(0.0)
+            flat_eef_xy = table_center_xy[remaining] + (torch.rand((batch, 2), device=device, dtype=dtype) * 2.0 - 1.0) * flat_eef_xy_span
+            flat_dis_open = flat_dis_open_range[0] + torch.rand(batch, device=device, dtype=dtype) * (
+                flat_dis_open_range[1] - flat_dis_open_range[0]
+            )
+            eef_pos_flat = torch.zeros((batch, 3), device=device, dtype=dtype)
+            eef_pos_flat[:, :2] = flat_eef_xy
+            eef_pos_flat[:, 2] = table_surface_height[remaining] + flat_box_dims[:, 2] + flat_dis_open
             eef_pos = torch.where(remaining_flat_topdown_mask.unsqueeze(-1), eef_pos_flat, eef_pos_upright)
             rel = eef_pos - object_center_candidate
             base_rel_eef = -eef_pos
@@ -852,6 +1556,7 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
                 (base_rel_eef[:, 2] >= base_rel_eef_z_min) &
                 (base_rel_eef[:, 2] <= base_rel_eef_z_max) &
                 (palm_object_dist >= self._reset_min_palm_object_dist) &
+                ((~remaining_flat_topdown_mask) | flat_object_range_valid) &
                 (remaining_flat_mask | (side_clearance >= self._reset_side_clearance))
             )
             if not bool(torch.any(valid_scene)):
@@ -957,9 +1662,22 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
             if bool(torch.any(solved_batch_mask)):
                 remaining = remaining[~solved_batch_mask]
 
-        return joint_config, reward_target_quat_out, left_mask, lie_flat_mask, object_center_world, object_quat_world
+        return joint_config, reward_target_quat_out, left_mask, object_center_world, object_quat_world
 
     def pre_physics_step(self, actions):
+        if (
+            getattr(self, "_activation_snapshot_bank_loaded", False)
+            and hasattr(self, "_desired_table_pos_world")
+            and hasattr(self, "_desired_table_quat_world")
+            and hasattr(self, "_snapshot_table_pin_buf")
+        ):
+            env_ids = (self._snapshot_table_pin_buf > 0).nonzero(as_tuple=False).squeeze(-1)
+            if env_ids.numel() > 0:
+                self._apply_table_state(
+                    env_ids,
+                    self._desired_table_pos_world[env_ids],
+                    self._desired_table_quat_world[env_ids],
+                )
         super().pre_physics_step(actions)
 
     def init_data(self, actor_num):
@@ -977,6 +1695,9 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         self.target_quat_flat = self.target_quat_flat / (
             torch.norm(self.target_quat_flat, dim=1, keepdim=True) + 1e-10
         )
+        self.target_quat_right_canonical = self.target_quat_right.clone()
+        self.target_quat_left_canonical = self.target_quat_left.clone()
+        self.target_quat_flat_canonical = self.target_quat_flat.clone()
         
         self.reward_settings["beta_hand_orientation"] = to_torch(self.cfg["reward"]["exp"]["beta_hand_orientation"], device=self.device)
         self.reward_settings["w_hand_orientation"] = to_torch(self.cfg["reward"]["weights"]["w_hand_orientation"], device=self.device)
@@ -999,14 +1720,6 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         )  # CODEX
         self.reward_settings["goal_align_gate_floor"] = to_torch(
             float(self.cfg["reward"]["params"].get("goal_align_gate_floor", 0.2)),
-            device=self.device,
-        )
-        self.reward_settings["hand_obj_gate_floor"] = to_torch(
-            float(self.cfg["reward"]["params"].get("hand_obj_gate_floor", 0.2)),
-            device=self.device,
-        )
-        self.reward_settings["hand_obj_gate_curriculum_scale"] = to_torch(
-            float(self.hand_obj_gate_curriculum_scale),
             device=self.device,
         )
         self.reward_settings["beta_goal_align"] = to_torch(
@@ -1037,14 +1750,6 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
             float(self.cfg["reward"]["params"].get("wrong_side_proximity_penalty", 0.5)),
             device=self.device,
         )
-        self.reward_settings["wrong_side_logic_for_flat_objects"] = to_torch(
-            1.0 if bool(self.cfg["reward"]["params"].get("wrong_side_logic_for_flat_objects", False)) else 0.0,
-            device=self.device,
-        )
-        self.reward_settings["disable_wrong_side_logic"] = to_torch(
-            1.0 if self.lie_flat_prob > 0.0 else 0.0,
-            device=self.device,
-        )
         self.reward_settings["wrong_side_forbidden_box_enable"] = to_torch(
             1.0 if bool(self.cfg["reward"]["params"].get("wrong_side_forbidden_box_enable", True)) else 0.0,
             device=self.device,
@@ -1062,10 +1767,6 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
             1.0 if bool(self.cfg["reward"]["params"]["hand_obj_use_midheight_xy"]) else 0.0,
             device=self.device,
         )  # CODEX
-        self.reward_settings["flat_object_axis_z_abs_max"] = to_torch(
-            float(self.cfg["reward"]["params"].get("flat_object_axis_z_abs_max", 0.5)),
-            device=self.device,
-        )
         self.reward_settings["hand_obj_midheight_height_weight"] = to_torch(
             float(self.cfg["reward"]["params"]["hand_obj_midheight_height_weight"]),
             device=self.device,
@@ -1098,7 +1799,7 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         self.reward_settings["w_obj_goal_base"] = self.reward_settings["w_obj_goal"].clone()
         self.reward_settings["w_lift_base"] = self.reward_settings["w_lift"].clone()
         self.target_pos_z_center = self.reward_settings["target_pos"][:, 2].clone()
-        self.target_pos_z_offset_from_table = self.target_pos_z_center - self.table_surface_height
+        self.target_pos_z_offset_from_table = self.target_pos_z_center - float(self._fixed_table_surface_height)
 
     def _resample_target_pos(self, env_ids):
         if env_ids is None or env_ids.numel() == 0:
@@ -1111,7 +1812,10 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         )
         target_center = torch.zeros((env_ids.numel(), 3), device=self.device, dtype=target_dtype)
         target_center[:, :2] = self._object_center_init_state[env_ids, :2].to(dtype=target_dtype)
-        target_center[:, 2] = self.target_pos_z_center[env_ids].to(dtype=target_dtype)
+        target_center[:, 2] = (
+            self.table_surface_height[env_ids].to(dtype=target_dtype)
+            + self.target_pos_z_offset_from_table[env_ids].to(dtype=target_dtype)
+        )
         offsets = (torch.rand((env_ids.numel(), 3), device=self.device, dtype=target_dtype) * 2.0 - 1.0) * target_noise.unsqueeze(0)
         self.reward_settings["target_pos"][env_ids] = target_center + offsets
     
@@ -1120,36 +1824,74 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
             env_ids = torch.arange(self.num_envs, device=self.device)
         if env_ids.numel() == 0:
             return
+        self._debug_print_reset_dispatch(env_ids)
 
         if self.randomize:
             self.apply_randomizations(self.randomization_params)
 
-        joint_config, target_quat, left_mask, flat_reset_active, object_center_world, object_quat_world = self._sample_reset_from_bank(env_ids)
-        self._apply_object_center_state(env_ids, object_center_world, object_quat_world)
-        self.reward_settings["object_init_height"][env_ids] = object_center_world[:, 2]
-        self._resample_target_pos(env_ids)
-        self.side_is_left[env_ids] = left_mask
-        self.flat_reset_active_buf[env_ids] = flat_reset_active
-        self.reward_settings["target_quat"][env_ids] = target_quat
-        self.reward_settings["target_rot_6d"][env_ids] = matrix_to_rotation_6d(quaternion_to_matrix_ig(target_quat))
-        self.set_robot_joint_state(joint_config, env_ids=env_ids)
-
-        self.success_flags_instant[env_ids] = 0
-        self.lifting_flags_instant[env_ids] = 0
-        self.success_flags[env_ids] = self.success_long_enough[env_ids].float()
-        self.lifting_flags[env_ids] = self.lifting_long_enough[env_ids].float()
-        self.success_duration[env_ids] = 0
-        self.lifting_duration[env_ids] = 0
-        self.success_long_enough[env_ids] = False
-        self.lifting_long_enough[env_ids] = False
-        self.progress_buf[env_ids] = 0
-        self.reset_buf[env_ids] = 0
-
-        if self.object_wrench_args["enable"]:
-            self.object_applied_forces[env_ids] = 0.0
-            self.object_applied_torques[env_ids] = 0.0
-            self.rigid_body_forces[env_ids] = 0
-            self.rigid_body_torques[env_ids] = 0
+        if getattr(self, "_activation_snapshot_bank_loaded", False):
+            (
+                joint_config,
+                left_mask,
+                object_center_world,
+                object_quat_world,
+                table_pos_world,
+                table_quat_world,
+                target_quat_world,
+                debug_payload,
+            ) = self._sample_activation_snapshot_bank_entries(env_ids)
+            target_quat = (
+                target_quat_world
+                if target_quat_world is not None
+                else self._compose_snapshot_target_quat_world(left_mask, table_quat_world)
+            )
+            self._snapshot_object_center_nominal[env_ids] = object_center_world.clone()
+            joint_config, object_center_world, object_quat_world = self._apply_activation_snapshot_reset_noise(
+                joint_config,
+                object_center_world,
+                object_quat_world,
+                table_quat_world,
+            )
+            debug_payload["joint_config"] = joint_config.clone()
+            debug_payload["object_center_replay_world"] = object_center_world.clone()
+            debug_payload["object_quat_replay_world"] = object_quat_world.clone()
+            self._desired_table_pos_world[env_ids] = table_pos_world.clone()
+            self._desired_table_quat_world[env_ids] = table_quat_world.clone()
+            self._snapshot_table_pin_buf[env_ids] = int(self._snapshot_table_pin_steps_after_reset)
+            self._queue_activation_snapshot_debug(env_ids, debug_payload)
+            self._apply_snapshot_scene_state(
+                env_ids,
+                table_pos_world,
+                table_quat_world,
+                object_center_world,
+                object_quat_world,
+            )
+            self._debug_print_copy_reset(
+                env_ids,
+                joint_config,
+                object_center_world,
+                object_quat_world,
+                table_pos_world,
+                table_quat_world,
+            )
+            self._finalize_reset_bookkeeping(
+                env_ids,
+                joint_config,
+                target_quat,
+                left_mask,
+                object_center_world,
+            )
+        else:
+            joint_config, target_quat, left_mask, object_center_world, object_quat_world = self._sample_reset_from_bank(env_ids)
+            self._snapshot_object_center_nominal[env_ids] = object_center_world.clone()
+            self._apply_object_center_state(env_ids, object_center_world, object_quat_world)
+            self._finalize_reset_bookkeeping(
+                env_ids,
+                joint_config,
+                target_quat,
+                left_mask,
+                object_center_world,
+            )
 
     def set_viewer(self):
         super().set_viewer(
@@ -1158,91 +1900,28 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         )
 
     def post_physics_step(self):
-        profile_this_step = self.profile_step_timing and ((self.sim_steps % self.profile_step_timing_every) == 0)
-
-        def _profile_sync():
-            if profile_this_step and torch.cuda.is_available() and str(self.device).startswith("cuda"):
-                torch.cuda.synchronize(self.device)
-
-        if profile_this_step:
-            _profile_sync()
-            t_step_start = time.perf_counter()
-
         self.progress_buf += 1
 
-        if profile_this_step:
-            _profile_sync()
-            t0 = time.perf_counter()
-        teleport_env_ids = self._sample_step_teleport_env_ids()
-        if profile_this_step:
-            _profile_sync()
-            t1 = time.perf_counter()
-        self.object_teleport_last_count = int(teleport_env_ids.numel())
-        if teleport_env_ids.numel() > 0:
-            self.object_teleport_total_events += 1
-            self.object_teleport_total_env_teleports += int(teleport_env_ids.numel())
-            self._teleport_object_state(teleport_env_ids)
-        if profile_this_step:
-            _profile_sync()
-            t2 = time.perf_counter()
-
-        if profile_this_step:
-            _profile_sync()
-            t3 = time.perf_counter()
         env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
         if env_ids.numel() > 0:
             self.reset_idx(env_ids)
-        if profile_this_step:
-            _profile_sync()
-            t4 = time.perf_counter()
 
-        if profile_this_step:
-            _profile_sync()
-            t5 = time.perf_counter()
         self.compute_observations()
-        if profile_this_step:
-            _profile_sync()
-            t6 = time.perf_counter()
         # @ray visualize debugging stuff
         if self.debug_viz and self.viewer is not None:
             self._draw_object_xy_range_grid(clear_lines=True)
-            self._draw_hand_init_regions(clear_lines=False)
             self._draw_wrong_side_proximity_box(clear_lines=False)
-            # self._draw_object_center_cross(clear_lines=False)
-            self._draw_target_sampling_box(clear_lines=False)
-            # self._draw_workspace_limits_box(clear_lines=False)
-            self._draw_grasp_direction_line(clear_lines=False)  # CODEX
-            pass
-        if profile_this_step:
-            _profile_sync()
-            t7 = time.perf_counter()
         self.compute_reward()
-        if profile_this_step:
-            _profile_sync()
-            t8 = time.perf_counter()
+        self._debug_print_all4_object_table()
+        self._debug_print_follow_after_reset()
+        self._print_activation_snapshot_debug()
 
         if self.video_logging["capture"]:
             self.video_logger()
-        if profile_this_step:
-            _profile_sync()
-            t9 = time.perf_counter()
+        self._snapshot_table_pin_buf = torch.clamp(self._snapshot_table_pin_buf - 1, min=0)
+        self._post_reset_grace_buf = torch.clamp(self._post_reset_grace_buf - 1, min=0)
+        self._copy_debug_follow_buf = torch.clamp(self._copy_debug_follow_buf - 1, min=0)
         self.sim_steps += 1
-
-        if profile_this_step:
-            print(
-                "[SideProfile] "
-                f"step={self.sim_steps} "
-                f"tele_sample_ms={(t1 - t0) * 1e3:.2f} "
-                f"tele_apply_ms={(t2 - t1) * 1e3:.2f} "
-                f"tele_n={int(teleport_env_ids.numel())} "
-                f"reset_ms={(t4 - t3) * 1e3:.2f} "
-                f"reset_n={int(env_ids.numel())} "
-                f"obs_ms={(t6 - t5) * 1e3:.2f} "
-                f"reward_ms={(t8 - t7) * 1e3:.2f} "
-                f"video_ms={(t9 - t8) * 1e3:.2f} "
-                f"total_ms={(t9 - t_step_start) * 1e3:.2f}",
-                flush=True,
-            )
 
     def _create_envs(self, spacing, num_per_row):
         """
@@ -1282,16 +1961,45 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
 
         # load all meshes first
         all_meshes_list = self.create_all_meshes()
-        self.num_objects = min(len(all_meshes_list), self.num_envs) # @ray record number of objects for per-object success rate tracking
-        all_meshes_list = all_meshes_list[:self.num_objects]
-        self.env_object_ids = torch.zeros((self.num_envs,), dtype=torch.int64, device=self.device) 
+        if self._snapshot_variation_assignment_json is not None:
+            # Snapshot-driven runs may use a small num_envs debug layout while still
+            # referencing arbitrary object ids from the full mesh set. Keep the full
+            # object catalog available in that case.
+            self.num_objects = len(all_meshes_list)
+        else:
+            self.num_objects = min(len(all_meshes_list), self.num_envs) # @ray record number of objects for per-object success rate tracking
+            all_meshes_list = all_meshes_list[:self.num_objects]
+        self.env_object_ids = torch.zeros((self.num_envs,), dtype=torch.int64, device=self.device)
+        self.env_variation_ids = torch.arange(self.num_envs, dtype=torch.long, device=self.device)
+        self.env_table_surface_height_init = torch.full(
+            (self.num_envs,),
+            float(self._fixed_table_surface_height),
+            dtype=torch.float32,
+            device=self.device,
+        )
+        self.env_table_size_init = self._fixed_table_size.to(device=self.device).unsqueeze(0).repeat(self.num_envs, 1)
+        self.snapshot_variation_object_ids = None
+        if self._snapshot_variation_assignment_json is not None and self.num_objects > 0:
+            (
+                self.env_table_surface_height_init,
+                self.snapshot_variation_object_ids,
+                self.env_variation_ids,
+                self.env_table_size_init,
+            ) = self._load_snapshot_variation_assignment_json(
+                self._snapshot_variation_assignment_json,
+                self.num_objects,
+            )
 
         # Create environments
         # @ray tensors on object info should be created here
         for i in tqdm(range(self.num_envs), desc="Creating Envs"):
             # grasp object
-            object_asset, object_start_pose, object_scale, object_id, mesh_id = all_meshes_list[i % len(all_meshes_list)]
-            self.env_object_ids[i] = i % len(all_meshes_list)
+            if self.snapshot_variation_object_ids is not None:
+                object_idx = int(self.snapshot_variation_object_ids[i].item())
+            else:
+                object_idx = i % len(all_meshes_list)
+            object_asset, object_start_pose, object_scale, object_id, mesh_id = all_meshes_list[object_idx]
+            self.env_object_ids[i] = object_idx
 
             # create env instance
             env_ptr = self.gym.create_env(self.sim, lower, upper, num_per_row)
@@ -1311,10 +2019,11 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
                 self.gym.begin_aggregate(env_ptr, max_agg_bodies, max_agg_shapes, True)
 
             # Create table
-            table_surface_height_i = float(self._fixed_table_surface_height)
-            table_asset, table_start_pose = self._create_cube(
-                pos=[0.5, 0.0, table_surface_height_i - table_thickness / 2],
-                size=[0.7, 1.2, table_thickness],
+            table_surface_height_i = float(self.env_table_surface_height_init[i].item())
+            table_size_i = self.env_table_size_init[i].detach().cpu().tolist()
+            table_asset, table_start_pose = self._create_movable_table_cube(
+                pos=[0.5, 0.0, table_surface_height_i - table_size_i[2] / 2],
+                size=table_size_i,
             )
             table_actor = self.gym.create_actor(
                 env_ptr, table_asset, table_start_pose, "table", i, 1, 0
@@ -1377,10 +2086,15 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         self.cuboid_dims = torch.from_numpy(self.cuboid_dims).to(self.device)
         self.cuboid_pos = torch.from_numpy(self.cuboid_pos).to(self.device)
         self.cuboid_quats = torch.from_numpy(self.cuboid_quats).to(self.device)
+        self.table_size = self.cuboid_dims[:, 0, :].clone()
 
         self.static_pcds = torch.stack(self.static_pcds, dim=0).to(self.device).to(torch.float32) # (num_envs, num_points, 3)
-        self.object_pcds = torch.stack(self.object_pcds, dim=0).to(self.device).to(torch.float32)
+        # Keep the copied RL env consistent with distillation snapshot geometry.
+        # Distillation scales object pcds by 0.9 before deriving AABB extents, and the
+        # snapshot bank's object_center_world is consistent with that convention.
+        self.object_pcds = torch.stack(self.object_pcds, dim=0).to(self.device).to(torch.float32) * 0.9
         self.combined_pcds = torch.cat([self.static_pcds, self.object_pcds], dim=1).to(self.device) # (num_envs, num_static_points + num_object_points, 3)
+        self._static_pcd_local = self.static_pcds - self.cuboid_pos[:, 0, :].unsqueeze(1)
 
         # get mesh AABB (axis-aligned bounding box) extents
         min_xyz = self.object_pcds.min(axis=1).values
@@ -1394,19 +2108,13 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
 
     def _update_states(self):
         super()._update_states()
+        table_pos_world, _, table_rot_mat, table_rot_mat_t = self._get_table_frame_data()
         object_grasp_target_pos = self._object_state[:, :3].clone()
         local_offset = torch.zeros([self.num_envs, 3], dtype=torch.float, device=self.device)
         local_offset[:, 2] = self.mesh_aabb_extents[:, 2] * self.object_grasp_target_z_scale
         object_rot_mat = quaternion_to_matrix_ig(self._object_state[:, 3:7])
-        object_z_axis = object_rot_mat[:, :, 2]
-        flat_object_like = torch.abs(object_z_axis[:, 2]) <= self.reward_settings["flat_object_axis_z_abs_max"]
         rotated_offset = torch.matmul(object_rot_mat, local_offset.unsqueeze(-1)).squeeze(-1)
         object_grasp_target_pos += rotated_offset
-        object_grasp_target_pos = torch.where(
-            flat_object_like.unsqueeze(-1),
-            self.states["object_center_pos"],
-            object_grasp_target_pos,
-        )
 
         eef_rot_mat = quaternion_to_matrix_ig(self._eef_state[:, 3:7])
         eef_rot_mat_t = eef_rot_mat.transpose(1, 2)
@@ -1419,6 +2127,8 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
             self._eef_state[:, 3:7],
             self.hand_grasp_dir_local.unsqueeze(0).repeat(self.num_envs, 1),
         )  # CODEX
+        object_z_axis = object_rot_mat[:, :, 2]
+        object_z_axis_table = torch.matmul(table_rot_mat_t, object_z_axis.unsqueeze(-1)).squeeze(-1)
         # Mode 1: old orientation (target-quat full point-matching; includes XY guidance).
         hand_eef_pos7_rot = torch.cat([self._eef_state[:, :3], self.reward_settings["target_quat"]], dim=-1)
         hand_target_quat_err = self._get_eef_point_matching_err(
@@ -1427,6 +2137,7 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         )
         # Mode 2: canonical axis alignment only (no XY guidance), using hand/object canonical z-axes.
         hand_z_axis = eef_rot_mat[:, :, 2]
+        hand_z_axis_table = torch.matmul(table_rot_mat_t, hand_z_axis.unsqueeze(-1)).squeeze(-1)
         target_z_axis = quaternion_to_matrix_ig(self.reward_settings["target_quat"])[:, :, 2]
         hand_target_axis_dot = torch.sum(hand_z_axis * target_z_axis, dim=-1).clamp(-1.0, 1.0)
         hand_canonical_axis_err = 1.0 - torch.abs(hand_target_axis_dot)
@@ -1443,17 +2154,10 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         world_z = torch.zeros((self.num_envs, 3), device=self.device, dtype=self._object_state.dtype)
         world_z[:, 2] = 1.0
         object_upright_score = torch.sum(object_z_axis * world_z, dim=-1).clamp(0.0, 1.0)  # CODEX
-        base_grasp_side_sign = torch.where(
-            self.side_is_left,
-            torch.ones(self.num_envs, device=self.device, dtype=self._object_state.dtype),
-            -torch.ones(self.num_envs, device=self.device, dtype=self._object_state.dtype),
+        eef_rel_object_table = self._world_vectors_to_table_frame(
+            self._eef_state[:, :3] - self.states["object_center_pos"],
+            table_rot_mat_t=table_rot_mat_t,
         )
-        mirror_sign = torch.where(
-            self.states["object_center_pos"][:, 1] > self.cuboid_pos[:, 0, 1],
-            -torch.ones(self.num_envs, device=self.device, dtype=self._object_state.dtype),
-            torch.ones(self.num_envs, device=self.device, dtype=self._object_state.dtype),
-        )
-        effective_grasp_side_sign = base_grasp_side_sign * mirror_sign
 
         # @ray not just update but also create new keys here
         self.states.update({
@@ -1462,16 +2166,18 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
             "object_grasp_target_pos": object_grasp_target_pos, # @ray reward-only grasp target
             "object_grasp_target_to_eef": object_grasp_target_to_eef, # @ray for policy observation
             "eef_table_dist": eef_table_dist,
+            "eef_rel_object_table": eef_rel_object_table,
             "object_z_axis_world": object_z_axis,
             "hand_z_axis_world": hand_z_axis,
+            "object_z_axis_table": object_z_axis_table,
+            "hand_z_axis_table": hand_z_axis_table,
             "grasp_side_binary": self.side_is_left.float().unsqueeze(-1),
-            "grasp_side_sign_effective": effective_grasp_side_sign.unsqueeze(-1),
+            "object_bbox_extent": self.mesh_aabb_extents,
             "point_matching_err_hand_axis": hand_object_axis_err,  # CODEX
             "point_matching_err_hand_canonical_axis": hand_canonical_axis_err,  # CODEX
             "point_matching_err_hand_targetquat": hand_target_quat_err,  # CODEX
             "point_matching_err_hand": hand_orientation_err,
             "object_upright_score": object_upright_score,  # CODEX
-            "flat_reset_active": self.flat_reset_active_buf.float().unsqueeze(-1),
         })
 
     def check_robot_collision(self):
@@ -1485,49 +2191,87 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         if clear_lines:
             self.gym.clear_lines(self.viewer)
         env_id = 0
-        pure_flat_mode = self.lie_flat_prob >= 1.0 - 1.0e-6
-        mirror_prob = self._reset_flat_object_mirror_y_prob if pure_flat_mode else self._reset_object_mirror_y_prob
-        flat_mask = torch.tensor([pure_flat_mode], device=self.device, dtype=torch.bool)
-        draw_canonical = mirror_prob < 1.0
-        draw_mirrored = mirror_prob > 0.0
+        table_pos = self.cuboid_pos[env_id, 0].to(dtype=torch.float32)
+        table_quat = self.cuboid_quats[env_id, 0].to(dtype=torch.float32)
+        if getattr(self, "_activation_snapshot_bank_loaded", False):
+            noise_xy = self._activation_snapshot_object_xy_noise.to(device=self.device, dtype=torch.float32)
+            nominal_center = self._snapshot_object_center_nominal[env_id].to(dtype=torch.float32)
+            nominal_center_table = self._world_points_to_table_frame(
+                nominal_center.unsqueeze(0),
+                table_pos_world=self.cuboid_pos[env_id:env_id + 1, 0, :],
+                table_rot_mat_t=quaternion_to_matrix_ig(self.cuboid_quats[env_id:env_id + 1, 0, :]).transpose(1, 2),
+            )[0].to(dtype=torch.float32)
+            local_box_center = torch.tensor(
+                [
+                    float(nominal_center_table[0].item()),
+                    float(nominal_center_table[1].item()),
+                    0.5 * float(self.cuboid_dims[env_id, 0, 2].item()) + 0.001,
+                ],
+                device=self.device,
+                dtype=torch.float32,
+            )
+            world_box_center = table_pos + quat_apply(table_quat.unsqueeze(0), local_box_center.unsqueeze(0))[0]
+            box_half_extents = torch.tensor(
+                [
+                    float(noise_xy[0].item()),
+                    float(noise_xy[1].item()),
+                    0.001,
+                ],
+                device=self.device,
+                dtype=torch.float32,
+            )
+            self._draw_oriented_wire_box(env_id, world_box_center, box_half_extents, table_quat, [0.0, 1.0, 0.0])
+            return
 
-        if draw_canonical:
-            canonical_xy_min, canonical_xy_max = self._get_reset_object_xy_bounds(
-                torch.tensor([env_id], device=self.device, dtype=torch.long),
-                torch.tensor([False], device=self.device, dtype=torch.bool),
-                torch.float32,
-                flat_mask=flat_mask,
-            )
-            limits_min = torch.tensor(
-                [canonical_xy_min[0, 0].item(), canonical_xy_min[0, 1].item(), self.table_surface_height[env_id].item()],
-                device=self.device,
-                dtype=torch.float32,
-            )
-            limits_max = torch.tensor(
-                [canonical_xy_max[0, 0].item(), canonical_xy_max[0, 1].item(), self.table_surface_height[env_id].item()],
-                device=self.device,
-                dtype=torch.float32,
-            )
-            self._draw_wire_box(env_id, limits_min, limits_max, [0.0, 1.0, 0.0])
+        table_half_xy = 0.5 * self.cuboid_dims[env_id, 0, :2].to(dtype=torch.float32)
+        object_center_table = self._world_points_to_table_frame(
+            self.states["object_center_pos"][env_id:env_id + 1],
+            table_pos_world=self.cuboid_pos[env_id:env_id + 1, 0, :],
+            table_rot_mat_t=quaternion_to_matrix_ig(self.cuboid_quats[env_id:env_id + 1, 0, :]).transpose(1, 2),
+        )[0].to(dtype=torch.float32)
+        is_mirrored = float(object_center_table[1].item()) > 0.0
 
-        if draw_mirrored:
-            mirrored_xy_min, mirrored_xy_max = self._get_reset_object_xy_bounds(
-                torch.tensor([env_id], device=self.device, dtype=torch.long),
-                torch.tensor([True], device=self.device, dtype=torch.bool),
-                torch.float32,
-                flat_mask=flat_mask,
-            )
-            limits_min = torch.tensor(
-                [mirrored_xy_min[0, 0].item(), mirrored_xy_min[0, 1].item(), self.table_surface_height[env_id].item()],
+        canonical_min = self._reset_object_xy_min.to(device=self.device, dtype=torch.float32)
+        canonical_max = self._reset_object_xy_max.to(device=self.device, dtype=torch.float32)
+        if is_mirrored:
+            local_xy_min = torch.tensor(
+                [canonical_min[0].item(), -canonical_max[1].item()],
                 device=self.device,
                 dtype=torch.float32,
             )
-            limits_max = torch.tensor(
-                [mirrored_xy_max[0, 0].item(), mirrored_xy_max[0, 1].item(), self.table_surface_height[env_id].item()],
+            local_xy_max = torch.tensor(
+                [canonical_max[0].item(), -canonical_min[1].item()],
                 device=self.device,
                 dtype=torch.float32,
             )
-            self._draw_wire_box(env_id, limits_min, limits_max, [0.2, 0.9, 0.2])
+        else:
+            local_xy_min = canonical_min.clone()
+            local_xy_max = canonical_max.clone()
+
+        local_xy_min = torch.maximum(local_xy_min, -table_half_xy)
+        local_xy_max = torch.minimum(local_xy_max, table_half_xy)
+        local_center = 0.5 * (local_xy_min + local_xy_max)
+        local_half_extents = 0.5 * (local_xy_max - local_xy_min)
+        local_box_center = torch.tensor(
+            [
+                float(local_center[0].item()),
+                float(local_center[1].item()),
+                0.5 * float(self.cuboid_dims[env_id, 0, 2].item()) + 0.001,
+            ],
+            device=self.device,
+            dtype=torch.float32,
+        )
+        world_box_center = table_pos + quat_apply(table_quat.unsqueeze(0), local_box_center.unsqueeze(0))[0]
+        box_half_extents = torch.tensor(
+            [
+                float(local_half_extents[0].item()),
+                float(local_half_extents[1].item()),
+                0.001,
+            ],
+            device=self.device,
+            dtype=torch.float32,
+        )
+        self._draw_oriented_wire_box(env_id, world_box_center, box_half_extents, table_quat, [0.0, 1.0, 0.0])
 
     def _draw_object_center_cross(self, half_extent=0.2, clear_lines=True):
         if clear_lines:
@@ -1614,7 +2358,7 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
             [x_min, y_max, z_min], [x_min, y_max, z_max],
         ]
         verts_flat = [v for seg in verts for v in seg]
-        colors_flat = [1.0, 0.65, 0.0] * (len(verts_flat) // 6)
+        colors_flat = [1.0, 0.0, 1.0] * (len(verts_flat) // 6)
         self.gym.add_lines(self.viewer, self.envs[env_id], len(verts_flat) // 6, verts_flat, colors_flat)
 
     def _draw_wire_box(self, env_id, limits_min, limits_max, color_rgb):
@@ -1728,9 +2472,6 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
             self.gym.clear_lines(self.viewer)
         env_id = 0
         center = self.states["object_center_pos"][env_id].to(dtype=torch.float32)
-        pure_flat_mode = self.lie_flat_prob >= 1.0 - 1.0e-6
-        table_center = self.cuboid_pos[env_id, 0].to(dtype=torch.float32)
-        table_surface_height = self.table_surface_height[env_id].to(dtype=torch.float32)
         table_center_y = float(self.cuboid_pos[env_id, 0, 1].item())
         table_center_y_t = torch.tensor(table_center_y, device=self.device, dtype=torch.float32)
         is_mirrored = float(center[1].item()) > table_center_y
@@ -1738,103 +2479,80 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         if is_mirrored:
             canonical_center[1] = 2.0 * table_center_y_t - center[1]
         grasp_side_sign = 1.0 if bool(self.side_is_left[env_id].item()) else -1.0
+        rel_min_raw = self._reset_eef_rel_object_min.to(device=self.device, dtype=torch.float32)
+        rel_max_raw = self._reset_eef_rel_object_max.to(device=self.device, dtype=torch.float32)
 
-        def _signed_rel_box(rel_min_raw, rel_max_raw, sign):
-            x_min, x_max = rel_min_raw[0], rel_max_raw[0]
-            y_min_raw, y_max_raw = rel_min_raw[1], rel_max_raw[1]
-            z_min, z_max = rel_min_raw[2], rel_max_raw[2]
-            y_abs_max = max(abs(float(y_min_raw.item())), abs(float(y_max_raw.item())))
-            if float(y_min_raw.item()) <= 0.0 <= float(y_max_raw.item()):
-                y_abs_min = 0.0
-            else:
-                y_abs_min = min(abs(float(y_min_raw.item())), abs(float(y_max_raw.item())))
-            if sign > 0.0:
-                box_rel_min = torch.tensor(
-                    [x_min.item(), y_abs_min, z_min.item()],
-                    device=self.device,
-                    dtype=torch.float32,
-                )
-                box_rel_max = torch.tensor(
-                    [x_max.item(), y_abs_max, z_max.item()],
-                    device=self.device,
-                    dtype=torch.float32,
-                )
-            else:
-                box_rel_min = torch.tensor(
-                    [x_min.item(), -y_abs_max, z_min.item()],
-                    device=self.device,
-                    dtype=torch.float32,
-                )
-                box_rel_max = torch.tensor(
-                    [x_max.item(), -y_abs_min, z_max.item()],
-                    device=self.device,
-                    dtype=torch.float32,
-                )
-            return box_rel_min, box_rel_max
+        x_min, x_max = rel_min_raw[0], rel_max_raw[0]
+        y_abs_min, y_abs_max = rel_min_raw[1], rel_max_raw[1]
+        z_min, z_max = rel_min_raw[2], rel_max_raw[2]
 
-        if pure_flat_mode:
-            if self._reset_flat_side_recovery_prob > 0.0:
-                flat_rel_min_raw = self._reset_flat_eef_rel_object_min.to(device=self.device, dtype=torch.float32)
-                flat_rel_max_raw = self._reset_flat_eef_rel_object_max.to(device=self.device, dtype=torch.float32)
-                flat_box_rel_min, flat_box_rel_max = _signed_rel_box(flat_rel_min_raw, flat_rel_max_raw, grasp_side_sign)
-                actual_box_min = center + flat_box_rel_min
-                actual_box_max = center + flat_box_rel_max
-                self._draw_wire_box(env_id, actual_box_min, actual_box_max, [0.2, 0.85, 1.0])
-
-            if self._reset_flat_side_recovery_prob < 1.0:
-                flat_topdown_rel_min = self._reset_flat_topdown_rel_object_min.to(device=self.device, dtype=torch.float32)
-                flat_topdown_rel_max = self._reset_flat_topdown_rel_object_max.to(device=self.device, dtype=torch.float32)
-                topdown_limits_min = center + flat_topdown_rel_min
-                topdown_limits_max = center + flat_topdown_rel_max
-                self._draw_wire_box(env_id, topdown_limits_min, topdown_limits_max, [1.0, 0.3, 1.0])
+        left_grasp_rel_min = torch.tensor(
+            [x_min.item(), y_abs_min.item(), z_min.item()],
+            device=self.device,
+            dtype=torch.float32,
+        )
+        left_grasp_rel_max = torch.tensor(
+            [x_max.item(), y_abs_max.item(), z_max.item()],
+            device=self.device,
+            dtype=torch.float32,
+        )
+        if grasp_side_sign > 0.0:
+            box_rel_min, box_rel_max = left_grasp_rel_min, left_grasp_rel_max
         else:
-            rel_min_raw = self._reset_eef_rel_object_min.to(device=self.device, dtype=torch.float32)
-            rel_max_raw = self._reset_eef_rel_object_max.to(device=self.device, dtype=torch.float32)
-            box_rel_min, box_rel_max = _signed_rel_box(rel_min_raw, rel_max_raw, grasp_side_sign)
-
-            canonical_box_min = canonical_center + box_rel_min
-            canonical_box_max = canonical_center + box_rel_max
-            mirrored_box_min, mirrored_box_max = self._mirror_box_y_about_table(
-                canonical_box_min, canonical_box_max, table_center_y_t
+            box_rel_min = torch.tensor(
+                [x_min.item(), -y_abs_max.item(), z_min.item()],
+                device=self.device,
+                dtype=torch.float32,
+            )
+            box_rel_max = torch.tensor(
+                [x_max.item(), -y_abs_min.item(), z_max.item()],
+                device=self.device,
+                dtype=torch.float32,
             )
 
-            self._draw_wire_box(env_id, canonical_box_min, canonical_box_max, [0.35, 0.55, 1.0])
-            self._draw_wire_box(env_id, mirrored_box_min, mirrored_box_max, [0.0, 0.7, 1.0])
+        canonical_box_min = canonical_center + box_rel_min
+        canonical_box_max = canonical_center + box_rel_max
+        mirrored_box_min, mirrored_box_max = self._mirror_box_y_about_table(
+            canonical_box_min, canonical_box_max, table_center_y_t
+        )
 
-            split_offset = float(self.reward_settings["grasp_side_split_y_offset"].item())
-            sep_x_min = float(canonical_box_min[0].item())
-            sep_x_max = float(canonical_box_max[0].item())
-            sep_z_min = float(canonical_box_min[2].item())
-            sep_z_max = float(canonical_box_max[2].item())
-            canonical_sep_y = float(canonical_center[1].item() + grasp_side_sign * split_offset)
-            mirrored_sep_y = float(2.0 * table_center_y - canonical_sep_y)
+        self._draw_wire_box(env_id, canonical_box_min, canonical_box_max, [0.35, 0.55, 1.0])
+        self._draw_wire_box(env_id, mirrored_box_min, mirrored_box_max, [0.0, 0.7, 1.0])
 
-            canonical_sep_verts = [
-                sep_x_min, canonical_sep_y, sep_z_min, sep_x_max, canonical_sep_y, sep_z_min,
-                sep_x_max, canonical_sep_y, sep_z_min, sep_x_max, canonical_sep_y, sep_z_max,
-                sep_x_max, canonical_sep_y, sep_z_max, sep_x_min, canonical_sep_y, sep_z_max,
-                sep_x_min, canonical_sep_y, sep_z_max, sep_x_min, canonical_sep_y, sep_z_min,
-            ]
-            mirrored_sep_verts = [
-                sep_x_min, mirrored_sep_y, sep_z_min, sep_x_max, mirrored_sep_y, sep_z_min,
-                sep_x_max, mirrored_sep_y, sep_z_min, sep_x_max, mirrored_sep_y, sep_z_max,
-                sep_x_max, mirrored_sep_y, sep_z_max, sep_x_min, mirrored_sep_y, sep_z_max,
-                sep_x_min, mirrored_sep_y, sep_z_max, sep_x_min, mirrored_sep_y, sep_z_min,
-            ]
-            self.gym.add_lines(
-                self.viewer,
-                self.envs[env_id],
-                4,
-                canonical_sep_verts,
-                [0.85, 0.85, 0.25] * 4,
-            )
-            self.gym.add_lines(
-                self.viewer,
-                self.envs[env_id],
-                4,
-                mirrored_sep_verts,
-                [1.0, 1.0, 0.0] * 4,
-            )
+        split_offset = float(self.reward_settings["grasp_side_split_y_offset"].item())
+        sep_x_min = float((canonical_center[0] + x_min).item())
+        sep_x_max = float((canonical_center[0] + x_max).item())
+        sep_z_min = float((canonical_center[2] + z_min).item())
+        sep_z_max = float((canonical_center[2] + z_max).item())
+        canonical_sep_y = float(canonical_center[1].item() + grasp_side_sign * split_offset)
+        mirrored_sep_y = float(2.0 * table_center_y - canonical_sep_y)
+
+        canonical_sep_verts = [
+            sep_x_min, canonical_sep_y, sep_z_min, sep_x_max, canonical_sep_y, sep_z_min,
+            sep_x_max, canonical_sep_y, sep_z_min, sep_x_max, canonical_sep_y, sep_z_max,
+            sep_x_max, canonical_sep_y, sep_z_max, sep_x_min, canonical_sep_y, sep_z_max,
+            sep_x_min, canonical_sep_y, sep_z_max, sep_x_min, canonical_sep_y, sep_z_min,
+        ]
+        mirrored_sep_verts = [
+            sep_x_min, mirrored_sep_y, sep_z_min, sep_x_max, mirrored_sep_y, sep_z_min,
+            sep_x_max, mirrored_sep_y, sep_z_min, sep_x_max, mirrored_sep_y, sep_z_max,
+            sep_x_max, mirrored_sep_y, sep_z_max, sep_x_min, mirrored_sep_y, sep_z_max,
+            sep_x_min, mirrored_sep_y, sep_z_max, sep_x_min, mirrored_sep_y, sep_z_min,
+        ]
+        self.gym.add_lines(
+            self.viewer,
+            self.envs[env_id],
+            4,
+            canonical_sep_verts,
+            [0.85, 0.85, 0.25] * 4,
+        )
+        self.gym.add_lines(
+            self.viewer,
+            self.envs[env_id],
+            4,
+            mirrored_sep_verts,
+            [1.0, 1.0, 0.0] * 4,
+        )
 
         table_x_min = float((self.cuboid_pos[env_id, 0, 0] - 0.5 * self.cuboid_dims[env_id, 0, 0]).item())
         table_x_max = float((self.cuboid_pos[env_id, 0, 0] + 0.5 * self.cuboid_dims[env_id, 0, 0]).item())
@@ -1891,7 +2609,7 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
                           "object_to_eef", "object_to_eef_rot_6d",
                           "object_grasp_target_to_eef",
                           "eef_table_dist",
-                          "object_z_axis_world", "hand_z_axis_world",
+                          "object_z_axis_table", "hand_z_axis_table",
                           "target_to_eef", "target_to_eef_rot_6d"]
 
         states_components = ["q", "qd",
@@ -1902,7 +2620,7 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
                              "object_to_eef", "object_to_eef_rot_6d",
                              "object_grasp_target_to_eef",
                              "eef_table_dist",
-                             "object_z_axis_world", "hand_z_axis_world",
+                             "object_z_axis_table", "hand_z_axis_table",
                              "target_to_eef", "target_to_eef_rot_6d"]
 
         obs_buf = torch.cat([self.states[ob] for ob in obs_components], dim=-1)
@@ -1918,7 +2636,6 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
             obs_buf = torch.cat([obs_buf, obj_height], dim=-1)
             states_buf = torch.cat([states_buf, obj_height], dim=-1)
 
-        self.states["object_bbox_extent"] = self.mesh_aabb_extents
         self.obs_buf = obs_buf
         self.states_buf = states_buf
 
@@ -1928,13 +2645,26 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         # @ray states used are updated in compute_observations(), called right before compute_reward()
 
         self.reset_buf[:] = torch.where((self.progress_buf >= self.max_episode_length - 1), torch.ones_like(self.reset_buf), self.reset_buf)
-        self.reset_buf[self.states['object_center_pos'][:, 2] < self.table_surface_height-0.1] = 1
+        allow_terminal_reset = self._post_reset_grace_buf <= 0
+        below_table = self.states['object_center_pos'][:, 2] < self.table_surface_height - 0.1
+        self.reset_buf[allow_terminal_reset & below_table] = 1
+        debug_below_env_ids = (allow_terminal_reset & below_table).nonzero(as_tuple=False).squeeze(-1)
+        if debug_below_env_ids.numel() > 0:
+            self._debug_print_copy_done_reason("below_table", debug_below_env_ids, below_table=below_table)
         # CODEX: reset scene if object drifts too far in XY from table center (fly-away guard).
         table_center_xy = self.cuboid_pos[:, 0, :2]
         object_center_xy = self.states["object_center_pos"][:, :2]
         dist_to_table_center_xy = torch.norm(object_center_xy - table_center_xy, dim=-1)
         max_xy_dist = 5.0
-        self.reset_buf[dist_to_table_center_xy > max_xy_dist] = 1
+        self.reset_buf[allow_terminal_reset & (dist_to_table_center_xy > max_xy_dist)] = 1
+        debug_far_env_ids = (allow_terminal_reset & (dist_to_table_center_xy > max_xy_dist)).nonzero(as_tuple=False).squeeze(-1)
+        if debug_far_env_ids.numel() > 0:
+            self._debug_print_copy_done_reason(
+                "xy_drift",
+                debug_far_env_ids,
+                below_table=below_table,
+                dist_to_table_center_xy=dist_to_table_center_xy,
+            )
 
         # Lift/goal curriculum (hardcoded here by request; edit these values directly).
         # Curriculum with delayed start:
@@ -1953,11 +2683,7 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
             curri_scale = 1.0
         self.reward_settings["w_obj_goal"] = self.reward_settings["w_obj_goal_base"] * curri_scale
         self.reward_settings["w_lift"] = self.reward_settings["w_lift_base"] * curri_scale
-        reward_dict = compute_franka_leap_reward(
-            self.states,
-            self.reward_settings,
-            self.disable_wrong_side_logic,
-        )
+        reward_dict = compute_franka_leap_reward(self.states, self.reward_settings)
         # Keep the target fixed within an episode. Only reset-time sampling changes it.
 
         self.rew_buf[:] = reward_dict["r_total"]
@@ -1966,19 +2692,14 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         self.extras["sep_reward/r_goal_align"] = torch.mean(reward_dict["r_goal_align"]).item()
         self.extras["sep_reward/r_recovery_region"] = torch.mean(reward_dict["r_recovery_region"]).item()
         self.extras["sep_reward/r_wrong_side_proximity"] = torch.mean(reward_dict["r_wrong_side_proximity"]).item()
+        self.extras["metrics/wrong_side_forbidden_box_rate"] = torch.mean(
+            reward_dict["inside_wrong_side_forbidden_box"].float()
+        ).item()
         self.extras["sep_reward/r_hand_rot"] = torch.mean(reward_dict["r_hand_rot"]).item()
         self.extras["sep_reward/r_lift"] = torch.mean(reward_dict["r_lift"]).item()
         self.extras["sep_reward/r_curl"] = torch.mean(reward_dict["r_curl"]).item()
         self.extras["sep_reward/r_success_bonus"] = torch.mean(reward_dict["r_success_bonus"]).item()
         self.extras["sep_reward/r_actionreg"] = torch.mean(reward_dict["r_actionreg"]).item()
-        self.extras["metrics/wrong_side_forbidden_box_rate"] = torch.mean(
-            reward_dict["inside_wrong_side_forbidden_box"].float()
-        ).item()
-        if self._hand_obj_gate_used_for_run():
-            self.extras["metrics/hand_obj_gate"] = torch.mean(reward_dict["hand_obj_gate"]).item()
-        else:
-            self.extras.pop("metrics/hand_obj_gate", None)
-        self.extras["metrics/goal_align_gate"] = torch.mean(reward_dict["goal_align_gate"]).item()
         self.extras["dis/d_hand_obj"] = torch.mean(reward_dict["d_hand_obj"]).item()
         self.extras["dis/d_lift"] = torch.mean(reward_dict["d_lift"]).item()
         self.extras["dis/d_eef_point_goal"] = torch.mean(reward_dict["d_eef_point_goal"]).item()
@@ -2070,27 +2791,10 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         self.extras["metrics/lifting_rate_5cm_per_step"] = torch.mean(self.lifting_5cm_per_step.float()).item()
         self._update_object_wrench_success_curriculum(self.extras["metrics/success_rate_5cm_per_ep"])
         self._update_object_teleport_success_curriculum(self.extras["metrics/success_rate_5cm_per_ep"])
-        if self._hand_obj_gate_used_for_run():
-            self._update_hand_obj_gate_success_curriculum(self.extras["metrics/success_rate_5cm_per_ep"])
         self.extras["object_wrench/curriculum_stage"] = float(self.object_wrench_curriculum_stage)
         self.extras["object_wrench/curriculum_scale"] = float(self.object_wrench_curriculum_scale)
         self.extras["object_teleport/curriculum_stage"] = float(self.object_teleport_curriculum_stage)
         self.extras["object_teleport/curriculum_scale"] = float(self.object_teleport_curriculum_scale)
-        if self._hand_obj_gate_used_for_run():
-            self.extras["hand_obj_gate/curriculum_stage"] = float(self.hand_obj_gate_curriculum_stage)
-            self.extras["hand_obj_gate/curriculum_scale"] = float(self.hand_obj_gate_curriculum_scale)
-        else:
-            self.extras.pop("hand_obj_gate/curriculum_stage", None)
-            self.extras.pop("hand_obj_gate/curriculum_scale", None)
-        self.extras["object_teleport/expected_envs_step"] = float(
-            self._get_object_teleport_expected_envs_per_step()
-        )
-        self.extras["object_teleport/events_total"] = float(
-            getattr(self, "object_teleport_total_events", 0)
-        )
-        self.extras["object_teleport/env_teleports_total"] = float(
-            getattr(self, "object_teleport_total_env_teleports", 0)
-        )
 
         # CODEX: success-based right-section curriculum update + logging.
         # log memory usage TODO: debug utils, cleanup later
@@ -2100,8 +2804,8 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         self.extras["mem/reserved_GB"] = mem_reserved_GB
 
 @torch.jit.script
-def compute_franka_leap_reward(states, reward_settings, skip_wrong_side_logic: bool):
-    # type: (Dict[str, Tensor], Dict[str, Tensor], bool) -> Dict[str, Tensor]
+def compute_franka_leap_reward(states, reward_settings):
+    # type: (Dict[str, Tensor], Dict[str, Tensor]) -> Dict[str, Tensor]
 
     # R1: Hand (palm, fingers) to object distance
     d_palm = torch.norm(states["object_grasp_target_pos"] - states["eef_pos"], dim=-1)
@@ -2118,43 +2822,30 @@ def compute_franka_leap_reward(states, reward_settings, skip_wrong_side_logic: b
     local_z = torch.zeros((n_env, 3), dtype=states["object_quat"].dtype, device=states["object_quat"].device)
     local_z[:, 2] = 1.0
     object_z_axis_world = quat_apply(states["object_quat"], local_z)
-    flat_reset_active = states["flat_reset_active"].squeeze(-1) > 0.5
-    if skip_wrong_side_logic:
-        wrong_side_logic_active = torch.zeros_like(states["lift"], dtype=torch.bool)
-        any_wrong_side_logic_active = False
-    elif bool(reward_settings["wrong_side_logic_for_flat_objects"]):
-        wrong_side_logic_active = torch.ones_like(states["lift"], dtype=torch.bool)
-        any_wrong_side_logic_active = True
-    else:
-        wrong_side_logic_active = ~flat_reset_active
-        any_wrong_side_logic_active = bool(torch.any(wrong_side_logic_active).item())
-    use_midheight_xy = bool(reward_settings["hand_obj_use_midheight_xy"])
 
-    finger_positions = torch.zeros((n_env, 4, 3), dtype=states["eef_pos"].dtype, device=states["eef_pos"].device)
-    if use_midheight_xy:
-        finger_positions = torch.stack(
-            [
-                states["eef_finger1_pos"],
-                states["eef_finger2_pos"],
-                states["eef_finger3_pos"],
-                states["eef_finger4_pos"],
-            ],
-            dim=1,
-        )
+    finger_positions = torch.stack(
+        [
+            states["eef_finger1_pos"],
+            states["eef_finger2_pos"],
+            states["eef_finger3_pos"],
+            states["eef_finger4_pos"],
+        ],
+        dim=1,
+    )
+    hand_positions = torch.stack(
+        [
+            states["eef_wrist_pos"],
+            states["eef_pos"],
+            states["eef_finger1_pos"],
+            states["eef_finger2_pos"],
+            states["eef_finger3_pos"],
+            states["eef_finger4_pos"],
+        ],
+        dim=1,
+    )
 
     inside_wrong_side_forbidden_box = torch.zeros_like(states["lift"], dtype=torch.bool)
-    if bool(reward_settings["wrong_side_forbidden_box_enable"]) and any_wrong_side_logic_active:
-        hand_positions = torch.stack(
-            [
-                states["eef_wrist_pos"],
-                states["eef_pos"],
-                states["eef_finger1_pos"],
-                states["eef_finger2_pos"],
-                states["eef_finger3_pos"],
-                states["eef_finger4_pos"],
-            ],
-            dim=1,
-        )
+    if bool(reward_settings["wrong_side_forbidden_box_enable"]):
         object_quat_conj = quat_conjugate(states["object_quat"])
         object_bbox_half_extents = 0.5 * states["object_bbox_extent"]
         expanded_bbox_half_extents = object_bbox_half_extents + reward_settings["wrong_side_proximity_threshold"].unsqueeze(-1)
@@ -2170,6 +2861,7 @@ def compute_franka_leap_reward(states, reward_settings, skip_wrong_side_logic: b
         )
 
     # CODEX: Optional hand-object branch: fingertip-only height, palm+fingertip radial distance.
+    use_midheight_xy = bool(reward_settings["hand_obj_use_midheight_xy"])
     if use_midheight_xy:
         object_target_pos = states["object_grasp_target_pos"]
         finger_to_target = finger_positions - object_target_pos.unsqueeze(1)
@@ -2180,17 +2872,6 @@ def compute_franka_leap_reward(states, reward_settings, skip_wrong_side_logic: b
             torch.max(non_thumb_signed_height, dim=1)[0] + torch.min(non_thumb_signed_height, dim=1)[0]
         )
         # CODEX: tangential (radial-to-axis) component in object frame.
-        hand_positions = torch.stack(
-            [
-                states["eef_wrist_pos"],
-                states["eef_pos"],
-                states["eef_finger1_pos"],
-                states["eef_finger2_pos"],
-                states["eef_finger3_pos"],
-                states["eef_finger4_pos"],
-            ],
-            dim=1,
-        )
         hand_to_target = hand_positions - object_target_pos.unsqueeze(1)
         hand_radial = hand_to_target - torch.sum(
             hand_to_target * object_z_axis_world.unsqueeze(1), dim=-1, keepdim=True
@@ -2211,30 +2892,30 @@ def compute_franka_leap_reward(states, reward_settings, skip_wrong_side_logic: b
     # - on the configured grasp side, keep the normal grasping reward
     # - on the opposite side, replace it with a small recovery penalty that
     #   grows with distance from the grasp-side region
-    eef_rel_object = states["eef_pos"] - states["object_center_pos"]
-    grasp_side_sign = states["grasp_side_sign_effective"].squeeze(-1)
+    eef_rel_object = states["eef_rel_object_table"]
+    grasp_side_binary = states["grasp_side_binary"].squeeze(-1) > 0.5
+    grasp_side_sign = torch.where(
+        grasp_side_binary,
+        torch.ones_like(eef_rel_object[:, 1]),
+        -torch.ones_like(eef_rel_object[:, 1]),
+    )
     grasp_side_split_y_offset = reward_settings["grasp_side_split_y_offset"]
     signed_y_to_grasp_side = grasp_side_sign * eef_rel_object[:, 1]
     on_grasp_side = signed_y_to_grasp_side >= grasp_side_split_y_offset
-    prelift_recovery_mode = (~states["lift"]) & (~on_grasp_side) & wrong_side_logic_active
+    prelift_recovery_mode = (~states["lift"]) & (~on_grasp_side)
     d_recovery_region = torch.clamp(grasp_side_split_y_offset - signed_y_to_grasp_side, min=0.0)
     beta_recovery_region = reward_settings["beta_recovery_region"]
     r_recovery_region = -(1.0 - torch.exp(-beta_recovery_region * d_recovery_region))
     r_recovery_region = torch.where(prelift_recovery_mode, r_recovery_region, torch.zeros_like(r_recovery_region))
-    wrong_side_proximity_threshold = reward_settings["wrong_side_proximity_threshold"]
     wrong_side_proximity_penalty = reward_settings["wrong_side_proximity_penalty"]
-    wrong_side_forbidden_mask = torch.zeros_like(states["lift"], dtype=torch.bool)
     if bool(reward_settings["wrong_side_forbidden_box_enable"]):
-        wrong_side_forbidden_mask = inside_wrong_side_forbidden_box
-        if bool(reward_settings["wrong_side_forbidden_box_side_only"]):
-            wrong_side_forbidden_mask = wrong_side_forbidden_mask & (~flat_reset_active)
-        wrong_side_forbidden_mask = wrong_side_forbidden_mask & wrong_side_logic_active
         r_wrong_side_proximity = torch.where(
-            prelift_recovery_mode & wrong_side_forbidden_mask,
+            prelift_recovery_mode & inside_wrong_side_forbidden_box,
             -wrong_side_proximity_penalty * torch.ones_like(d_hand_obj),
             torch.zeros_like(d_hand_obj),
         )
     else:
+        wrong_side_proximity_threshold = reward_settings["wrong_side_proximity_threshold"]
         d_wrong_side_proximity = torch.clamp(wrong_side_proximity_threshold - d_hand_obj, min=0.0)
         r_wrong_side_proximity = torch.where(
             prelift_recovery_mode & (d_wrong_side_proximity > 0.0),
@@ -2261,18 +2942,11 @@ def compute_franka_leap_reward(states, reward_settings, skip_wrong_side_logic: b
     d_goal_align = states["point_matching_err_hand_axis"]
     beta_goal_align = reward_settings["beta_goal_align"]
     goal_align_gate_floor = reward_settings["goal_align_gate_floor"]
-    hand_obj_gate_floor = reward_settings["hand_obj_gate_floor"]
-    hand_obj_gate_curriculum_scale = reward_settings["hand_obj_gate_curriculum_scale"]
     r_goal_align = torch.exp(-beta_goal_align * d_goal_align)
     r_goal_align = torch.where(states["lift"], r_goal_align, torch.zeros_like(r_goal_align))
     goal_align_gate = goal_align_gate_floor + (1.0 - goal_align_gate_floor) * r_goal_align
-    hand_obj_gate_raw = hand_obj_gate_floor + (1.0 - hand_obj_gate_floor) * r_hand_obj
-    hand_obj_gate = 1.0 - hand_obj_gate_curriculum_scale * (1.0 - hand_obj_gate_raw)
-    hand_obj_gate_active = states["lift"] & (~flat_reset_active)
-    hand_obj_gate = torch.where(hand_obj_gate_active, hand_obj_gate, torch.ones_like(hand_obj_gate))
     r_obj_goal = torch.exp(-beta_object_goal * d_eef_point_goal_target)
-    r_obj_goal = torch.where(states["lift"], r_obj_goal * goal_align_gate * hand_obj_gate, 0.0)
-    r_lift = r_lift * hand_obj_gate
+    r_obj_goal = torch.where(states["lift"], r_obj_goal * goal_align_gate, 0.0)
 
     # R4: Hand orientation reward (based on average point matching distance)
     d_eef_point_goal_hand = states["point_matching_err_hand"]
@@ -2339,9 +3013,7 @@ def compute_franka_leap_reward(states, reward_settings, skip_wrong_side_logic: b
         "r_success_bonus": r_success_bonus,
         "r_actionreg": w_actionreg*r_actionreg,
         "r_total": r_total,
-        "inside_wrong_side_forbidden_box": (prelift_recovery_mode & wrong_side_forbidden_mask).float(),
-        "hand_obj_gate": hand_obj_gate,
-        "goal_align_gate": goal_align_gate,
+        "inside_wrong_side_forbidden_box": inside_wrong_side_forbidden_box.float(),
         "d_hand_obj": d_hand_obj,
         "d_lift": object_height,
         "d_eef_point_goal": d_eef_point_goal_target,

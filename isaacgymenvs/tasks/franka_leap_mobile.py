@@ -66,6 +66,19 @@ class FrankaLEAPMobile(VecTask):
         self.mesh_args = self.cfg["env"]["mesh"]
         self.object_wrench_args = self.cfg["env"]["object_wrench"]
         self.object_teleport_args = self.cfg["env"]["object_teleport"]
+        self.object_teleport_mode = str(self.object_teleport_args.get("mode", "schedule"))
+        self.object_teleport_fixed_prob = float(self.object_teleport_args.get("per_env_prob", 0.0))
+        teleport_success_cfg = self.object_teleport_args.get("success_curriculum", {})
+        teleport_num_increments = max(int(teleport_success_cfg.get("num_increments", 1)), 1)
+        teleport_start_stage = int(teleport_success_cfg.get("start_stage", 0))
+        teleport_start_stage = max(0, min(teleport_start_stage, teleport_num_increments))
+        self.object_teleport_curriculum_stage = teleport_start_stage
+        self.object_teleport_curriculum_stable_steps = 0
+        self.object_teleport_curriculum_scale = (
+            min(float(teleport_start_stage) / float(teleport_num_increments), 1.0)
+            if bool(teleport_success_cfg.get("enable", False))
+            else 1.0
+        )
         self.eef_init = self.cfg["env"]["eef_init"]
         self.distractor_settings = self.cfg["env"]["distractor_settings"]
         self.enable_fabric = self.cfg['fabric']['enable']
@@ -194,6 +207,12 @@ class FrankaLEAPMobile(VecTask):
         self.success_5cm_per_step = torch.zeros((self.num_envs,), dtype=torch.bool, device=self.device) # success within 5cm threshold
         self.lifting_flags = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device)
         self.lifting_5cm_per_step = torch.zeros((self.num_envs,), dtype=torch.bool, device=self.device)
+        self.success_flags_instant = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device)
+        self.lifting_flags_instant = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device)
+        self.success_duration = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device)
+        self.lifting_duration = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device)
+        self.success_long_enough = torch.zeros((self.num_envs,), dtype=torch.bool, device=self.device)
+        self.lifting_long_enough = torch.zeros((self.num_envs,), dtype=torch.bool, device=self.device)
 
         self.static_scene_pcd_t0 = self.static_pcds.clone()
 
@@ -217,18 +236,33 @@ class FrankaLEAPMobile(VecTask):
         # teleport init
         self.num_teleport_envs = int(round(self.object_teleport_args['env_proportion'] * self.num_envs))
         self.teleport_env_ids = torch.randperm(self.num_envs, device=self.device)[:self.num_teleport_envs]
-        tele_n0 = self.object_teleport_args['n0']
-        tele_n1 = self.object_teleport_args['n1']
-        tele_n2 = self.object_teleport_args['n2']
-        self.teleport_probs = torch.zeros(tele_n2, dtype=torch.float32, device=self.device)
-        self.teleport_probs[tele_n0:tele_n1] = 0.5 / (tele_n1 - tele_n0) # until n1 steps, the probability of teleporting sum up to 0.5
-        # for n1~n2 steps, increase the teleport probability quadratically from 0.5 / (tele_n1 - tele_n0) to 1.0
-        indexing = torch.arange(tele_n1, tele_n2, dtype=torch.float32, device=self.device)
-        quad_c = 0.5 / (tele_n1 - tele_n0)
-        quad_b = tele_n1
-        quad_a = (1 - quad_c) / ( (tele_n2 - quad_b)**2 )
-        self.teleport_probs[tele_n1:] = quad_a*(indexing + 1 - quad_b)**2 + quad_c
+        if self.object_teleport_mode == "fixed_prob":
+            self.teleport_schedule_len = 1
+            self.teleport_probs = torch.full((1,), self.object_teleport_fixed_prob, dtype=torch.float32, device=self.device)
+        else:
+            tele_n0 = max(0, int(self.object_teleport_args['n0']))
+            tele_n1 = max(tele_n0, int(self.object_teleport_args['n1']))
+            tele_n2 = max(tele_n1, int(self.object_teleport_args['n2']))
+            schedule_len = max(tele_n2, 1)
+            self.teleport_schedule_len = schedule_len
+            self.teleport_probs = torch.zeros(schedule_len, dtype=torch.float32, device=self.device)
+            if tele_n2 == 0:
+                self.teleport_probs[:] = 1.0
+            else:
+                flat_prob = 0.0
+                if tele_n1 > tele_n0:
+                    flat_prob = 0.5 / (tele_n1 - tele_n0)
+                    self.teleport_probs[tele_n0:tele_n1] = flat_prob
+
+                if tele_n2 > tele_n1:
+                    indexing = torch.arange(tele_n1, tele_n2, dtype=torch.float32, device=self.device)
+                    quad_b = tele_n1
+                    quad_a = (1 - flat_prob) / ((tele_n2 - quad_b) ** 2)
+                    self.teleport_probs[tele_n1:tele_n2] = quad_a * (indexing + 1 - quad_b) ** 2 + flat_prob
+                elif tele_n1 > 0:
+                    self.teleport_probs[tele_n1 - 1:] = flat_prob
         self.teleport_buf = torch.zeros((self.num_envs,), dtype=torch.int, device=self.device)
+        self.object_teleport_last_count = 0
         # Codex
         # Latched until consumed by distillation logic, so resets across chunked steps are preserved.
         self.object_reset_mask = torch.zeros((self.num_envs,), dtype=torch.bool, device=self.device)
@@ -264,7 +298,7 @@ class FrankaLEAPMobile(VecTask):
         from curobo.util_file import get_robot_configs_path, join_path, load_yaml
         from curobo.wrap.reacher.ik_solver import IKSolver, IKSolverConfig
 
-        tensor_args = TensorDeviceType()
+        tensor_args = TensorDeviceType(device=torch.device(self.device))
         config_file = load_yaml(join_path(get_robot_configs_path(), "franka.yml"))
         urdf_file = config_file["robot_cfg"]["kinematics"][
             "urdf_path"
@@ -483,6 +517,8 @@ class FrankaLEAPMobile(VecTask):
             "target_quat": target_quat,
             "target_rot_6d": matrix_to_rotation_6d(quaternion_to_matrix_ig(target_quat)),
             "curl_reaching_threshold": to_torch(self.cfg["reward"]["params"]["curl_reaching_threshold"], device=self.device),
+            "success_timeout": to_torch(self.cfg["reward"]["params"]["success_timeout"], device=self.device),
+            "lifting_timeout": to_torch(self.cfg["reward"]["params"]["lifting_timeout"], device=self.device),
             "object_init_height": self.mesh_aabb_extents[:, 2] / 2 + self.table_surface_height,
             "grasp_finger_dof_pos": self.grasp_finger_dof_pos,
 
@@ -1411,6 +1447,49 @@ class FrankaLEAPMobile(VecTask):
             gymapi.ENV_SPACE,  # ENV_SPACE (world) or LOCAL_SPACE
         )
 
+    def _object_teleport_success_curriculum_enabled(self):
+        success_cfg = self.object_teleport_args.get("success_curriculum", {})
+        return bool(success_cfg.get("enable", False))
+
+    def _get_object_teleport_curriculum_scale(self):
+        if self._object_teleport_success_curriculum_enabled():
+            success_cfg = self.object_teleport_args.get("success_curriculum", {})
+            num_increments = max(int(success_cfg.get("num_increments", 1)), 1)
+            return min(float(self.object_teleport_curriculum_stage) / float(num_increments), 1.0)
+        return min(self.sim_steps / self.object_teleport_args["curri_steps"], 1.0)
+
+    def _update_object_teleport_success_curriculum(self, success_rate):
+        if not self._object_teleport_success_curriculum_enabled():
+            self.object_teleport_curriculum_scale = self._get_object_teleport_curriculum_scale()
+            return
+
+        success_cfg = self.object_teleport_args.get("success_curriculum", {})
+        success_threshold = float(success_cfg.get("success_threshold", 0.5))
+        success_steps = max(int(success_cfg.get("success_steps", 1)), 1)
+        num_increments = max(int(success_cfg.get("num_increments", 1)), 1)
+
+        if self.object_teleport_curriculum_stage >= num_increments:
+            self.object_teleport_curriculum_stable_steps = 0
+            self.object_teleport_curriculum_scale = 1.0
+            return
+
+        if float(success_rate) >= success_threshold:
+            self.object_teleport_curriculum_stable_steps += 1
+        else:
+            self.object_teleport_curriculum_stable_steps = 0
+
+        if self.object_teleport_curriculum_stable_steps >= success_steps:
+            self.object_teleport_curriculum_stage += 1
+            self.object_teleport_curriculum_stable_steps = 0
+            self.object_teleport_curriculum_scale = self._get_object_teleport_curriculum_scale()
+            print(
+                f"[object_teleport_curriculum] stage={self.object_teleport_curriculum_stage}/{num_increments} "
+                f"scale={self.object_teleport_curriculum_scale:.3f} "
+                f"success_rate={float(success_rate):.3f}"
+            )
+        else:
+            self.object_teleport_curriculum_scale = self._get_object_teleport_curriculum_scale()
+
     def _pre_physics_step_teacher(self, actions):
         """
         Args:
@@ -1547,13 +1626,17 @@ class FrankaLEAPMobile(VecTask):
             if self.sim_steps % (self.max_episode_length * self.object_teleport_args['swap_freq']) == 0:
                 self.teleport_env_ids = torch.randperm(self.num_envs, device=self.device)[:self.num_teleport_envs]
 
-            curri_factor = min(self.sim_steps / self.object_teleport_args['curri_steps'], 1.0)
+            curri_factor = self._get_object_teleport_curriculum_scale()
+            self.object_teleport_curriculum_scale = curri_factor
             # teleport object (note this is in addition to normal reset)
             _teleport_buf = self.teleport_buf[self.teleport_env_ids] # get the corresponding teleport buffer
             apply_teleport = (self.teleport_probs[_teleport_buf] * curri_factor) > torch.rand(len(_teleport_buf), device=self.device)
             apply_teleport_env_ids = self.teleport_env_ids[apply_teleport]
+            self.object_teleport_last_count = int(apply_teleport_env_ids.numel())
 
             env_ids = torch.unique(torch.cat([env_ids, apply_teleport_env_ids], dim=0))
+        else:
+            self.object_teleport_last_count = 0
 
         # Codex
         if env_ids.numel() > 0:
@@ -1618,7 +1701,7 @@ class FrankaLEAPMobile(VecTask):
 
         self.progress_buf += 1
         self.teleport_buf += 1
-        self.teleport_buf = self.teleport_buf % self.object_teleport_args['n2']
+        self.teleport_buf = self.teleport_buf % self.teleport_schedule_len
 
         env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
         self.reset_idx(env_ids)
@@ -1723,6 +1806,12 @@ class FrankaLEAPMobile(VecTask):
 
         self.success_flags[env_ids] = 0
         self.lifting_flags[env_ids] = 0
+        self.success_flags_instant[env_ids] = 0
+        self.lifting_flags_instant[env_ids] = 0
+        self.success_duration[env_ids] = 0
+        self.lifting_duration[env_ids] = 0
+        self.success_long_enough[env_ids] = False
+        self.lifting_long_enough[env_ids] = False
         self.progress_buf[env_ids] = 0
         self.reset_buf[env_ids] = 0
 

@@ -50,11 +50,34 @@ env:
       extra_surrounding_obstacles_range: [2, 3] # [4, 6] # low & high inclusive
       shift_other_obstacles_range: [0.1, 0.2]
 
+  object_settings:
+    object_grasp_target_z_scale: 0.4
+    lie_flat_prob: 1.0
+
   robot_init:
     # TODO: need to ensure the object is visible in initial camera frame, shift y by 0.3 according to vision arm location, also largely decrease ori rand
     base_init_range: [[-1.0, -0.25, -0.3], [-0.2, 0.25, 0.3]] # [[-0.2, 0.0, 0.0], [-0.2, 0.0, 0.0]] # x, y, yaw
     switch_pos_offset: [0.0, 0.0, 0.2]
     switch_tol: 0.2
+
+  object_teleport:
+    enable: True
+    mode: fixed_prob
+    preserve_orientation: False
+    env_proportion: 0.3
+    per_env_prob: 0.0035714285714285713
+    curri_steps: 20000
+    swap_freq: 3
+    n0: 10
+    n1: 150
+    n2: 100
+    min_xy_dist_resample_rounds: 12
+    success_curriculum:
+      enable: True
+      success_threshold: 0.85
+      success_steps: 500
+      num_increments: 10
+      start_stage: 1
 
   eef_init:
     enable: True
@@ -71,9 +94,13 @@ fabric:
 reward:
   params:
     target_pos: [0.5, 0.0, 0.3]
+    target_pos_after_lift_base: [0.5, 0.0, 0.3]
+    target_pos_after_lift_z_from_table: 0.3
+    target_pos_after_lift_noise: [0.1, 0.1, 0.0]
     target_lift_dis: 0.1
     target_quat: [1.0, 0.0, 0.0, 0.0]
     curl_reaching_threshold: 0.15
+    resample_target_on_success: False
 
   exp:
     beta_hand_object: 5.0

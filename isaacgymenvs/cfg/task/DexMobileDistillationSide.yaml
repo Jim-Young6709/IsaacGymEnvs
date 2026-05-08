@@ -9,13 +9,19 @@ name: FrankaLEAPMobileDistillationPickSide
 env:
   scene:
     table_size_range: [[0.5, 0.6, 0.05], [0.7, 1.2, 0.05]] # [[0.5, 0.6, 0.01], [0.7, 1.2, 0.1]]
-    z_shift_range: [0.3, 0.8]  #[0.01, 0.8]
+    z_shift_range: [0.4, 0.8]  #[0.01, 0.8]
+    teacher_bank_height_bins: 0
+    teacher_bank_variation_json: null
+    teacher_bank_height_assignment_json: null
   teacher_obs_action_frame: "eef"
+  rl_reference_table_surface_height: 0.175
   object_settings:
     object_grasp_target_z_scale: 0.25 # @ray z scale for the hand-object reward, special for side grasp
-    xyz_range: [[0.45, -0.3, 0.2], [0.55, 0.3, 0.25]] # [[0.45, -0.2, 0.2], [0.55, 0.2, 0.25]] # xy is center position, z is BOTTOM height
+    robot_side_x_margin: 0.1
+    xyz_range: [[0.25, -0.2, 0.2], [0.55, 0.2, 0.25]] # [[0.45, -0.3, 0.2], [0.55, 0.3, 0.25]]  # xy is center position, z is BOTTOM height
   robot_init:
-    base_init_range: [[-0.4, -0.2, -0.08], [-1.0, 0.2, 0.08]] # [[-1.0, -0.2, -0.08], [-0.2, -0.2, 0.08]] # x, y, yaw
+    base_init_range: [[-0.4, -0.2, -0.08], [-1.0, 0.2, 0.08]] #[[-0.4, -0.2, -0.08], [-1.0, 0.2, 0.08]] # [[-1.0, -0.2, -0.08], [-0.2, -0.2, 0.08]] # x, y, yaw
+    resample_base_each_reset: True
     switch_pos_offset: [0.0, 0.0, 0.2]
     switch_tol: 0.1 # 0.05
 
@@ -44,25 +50,71 @@ env:
     min_xy_dist_resample_rounds: 12
     force_right_of_eef: False
 
-  numObservations: 51
-  numStates: 96
+  numObservations: 60
+  numStates: 105
   numActions: 22 # delta eef actions 6 (xyz, rpy) + normalized hand joint actions 16
 
   eef_init:
     target_quat_noise_deg: 10
+    pitch_roll_noise_deg: 45.0
     dir_candidates_per_env: 5
     side_mode: left
 
+    upright_near_table_recovery_prob: 0.0
+    upright_near_table_base_init_range: [[-0.2, -0.4, -0.08], [-0.4, 0.2, 0.08]]
+    upright_near_table_palm_rel_object_min: [-0.24, -0.24, 0.0]
+    upright_near_table_palm_rel_object_max: [0.24, 0.24, 0.18]
+    upright_near_table_far_recovery_prob: 0.0
+    upright_near_table_palm_rel_object_far_min: [-0.40, -0.40, 0.0]
+    upright_near_table_palm_rel_object_far_max: [0.40, 0.40, 0.3]
+    upright_near_table_palm_rel_base_min: [0.20, -0.35, 0.02]
+    upright_near_table_palm_rel_base_max: [0.65, 0.35, 0.16]
+    upright_near_table_min_palm_object_dist: 0.05
+    upright_near_table_max_resample_attempts: 32
+    upright_near_table_bank_size: 128
+    upright_near_table_bank_max_ik_goals: 2048
+
   fabric_switch:
+    mode: simple_anchor # staged | simple_anchor
     lateral_offset: 0.2
-    high_z_offset: 0.35
+    high_z_offset: 0.2
     high_z_tol: 0.05
-    stage3_z_offset: 0.3
+    stage3_z_offset: 0.025
     stage2_xy_tol: 0.1
     stage3_xy_tol: 0.1
     stage3_xy_tol_exit: 0.13
-    teacher_activate_z_offset: 0.35
-    flat_table_reset_steps: 30
+    object_xy_tol_exit: 0.23
+    teacher_activate_z_offset: 0.075
+    flat_table_reset_steps: 1
+    bad_state_xy_margin: 0.05
+
+    simple_lateral_offset: 0.15
+    simple_high_z_offset: 0.2
+    simple_high_z_tol: 0.05
+    simple_activate_radius: 0.25
+    simple_activate_radius_exit: 0.28
+    simple_teacher_activate_z_offset: 0.075
+
+  verified_teacher_bank:
+    enable: False
+    hdf5_path: ./teacher_state_banks/side_verified_teacher_states.hdf5
+    capacity_per_env: 8 # collection target per shared variation; also the local per-rank storage cap
+    correct_region_margin: 0.03
+    collection_region_filter: all # options: all, correct_only, wrong_only
+    far_recovery_hand_noise_scale: 1.0
+    far_recovery_hand_bank_size: 1024
+    far_recovery_hand_bank_candidate_batch_size: 256
+    far_recovery_hand_bank_max_rounds: 64
+    far_recovery_hand_bank_points_per_link: 24
+    far_recovery_hand_bank_min_link_distance: 0.004
+    sampling_probs:
+      afar: 0.4
+      near_recovery: 0.3
+      far_recovery: 0.3
+  activation_snapshot_bank:
+    enable: False
+    hdf5_path: ./teacher_state_banks/side_activation_snapshots.hdf5
+    capacity_per_env: 64 # local per-rank snapshot cap per env slot before repack by variation
 
 fabric:
   enable: True
@@ -70,11 +122,14 @@ fabric:
 observation:
   usage:
     use_z: True
-    use_xy: False
+    use_xy: True
 
 reward:
   params:
-    target_pos: [0.5, 0.0, 0.3]
+    target_pos: [0.5, 0.0, 0.55]
+    target_pos_noise: [0.1, 0.1, 0.2]
+    target_pos_after_lift_base: [0.75, 0.0, 0.65]
+    target_pos_after_lift_z_from_table: 0.35
     target_lift_dis: 0.1
     target_quat_right: [-0.7071067811865475, 0.0, 0.0, 0.7071067811865476]
     target_quat_left: [0.7071067811865475, 0.0, 0.0, 0.7071067811865476]

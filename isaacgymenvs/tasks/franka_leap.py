@@ -34,7 +34,6 @@ from scipy.spatial.transform import Rotation as R
 from curobo.types.math import Pose
 
 
-
 class FrankaLEAP(VecTask):
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
         self.cfg = cfg
@@ -47,7 +46,31 @@ class FrankaLEAP(VecTask):
         self.mesh_args = self.cfg["env"]["mesh"]
         self.object_center_z_scale = float(self.cfg["env"]["object_settings"]["object_center_z_scale"])
         self.object_wrench_args = self.cfg["env"]["object_wrench"]
+        wrench_success_cfg = self.object_wrench_args.get("success_curriculum", {})
+        wrench_num_increments = max(int(wrench_success_cfg.get("num_increments", 1)), 1)
+        wrench_start_stage = int(wrench_success_cfg.get("start_stage", 0))
+        wrench_start_stage = max(0, min(wrench_start_stage, wrench_num_increments))
+        self.object_wrench_curriculum_stage = wrench_start_stage
+        self.object_wrench_curriculum_stable_steps = 0
+        self.object_wrench_curriculum_scale = (
+            min(float(wrench_start_stage) / float(wrench_num_increments), 1.0)
+            if bool(wrench_success_cfg.get("enable", False))
+            else 1.0
+        )
         self.object_teleport_args = self.cfg["env"]["object_teleport"]
+        self.object_teleport_mode = str(self.object_teleport_args.get("mode", "schedule"))
+        self.object_teleport_fixed_prob = float(self.object_teleport_args.get("per_env_prob", 0.0))
+        teleport_success_cfg = self.object_teleport_args.get("success_curriculum", {})
+        teleport_num_increments = max(int(teleport_success_cfg.get("num_increments", 1)), 1)
+        teleport_start_stage = int(teleport_success_cfg.get("start_stage", 0))
+        teleport_start_stage = max(0, min(teleport_start_stage, teleport_num_increments))
+        self.object_teleport_curriculum_stage = teleport_start_stage
+        self.object_teleport_curriculum_stable_steps = 0
+        self.object_teleport_curriculum_scale = (
+            min(float(teleport_start_stage) / float(teleport_num_increments), 1.0)
+            if bool(teleport_success_cfg.get("enable", False))
+            else 1.0
+        )
         self.eef_init = self.cfg["env"]["eef_init"]
         self.distractor_settings = self.cfg["env"]["distractor_settings"]
         self.video_logging = self.cfg["env"]["video_logging"]
@@ -173,8 +196,20 @@ class FrankaLEAP(VecTask):
                 0.0000, 0.0000, 0.0000, 0.0000,
                 0.0000, 0.0000, 0.0000, 0.0000,
             ]
-            # @ray default 2 is being used
-            self.hand_default = ([hand_default_1] + [hand_default_2] + [hand_default_3])[self.cfg['env']['grasp_guide_idx']]
+            hand_default_4 = [
+                0.9500, -0.2000, 0.9500, 0.5700,
+                1.8100,  0.2500, 0.1700, 0.6500,
+                0.9000,  0.0000, 0.9000, 0.7300,
+                0.9500,  0.2000, 0.9500, 0.7300,
+            ]
+            hand_defaults = [hand_default_1, hand_default_2, hand_default_3, hand_default_4]
+            grasp_guide_idx = int(self.cfg['env']['grasp_guide_idx'])
+            if grasp_guide_idx < 0 or grasp_guide_idx >= len(hand_defaults):
+                raise ValueError(
+                    f"Invalid grasp_guide_idx={grasp_guide_idx}. "
+                    f"Expected one of 0..{len(hand_defaults) - 1}."
+                )
+            self.hand_default = hand_defaults[grasp_guide_idx]
 
             self.canonical_joint_config = torch.tensor(
                 [
@@ -223,26 +258,31 @@ class FrankaLEAP(VecTask):
         # teleport init
         self.num_teleport_envs = int(round(self.object_teleport_args['env_proportion'] * self.num_envs))
         self.teleport_env_ids = torch.randperm(self.num_envs, device=self.device)[:self.num_teleport_envs]
-        tele_n0 = max(0, int(self.object_teleport_args['n0']))
-        tele_n1 = max(tele_n0, int(self.object_teleport_args['n1']))
-        tele_n2 = max(tele_n1, int(self.object_teleport_args['n2']))
-        schedule_len = max(tele_n2, 1)
-        self.teleport_probs = torch.zeros(schedule_len, dtype=torch.float32, device=self.device)
-        if tele_n2 == 0:
-            self.teleport_probs[:] = 1.0
+        if self.object_teleport_mode == "fixed_prob":
+            self.teleport_schedule_len = 1
+            self.teleport_probs = torch.full((1,), self.object_teleport_fixed_prob, dtype=torch.float32, device=self.device)
         else:
-            flat_prob = 0.0
-            if tele_n1 > tele_n0:
-                flat_prob = 0.5 / (tele_n1 - tele_n0)
-                self.teleport_probs[tele_n0:tele_n1] = flat_prob
+            tele_n0 = max(0, int(self.object_teleport_args['n0']))
+            tele_n1 = max(tele_n0, int(self.object_teleport_args['n1']))
+            tele_n2 = max(tele_n1, int(self.object_teleport_args['n2']))
+            schedule_len = max(tele_n2, 1)
+            self.teleport_schedule_len = schedule_len
+            self.teleport_probs = torch.zeros(schedule_len, dtype=torch.float32, device=self.device)
+            if tele_n2 == 0:
+                self.teleport_probs[:] = 1.0
+            else:
+                flat_prob = 0.0
+                if tele_n1 > tele_n0:
+                    flat_prob = 0.5 / (tele_n1 - tele_n0)
+                    self.teleport_probs[tele_n0:tele_n1] = flat_prob
 
-            if tele_n2 > tele_n1:
-                indexing = torch.arange(tele_n1, tele_n2, dtype=torch.float32, device=self.device)
-                quad_b = tele_n1
-                quad_a = (1 - flat_prob) / ((tele_n2 - quad_b) ** 2)
-                self.teleport_probs[tele_n1:tele_n2] = quad_a * (indexing + 1 - quad_b) ** 2 + flat_prob
-            elif tele_n1 > 0:
-                self.teleport_probs[tele_n1 - 1:] = flat_prob
+                if tele_n2 > tele_n1:
+                    indexing = torch.arange(tele_n1, tele_n2, dtype=torch.float32, device=self.device)
+                    quad_b = tele_n1
+                    quad_a = (1 - flat_prob) / ((tele_n2 - quad_b) ** 2)
+                    self.teleport_probs[tele_n1:tele_n2] = quad_a * (indexing + 1 - quad_b) ** 2 + flat_prob
+                elif tele_n1 > 0:
+                    self.teleport_probs[tele_n1 - 1:] = flat_prob
         self.teleport_buf = torch.zeros((self.num_envs,), dtype=torch.int, device=self.device)
 
     def _build_joint_mapping(self):
@@ -273,7 +313,7 @@ class FrankaLEAP(VecTask):
         from curobo.util_file import get_robot_configs_path, join_path, load_yaml
         from curobo.wrap.reacher.ik_solver import IKSolver, IKSolverConfig
 
-        tensor_args = TensorDeviceType()
+        tensor_args = TensorDeviceType(device=torch.device(self.device))
         config_file = load_yaml(join_path(get_robot_configs_path(), "franka.yml"))
         urdf_file = config_file["robot_cfg"]["kinematics"][
             "urdf_path"
@@ -297,21 +337,23 @@ class FrankaLEAP(VecTask):
         )
         self.ik_solver = IKSolver(ik_config)
 
+        ik_config_reset = IKSolverConfig.load_from_robot_config(
+            robot_cfg,
+            None,
+            rotation_threshold=0.05,
+            position_threshold=0.005,
+            num_seeds=10,
+            self_collision_check=False,
+            self_collision_opt=False,
+            tensor_args=tensor_args,
+            use_cuda_graph=False,
+            regularization=True,
+            grad_iters=None
+        )
+        self.ik_solver_reset = IKSolver(ik_config_reset)
+
         if self.debug_viz:
-            ik_config_debug = IKSolverConfig.load_from_robot_config(
-                robot_cfg,
-                None,
-                rotation_threshold=0.05,
-                position_threshold=0.005,
-                num_seeds=10,
-                self_collision_check=False,
-                self_collision_opt=False,
-                tensor_args=tensor_args,
-                use_cuda_graph=False,
-                regularization=True,
-                grad_iters=None
-            )
-            self.ik_solver_debug = IKSolver(ik_config_debug)
+            self.ik_solver_debug = IKSolver(ik_config_reset)
 
     def create_sim(self):
         self.sim_params.up_axis = gymapi.UP_AXIS_Z
@@ -411,6 +453,7 @@ class FrankaLEAP(VecTask):
         robot_handle = 0
         self.handles = {
             # FrankaLEAP
+            "wrist": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "panda_link7"),
             "hand": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "palm_center"),
             "finger1_tip": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "index_tip_head"),
             "finger2_tip": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "middle_tip_head"),
@@ -433,6 +476,7 @@ class FrankaLEAP(VecTask):
         self.num_bodies = self._rigid_body_state.shape[1]
         self._q = self._dof_state[..., 0]
         self._qd = self._dof_state[..., 1]
+        self._eef_wrist_state = self._rigid_body_state[:, self.handles["wrist"], :]
         self._eef_state = self._rigid_body_state[:, self.handles["hand"], :]
         self._eef_finger1_state = self._rigid_body_state[:, self.handles["finger1_tip"], :]
         self._eef_finger2_state = self._rigid_body_state[:, self.handles["finger2_tip"], :]
@@ -485,8 +529,21 @@ class FrankaLEAP(VecTask):
             0.65, 0.0, 1.04,  0.65,
             1.1,  -0.11,  0.91,  0.86,
         ]
+        grasp_default_4 = [
+            0.9500, -0.2000, 0.9500, 0.5700,
+            1.8100,  0.2500, 0.1700, 0.6500,
+            0.9000,  0.0000, 0.9000, 0.7300,
+            0.9500,  0.2000, 0.9500, 0.7300,
+        ]
 
-        self.grasp_default = ([grasp_default_1] + [grasp_default_2] + [grasp_default_3])[self.cfg['env']['grasp_guide_idx']]
+        grasp_defaults = [grasp_default_1, grasp_default_2, grasp_default_3, grasp_default_4]
+        grasp_guide_idx = int(self.cfg['env']['grasp_guide_idx'])
+        if grasp_guide_idx < 0 or grasp_guide_idx >= len(grasp_defaults):
+            raise ValueError(
+                f"Invalid grasp_guide_idx={grasp_guide_idx}. "
+                f"Expected one of 0..{len(grasp_defaults) - 1}."
+            )
+        self.grasp_default = grasp_defaults[grasp_guide_idx]
 
         self.grasp_finger_dof_pos = torch.tensor(self.grasp_default, device=self.device)
 
@@ -1031,6 +1088,7 @@ class FrankaLEAP(VecTask):
             "q": self._q[:, :],
             "q_hand": self._q[:, 7:],
             "qd": self._qd[:, :],
+            "eef_wrist_pos": self._eef_wrist_state[:, :3],
             "eef_pos": self._eef_state[:, :3],
             "eef_quat": self._eef_state[:, 3:7],
             "eef_rot_6d": eef_rot_6d,
@@ -1176,7 +1234,7 @@ class FrankaLEAP(VecTask):
             ) + lower_limits
         return unnormalized
 
-    def get_joint_from_ee(self, eef_pose, return_success=False, use_debug=False):
+    def get_joint_from_ee(self, eef_pose, return_success=False, use_debug=False, use_reset_solver=False):
         """
         Get the joint angles from the end effector pose. This func is well tested
         Args:
@@ -1190,26 +1248,29 @@ class FrankaLEAP(VecTask):
         eef_quat_wxyz = eef_quat_xyzw[:, [3, 0, 1, 2]]
 
         B = eef_pose.shape[0]
-        B_pad = self.num_envs - B
+        use_dynamic_solver = use_debug or use_reset_solver
+        if not use_dynamic_solver:
+            B_pad = self.num_envs - B
+            if B_pad > 0:
+                eef_pos_dummy = torch.tensor([[0.3, 0.0, 0.3]] * B_pad, dtype=torch.float, device=self.device)
+                eef_quat_wxyz_dummy = torch.tensor([[1.0, 0.0, 0.0, 0.0]] * B_pad, dtype=torch.float, device=self.device)
 
-        if B_pad > 0:
-            eef_pos_dummy = torch.tensor([[0.3, 0.0, 0.3]]*B_pad, dtype=torch.float, device=self.device)
-            eef_quat_wxyz_dummy = torch.tensor([[1.0, 0.0, 0.0, 0.0]]*B_pad, dtype=torch.float, device=self.device)
-
-            eef_pos = torch.cat((eef_pos, eef_pos_dummy), dim=0)
-            eef_quat_wxyz = torch.cat((eef_quat_wxyz, eef_quat_wxyz_dummy), dim=0)
+                eef_pos = torch.cat((eef_pos, eef_pos_dummy), dim=0)
+                eef_quat_wxyz = torch.cat((eef_quat_wxyz, eef_quat_wxyz_dummy), dim=0)
 
         goal = Pose(eef_pos, eef_quat_wxyz) # Pose need quat in wxyz format
-        solver = self.ik_solver_debug if use_debug else self.ik_solver
+        if use_reset_solver:
+            solver = self.ik_solver_reset
+        elif use_debug:
+            solver = self.ik_solver_debug
+        else:
+            solver = self.ik_solver
         result = solver.solve_batch(
             goal_pose=goal,
             retract_config=self.ik_regularization_config,
         )
         if torch.any(result.success[:B] == False):
-            # @ray report only the real envs
             failed = (~result.success[:B]).nonzero(as_tuple=False).squeeze(-1)
-            # print(f"IK solver failed for some environments: {failed}/{B}")
-            # TODO: need to think a bit how to handle such cases
 
         q_solution = result.solution[:B, 0]
         if return_success:
@@ -1298,7 +1359,8 @@ class FrankaLEAP(VecTask):
             if self.sim_steps % (self.max_episode_length * self.object_teleport_args['swap_freq']) == 0:
                 self.teleport_env_ids = torch.randperm(self.num_envs, device=self.device)[:self.num_teleport_envs]
 
-            curri_factor = min(self.sim_steps / self.object_teleport_args['curri_steps'], 1.0)
+            curri_factor = self._get_object_teleport_curriculum_scale()
+            self.object_teleport_curriculum_scale = curri_factor
             # teleport object (note this is in addition to normal reset)
             _teleport_buf = self.teleport_buf[self.teleport_env_ids] # get the corresponding teleport buffer
             apply_teleport = (self.teleport_probs[_teleport_buf] * curri_factor) > torch.rand(len(_teleport_buf), device=self.device)
@@ -1653,8 +1715,113 @@ class FrankaLEAP(VecTask):
             self.rigid_body_forces[env_ids] = 0
             self.rigid_body_torques[env_ids] = 0
 
+    def _object_wrench_success_curriculum_enabled(self):
+        success_cfg = self.object_wrench_args.get("success_curriculum", {})
+        return bool(success_cfg.get("enable", False))
+
+    def _object_teleport_success_curriculum_enabled(self):
+        success_cfg = self.object_teleport_args.get("success_curriculum", {})
+        return bool(success_cfg.get("enable", False))
+
+    def _get_object_wrench_curriculum_scale(self):
+        if self._object_wrench_success_curriculum_enabled():
+            success_cfg = self.object_wrench_args.get("success_curriculum", {})
+            num_increments = max(int(success_cfg.get("num_increments", 1)), 1)
+            return min(float(self.object_wrench_curriculum_stage) / float(num_increments), 1.0)
+        return min(self.sim_steps / self.object_wrench_args["curri_steps"], 1)
+
+    def _get_object_teleport_curriculum_scale(self):
+        if self._object_teleport_success_curriculum_enabled():
+            success_cfg = self.object_teleport_args.get("success_curriculum", {})
+            num_increments = max(int(success_cfg.get("num_increments", 1)), 1)
+            return min(float(self.object_teleport_curriculum_stage) / float(num_increments), 1.0)
+        return min(self.sim_steps / self.object_teleport_args["curri_steps"], 1)
+
+    def _update_object_wrench_success_curriculum(self, success_rate):
+        if not self._object_wrench_success_curriculum_enabled():
+            self.object_wrench_curriculum_scale = self._get_object_wrench_curriculum_scale()
+            return
+
+        success_cfg = self.object_wrench_args.get("success_curriculum", {})
+        success_threshold = float(success_cfg.get("success_threshold", 0.5))
+        success_steps = max(int(success_cfg.get("success_steps", 1)), 1)
+        num_increments = max(int(success_cfg.get("num_increments", 1)), 1)
+
+        if self.object_wrench_curriculum_stage >= num_increments:
+            self.object_wrench_curriculum_stable_steps = 0
+            self.object_wrench_curriculum_scale = 1.0
+            return
+
+        if float(success_rate) >= success_threshold:
+            self.object_wrench_curriculum_stable_steps += 1
+        else:
+            self.object_wrench_curriculum_stable_steps = 0
+
+        if self.object_wrench_curriculum_stable_steps >= success_steps:
+            self.object_wrench_curriculum_stage += 1
+            self.object_wrench_curriculum_stable_steps = 0
+            self.object_wrench_curriculum_scale = self._get_object_wrench_curriculum_scale()
+            print(
+                f"[object_wrench_curriculum] stage={self.object_wrench_curriculum_stage}/{num_increments} "
+                f"scale={self.object_wrench_curriculum_scale:.3f} "
+                f"success_rate={float(success_rate):.3f}"
+            )
+        else:
+            self.object_wrench_curriculum_scale = self._get_object_wrench_curriculum_scale()
+
+    def _update_object_teleport_success_curriculum(self, success_rate):
+        if not self._object_teleport_success_curriculum_enabled():
+            self.object_teleport_curriculum_scale = self._get_object_teleport_curriculum_scale()
+            return
+
+        success_cfg = self.object_teleport_args.get("success_curriculum", {})
+        success_threshold = float(success_cfg.get("success_threshold", 0.5))
+        success_steps = max(int(success_cfg.get("success_steps", 1)), 1)
+        num_increments = max(int(success_cfg.get("num_increments", 1)), 1)
+
+        if self.object_teleport_curriculum_stage >= num_increments:
+            self.object_teleport_curriculum_stable_steps = 0
+            self.object_teleport_curriculum_scale = 1.0
+            return
+
+        if float(success_rate) >= success_threshold:
+            self.object_teleport_curriculum_stable_steps += 1
+        else:
+            self.object_teleport_curriculum_stable_steps = 0
+
+        if self.object_teleport_curriculum_stable_steps >= success_steps:
+            self.object_teleport_curriculum_stage += 1
+            self.object_teleport_curriculum_stable_steps = 0
+            self.object_teleport_curriculum_scale = self._get_object_teleport_curriculum_scale()
+            print(
+                f"[object_teleport_curriculum] stage={self.object_teleport_curriculum_stage}/{num_increments} "
+                f"scale={self.object_teleport_curriculum_scale:.3f} "
+                f"success_rate={float(success_rate):.3f}"
+            )
+        else:
+            self.object_teleport_curriculum_scale = self._get_object_teleport_curriculum_scale()
+
     def _apply_object_wrench(self):
-        curriculum_factor = min(self.sim_steps / self.object_wrench_args["curri_steps"], 1)
+        def _get_force_range(cfg, default_force: float):
+            if isinstance(cfg, (bool, np.bool_)):
+                return bool(cfg), float(default_force), float(default_force)
+
+            enable = bool(cfg.get("enable", False))
+            force_range = cfg.get("force_range", None)
+            if force_range is not None:
+                if len(force_range) != 2:
+                    raise ValueError(f"Expected force_range to have length 2, got: {force_range}")
+                force_min = float(force_range[0])
+                force_max = float(force_range[1])
+            else:
+                force_min = force_max = float(cfg.get("force", default_force))
+
+            if force_min > force_max:
+                force_min, force_max = force_max, force_min
+            return enable, force_min, force_max
+
+        curriculum_factor = self._get_object_wrench_curriculum_scale()
+        self.object_wrench_curriculum_scale = curriculum_factor
         max_linear_force = self.object_wrench_args["max_linear_force"] * curriculum_factor
         linear_force_mag = max_linear_force * torch.rand(self.num_envs, 1, device=self.device)
         torque_mag = (linear_force_mag * self.object_wrench_args["torsional_radius"])
@@ -1669,13 +1836,54 @@ class FrankaLEAP(VecTask):
                 dim=-1
             )
 
+        horizontal_away_cfg = self.object_wrench_args.get("horizontal_away_from_eef", {})
+        horizontal_away_force = torch.zeros((self.num_envs, 3), device=self.device)
+        horizontal_away_enable, horizontal_force_min, horizontal_force_max = _get_force_range(
+            horizontal_away_cfg,
+            default_force=10.0,
+        )
+        if horizontal_away_enable:
+            horizontal_force_mag = (
+                horizontal_force_min
+                + (horizontal_force_max - horizontal_force_min) * torch.rand(self.num_envs, 1, device=self.device)
+            ) * curriculum_factor
+            if horizontal_force_max * curriculum_factor > 0.0:
+                away_xy = self.states["object_center_pos"][:, :2] - self.states["eef_pos"][:, :2]
+                away_xy = away_xy / torch.norm(away_xy, dim=-1, keepdim=True).clamp_min(1e-6)
+                horizontal_away_force[:, :2] = away_xy * horizontal_force_mag
+
+        downward_cfg = self.object_wrench_args.get("vertical_downward", {})
+        downward_force = torch.zeros((self.num_envs, 3), device=self.device)
+        downward_enable, downward_force_min, downward_force_max = _get_force_range(
+            downward_cfg,
+            default_force=100.0,
+        )
+        if downward_enable:
+            downward_force_mag = (
+                downward_force_min
+                + (downward_force_max - downward_force_min) * torch.rand(self.num_envs, device=self.device)
+            ) * curriculum_factor
+            if downward_force_max * curriculum_factor > 0.0:
+                downward_force[:, 2] = -downward_force_mag
+
         num_trigger_steps = int(round(self.object_wrench_args["trigger_duration"] / self.dt))
         activation_dis = self.object_wrench_args["activation_dis"]
         apply_wrench = ( self.states["object_to_eef"].norm(dim=-1) < activation_dis ) | self.lifting_5cm_per_step
+        trigger_step = (self.progress_buf % num_trigger_steps) == 0
+        activation_prob = float(self.object_wrench_args.get("activation_prob", 1.0))
+        sampled_trigger = trigger_step
+        if activation_prob < 1.0:
+            sampled_trigger = trigger_step & (torch.rand(self.num_envs, device=self.device) < activation_prob)
+        trigger_but_inactive = trigger_step & (~sampled_trigger)
 
         self.object_applied_forces = torch.where(
-            ((self.progress_buf % num_trigger_steps) == 0).unsqueeze(-1),
-            rand_forces,
+            sampled_trigger.unsqueeze(-1),
+            rand_forces + horizontal_away_force + downward_force,
+            self.object_applied_forces
+        )
+        self.object_applied_forces = torch.where(
+            trigger_but_inactive.unsqueeze(-1),
+            torch.zeros_like(self.object_applied_forces),
             self.object_applied_forces
         )
 
@@ -1686,8 +1894,13 @@ class FrankaLEAP(VecTask):
         )
 
         self.object_applied_torques = torch.where(
-            ((self.progress_buf % num_trigger_steps) == 0).unsqueeze(-1),
+            sampled_trigger.unsqueeze(-1),
             rand_torques,
+            self.object_applied_torques
+        )
+        self.object_applied_torques = torch.where(
+            trigger_but_inactive.unsqueeze(-1),
+            torch.zeros_like(self.object_applied_torques),
             self.object_applied_torques
         )
 
@@ -1769,7 +1982,7 @@ class FrankaLEAP(VecTask):
     def post_physics_step(self):
         self.progress_buf += 1
         self.teleport_buf += 1
-        self.teleport_buf = self.teleport_buf % self.object_teleport_args['n2']
+        self.teleport_buf = self.teleport_buf % self.teleport_schedule_len
 
         env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
         if env_ids.numel() > 0:

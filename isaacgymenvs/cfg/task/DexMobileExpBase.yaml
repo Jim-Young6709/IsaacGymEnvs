@@ -5,7 +5,7 @@ defaults:
 
 # if given, will override the device setting in gym. 
 env:
-  episodeLength: 1000
+  episodeLength: 2000
   asset:
     assetFileNameFranka: "glorbot/glorbot.urdf"
   distractor_settings:

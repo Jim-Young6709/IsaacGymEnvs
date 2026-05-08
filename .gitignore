@@ -40,3 +40,9 @@ dagger_ckpts_archive/
 /isaacgymenvs/ref
 *.zip
 /build
+teacher_state_bank_*/**/*.hdf5
+reset_state_bank_*/**/*.hdf5
+debug_teacher_state_stats*.json
+debug_teacher_state_stats*.jsonl
+dagger_rank_logs/
+.matplotlib_cache/

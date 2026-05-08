@@ -409,6 +409,14 @@ class FrankaLEAPPickTopFull(FrankaLEAP):
         self.reward_settings["beta_object_drag"] = to_torch(self.cfg["reward"]["exp"]["beta_object_drag"], device=self.device)
         self.reward_settings["w_obj_drag"] = to_torch(self.cfg["reward"]["weights"]["w_obj_drag"], device=self.device)
         self.reward_settings["w_colli"] = to_torch(self.cfg["reward"]["weights"]["w_colli"], device=self.device)
+        self.reward_settings["success_bonus_threshold"] = to_torch(
+            float(self.cfg["reward"]["params"].get("success_bonus_threshold", 0.05)),
+            device=self.device,
+        )
+        self.reward_settings["w_success_bonus"] = to_torch(
+            float(self.cfg["reward"]["weights"].get("w_success_bonus", 0.0)),
+            device=self.device,
+        )
 
     def _create_box(self):
         size_range = self.scene_box_cfg["size"]
@@ -542,6 +550,7 @@ class FrankaLEAPPickTopFull(FrankaLEAP):
         self.extras["sep_reward/r_lift"] = torch.mean(reward_dict["r_lift"]).item()
         self.extras["sep_reward/r_curl"] = torch.mean(reward_dict["r_curl"]).item()
         self.extras["sep_reward/r_colli"] = torch.mean(reward_dict["r_colli"]).item()
+        self.extras["sep_reward/r_success_bonus"] = torch.mean(reward_dict["r_success_bonus"]).item()
         self.extras["sep_reward/r_actionreg"] = torch.mean(reward_dict["r_actionreg"]).item()
         self.extras["dis/d_hand_obj"] = torch.mean(reward_dict["d_hand_obj"]).item()
         self.extras["dis/d_lift"] = torch.mean(reward_dict["d_lift"]).item()
@@ -631,11 +640,21 @@ def compute_franka_leap_reward(states, reward_settings):
     w_lift = reward_settings["w_lift"]
     w_curl = reward_settings["w_curl"]
     w_colli = reward_settings["w_colli"]
+    w_success_bonus = reward_settings["w_success_bonus"]
     w_actionreg = reward_settings["w_actionreg"]
 
     r_total = w_hand_obj*r_hand_obj + w_obj_goal*r_obj_goal + \
               w_obj_drag*r_obj_drag + w_lift*r_lift + w_curl*r_curl + \
               w_colli*r_colli + w_actionreg*r_actionreg
+
+    success_bonus_threshold = reward_settings["success_bonus_threshold"]
+    success_region = states["lift"] & (d_eef_point_goal < success_bonus_threshold)
+    r_success_bonus = torch.where(
+        success_region,
+        torch.ones_like(r_total) * w_success_bonus,
+        torch.zeros_like(r_total),
+    )
+    r_total = r_total + r_success_bonus
 
     rewards = {
         "r_hand_obj": w_hand_obj*r_hand_obj,
@@ -644,6 +663,7 @@ def compute_franka_leap_reward(states, reward_settings):
         "r_obj_drag": w_obj_drag*r_obj_drag,
         "r_curl": w_curl*r_curl,
         "r_colli": w_colli*r_colli,
+        "r_success_bonus": r_success_bonus,
         "r_actionreg": w_actionreg*r_actionreg,
         "r_total": r_total,
         "d_hand_obj": d_hand_obj,

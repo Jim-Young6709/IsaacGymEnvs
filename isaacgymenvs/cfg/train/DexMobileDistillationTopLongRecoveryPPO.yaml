@@ -1,0 +1,4 @@
+# Alias for the TopLong recovery distillation task. The trainer hyperparameters
+# intentionally track the existing TopLong mobile distillation setup.
+defaults:
+  - DexMobileDistillationTopLongPPO

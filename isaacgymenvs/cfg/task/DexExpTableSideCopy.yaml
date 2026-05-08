@@ -1,0 +1,24 @@
+# Snapshot-driven side RL config using the copied env.
+
+defaults:
+  - DexExpTableSide
+
+name: FrankaLEAPPickTableSideCopy
+
+env:
+  scene:
+    teacher_bank_variation_json: null
+  activation_snapshot_bank:
+    enable: False
+    hdf5_path: ""
+    sampling_probs:
+      afar: 0.3333333333333333
+      near_recovery: 0.3333333333333333
+      far_recovery: 0.3333333333333333
+    reset_noise:
+      object_xy: [0.005, 0.005]
+      arm_joint_deg: 10.0
+      hand_joint_deg: 10.0
+      hand_yaw_deg: 10.0
+      hand_pitch_deg: 10.0
+      hand_roll_deg: 10.0

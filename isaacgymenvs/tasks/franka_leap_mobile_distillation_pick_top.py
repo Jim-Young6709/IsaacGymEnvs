@@ -32,6 +32,13 @@ class FrankaLEAPMobileDistillationPickTop(FrankaLEAPMobileDistillation):
             virtual_screen_capture=virtual_screen_capture,
             force_render=force_render
         )
+
+    def init_data(self, actor_num):
+        super().init_data(actor_num)
+        self._episode_length_sum_total = torch.zeros((), device=self.device, dtype=torch.long)
+        self._success_episode_length_sum_total = torch.zeros((), device=self.device, dtype=torch.long)
+        self._failure_episode_length_sum_total = torch.zeros((), device=self.device, dtype=torch.long)
+        self._episode_length_max_total = torch.zeros((), device=self.device, dtype=torch.long)
  
     def _update_fabric_switching_target(self, object_center_pos):
         self.switching_target_pos = object_center_pos + self.switch_pos_offset
@@ -111,6 +118,7 @@ class FrankaLEAPMobileDistillationPickTop(FrankaLEAPMobileDistillation):
 
         if torch.any(done_envs):
             done_env_ids = done_envs.nonzero(as_tuple=False).squeeze(-1)
+            done_episode_lengths = self.progress_buf[done_env_ids].to(dtype=torch.long) + 1
             done_object_ids = self.env_object_ids[done_env_ids]
             episode_increments = torch.bincount(done_object_ids, minlength=self.num_objects)
             success_env_ids = (done_envs & self.success_long_enough).nonzero(as_tuple=False).squeeze(-1)
@@ -125,6 +133,19 @@ class FrankaLEAPMobileDistillationPickTop(FrankaLEAPMobileDistillation):
             self.per_object_episode_counts_interval += episode_increments
             self.per_object_success_counts_interval += success_increments
             self.per_object_lifting_counts_interval += lifting_increments
+            self._episode_length_sum_total += done_episode_lengths.sum()
+            if done_episode_lengths.numel() > 0:
+                self._episode_length_max_total = torch.maximum(
+                    self._episode_length_max_total,
+                    done_episode_lengths.max(),
+                )
+            if success_env_ids.numel() > 0:
+                success_lengths = self.progress_buf[success_env_ids].to(dtype=torch.long) + 1
+                self._success_episode_length_sum_total += success_lengths.sum()
+            failure_env_ids = (done_envs & (~self.success_long_enough)).nonzero(as_tuple=False).squeeze(-1)
+            if failure_env_ids.numel() > 0:
+                failure_lengths = self.progress_buf[failure_env_ids].to(dtype=torch.long) + 1
+                self._failure_episode_length_sum_total += failure_lengths.sum()
 
 
         # @ray log per-object per-interval success rates locally and a histograom to wandb
@@ -184,6 +205,17 @@ class FrankaLEAPMobileDistillationPickTop(FrankaLEAPMobileDistillation):
         self.extras["metrics/episode_count_total"] = total_eps
         self.extras["metrics/success_episode_count_total"] = success_eps
         self.extras["metrics/lifting_episode_count_total"] = lifting_eps
+        failure_eps = max(total_eps - success_eps, 0)
+        self.extras["metrics/episode_length_mean_per_ep"] = (
+            float(self._episode_length_sum_total.item()) / float(total_eps)
+        )
+        self.extras["metrics/success_episode_length_mean_per_ep"] = (
+            float(self._success_episode_length_sum_total.item()) / float(success_eps)
+        ) if success_eps > 0 else 0.0
+        self.extras["metrics/failure_episode_length_mean_per_ep"] = (
+            float(self._failure_episode_length_sum_total.item()) / float(failure_eps)
+        ) if failure_eps > 0 else 0.0
+        self.extras["metrics/episode_length_max"] = int(self._episode_length_max_total.item())
 
         # log memory usage TODO: debug utils, cleanup later
         mem_allocated_GB = float(torch.cuda.memory_allocated() / 1024**3)

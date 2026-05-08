@@ -219,20 +219,79 @@ class FrankaLEAPMobilePickTable(FrankaLEAPMobile):
     def init_data(self, actor_num):
         super().init_data(actor_num=actor_num)
         grasp_mode = str(self.cfg["env"]["grasp_mode"])
+        # Pinch presets are authored in thumb-first order: [thumb, index, middle, ring].
+        # Current candidate raw Isaac order from visual debugging: [index, thumb, middle, ring].
+        def remap_thumb_block(thumb):
+            # IsaacGym thumb block is ordered as [4, 3, 2, 1] when authored thumb joints
+            # are counted from the fingertip as [1, 2, 3, 4].
+            return [thumb[3], thumb[2], thumb[1], thumb[0]]
+
+        def thumb_first_to_raw_q(blocks):
+            thumb, index, middle, ring = blocks
+            return index + remap_thumb_block(thumb) + middle + ring
+
         if grasp_mode == "full":
             grasp_default = self.grasp_finger_dof_pos.clone()
             active_finger_mask = torch.ones(4, device=self.device)
             active_dof_mask = torch.ones(16, device=self.device)
+            curl_dof_weight = torch.ones(16, device=self.device)
         elif grasp_mode == "pinch2":
-            pinch_defaults = [[0.0] * 16, [0.0] * 16, [0.0] * 16]
-            grasp_default = torch.tensor(pinch_defaults[self.cfg["env"]["grasp_guide_idx"]], device=self.device)
-            active_finger_mask = torch.tensor([1.0, 0.0, 0.0, 1.0], device=self.device)
+            pinch_defaults_thumb_first = [
+                [
+                    [0.79, -0.2, 0.7, 0.7],
+                    [1.15, 0.38, 0.23, 0.77],
+                    [0.48, -0.09, -0.2, 0.62],
+                    [0.5, -0.05, 0.02, 0.29],
+                ],
+                [
+                    [0.79, -0.2, 0.7, 0.7],
+                    [1.15, 0.38, 0.23, 0.77],
+                    [0.48, -0.09, -0.2, 0.62],
+                    [0.5, -0.05, 0.02, 0.29],
+                ],
+                [
+                    [0.79, -0.2, 0.7, 0.7],
+                    [1.15, 0.38, 0.23, 0.77],
+                    [0.48, -0.09, -0.2, 0.62],
+                    [0.5, -0.05, 0.02, 0.29],
+                ],
+            ]
+            grasp_default = torch.tensor(
+                thumb_first_to_raw_q(pinch_defaults_thumb_first[self.cfg["env"]["grasp_guide_idx"]]),
+                device=self.device,
+            )
+            active_finger_mask = torch.tensor([1.0, 1.0, 0.0, 0.0], device=self.device)
             active_dof_mask = torch.tensor([1.0] * 8 + [0.0] * 8, device=self.device)
+            curl_dof_weight = torch.ones(16, device=self.device)
         elif grasp_mode == "pinch3":
-            pinch_defaults = [[0.0] * 16, [0.0] * 16, [0.0] * 16]
-            grasp_default = torch.tensor(pinch_defaults[self.cfg["env"]["grasp_guide_idx"]], device=self.device)
-            active_finger_mask = torch.tensor([1.0, 1.0, 0.0, 1.0], device=self.device)
+            pinch_defaults_thumb_first = [
+                [
+                    [0.77, 0.69, 0.73, 0.89],
+                    [0.93, 0.00, 0.53, 0.77],
+                    [0.69, 0.01, 0.81, 0.85],
+                    [-0.27, -0.07, 0.13, 0.33],
+                ],
+                [
+                    [0.77, 0.69, 0.73, 0.89],
+                    [0.93, 0.00, 0.53, 0.77],
+                    [0.69, 0.01, 0.81, 0.85],
+                    [-0.27, -0.07, 0.13, 0.33],
+                ],
+                [
+                    [0.77, 0.69, 0.73, 0.89],
+                    [0.93, 0.00, 0.53, 0.77],
+                    [0.69, 0.01, 0.81, 0.85],
+                    [-0.27, -0.07, 0.13, 0.33],
+                ],
+            ]
+            grasp_default = torch.tensor(
+                thumb_first_to_raw_q(pinch_defaults_thumb_first[self.cfg["env"]["grasp_guide_idx"]]),
+                device=self.device,
+            )
+            active_finger_mask = torch.tensor([1.0, 1.0, 1.0, 0.0], device=self.device)
             active_dof_mask = torch.tensor([1.0] * 12 + [0.0] * 4, device=self.device)
+            curl_dof_weight = torch.ones(16, device=self.device)
+            curl_dof_weight[12:16] = float(self.cfg["reward"]["params"]["pinch_far_finger_curl_weight"])
         else:
             raise ValueError(f"Unsupported env.grasp_mode={grasp_mode}. Expected one of: full, pinch2, pinch3.")
 
@@ -243,6 +302,7 @@ class FrankaLEAPMobilePickTable(FrankaLEAPMobile):
         self.reward_settings["grasp_finger_dof_pos"] = self.grasp_finger_dof_pos
         self.reward_settings["grasp_finger_dof_mask"] = active_dof_mask
         self.reward_settings["active_finger_mask"] = active_finger_mask
+        self.reward_settings["curl_dof_weight"] = curl_dof_weight
         self.reward_settings["include_palm_in_hand_obj"] = to_torch(
             1.0 if bool(self.cfg["reward"]["params"]["include_palm_in_hand_obj"]) else 0.0,
             device=self.device,
@@ -385,6 +445,7 @@ def compute_franka_leap_reward(states, reward_settings):
     hand_dof_pos = states["q"][:, 10:26] # hand joint angles
     near_object = (d_hand_obj <= reward_settings["curl_reaching_threshold"])
     dof_err = (hand_dof_pos - reward_settings["grasp_finger_dof_pos"]) * reward_settings["grasp_finger_dof_mask"]
+    dof_err = dof_err * reward_settings["curl_dof_weight"]
     finger_pos_diff = torch.sum(dof_err ** 2, dim=1)
 
     beta_curl = reward_settings["beta_curl"]

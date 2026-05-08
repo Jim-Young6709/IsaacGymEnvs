@@ -36,6 +36,20 @@ class FrankaLEAPPickTable(FrankaLEAP):
 
     def pre_physics_step(self, actions):
         super().pre_physics_step(actions)
+        self._apply_fixed_pinch_finger_targets()
+
+    def _apply_fixed_pinch_finger_targets(self):
+        if not torch.any(self.fixed_pinch_hand_dof_mask):
+            return
+        self.abs_actions[:, 7:] = torch.where(
+            self.fixed_pinch_hand_dof_mask.unsqueeze(0),
+            self.fixed_pinch_hand_dof_targets,
+            self.abs_actions[:, 7:],
+        )
+        self.abs_actions[:] = tensor_clamp(
+            self.abs_actions, self.robot_dof_lower_limits, self.robot_dof_upper_limits
+        )
+        self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(self.abs_actions))
 
     def init_data(self, actor_num):
         super().init_data(actor_num)
@@ -53,12 +67,7 @@ class FrankaLEAPPickTable(FrankaLEAP):
 
         if grasp_mode == "full":
             grasp_default = self.grasp_finger_dof_pos.clone()
-            active_finger_mask = torch.ones(4, device=self.device)
-            active_dof_mask = torch.ones(16, device=self.device)
-            curl_dof_weight = torch.ones(16, device=self.device)
-            special_curl_dof_mask = torch.zeros(16, device=self.device)  # CODEX
-            special_curl_enable = torch.tensor(0.0, device=self.device)  # CODEX
-            special_curl_reward_weight = torch.tensor(1.0, device=self.device)  # CODEX
+            fixed_pinch_hand_dof_mask = torch.zeros(16, dtype=torch.bool, device=self.device)
         elif grasp_mode == "pinch2":
             pinch_defaults_thumb_first = [
                 [
@@ -84,17 +93,8 @@ class FrankaLEAPPickTable(FrankaLEAP):
                 thumb_first_to_raw_q(pinch_defaults_thumb_first[self.cfg["env"]["grasp_guide_idx"]]),
                 device=self.device,
             )
-            active_finger_mask = torch.tensor([1.0, 1.0, 0.0, 0.0], device=self.device)
-            active_dof_mask = torch.tensor([1.0] * 8 + [0.0] * 8, device=self.device)
-            curl_dof_weight = torch.ones(16, device=self.device)
-            # CODEX: pinch2 uses same split-curl logic as pinch3, with special fingers = 3rd+4th blocks.
-            special_curl_dof_mask = torch.zeros(16, device=self.device)
-            special_curl_dof_mask[8:16] = 1.0
-            special_curl_enable = torch.tensor(1.0, device=self.device)
-            special_curl_reward_weight = torch.tensor(
-                float(self.cfg["reward"]["params"]["pinch_far_finger_curl_weight"]),
-                device=self.device,
-            )  # CODEX
+            fixed_pinch_hand_dof_mask = torch.zeros(16, dtype=torch.bool, device=self.device)
+            fixed_pinch_hand_dof_mask[8:16] = True
         elif grasp_mode == "pinch3":
             pinch_defaults_thumb_first = [
                 [
@@ -120,39 +120,18 @@ class FrankaLEAPPickTable(FrankaLEAP):
                 thumb_first_to_raw_q(pinch_defaults_thumb_first[self.cfg["env"]["grasp_guide_idx"]]),
                 device=self.device,
             )
-            # CODEX: pinch3 hand-object distance excludes pinky, but curl includes all fingers.
-            active_finger_mask = torch.tensor([1.0, 1.0, 1.0, 0.0], device=self.device)
-            # CODEX: base near-object curl excludes pinky; pinky is handled by special always-on curl.
-            active_dof_mask = torch.ones(16, device=self.device)
-            active_dof_mask[12:16] = 0.0
-            curl_dof_weight = torch.ones(16, device=self.device)
-            # CODEX: raw hand DOF order is [index, thumb, middle, pinky/ring] in 4-DOF blocks.
-            # For pinch3, "far finger" is pinky/ring -> block [12:16], with extra curl emphasis.
-            special_curl_dof_mask = torch.zeros(16, device=self.device)  # CODEX
-            special_curl_dof_mask[12:16] = 1.0  # CODEX
-            special_curl_enable = torch.tensor(1.0, device=self.device)  # CODEX
-            special_curl_reward_weight = torch.tensor(
-                float(self.cfg["reward"]["params"]["pinch_far_finger_curl_weight"]),
-                device=self.device,
-            )  # CODEX
+            fixed_pinch_hand_dof_mask = torch.zeros(16, dtype=torch.bool, device=self.device)
+            fixed_pinch_hand_dof_mask[12:16] = True
         else:
             raise ValueError(f"Unsupported env.grasp_mode={grasp_mode}. Expected one of: full, pinch2, pinch3.")
 
         self.grasp_finger_dof_pos = grasp_default
+        self.fixed_pinch_hand_dof_mask = fixed_pinch_hand_dof_mask
+        self.fixed_pinch_hand_dof_targets = self.grasp_finger_dof_pos.unsqueeze(0).repeat(self.num_envs, 1)
         self.canonical_grasp_config = torch.tensor(
             [[0, 0, 0, -3 * torch.pi / 4, 0, 3 * torch.pi / 4, 0] + self.grasp_finger_dof_pos.tolist()] * self.num_envs
         ).to(self.device)
         self.reward_settings["grasp_finger_dof_pos"] = self.grasp_finger_dof_pos
-        self.reward_settings["grasp_finger_dof_mask"] = active_dof_mask
-        self.reward_settings["active_finger_mask"] = active_finger_mask
-        self.reward_settings["curl_dof_weight"] = curl_dof_weight
-        self.reward_settings["special_curl_dof_mask"] = special_curl_dof_mask  # CODEX
-        self.reward_settings["special_curl_enable"] = special_curl_enable  # CODEX
-        self.reward_settings["special_curl_reward_weight"] = special_curl_reward_weight  # CODEX
-        self.reward_settings["include_palm_in_hand_obj"] = to_torch(
-            1.0 if bool(self.cfg["reward"]["params"]["include_palm_in_hand_obj"]) else 0.0,
-            device=self.device,
-        )
 
     def _create_envs(self, spacing, num_per_row):
         """
@@ -365,8 +344,6 @@ class FrankaLEAPPickTable(FrankaLEAP):
         self.extras["sep_reward/r_obj_goal"] = torch.mean(reward_dict["r_obj_goal"]).item()
         self.extras["sep_reward/r_lift"] = torch.mean(reward_dict["r_lift"]).item()
         self.extras["sep_reward/r_curl"] = torch.mean(reward_dict["r_curl"]).item()
-        if "r_curl_special" in reward_dict:
-            self.extras["sep_reward/r_curl_special"] = torch.mean(reward_dict["r_curl_special"]).item()
         self.extras["sep_reward/r_actionreg"] = torch.mean(reward_dict["r_actionreg"]).item()
         self.extras["dis/d_hand_obj"] = torch.mean(reward_dict["d_hand_obj"]).item()
         self.extras["dis/d_lift"] = torch.mean(reward_dict["d_lift"]).item()
@@ -450,26 +427,15 @@ class FrankaLEAPPickTable(FrankaLEAP):
 def compute_franka_leap_reward(states, reward_settings):
     # type: (Dict[str, Tensor], Dict[str, Tensor]) -> Dict[str, Tensor]
 
-    # R1: Hand (palm, selected fingertips) to object distance
+    # R1: Hand (palm, fingers) to object distance
     d_palm = torch.norm(states["object_center_pos"] - states["eef_pos"], dim=-1)
-    finger_distances = torch.stack(
-        [
-            torch.norm(states["object_center_pos"] - states["eef_finger1_pos"], dim=-1),
-            torch.norm(states["object_center_pos"] - states["eef_finger2_pos"], dim=-1),
-            torch.norm(states["object_center_pos"] - states["eef_finger3_pos"], dim=-1),
-            torch.norm(states["object_center_pos"] - states["eef_finger4_pos"], dim=-1),
-        ],
-        dim=1,
-    )
-    include_palm = reward_settings["include_palm_in_hand_obj"] > 0.5
-    finger_mask = reward_settings["active_finger_mask"] > 0.5
-    masked_finger_distances = torch.where(
-        finger_mask.unsqueeze(0),
-        finger_distances,
-        torch.full_like(finger_distances, -1.0e6),
-    )
-    d_hand_obj = torch.max(masked_finger_distances, dim=1)[0]
-    d_hand_obj = torch.where(include_palm, torch.maximum(d_hand_obj, d_palm), d_hand_obj)
+    d_finger1 = torch.norm(states["object_center_pos"] - states["eef_finger1_pos"], dim=-1)
+    d_finger2 = torch.norm(states["object_center_pos"] - states["eef_finger2_pos"], dim=-1)
+    d_finger3 = torch.norm(states["object_center_pos"] - states["eef_finger3_pos"], dim=-1)
+    d_finger4 = torch.norm(states["object_center_pos"] - states["eef_finger4_pos"], dim=-1)
+
+    d_hand_obj = torch.stack([d_palm, d_finger1, d_finger2, d_finger3, d_finger4], dim=1)
+    d_hand_obj = torch.max(d_hand_obj, dim=1)[0]
 
     # R1: Hand object distance reward
     beta_hand_object = reward_settings["beta_hand_object"]
@@ -495,17 +461,11 @@ def compute_franka_leap_reward(states, reward_settings):
     # R4: Finger curl
     hand_dof_pos = states["q"][:, 7:] # hand joint angles
     near_object = (d_hand_obj <= reward_settings["curl_reaching_threshold"])
-    dof_err = (hand_dof_pos - reward_settings["grasp_finger_dof_pos"]) * reward_settings["grasp_finger_dof_mask"]
-    dof_err = dof_err * reward_settings["curl_dof_weight"]
-    finger_pos_diff = torch.sum(dof_err ** 2, dim=1)
+    finger_pos_diff = torch.sum((hand_dof_pos - reward_settings["grasp_finger_dof_pos"]) ** 2, dim=1)
 
     beta_curl = reward_settings["beta_curl"]
     r_curl = torch.exp(-beta_curl * finger_pos_diff)
     r_curl = torch.where(near_object, r_curl, 0.0)
-    # CODEX: always-on extra curl term for special finger block (pinky in pinch3).
-    special_dof_err = (hand_dof_pos - reward_settings["grasp_finger_dof_pos"]) * reward_settings["special_curl_dof_mask"]
-    special_finger_pos_diff = torch.sum(special_dof_err ** 2, dim=1)
-    r_curl_special = torch.exp(-beta_curl * special_finger_pos_diff) * reward_settings["special_curl_enable"]
 
     # R5: Velocity Regularization/Penalty
     actionreg = states["actionreg"]
@@ -516,15 +476,11 @@ def compute_franka_leap_reward(states, reward_settings):
     w_lift = reward_settings["w_lift"]
     w_curl = reward_settings["w_curl"]
     w_actionreg = reward_settings["w_actionreg"]
-    w_curl_special = reward_settings["special_curl_reward_weight"]  # CODEX
 
-    # R6: Hand 
+    # R6: Hand
     use_curl = bool(reward_settings["use_curl"])
-    # @ray 
-    # use activated rewards only
-    # but compute all rewards anyways for logging
     r_total = w_hand_obj*r_hand_obj + w_obj_goal*r_obj_goal + \
-              w_curl*(r_curl + w_curl_special * r_curl_special) * float(use_curl) + \
+              w_curl*r_curl * float(use_curl) + \
               w_lift*r_lift + w_actionreg*r_actionreg
     
     rewards = {
@@ -532,7 +488,6 @@ def compute_franka_leap_reward(states, reward_settings):
         "r_lift": w_lift*r_lift,
         "r_obj_goal": w_obj_goal*r_obj_goal,
         "r_curl": w_curl*r_curl,
-        "r_curl_special": w_curl*w_curl_special*r_curl_special,
         "r_actionreg": w_actionreg*r_actionreg,
         "r_total": r_total,
         "d_hand_obj": d_hand_obj,

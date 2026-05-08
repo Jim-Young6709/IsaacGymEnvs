@@ -22,6 +22,12 @@ from tqdm import tqdm
 
 class FrankaLEAPMobilePickTopFull(FrankaLEAPMobile):
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
+        self.object_grasp_target_z_scale = float(cfg["env"]["object_settings"].get("object_grasp_target_z_scale", 0.4))
+        self.lie_flat_prob = float(cfg["env"]["object_settings"].get("lie_flat_prob", 0.0))
+        self.preserve_orientation_on_teleport = bool(
+            cfg["env"].get("object_teleport", {}).get("preserve_orientation", True)
+        )
+        self._flat_object_quat_base_values = [0.0, 0.70710678, 0.0, 0.70710678]
         super().__init__(
             cfg=cfg,
             rl_device=rl_device,
@@ -551,10 +557,237 @@ class FrankaLEAPMobilePickTopFull(FrankaLEAPMobile):
     def init_data(self, actor_num):
         super().init_data(actor_num=actor_num)
         self.obj_pos_target[:, 2] += 0.2
-        self.reward_settings["target_pos"] = self.obj_pos_target
+        self.reward_settings["target_pos"] = self.obj_pos_target.clone()
         self.reward_settings["beta_object_drag"] = to_torch(self.cfg["reward"]["exp"]["beta_object_drag"], device=self.device)
         self.reward_settings["w_obj_drag"] = to_torch(self.cfg["reward"]["weights"]["w_obj_drag"], device=self.device)
         self.reward_settings["w_colli"] = to_torch(self.cfg["reward"]["weights"]["w_colli"], device=self.device)
+        target_params_cfg = self.cfg["reward"]["params"]
+        self.post_lift_target_active = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
+        self.post_lift_target_pos_base = to_torch(
+            target_params_cfg.get("target_pos_after_lift_base", target_params_cfg["target_pos"]),
+            device=self.device,
+            dtype=self.reward_settings["target_pos"].dtype,
+        )
+        self.post_lift_target_z_from_table = float(
+            target_params_cfg.get("target_pos_after_lift_z_from_table", target_params_cfg["target_pos"][2])
+        )
+        self.post_lift_target_noise = to_torch(
+            target_params_cfg.get("target_pos_after_lift_noise", [0.0, 0.0, 0.0]),
+            device=self.device,
+            dtype=self.reward_settings["target_pos"].dtype,
+        )
+        self.post_lift_target_offset = torch.zeros((self.num_envs, 3), device=self.device, dtype=self.reward_settings["target_pos"].dtype)
+
+    def _set_object_pose_from_center_and_quat(self, env_ids, desired_center_xy, object_quat):
+        if env_ids.numel() == 0:
+            return
+
+        dtype = self._object_state.dtype
+        object_quat = object_quat.to(dtype=dtype)
+        desired_center_xy = desired_center_xy.to(dtype=dtype)
+
+        rot_mat = quaternion_to_matrix_ig(object_quat)
+        local_half_extents = 0.5 * self.mesh_aabb_extents[env_ids].to(dtype=dtype)
+        vertical_half_extent = torch.sum(torch.abs(rot_mat[:, 2, :]) * local_half_extents, dim=-1)
+
+        local_offset = torch.zeros((env_ids.numel(), 3), dtype=dtype, device=self.device)
+        local_offset[:, 2] = self.mesh_aabb_extents[env_ids, 2].to(dtype=dtype) * self.object_grasp_target_z_scale
+        rotated_offset = quat_apply(object_quat, local_offset)
+
+        object_center_world = torch.zeros((env_ids.numel(), 3), dtype=dtype, device=self.device)
+        object_center_world[:, :2] = desired_center_xy
+        object_center_world[:, 2] = self.table_surface_height[env_ids].to(dtype=dtype) + vertical_half_extent
+
+        root_pos = object_center_world - rotated_offset
+        self._object_state[env_ids, :3] = root_pos
+        self._object_state[env_ids, 3:7] = object_quat
+        self._object_center_init_state[env_ids] = object_center_world
+
+    def _flat_object_robot_penetration_mask(self, env_ids, desired_center_xy, object_quat):
+        if env_ids.numel() == 0:
+            return torch.empty((0,), dtype=torch.bool, device=self.device)
+
+        dtype = self._object_state.dtype
+        object_quat = object_quat.to(dtype=dtype)
+        desired_center_xy = desired_center_xy.to(dtype=dtype)
+
+        rot_mat = quaternion_to_matrix_ig(object_quat)
+        local_half_extents = 0.5 * self.mesh_aabb_extents[env_ids].to(dtype=dtype)
+        vertical_half_extent = torch.sum(torch.abs(rot_mat[:, 2, :]) * local_half_extents, dim=-1)
+
+        object_center_world = torch.zeros((env_ids.numel(), 3), dtype=dtype, device=self.device)
+        object_center_world[:, :2] = desired_center_xy
+        object_center_world[:, 2] = self.table_surface_height[env_ids].to(dtype=dtype) + vertical_half_extent
+
+        robot_pcd_world = self.robot_pcd_sampler.sample(self._q[env_ids], self.torchurdf_to_isaac_idx)
+        rel_world = robot_pcd_world - object_center_world.unsqueeze(1)
+        num_points = int(robot_pcd_world.shape[1])
+        inv_quat = quat_conjugate(object_quat)
+        inv_quat_expanded = inv_quat.unsqueeze(1).repeat(1, num_points, 1).reshape(-1, 4)
+        rel_local = quat_apply(inv_quat_expanded, rel_world.reshape(-1, 3)).reshape(env_ids.numel(), num_points, 3)
+        local_margin = 0.01
+        inside = torch.all(
+            torch.abs(rel_local) <= (local_half_extents + local_margin).unsqueeze(1),
+            dim=-1,
+        )
+        return torch.any(inside, dim=1)
+
+    def _resample_flat_center_xy_for_collision(self, env_ids, desired_center_xy, object_quat, max_rounds=12):
+        if env_ids.numel() == 0:
+            return desired_center_xy
+
+        center_xy = desired_center_xy.clone()
+        dtype = center_xy.dtype
+        xy_min = self.obj_pos_range[env_ids][:, [0, 2]].to(dtype=dtype)
+        xy_max = self.obj_pos_range[env_ids][:, [1, 3]].to(dtype=dtype)
+
+        for _ in range(max_rounds):
+            penetration = self._flat_object_robot_penetration_mask(env_ids, center_xy, object_quat)
+            if not bool(torch.any(penetration)):
+                break
+            resample_count = int(penetration.sum().item())
+            center_xy[penetration] = torch.rand((resample_count, 2), device=self.device, dtype=dtype) * (
+                xy_max[penetration] - xy_min[penetration]
+            ) + xy_min[penetration]
+
+        return center_xy
+
+    def _reset_object_state(self, object_reset_env_ids):
+        if object_reset_env_ids is None:
+            prev_env_ids = torch.arange(self.num_envs, device=self.device)
+        else:
+            prev_env_ids = object_reset_env_ids.clone()
+        prev_object_quat = self._object_state[prev_env_ids, 3:7].clone() if prev_env_ids.numel() > 0 else None
+
+        super()._reset_object_state(object_reset_env_ids)
+
+        if object_reset_env_ids is None:
+            env_ids = torch.arange(self.num_envs, device=self.device)
+            tele_mask = torch.zeros(env_ids.numel(), dtype=torch.bool, device=self.device)
+        else:
+            env_ids = (
+                self.object_reset_pending_mask.nonzero(as_tuple=False).squeeze(-1)
+                if torch.any(self.object_reset_pending_mask)
+                else object_reset_env_ids.clone()
+            )
+            tele_mask = ~torch.isin(env_ids, object_reset_env_ids)
+
+        if env_ids.numel() == 0 or self.lie_flat_prob <= 0.0:
+            return
+
+        updated_env_ids = []
+
+        if self.preserve_orientation_on_teleport:
+            tele_preserve_mask = tele_mask
+            tele_resample_mask = torch.zeros_like(tele_mask)
+        else:
+            tele_preserve_mask = torch.zeros_like(tele_mask)
+            tele_resample_mask = tele_mask
+
+        if torch.any(tele_preserve_mask):
+            tele_env_ids = env_ids[tele_preserve_mask]
+            tele_prev_quat = prev_object_quat[torch.isin(prev_env_ids, tele_env_ids)]
+            tele_prev_quat = tele_prev_quat / torch.norm(tele_prev_quat, dim=-1, keepdim=True).clamp_min(1.0e-8)
+            desired_center_xy = self._object_state[tele_env_ids, :2].clone()
+            desired_center_xy = self._resample_flat_center_xy_for_collision(
+                tele_env_ids,
+                desired_center_xy,
+                tele_prev_quat,
+                max_rounds=int(self.object_teleport_args.get("min_xy_dist_resample_rounds", 12)),
+            )
+            self._set_object_pose_from_center_and_quat(tele_env_ids, desired_center_xy, tele_prev_quat)
+            updated_env_ids.append(tele_env_ids)
+
+        reset_mask = (~tele_mask) | tele_resample_mask
+        if torch.any(reset_mask):
+            reset_env_ids = env_ids[reset_mask]
+            flat_mask = torch.rand(reset_env_ids.numel(), device=self.device) < self.lie_flat_prob
+            if torch.any(flat_mask):
+                flat_env_ids = reset_env_ids[flat_mask]
+                n_flat = int(flat_env_ids.numel())
+                yaw_axis = torch.zeros((n_flat, 3), dtype=self._object_state.dtype, device=self.device)
+                yaw_axis[:, 2] = 1.0
+                yaw_angle = torch.rand(n_flat, dtype=self._object_state.dtype, device=self.device) * 6.283185307179586
+                q_yaw = quat_from_angle_axis(yaw_angle, yaw_axis)
+                flat_base = torch.tensor(
+                    self._flat_object_quat_base_values,
+                    dtype=self._object_state.dtype,
+                    device=self.device,
+                ).unsqueeze(0).repeat(n_flat, 1)
+                object_quat = quat_mul(q_yaw, flat_base)
+                object_quat = object_quat / torch.norm(object_quat, dim=-1, keepdim=True).clamp_min(1.0e-8)
+                desired_center_xy = self._object_state[flat_env_ids, :2].clone()
+                desired_center_xy = self._resample_flat_center_xy_for_collision(
+                    flat_env_ids,
+                    desired_center_xy,
+                    object_quat,
+                    max_rounds=int(self.object_teleport_args.get("min_xy_dist_resample_rounds", 12)),
+                )
+                self._set_object_pose_from_center_and_quat(flat_env_ids, desired_center_xy, object_quat)
+                updated_env_ids.append(flat_env_ids)
+
+        if len(updated_env_ids) == 0:
+            return
+
+        updated_env_ids = torch.cat(updated_env_ids)
+        updated_env_ids = torch.unique(updated_env_ids)
+        multi_env_ids_obj_int32 = self._global_indices[updated_env_ids, self._object_id].flatten()
+        self.gym.set_actor_root_state_tensor_indexed(
+            self.sim,
+            gymtorch.unwrap_tensor(self._root_state),
+            gymtorch.unwrap_tensor(multi_env_ids_obj_int32),
+            len(multi_env_ids_obj_int32),
+        )
+
+        object_pcds_world = transform_pcds_to_world(self.object_pcds, self._object_state[:, :7])
+        if self.object_pcd_t0 is None:
+            self.object_pcd_t0 = object_pcds_world.clone()
+        self.object_pcd_t0[updated_env_ids] = object_pcds_world[updated_env_ids].clone()
+
+    def _get_current_mobile_base_pose7(self, env_ids):
+        mobile_base_pose = self._q[env_ids, :3]
+        dtype = mobile_base_pose.dtype
+        half_yaw = 0.5 * mobile_base_pose[:, 2]
+        mobile_quat = torch.zeros((mobile_base_pose.shape[0], 4), device=self.device, dtype=dtype)
+        mobile_quat[:, 2] = torch.sin(half_yaw)
+        mobile_quat[:, 3] = torch.cos(half_yaw)
+        mobile_base_pos_world = torch.zeros((mobile_base_pose.shape[0], 3), device=self.device, dtype=dtype)
+        mobile_base_pos_world[:, :2] = mobile_base_pose[:, :2]
+        return torch.cat([mobile_base_pos_world, mobile_quat], dim=-1)
+
+    def _compute_post_lift_target_world(self, env_ids):
+        mobile_base_pose7 = self._get_current_mobile_base_pose7(env_ids)
+        base_xy_offset = self.post_lift_target_pos_base[:2].to(
+            device=self.device,
+            dtype=mobile_base_pose7.dtype,
+        ).unsqueeze(0).repeat(env_ids.numel(), 1)
+        base_xy_offset_3d = torch.zeros((env_ids.numel(), 3), device=self.device, dtype=mobile_base_pose7.dtype)
+        base_xy_offset_3d[:, :2] = base_xy_offset
+        target_world = torch.zeros((env_ids.numel(), 3), device=self.device, dtype=mobile_base_pose7.dtype)
+        target_world[:, :2] = mobile_base_pose7[:, :2] + quat_apply(mobile_base_pose7[:, 3:7], base_xy_offset_3d)[:, :2]
+        target_world[:, 2] = self.table_surface_height[env_ids].to(dtype=mobile_base_pose7.dtype) + self.post_lift_target_z_from_table
+        target_world = target_world + self.post_lift_target_offset[env_ids].to(dtype=mobile_base_pose7.dtype)
+        return target_world
+
+    def _resample_post_lift_target(self, env_ids):
+        if env_ids.numel() == 0:
+            return
+        target_noise = self.post_lift_target_noise.to(dtype=self.reward_settings["target_pos"].dtype)
+        offsets = (torch.rand((env_ids.numel(), 3), device=self.device, dtype=target_noise.dtype) * 2.0 - 1.0) * target_noise.unsqueeze(0)
+        self.post_lift_target_offset[env_ids] = offsets
+        self.reward_settings["target_pos"][env_ids] = self._compute_post_lift_target_world(env_ids)
+
+    def reset_idx(self, env_ids=None):
+        if env_ids is None:
+            env_ids = torch.arange(self.num_envs, device=self.device)
+        super().reset_idx(env_ids)
+        if env_ids.numel() == 0:
+            return
+        self.post_lift_target_active[env_ids] = False
+        self.post_lift_target_offset[env_ids] = 0.0
+        self.reward_settings["target_pos"][env_ids] = self.obj_pos_target[env_ids].to(
+            dtype=self.reward_settings["target_pos"].dtype
+        )
 
     def _create_box(self):
         size_range = self.scene_box_cfg["size"]
@@ -627,6 +860,10 @@ class FrankaLEAPMobilePickTopFull(FrankaLEAPMobile):
         box_to_eef_rot_6d = matrix_to_rotation_6d(box_to_eef_rot_mat)
 
         lift_5cm = self.states["object_center_pos"][:, 2] - self._object_center_init_state[:, 2] > 0.05
+        self.post_lift_target_active = self.post_lift_target_active | lift_5cm
+        if torch.any(self.post_lift_target_active):
+            lifted_env_ids = self.post_lift_target_active.nonzero(as_tuple=False).squeeze(-1)
+            self.reward_settings["target_pos"][lifted_env_ids] = self._compute_post_lift_target_world(lifted_env_ids)
         self.states.update({
             # Box region
             "box_to_eef_pos": self.box_pos - self._eef_state[:, :3],
@@ -697,15 +934,44 @@ class FrankaLEAPMobilePickTopFull(FrankaLEAPMobile):
 
         # log metrics
         self.lifting_5cm_per_step = self.states["lift"]
-        self.lifting_flags[self.lifting_5cm_per_step] = 1
         self.success_5cm_per_step = (reward_dict["d_eef_point_goal"] < 0.05) & self.lifting_5cm_per_step
-        self.success_flags[self.success_5cm_per_step] = 1
+        self.success_flags_instant[self.success_5cm_per_step] = 1
+        self.lifting_flags_instant[self.lifting_5cm_per_step] = 1
+        self.success_duration = torch.where(
+            self.success_5cm_per_step,
+            self.success_duration + self.dt,
+            torch.zeros_like(self.success_duration),
+        )
+        self.lifting_duration = torch.where(
+            self.lifting_5cm_per_step,
+            self.lifting_duration + self.dt,
+            torch.zeros_like(self.lifting_duration),
+        )
+        success_reached_now = self.success_duration >= self.reward_settings["success_timeout"]
+        lifting_reached_now = self.lifting_duration >= self.reward_settings["lifting_timeout"]
+        newly_success_long_enough = (~self.success_long_enough) & success_reached_now
+        self.success_long_enough = self.success_long_enough | success_reached_now
+        self.lifting_long_enough = self.lifting_long_enough | lifting_reached_now
+        done_envs = self.reset_buf > 0
+
+        if bool(self.cfg["reward"]["params"].get("resample_target_on_success", False)):
+            resample_env_ids = (newly_success_long_enough & (~done_envs)).nonzero(as_tuple=False).squeeze(-1)
+            if resample_env_ids.numel() > 0:
+                self._resample_post_lift_target(resample_env_ids)
+                self.success_duration[resample_env_ids] = 0.0
+
+        self.success_flags = torch.maximum(self.success_flags, self.success_long_enough.float())
+        self.lifting_flags = torch.maximum(self.lifting_flags, self.lifting_long_enough.float())
 
         self.extras["metrics/success_rate_5cm_per_step"] = torch.mean(self.success_5cm_per_step.float()).item()
         self.extras["metrics/lifting_rate_5cm_per_step"] = torch.mean(self.lifting_5cm_per_step.float()).item()
         self.extras["metrics/success_rate_5cm_per_ep"] = torch.mean(self.success_flags).item()
         self.extras["metrics/lifting_rate_5cm_per_ep"] = torch.mean(self.lifting_flags).item()
         self.extras["metrics/collision_rate_per_step"] = torch.mean(self.states["collision"].float()).item()
+        self._update_object_teleport_success_curriculum(self.extras["metrics/success_rate_5cm_per_ep"])
+        self.extras["object_teleport/curriculum_stage"] = float(self.object_teleport_curriculum_stage)
+        self.extras["object_teleport/curriculum_scale"] = float(self.object_teleport_curriculum_scale)
+        self.extras["object_teleport/num_envs_step"] = float(getattr(self, "object_teleport_last_count", 0))
 
     def set_viewer(self):
         super().set_viewer(

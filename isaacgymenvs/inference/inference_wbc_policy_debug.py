@@ -1,7 +1,9 @@
 import torch
 import time
+import os
 from hydra.utils import instantiate
 from collections import OrderedDict
+from pathlib import Path
 
 from omegaconf import OmegaConf
 
@@ -19,6 +21,14 @@ class WBCPolicyTransformer:
     def __init__(self, configs):
         self.device = "cuda:0"
         set_seed_and_precision(configs["seed"])
+        self.dump_inference_io = bool(configs.get("dump_inference_io", False) or os.getenv("DUMP_INFERENCE_IO", "0") == "1")
+        self.dump_inference_io_max = int(configs.get("dump_inference_io_max", os.getenv("DUMP_INFERENCE_IO_MAX", "8")))
+        dump_path_cfg = configs.get("dump_inference_io_path", None)
+        dump_path_env = os.getenv("DUMP_INFERENCE_IO_PATH", "").strip()
+        dump_path = dump_path_cfg if dump_path_cfg is not None else dump_path_env
+        self.dump_inference_io_path = Path(dump_path) if dump_path else None
+        self.dump_inference_io_records = []
+        self.dump_inference_io_saved = 0
 
         # load ckpt
         load_checkpoint_path = configs["ckpt_path"]
@@ -78,6 +88,10 @@ class WBCPolicyTransformer:
             assert bool(self.model.aux_prediction), "aux_object_state requires aux prediction"
             self.aux_anchor_state = torch.zeros((1, 3), device=self.device)
         self.steps = 0
+
+        if self.dump_inference_io and self.dump_inference_io_path is None:
+            ckpt_stem = Path(load_checkpoint_path).stem if load_checkpoint_path is not None else "policy"
+            self.dump_inference_io_path = Path.cwd() / f"{ckpt_stem}_debug_inference_io_pairs.pt"
 
     def generate_random_inputs(self):
         """
@@ -256,6 +270,58 @@ class WBCPolicyTransformer:
         step_actions = torch.clamp(student_actions, -self.clip_actions, self.clip_actions)
         return step_actions, aux_pred, obs_dict
 
+    def _maybe_dump_inference_io_pair(
+        self,
+        raw_inputs,
+        obs_dict_after,
+        student_actions_chunk,
+        step_action,
+        actions_abs,
+        aux_pred,
+        model_aux_output=None,
+    ):
+        if not self.dump_inference_io:
+            return
+        if self.dump_inference_io_saved >= self.dump_inference_io_max:
+            return
+        if self.dump_inference_io_path is None:
+            return
+
+        aux_inputs = raw_inputs["aux_inputs"]
+        aux_anchor_state = raw_inputs["aux_anchor_state"]
+        record = {
+            "episode": 0,
+            "total_steps": int(self.steps),
+            "mode": "real_world_inference",
+            "env_id": 0,
+            "full_pcd_frankabase_frame_t": raw_inputs["full_pcd_frankabase_frame_t"].detach().cpu(),
+            "eef_xyz_frankabase_frame_t": raw_inputs["eef_xyz_frankabase_frame_t"].detach().cpu(),
+            "q_hand": raw_inputs["q_hand"].detach().cpu(),
+            "q_arm_manip": raw_inputs["q_arm_manip"].detach().cpu(),
+            "q_arm_vision": raw_inputs["q_arm_vision"].detach().cpu(),
+            "prev_abs_hand_actions": raw_inputs["prev_abs_hand_actions"].detach().cpu(),
+            "aux_inputs": aux_inputs.detach().cpu() if aux_inputs is not None else None,
+            "aux_anchor_state": aux_anchor_state.detach().cpu() if aux_anchor_state is not None else None,
+            "expected_q_hand_ctrl_delta": obs_dict_after["q_hand_ctrl_delta"][0].detach().cpu()
+            if "q_hand_ctrl_delta" in obs_dict_after else None,
+            "obs_input_a0": {
+                key: value.detach().cpu() if torch.is_tensor(value) else value
+                for key, value in obs_dict_after.items()
+            },
+            "expected_model_action_chunk": student_actions_chunk.detach().cpu(),
+            "expected_model_aux_output": model_aux_output.detach().cpu() if model_aux_output is not None else None,
+            "expected_student_action": student_actions_chunk[0, 0, :32].detach().cpu(),
+            "expected_step_action": step_action.detach().cpu(),
+            "expected_actions_abs": actions_abs.detach().cpu(),
+            "expected_aux_pred_abs": aux_pred.detach().cpu() if aux_pred is not None else None,
+        }
+        self.dump_inference_io_records.append(record)
+        self.dump_inference_io_saved += 1
+        self.dump_inference_io_path.parent.mkdir(parents=True, exist_ok=True)
+        torch.save(self.dump_inference_io_records, self.dump_inference_io_path)
+        if self.dump_inference_io_saved == 1:
+            colorprint(f"Dumping inference IO pairs to {self.dump_inference_io_path}", color="yellow")
+
     def get_action(self, full_pcd_frankabase_frame_t, eef_xyz_frankabase_frame_t, q_hand, q_arm_manip, q_arm_vision, aux_inputs=None):
         """
         get the final action for execution
@@ -269,6 +335,8 @@ class WBCPolicyTransformer:
             step_actions (torch.Tensor): (7+16,)
         """
 
+        prev_abs_hand_actions = self.abs_hand_actions.detach().clone()
+
         # reformatting inputs
         assert full_pcd_frankabase_frame_t.dim() == 2 \
             and full_pcd_frankabase_frame_t.size(0) >= self.num_local_points \
@@ -276,12 +344,16 @@ class WBCPolicyTransformer:
         # (1, N, 3)
         full_pcd_frankabase_frame_t_b = full_pcd_frankabase_frame_t.unsqueeze(0).to(self.device)
         eef_xyz_frankabase_frame_t_b = eef_xyz_frankabase_frame_t.unsqueeze(0).to(self.device)  # (1, 3)
+        aux_inputs_record = None
+        aux_anchor_state_record = None
         if self.has_aux_input:
             if aux_inputs is None:
                 aux_inputs_b = self.aux_anchor_state.clone()
             else:
                 aux_inputs_b = aux_inputs.unsqueeze(0).to(self.device)
                 self.aux_anchor_state[:] = aux_inputs_b
+            aux_inputs_record = aux_inputs_b[0].detach().clone()
+            aux_anchor_state_record = aux_inputs_b[0].detach().clone()
         else:
             aux_inputs_b = None
     
@@ -299,11 +371,13 @@ class WBCPolicyTransformer:
             ("q_arm_manip", q_arm_manip_b),
             ("q_arm_vision", q_arm_vision_b),
             ("q_hand", q_hand_b),
-            ("q_hand_ctrl_delta", q_hand_ctrl_delta_b*2) # *2 helps with sim-to-real
+            ("q_hand_ctrl_delta", q_hand_ctrl_delta_b) # *2 helps with sim-to-real
         ])
 
         # inference policy
         step_action, aux_pred, obs_dict = self.inference_policy(obs_dict)
+        with torch.no_grad():
+            model_output = self.model(obs_dict)
 
         # get unnormalized absolute actions for execution
         actions_abs = step_action.clone() # (32,)
@@ -329,6 +403,26 @@ class WBCPolicyTransformer:
             actions_abs, self.robot_dof_lower_limits, self.robot_dof_upper_limits
         )
         self.abs_hand_actions[:] = actions_abs[10:26]
+        self.steps += 1
+
+        self._maybe_dump_inference_io_pair(
+            raw_inputs={
+                "full_pcd_frankabase_frame_t": full_pcd_frankabase_frame_t.detach().clone(),
+                "eef_xyz_frankabase_frame_t": eef_xyz_frankabase_frame_t.detach().clone(),
+                "q_hand": q_hand.detach().clone(),
+                "q_arm_manip": q_arm_manip.detach().clone(),
+                "q_arm_vision": q_arm_vision.detach().clone(),
+                "aux_inputs": aux_inputs_record,
+                "aux_anchor_state": aux_anchor_state_record,
+                "prev_abs_hand_actions": prev_abs_hand_actions,
+            },
+            obs_dict_after=obs_dict,
+            student_actions_chunk=model_output["action"],
+            step_action=step_action,
+            actions_abs=actions_abs,
+            aux_pred=aux_pred,
+            model_aux_output=(model_output["aux"] if "aux" in model_output else None),
+        )
 
         actions_abs_cpu = actions_abs.cpu().numpy()
 

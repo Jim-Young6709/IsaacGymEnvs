@@ -23,5 +23,4 @@ def main(cfg: DictConfig):
 if __name__ == "__main__":
     import torch._dynamo
     torch._dynamo.config.disable = True
-
     main()

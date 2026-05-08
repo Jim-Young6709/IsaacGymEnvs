@@ -28,7 +28,7 @@ env:
     franka: 0.2 # joint angle
     arx: 0.2 # joint angle
 
-  grasp_guide_idx: 1 # 0: thumb curl toward the other fingers, 1: thumb is more curled horizontally, more enveloped grasp
+  grasp_guide_idx: 1 # 0: original curl, 1: current side-grasp curl, 2: sparse/open curl, 3: new side-grasp curl
   grasp_mode: full # options: full, pinch2, pinch3
 
   controlType: joint_position  # options are {joint_position, osc}
@@ -49,23 +49,47 @@ env:
     scale_range: [1.0, 1.0] # @ray this should match the scale in the urdf
     mass_range: [0.5, 0.5]
     object_center_z_scale: 0.5 # @ray normally just 1/2, but might be lower for side grasps
+    apply_shape_offsets: False
+    contact_offset: 0.02 # if set, overrides only the object asset contact offset
+    rest_offset: 0.01 # if set, overrides only the object asset rest offset
 
   object_wrench:
     enable: True
     activation_dis: 0.15 # in meters (apply forces within this range / when object is lifted)
+    activation_prob: 1.0 # Bernoulli probability of activating a new wrench on each trigger window
     max_linear_force: 5.0 # in Newtons
     torsional_radius: 0.01 # in meters
     trigger_duration: 1.0 # seconds, this will time sim_dt to get the number of trigger steps
     curri_steps: 1 # curriculum steps, now default to 1 which is no curri
+    success_curriculum:
+      enable: True # if true, overrides curri_steps with success-gated force scaling
+      success_threshold: 0.85 # increment only while rolling episode success rate is above this
+      success_steps: 500 # consecutive sim steps above threshold before each increment
+      num_increments: 10 # force scale is stage / num_increments, from 0 to 1
+      start_stage: 1
+    horizontal_away_from_eef:
+      enable: False
+      force_range: [7.5, 12.5] # in Newtons, sampled in XY away from current EEF
+    vertical_downward:
+      enable: False
+      force_range: [7.5, 12.0] # in Newtons, sampled in -Z in addition to the random wrench
 
   object_teleport:
     enable: True
-    env_proportion: 0.3 # proportion of envs to apply teleportation
+    env_proportion: 0.5 # proportion of envs to apply teleportation
+    mode: schedule # schedule | fixed_prob
+    per_env_prob: 0.003 # only used when mode=fixed_prob
     curri_steps: 20000
-    swap_freq: 3
+    swap_freq: 3 # resample the cached teleport env subset after this many teleport events
     n0: 10 # within n0 steps, don't teleport
     n1: 150 # until n1 steps, the probability of teleporting sum up to 0.5
     n2: 100 # at n2 steps, the probability of teleporting is 1.0
+    success_curriculum:
+      enable: False # if true, overrides curri_steps with success-gated teleport scaling
+      success_threshold: 0.85
+      success_steps: 500
+      num_increments: 10
+      start_stage: 1
 
   distractor_settings:
     enable: False
@@ -111,8 +135,8 @@ sim:
     num_threads: ${....num_threads}
     solver_type: ${....solver_type}
     use_gpu: ${contains:"cuda",${....sim_device}} # set to False to run on CPU
-    num_position_iterations: 8
-    num_velocity_iterations: 1
+    num_position_iterations: 48 #16
+    num_velocity_iterations: 4 #1
     contact_offset: 0.005
     rest_offset: 0.0
     bounce_threshold_velocity: 0.2

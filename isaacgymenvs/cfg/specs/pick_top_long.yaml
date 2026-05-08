@@ -1,0 +1,8 @@
+name: pick_top_long
+task: DexMobileDistillationTopLong
+train: DexMobileDistillationTopLongPPO
+teacher:
+  cfg: ../cfg/train/DexExpTableSidePPO.yaml
+  ckpt: ""
+overrides:
+  task: {}

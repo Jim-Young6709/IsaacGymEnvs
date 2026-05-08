@@ -1,0 +1,4 @@
+# Alias for the TopLong distillation task. The policy/trainer hyperparameters are
+# intentionally the same as the existing top-down mobile distillation PPO setup.
+defaults:
+  - DexMobileDistillationTopPPO

@@ -31,6 +31,7 @@ reward:
     target_quat: [1.0, 0.0, 0.0, 0.0]
     curl_reaching_threshold: 0.15
     include_palm_in_hand_obj: True
+    pinch_far_finger_curl_weight: 100.0
 
   exp:
     beta_hand_object: 5.0
