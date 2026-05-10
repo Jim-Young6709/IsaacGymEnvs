@@ -28,7 +28,7 @@ env:
     franka: 0.2 # joint angle
     arx: 0.2 # joint angle
 
-  grasp_guide_idx: 1 # 0: thumb curl toward the other fingers, 1: thumb is more curled horizontally, more enveloped grasp
+  grasp_guide_idx: 0 # 0: fist, 1: thumb is more curled horizontally, more enveloped grasp
 
   controlType: joint_position  # options are {joint_position, osc}
   controlFrequencyInv: 1
