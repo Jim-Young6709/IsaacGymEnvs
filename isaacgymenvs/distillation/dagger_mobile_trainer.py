@@ -253,6 +253,8 @@ class DaggerMobile:
         torch.save(checkpoint, self.save_dir / "latest.pt")
         if episode % self.save_freq == 0:
             torch.save(checkpoint, self.save_dir / f"episode_{episode:06d}.pt")
+        if (episode + 1) % 50 == 0:
+            torch.save(checkpoint, self.save_dir / f"distillation_episode_{episode + 1:06d}.pt")
 
         checkpoint_files = sorted([f for f in os.listdir(self.save_dir) if f.startswith("episode_")])
         if len(checkpoint_files) > top_k:
