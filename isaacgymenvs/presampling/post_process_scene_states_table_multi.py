@@ -158,7 +158,13 @@ def cuboid_intersects_compartment(
     return True
 
 
-def move_cuboids_outside_first_compartment(demo_group, cuboid_dims, cuboid_centers, cuboid_quats) -> int:
+def move_cuboids_outside_first_compartment(
+    demo_group,
+    cuboid_dims,
+    cuboid_centers,
+    cuboid_quats,
+    shelf: bool = False,
+) -> int:
     compartment_states = np.asarray(demo_group["compartment_states"][:], dtype=np.float32).reshape(-1, 10)
     first_compartment = compartment_states[0]
     compartment_dims = first_compartment[:3]
@@ -196,6 +202,8 @@ def move_cuboids_outside_first_compartment(demo_group, cuboid_dims, cuboid_cente
             "right": abs(center_local[1] - y_min),
             "left": abs(y_max - center_local[1]),
         }
+        if shelf:
+            del boundary_distances["front"]
         closest_boundary = min(boundary_distances, key=boundary_distances.get)
         half_extent_xy = cuboid_xy_half_extent(cuboid_dims[idx], cuboid_quats[idx], compartment_rot)
 
@@ -262,7 +270,7 @@ def build_scene_pcd_params(
     return updated_scene
 
 
-def process_demo(demo_group, demo_idx: int, base_seed: int, distractor_params):
+def process_demo(demo_group, demo_idx: int, base_seed: int, distractor_params, shelf: bool = False):
     states_dataset = demo_group["states"]
     states = np.asarray(states_dataset[:], dtype=np.float32)
     scene_pcd_params = states[0, 15:]
@@ -315,6 +323,7 @@ def process_demo(demo_group, demo_idx: int, base_seed: int, distractor_params):
         cuboid_dims,
         cuboid_centers,
         cuboid_quats,
+        shelf=shelf,
     )
     if added == 0 and moved == 0:
         return 0, 0
@@ -361,6 +370,11 @@ def parse_args():
     parser.add_argument("--output", default="")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--task_name", default="DexMobileExpBase")
+    parser.add_argument(
+        "--shelf",
+        action="store_true",
+        help="Do not move intersecting cuboids to the compartment front, defined as negative local x.",
+    )
     return parser.parse_args()
 
 
@@ -400,7 +414,7 @@ def main():
         total_moved = 0
         for demo_key in tqdm(demo_keys, desc="Post-processing demos"):
             demo_idx = int(demo_key.split("_")[-1])
-            added, moved = process_demo(demo_root[demo_key], demo_idx, args.seed, distractor_params)
+            added, moved = process_demo(demo_root[demo_key], demo_idx, args.seed, distractor_params, shelf=args.shelf)
             total_added += added
             total_moved += moved
 
