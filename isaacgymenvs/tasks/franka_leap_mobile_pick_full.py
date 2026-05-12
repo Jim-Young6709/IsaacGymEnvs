@@ -69,6 +69,7 @@ class FrankaLEAPMobilePickFull(FrankaLEAPMobile):
         self.max_obstacles = 0
         self.compartments = []
         self.init_robot_states = []
+        self.saved_mesh_indices = []
 
         for env_idx, demo in enumerate(self.batch):
             pcd_params = demo['states'][0][15:]
@@ -78,6 +79,10 @@ class FrankaLEAPMobilePickFull(FrankaLEAPMobile):
             self.compartments.append(demo['compartment_states'][0])
             if 'init_robot_states' in demo:
                 self.init_robot_states.append(demo['init_robot_states'])
+            if 'mesh_idx' in demo:
+                self.saved_mesh_indices.append(int(np.asarray(demo['mesh_idx']).reshape(-1)[0]))
+            else:
+                self.saved_mesh_indices.append(None)
 
         self.compartments = torch.tensor(self.compartments, device=self.device) # (num_envs, 10), 10 = 3 (xyz dims) + 3 (xyz pos) + 4 (xyzw quat)
 
@@ -155,6 +160,7 @@ class FrankaLEAPMobilePickFull(FrankaLEAPMobile):
         self.robots = []
         self.objects = []
         self.envs = []
+        self.mesh_indices = []
         self._object_center_init_state = torch.zeros((self.num_envs, 3), device=self.device)
 
         # load all meshes first
@@ -163,7 +169,11 @@ class FrankaLEAPMobilePickFull(FrankaLEAPMobile):
         # Create environments
         for i in tqdm(range(self.num_envs), desc="Creating Envs"):
             # grasp object
-            object_asset, object_start_pose, object_scale, object_id, mesh_id = all_meshes_list[i % len(all_meshes_list)]
+            mesh_idx = self.saved_mesh_indices[i]
+            if mesh_idx is None:
+                mesh_idx = i % len(all_meshes_list)
+            self.mesh_indices.append(mesh_idx)
+            object_asset, object_start_pose, object_scale, object_id, mesh_id = all_meshes_list[mesh_idx]
 
             # create env instance
             env_ptr = self.gym.create_env(self.sim, lower, upper, num_per_row)

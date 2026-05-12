@@ -6,7 +6,7 @@ import h5py
 import numpy as np
 
 
-REQUIRED_DEMO_KEYS = ("states", "compartment_states", "init_robot_states")
+REQUIRED_DEMO_KEYS = ("states", "compartment_states", "init_robot_states", "mesh_idx")
 
 
 def _demo_sort_key(name: str):

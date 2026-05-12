@@ -17,6 +17,7 @@ import torch.distributed as dist
 import yaml
 import os
 import time
+import numpy as np
 
 from rl_games.algos_torch import torch_ext
 from rl_games.algos_torch.model_builder import ModelBuilder
@@ -295,8 +296,9 @@ class PresampleInitPose:
         init_states = []
         for i in range(self.env.num_envs):
             if final_success_flag[i]:
-                env_i_states = self.env.batch[i]
+                env_i_states = dict(self.env.batch[i])
                 env_i_states['init_robot_states'] = self.env.default_reset_joint_config[i].cpu().numpy()
+                env_i_states['mesh_idx'] = np.array([self.env.mesh_indices[i]], dtype=np.int64)
                 init_states.append(env_i_states)
 
         output_path = os.path.join(self.output_hdf5_dir, self.output_hdf5_name)

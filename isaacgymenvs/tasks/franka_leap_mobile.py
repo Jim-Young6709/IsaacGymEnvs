@@ -918,9 +918,9 @@ class FrankaLEAPMobile(VecTask):
             target_preload = min(target_preload, self.num_envs)
             target_preload = max(1, target_preload)
 
-            # Build a pooled preload list by repeating variants as needed, then shuffle.
+            # Build a pooled preload list by repeating variants as needed. Keep the
+            # order deterministic so saved mesh indices can be replayed later.
             idx = np.arange(target_preload, dtype=np.int64) % variant_count
-            np.random.shuffle(idx)
             mesh_entries = [base_entries[int(i)] for i in idx.tolist()]
         else:
             self.object_id_to_name = [e["display_name"] for e in mesh_entries]

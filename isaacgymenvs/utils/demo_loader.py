@@ -54,7 +54,7 @@ class DemoLoader:
                 # TODO: Support multiple configs in one env, ideally have one valid config for each support volume, or can even just load cuboids
                 # Get all necessary data from the demo
                 demo_data = {}
-                for key in ['states', 'compartment_states', 'init_robot_states']:
+                for key in ['states', 'compartment_states', 'init_robot_states', 'mesh_idx']:
                     if key in self.demos[demo_key].keys():
                         demo_data[key] = self.demos[f"{demo_key}/{key}"][:]
                 batch_data.append(demo_data)
