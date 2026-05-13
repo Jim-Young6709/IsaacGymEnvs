@@ -318,6 +318,7 @@ class PresampleTableMultiEnvStates:
 
             f.attrs["task_name"] = str(self.cfg.task_name)
             f.attrs["num_envs"] = int(self.num_envs)
+            f.attrs["postprocessed"] = True
 
         print(f"Saved {self.num_envs} demos to {output_path}")
 

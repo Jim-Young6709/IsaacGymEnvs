@@ -57,6 +57,7 @@ class PresampleInitPose:
         self.seed = cfg.seed
         self.exp_name = cfg.experiment
         set_seed_and_precision(self.seed)
+        self._assert_scene_hdf5_postprocessed()
 
         # load env
         def create_isaacgym_env(**kwargs) -> FrankaLEAPMobile:
@@ -103,6 +104,15 @@ class PresampleInitPose:
         self.set_weights(self.cfg["teacher"]["ckpt"])
         self.teacher_model.eval()
         self.is_teacher_rnn = self.teacher_model.is_rnn()
+
+    def _assert_scene_hdf5_postprocessed(self):
+        hdf5_path = self.cfg.task.env.scene.hdf5_path
+        if not os.path.isfile(hdf5_path):
+            raise FileNotFoundError(hdf5_path)
+
+        with h5py.File(hdf5_path, "r") as hdf5_file:
+            if not bool(hdf5_file.attrs.get("postprocessed", False)):
+                raise RuntimeError(f"HDF5 is not postprocessed: {hdf5_path}")
 
     # teacher loading utils
     def load_param_dict(self, cfg_path) -> Dict:
@@ -320,6 +330,7 @@ class PresampleInitPose:
                     demo_group.create_dataset(key, data=data[key])
             f.attrs['presample_success_rate'] = final_success_rate
             f.attrs['num_valid_samples'] = len(batch_data)
+            f.attrs['postprocessed'] = True
         print(f"Batch saved to {output_path} with sampling success rate {final_success_rate:.2f}")
 
 @hydra.main(config_name="pre_sample_robot_init_pose.yaml", config_path="../cfg")

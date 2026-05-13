@@ -1,0 +1,21 @@
+# Mobile base scene post-processing config with mobile and boundary add-on obstacles.
+
+defaults:
+  - DexMobileExpBase
+
+name: FrankaLEAPMobilePickFull
+
+env:
+  scene:
+    add_on_obstacles:
+      cuboids:
+        num_per_boundary_range: [1, 3] # low & high inclusive
+        size_xy: [[0.03, 0.03], [0.12, 0.12]]
+        size_z_min: 0.05
+
+    mobile_obstacles:
+      x_offset_range: [-0.4, -0.2]
+      y_offset_range: [0.2, 1.0]
+      cuboids:
+        num_range: [0, 2] # low & high inclusive
+        size_range: [[0.15, 0.15, 0.3], [0.4, 0.4, 1.7]]
