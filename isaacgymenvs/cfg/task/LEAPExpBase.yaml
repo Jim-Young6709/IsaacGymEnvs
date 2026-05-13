@@ -38,7 +38,7 @@ env:
     assetFileNameFranka: "franka_hand/franka_leap.urdf"
 
   mesh:
-    mesh_dir: "./meshes_69_new"
+    mesh_dir: "./meshes_final/default"
     obj_list: ["all"]
 
   table_thickness: 0.05
