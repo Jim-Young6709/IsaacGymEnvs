@@ -14,7 +14,6 @@ from abc import abstractmethod
 
 import cv2
 import imageio
-import trimesh
 import wandb
 import hydra
 import isaacgym
@@ -654,7 +653,7 @@ class FrankaLEAP(VecTask):
         if mass is None:
             return urdf_rel, mesh_dir
 
-        # Create a temp cached copy of the mesh folder and patch URDF mass there.
+        # Create a temp cached copy of the mesh folder and patch URDF mass/scale there.
         mass_value = float(mass)
         scale_vec = np.asarray(scale, dtype=np.float32).reshape(-1)
         if scale_vec.shape[0] == 1:
@@ -672,8 +671,9 @@ class FrankaLEAP(VecTask):
         if not os.path.exists(cache_mesh_dir):
             shutil.copytree(mesh_dir, cache_mesh_dir)
 
+        source_urdf_path = os.path.join(mesh_dir, urdf_rel)
         cache_urdf_path = os.path.join(cache_mesh_dir, urdf_rel)
-        with open(cache_urdf_path, "r") as f:
+        with open(source_urdf_path, "r") as f:
             urdf_text = f.read()
         patched_urdf_text, n_sub = re.subn(
             r'(<mass\s+value\s*=\s*")[^"]+("\s*/?>)',
@@ -692,16 +692,28 @@ class FrankaLEAP(VecTask):
         if n_scale_sub == 0:
             raise ValueError(f"No <mesh ... scale=\"...\"> tag found in URDF: {cache_urdf_path}")
 
-        if patched_urdf_text != urdf_text:
-            with open(cache_urdf_path, "w") as f:
-                f.write(patched_urdf_text)
+        def _scale_urdf_origin(match):
+            xyz = np.fromstring(match.group(2), sep=" ", dtype=np.float32)
+            if xyz.shape[0] != 3:
+                raise ValueError(f"Expected origin xyz to have 3 values in URDF: {source_urdf_path}")
+            scaled_xyz = xyz * scale_vec
+            xyz_str = f"{float(scaled_xyz[0]):.8g} {float(scaled_xyz[1]):.8g} {float(scaled_xyz[2]):.8g}"
+            return match.group(1) + xyz_str + match.group(3)
+
+        patched_urdf_text, n_origin_sub = re.subn(
+            r'(<origin\b[^>]*\bxyz\s*=\s*")([^"]+)(")',
+            _scale_urdf_origin,
+            patched_urdf_text,
+        )
+        if n_origin_sub == 0:
+            raise ValueError(f"No <origin xyz=...> tag found in URDF: {source_urdf_path}")
+
+        with open(cache_urdf_path, "w") as f:
+            f.write(patched_urdf_text)
         return urdf_rel, cache_mesh_dir
 
         # TODO: change logic in the future, recreating urdf might not be a good idea
         # urdf_path = os.path.join(mesh_dir, urdf_rel)
-
-        # mesh = trimesh.load(mesh_path)
-        # z_com = mesh.extents[2] * scale[2] / 2
 
         # # URDF content
         # urdf_str = f"""<?xml version="1.0" ?>
@@ -874,13 +886,31 @@ class FrankaLEAP(VecTask):
                     meta = json.load(jf)
                 if meta["transform_model"] != "dilation_only_v1":
                     continue
+                baked_dilation = self._get_baked_dilation_from_variant_meta(meta, json_path)
+                baked_rotation_abs = self._get_baked_rotation_abs_from_variant_meta(meta)
                 # mesh_id can be a nested relative path; ObjaMesh handles this directly.
                 mesh_id_rel = os.path.join(mesh_rel_prefix, mesh_stem)
                 display_name = f"{object_name}_{variant}"
-                variant_entries.append((display_name, mesh_path, mesh_id_rel, meta["dilation_range"]))
+                variant_entries.append(
+                    (
+                        display_name,
+                        mesh_path,
+                        mesh_id_rel,
+                        meta["dilation_range"],
+                        baked_dilation,
+                        baked_rotation_abs,
+                    )
+                )
 
         variant_entries = sorted(variant_entries, key=lambda x: (x[0], x[1]))
-        for idx, (display_name, mesh_path, mesh_id_rel, dilation_range) in enumerate(variant_entries):
+        for idx, (
+            display_name,
+            mesh_path,
+            mesh_id_rel,
+            dilation_range,
+            baked_dilation,
+            baked_rotation_abs,
+        ) in enumerate(variant_entries):
             entries.append(
                 {
                     "mesh_path": mesh_path,
@@ -888,9 +918,71 @@ class FrankaLEAP(VecTask):
                     "asset_mesh_id": mesh_id_rel,
                     "display_name": display_name,
                     "dilation_range": dilation_range,
+                    "baked_dilation": baked_dilation,
+                    "baked_rotation_abs": baked_rotation_abs,
                 }
             )
         return entries
+
+    def _get_baked_dilation_from_variant_meta(self, meta, json_path):
+        transform = meta.get("transform", {})
+        keys = ("dilate_x", "dilate_y", "dilate_z")
+        if all(k in transform for k in keys):
+            return np.asarray([float(transform[k]) for k in keys], dtype=np.float32)
+
+        stats = meta.get("stats", {})
+        original_extents = np.asarray(stats.get("original", {}).get("bbox_extents", []), dtype=np.float32)
+        scaled_extents = np.asarray(stats.get("scaled", {}).get("bbox_extents", []), dtype=np.float32)
+        if original_extents.shape[0] == 3 and scaled_extents.shape[0] == 3:
+            if np.all(np.abs(original_extents) > 1.0e-8):
+                return scaled_extents / original_extents
+
+        dilation_range = meta.get("dilation_range", {})
+        try:
+            return np.asarray(
+                [
+                    0.5 * (float(dilation_range["x"]["min"]) + float(dilation_range["x"]["max"])),
+                    0.5 * (float(dilation_range["y"]["min"]) + float(dilation_range["y"]["max"])),
+                    0.5 * (float(dilation_range["z"]["min"]) + float(dilation_range["z"]["max"])),
+                ],
+                dtype=np.float32,
+            )
+        except KeyError as exc:
+            raise ValueError(f"Cannot infer baked dilation from variant metadata: {json_path}") from exc
+
+    def _get_baked_rotation_abs_from_variant_meta(self, meta):
+        transform = meta.get("transform", {})
+        rx = np.deg2rad(float(transform.get("rot_x", 0.0)))
+        ry = np.deg2rad(float(transform.get("rot_y", 0.0)))
+        rz = np.deg2rad(float(transform.get("rot_z", 0.0)))
+        cx, sx = np.cos(rx), np.sin(rx)
+        cy, sy = np.cos(ry), np.sin(ry)
+        cz, sz = np.cos(rz), np.sin(rz)
+        rot_x = np.asarray([[1.0, 0.0, 0.0], [0.0, cx, -sx], [0.0, sx, cx]], dtype=np.float32)
+        rot_y = np.asarray([[cy, 0.0, sy], [0.0, 1.0, 0.0], [-sy, 0.0, cy]], dtype=np.float32)
+        rot_z = np.asarray([[cz, -sz, 0.0], [sz, cz, 0.0], [0.0, 0.0, 1.0]], dtype=np.float32)
+        return np.abs(rot_z @ rot_y @ rot_x)
+
+    def _sample_variant_relative_scale(self, entry):
+        _, _, relative_scale = self._sample_variant_dilation_and_scale(entry)
+        return relative_scale
+
+    def _sample_variant_dilation_and_scale(self, entry):
+        dilation_range = entry["dilation_range"]
+        target_dilation = np.asarray(
+            [
+                np.random.uniform(float(dilation_range["x"]["min"]), float(dilation_range["x"]["max"])),
+                np.random.uniform(float(dilation_range["y"]["min"]), float(dilation_range["y"]["max"])),
+                np.random.uniform(float(dilation_range["z"]["min"]), float(dilation_range["z"]["max"])),
+            ],
+            dtype=np.float32,
+        )
+        baked_dilation = np.asarray(entry["baked_dilation"], dtype=np.float32)
+        if np.any(np.abs(baked_dilation) <= 1.0e-8):
+            raise ValueError(f"Invalid baked_dilation for {entry['mesh_path']}: {baked_dilation}")
+        raw_relative_scale = target_dilation / baked_dilation
+        relative_scale = np.asarray(entry["baked_rotation_abs"], dtype=np.float32) @ raw_relative_scale
+        return target_dilation, raw_relative_scale, relative_scale
 
     def create_rand_mesh(self, fix_base_link=False):
         # get randomly sampled mesh path
@@ -905,15 +997,7 @@ class FrankaLEAP(VecTask):
         pos_range = self.cfg["env"]["object_settings"]["xyz_range"]
 
         if "dilation_range" in sampled:
-            d = sampled["dilation_range"]
-            mesh_scale = np.array(
-                [
-                    np.random.uniform(float(d["x"]["min"]), float(d["x"]["max"])),
-                    np.random.uniform(float(d["y"]["min"]), float(d["y"]["max"])),
-                    np.random.uniform(float(d["z"]["min"]), float(d["z"]["max"])),
-                ],
-                dtype=np.float32,
-            )
+            mesh_scale = self._sample_variant_relative_scale(sampled)
         else:
             mesh_scale = np.random.uniform(scale_range[0], scale_range[1])
         mesh_pos = np.random.uniform(pos_range[0], pos_range[1])
@@ -952,25 +1036,35 @@ class FrankaLEAP(VecTask):
         self.mesh_variant_mode = ("dilation_range" in mesh_entries[0])
         if self.mesh_variant_mode:
             base_entries = mesh_entries
-            # CODEX: keep per-object metrics keyed by true variants (not expanded preload copies).
-            self.object_id_to_name = [e["display_name"] for e in base_entries]
-
             variant_count = len(base_entries)
-            preload_multiplier = int(self.mesh_args.get("variant_preload_multiplier", 1))
-            if preload_multiplier < 1:
-                raise ValueError("env.mesh.variant_preload_multiplier must be >= 1")
+            explicit_preload_count = int(self.mesh_args.get("variant_preload_count", 0))
+            if explicit_preload_count > 0:
+                target_preload = explicit_preload_count
+            else:
+                preload_multiplier = int(self.mesh_args.get("variant_preload_multiplier", 1))
+                if preload_multiplier < 1:
+                    raise ValueError("env.mesh.variant_preload_multiplier must be >= 1")
 
-            target_preload = variant_count * preload_multiplier
-            max_preload = int(self.mesh_args.get("variant_preload_max", self.num_envs))
-            if max_preload > 0:
-                target_preload = min(target_preload, max_preload)
+                target_preload = variant_count * preload_multiplier
+                max_preload = int(self.mesh_args.get("variant_preload_max", self.num_envs))
+                if max_preload > 0:
+                    target_preload = min(target_preload, max_preload)
             target_preload = min(target_preload, self.num_envs)
             target_preload = max(1, target_preload)
 
             # Build a pooled preload list by repeating variants as needed, then shuffle.
-            idx = np.arange(target_preload, dtype=np.int64) % variant_count
+            if target_preload < variant_count:
+                idx = np.random.choice(variant_count, size=target_preload, replace=False)
+            else:
+                idx = np.arange(target_preload, dtype=np.int64) % variant_count
             np.random.shuffle(idx)
             mesh_entries = [base_entries[int(i)] for i in idx.tolist()]
+            self.object_id_to_name = [e["display_name"] for e in mesh_entries]
+            versions_per_variant = int(np.ceil(float(target_preload) / float(variant_count)))
+            print(
+                f"[mesh_variant_preload] variants={variant_count} preload={target_preload} "
+                f"versions_per_variant~={versions_per_variant}"
+            )
         else:
             self.object_id_to_name = [e["display_name"] for e in mesh_entries]
 
@@ -980,7 +1074,10 @@ class FrankaLEAP(VecTask):
             scale_range = self.cfg["env"]["object_settings"]["scale_range"]
             pos_range = self.cfg["env"]["object_settings"]["xyz_range"]
 
-            mesh_scale = np.random.uniform(scale_range[0], scale_range[1])
+            if "dilation_range" in entry:
+                _, _, mesh_scale = self._sample_variant_dilation_and_scale(entry)
+            else:
+                mesh_scale = np.random.uniform(scale_range[0], scale_range[1])
             mesh_pos = np.random.uniform(pos_range[0], pos_range[1])
             mesh_quat = R.random().as_quat()
             asset, start_pose, scale, asset_obj_id, asset_mesh_id = self._create_mesh(

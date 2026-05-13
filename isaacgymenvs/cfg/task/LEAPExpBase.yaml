@@ -41,6 +41,10 @@ env:
   mesh:
     mesh_dir: "./meshes_69_new"
     obj_list: ["all"]
+    variant_manifest_json: null # fixed dilated-variant manifest for distillation/data generation
+    variant_preload_count: 0 # if >0, exact number of dilated variant assets to preload
+    variant_preload_multiplier: 1 # used only when variant_preload_count is 0
+    variant_preload_max: 0 # if >0, caps multiplier-based variant preloading
 
   table_thickness: 0.05
 
@@ -135,7 +139,7 @@ sim:
     num_threads: ${....num_threads}
     solver_type: ${....solver_type}
     use_gpu: ${contains:"cuda",${....sim_device}} # set to False to run on CPU
-    num_position_iterations: 48 #16
+    num_position_iterations: 32 #48 #16
     num_velocity_iterations: 4 #1
     contact_offset: 0.005
     rest_offset: 0.0
@@ -186,7 +190,7 @@ pcd_spec:
   num_distractor_points: 2048
   num_local_points: 512 # TODO: clean up later
   simulate_depth_cam: True
-
+  depth_pcd_ratio: 0.5 # 0.5 depth pcd ; 0.5 lidar pcd
 
 # Domain Randomization
 task:

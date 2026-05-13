@@ -74,6 +74,39 @@ class ViserVisualizer:
             precision="float16",
             visible=True,
         )
+        # CODEX LIDAR MERGE: point cloud handles used by DaggerMobile's depth+lidar debug path.
+        self._point_cloud_handle["rendered_full_points"] = self.server.scene.add_point_cloud(
+            name="/rendered_full_points",
+            points=np.zeros((0, 3), dtype=np.float16),
+            colors=(79, 195, 247),
+            point_size=0.01/3,
+            precision="float16",
+            visible=True,
+        )
+        self._point_cloud_handle["rendered_cam_points"] = self.server.scene.add_point_cloud(
+            name="/rendered_cam_points",
+            points=np.zeros((0, 3), dtype=np.float16),
+            colors=(255, 0, 0),
+            point_size=0.01/3,
+            precision="float16",
+            visible=True,
+        )
+        self._point_cloud_handle["rendered_lidar_points"] = self.server.scene.add_point_cloud(
+            name="/rendered_lidar_points",
+            points=np.zeros((0, 3), dtype=np.float16),
+            colors=(0, 255, 0),
+            point_size=0.01/3,
+            precision="float16",
+            visible=True,
+        )
+        self._point_cloud_handle["policy_input_points"] = self.server.scene.add_point_cloud(
+            name="/policy_input_points",
+            points=np.zeros((0, 3), dtype=np.float16),
+            colors=(0, 0, 255),
+            point_size=0.01/3,
+            precision="float16",
+            visible=True,
+        )
         self._point_cloud_handle["seg_distractor_t0"] = self.server.scene.add_point_cloud(
             name="/seg_distractor_t0",
             points=np.zeros((0, 3), dtype=np.float16),

@@ -123,6 +123,9 @@ def _cfg_to_float_array(value, name="value"):
 
 
 class FrankaLEAPPickTableSide(FrankaLEAP):
+    def _top_long_mode(self):
+        return self.lie_flat_prob >= 1.0 - 1.0e-6
+
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
         self.object_grasp_target_z_scale = float(cfg["env"]["object_settings"]["object_grasp_target_z_scale"])
         self.lie_flat_prob = float(cfg["env"]["object_settings"].get("lie_flat_prob", 0.0))
@@ -136,7 +139,16 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         self._fixed_table_surface_height = float(cfg["env"]["scene"]["table_surface_height"])
         self.side_mode = str(cfg["env"]["eef_init"]["side_mode"])
         self._reset_flat_side_recovery_prob = float(cfg["env"]["eef_init"].get("flat_side_recovery_prob", 0.25))
-        self._reset_wrong_side_sample_prob = float(cfg["env"]["eef_init"].get("wrong_side_sample_prob", 0.5))
+        reset_bank_cfg = cfg["env"].get("reset_bank", {})
+        self._reset_bank_size_cfg = max(int(reset_bank_cfg.get("size", 4096)), 1)
+        self._reset_bank_max_ik_goals_cfg = max(int(reset_bank_cfg.get("max_ik_goals", 4096)), 1)
+        wrong_side_curriculum_cfg = cfg["env"]["eef_init"].get("wrong_side_curriculum", {})
+        wrong_side_num_increments = max(int(wrong_side_curriculum_cfg.get("num_increments", 1)), 1)
+        wrong_side_start_stage = int(wrong_side_curriculum_cfg.get("start_stage", 0))
+        wrong_side_start_stage = max(0, min(wrong_side_start_stage, wrong_side_num_increments))
+        self.wrong_side_curriculum_stage = wrong_side_start_stage
+        self.wrong_side_curriculum_stable_steps = 0
+        self.wrong_side_sample_prob = 0.0
         self._reset_eef_rel_object_min_cfg = cfg["env"]["eef_init"].get(
             "rel_object_min",
             [-0.1178, 0.05, 0.0282],
@@ -164,6 +176,15 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         self._reset_yaw_noise_deg = float(cfg["env"]["eef_init"].get("yaw_noise_deg", 45.0))
         self._reset_pitch_roll_noise_deg = float(cfg["env"]["eef_init"].get("pitch_roll_noise_deg", 45.0))
         self._init_reset_config()
+        if self.lie_flat_prob <= 1.0e-6:
+            wrong_side_max_prob = min(max(float(wrong_side_curriculum_cfg.get("max_prob", 0.0)), 0.0), 1.0)
+            if bool(wrong_side_curriculum_cfg.get("enable", False)):
+                self.wrong_side_sample_prob = wrong_side_max_prob * min(
+                    float(wrong_side_start_stage) / float(wrong_side_num_increments),
+                    1.0,
+                )
+            else:
+                self.wrong_side_sample_prob = wrong_side_max_prob
         hand_obj_gate_success_cfg = cfg["reward"]["params"].get("hand_obj_gate_success_curriculum", {})
         hand_obj_gate_num_increments = max(int(hand_obj_gate_success_cfg.get("num_increments", 1)), 1)
         hand_obj_gate_start_stage = int(hand_obj_gate_success_cfg.get("start_stage", 0))
@@ -178,6 +199,30 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         self.disable_wrong_side_logic = bool(self.lie_flat_prob > 0.0) and (
             not bool(cfg["reward"]["params"].get("wrong_side_logic_for_flat_objects", False))
         )
+        self._top_long_distillation_teleport = self._top_long_mode() and bool(
+            cfg["env"]["object_teleport"].get("top_long_match_distillation", True)
+        )
+        if self._top_long_distillation_teleport:
+            tele_cfg = cfg["env"]["object_teleport"]
+            # Keep top-long RL teleport schedule and sample count aligned with
+            # DexMobileDistillationTopLong when teleport is enabled.
+            tele_cfg["mode"] = "schedule"
+            tele_cfg["env_proportion"] = 1.0
+            tele_cfg["swap_frequency"] = 1
+            tele_cfg["swap_freq"] = 1
+            tele_cfg["curri_steps"] = 1
+            tele_cfg["n0"] = 20
+            tele_cfg["n1"] = 105
+            tele_cfg["n2"] = 105
+            tele_cfg["min_xy_dist_to_eef"] = 0.05
+            tele_cfg["min_xy_dist_resample_rounds"] = 12
+            tele_cfg["force_right_of_eef"] = False
+            tele_cfg["success_curriculum"]["enable"] = False
+        if str(cfg["env"]["object_teleport"].get("mode", "schedule")) == "fixed_prob":
+            raise ValueError(
+                "DexExpTableSide no longer supports object_teleport.mode=fixed_prob. "
+                "Use schedule teleport with n0/n1/n2 instead."
+            )
         self.profile_step_timing = os.getenv("ISAACGYM_SIDE_PROFILE", "0") == "1"
         self.profile_step_timing_every = max(1, int(os.getenv("ISAACGYM_SIDE_PROFILE_EVERY", "100")))
         print(
@@ -186,8 +231,12 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
             f"lie_flat_prob={self.lie_flat_prob} "
             f"wrong_side_logic_for_flat_objects={bool(cfg['reward']['params'].get('wrong_side_logic_for_flat_objects', False))} "
             f"disable_wrong_side_logic={self.disable_wrong_side_logic} "
+            f"wrong_side_sample_prob={self.wrong_side_sample_prob:.3f} "
+            f"reset_bank_size={self._reset_bank_size} "
+            f"reset_bank_max_ik_goals={self._reset_bank_max_ik_goals} "
             f"teleport_enable={bool(cfg['env']['object_teleport'].get('enable', False))} "
             f"teleport_mode={str(cfg['env']['object_teleport'].get('mode', 'schedule'))} "
+            f"top_long_distillation_teleport={self._top_long_distillation_teleport} "
             f"profile_step_timing={self.profile_step_timing} "
             f"profile_every={self.profile_step_timing_every}"
         )
@@ -214,6 +263,7 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         self.object_teleport_total_events = 0
         self.object_teleport_total_env_teleports = 0
         self.flat_reset_active_buf = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
+        self.reset_wrong_side_active_buf = torch.zeros(self.num_envs, device=self.device, dtype=torch.bool)
         self._init_reset_bank()
 
     def _init_reset_config(self):
@@ -250,8 +300,8 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         # subtracting this local z offset rotated into world.
         self._palm_center_from_link7_local = torch.tensor([0.0, 0.0, 0.115], dtype=torch.float32)
         self._flat_object_quat_base = torch.tensor([0.0, 0.70710678, 0.0, 0.70710678], dtype=torch.float32)
-        self._reset_bank_size = 4096
-        self._reset_bank_max_ik_goals = 4096
+        self._reset_bank_size = int(self._reset_bank_size_cfg)
+        self._reset_bank_max_ik_goals = int(self._reset_bank_max_ik_goals_cfg)
 
     def _init_reset_bank(self):
         bank_size = int(self._reset_bank_size)
@@ -265,6 +315,13 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         self._reset_bank_object_quat_world_cpu = torch.empty((num_objects, bank_size, 4), dtype=dtype, device="cpu")
         self._reset_bank_side_is_left_cpu = torch.empty((num_objects, bank_size), dtype=torch.bool, device="cpu")
         self._reset_bank_flat_reset_active_cpu = torch.empty((num_objects, bank_size), dtype=torch.bool, device="cpu")
+        self._reset_bank_wrong_side_active_cpu = torch.empty((num_objects, bank_size), dtype=torch.bool, device="cpu")
+        if self._wrong_side_sampling_used_for_run() and bank_size >= 2:
+            self._reset_bank_correct_size = (bank_size + 1) // 2
+            self._reset_bank_wrong_size = bank_size - self._reset_bank_correct_size
+        else:
+            self._reset_bank_correct_size = bank_size
+            self._reset_bank_wrong_size = 0
 
         rep_env_ids_cpu = torch.full((num_objects,), -1, dtype=torch.long)
         env_object_ids_cpu = self.env_object_ids.detach().to(device="cpu", dtype=torch.long)
@@ -282,36 +339,52 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         slots_per_round = max(1, goals_per_round // max(num_objects, 1))
         t0 = time.time()
         progress = tqdm(total=bank_size, desc="Building Reset Bank")
-        for start in range(0, bank_size, slots_per_round):
-            cur_slots = min(slots_per_round, bank_size - start)
-            batched_env_ids = rep_env_ids.repeat(cur_slots)
-            (
-                joint_config,
-                target_quat,
-                left_mask,
-                flat_reset_active,
-                object_center_world,
-                object_quat_world,
-            ) = self._sample_reset_joint_and_target_quat(
-                batched_env_ids,
-                use_reset_solver=True,
-            )
 
-            end = start + cur_slots
-            joint_config = joint_config.reshape(cur_slots, num_objects, self.num_dofs).transpose(0, 1).contiguous().cpu()
-            target_quat = target_quat.reshape(cur_slots, num_objects, 4).transpose(0, 1).contiguous().cpu()
-            left_mask = left_mask.reshape(cur_slots, num_objects).transpose(0, 1).contiguous().cpu()
-            flat_reset_active = flat_reset_active.reshape(cur_slots, num_objects).transpose(0, 1).contiguous().cpu()
-            object_center_world = object_center_world.reshape(cur_slots, num_objects, 3).transpose(0, 1).contiguous().cpu()
-            object_quat_world = object_quat_world.reshape(cur_slots, num_objects, 4).transpose(0, 1).contiguous().cpu()
+        def _fill_bank_range(range_start, range_end, force_wrong_side_value):
+            for start in range(range_start, range_end, slots_per_round):
+                cur_slots = min(slots_per_round, range_end - start)
+                batched_env_ids = rep_env_ids.repeat(cur_slots)
+                force_wrong_side = torch.full(
+                    (batched_env_ids.numel(),),
+                    bool(force_wrong_side_value),
+                    device=self.device,
+                    dtype=torch.bool,
+                )
+                (
+                    joint_config,
+                    target_quat,
+                    left_mask,
+                    flat_reset_active,
+                    object_center_world,
+                    object_quat_world,
+                    wrong_side_active,
+                ) = self._sample_reset_joint_and_target_quat(
+                    batched_env_ids,
+                    use_reset_solver=True,
+                    force_wrong_side=force_wrong_side,
+                )
 
-            self._reset_bank_joint_config_cpu[:, start:end].copy_(joint_config)
-            self._reset_bank_target_quat_cpu[:, start:end].copy_(target_quat)
-            self._reset_bank_side_is_left_cpu[:, start:end].copy_(left_mask)
-            self._reset_bank_flat_reset_active_cpu[:, start:end].copy_(flat_reset_active)
-            self._reset_bank_object_center_world_cpu[:, start:end].copy_(object_center_world)
-            self._reset_bank_object_quat_world_cpu[:, start:end].copy_(object_quat_world)
-            progress.update(cur_slots)
+                end = start + cur_slots
+                joint_config = joint_config.reshape(cur_slots, num_objects, self.num_dofs).transpose(0, 1).contiguous().cpu()
+                target_quat = target_quat.reshape(cur_slots, num_objects, 4).transpose(0, 1).contiguous().cpu()
+                left_mask = left_mask.reshape(cur_slots, num_objects).transpose(0, 1).contiguous().cpu()
+                flat_reset_active = flat_reset_active.reshape(cur_slots, num_objects).transpose(0, 1).contiguous().cpu()
+                object_center_world = object_center_world.reshape(cur_slots, num_objects, 3).transpose(0, 1).contiguous().cpu()
+                object_quat_world = object_quat_world.reshape(cur_slots, num_objects, 4).transpose(0, 1).contiguous().cpu()
+                wrong_side_active = wrong_side_active.reshape(cur_slots, num_objects).transpose(0, 1).contiguous().cpu()
+
+                self._reset_bank_joint_config_cpu[:, start:end].copy_(joint_config)
+                self._reset_bank_target_quat_cpu[:, start:end].copy_(target_quat)
+                self._reset_bank_side_is_left_cpu[:, start:end].copy_(left_mask)
+                self._reset_bank_flat_reset_active_cpu[:, start:end].copy_(flat_reset_active)
+                self._reset_bank_object_center_world_cpu[:, start:end].copy_(object_center_world)
+                self._reset_bank_object_quat_world_cpu[:, start:end].copy_(object_quat_world)
+                self._reset_bank_wrong_side_active_cpu[:, start:end].copy_(wrong_side_active)
+                progress.update(cur_slots)
+
+        _fill_bank_range(0, self._reset_bank_correct_size, False)
+        if self._reset_bank_wrong_size > 0:
+            _fill_bank_range(self._reset_bank_correct_size, bank_size, True)
         progress.close()
 
         bank_bytes = (
@@ -320,23 +393,37 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
             self._reset_bank_object_center_world_cpu.element_size() * self._reset_bank_object_center_world_cpu.numel() +
             self._reset_bank_object_quat_world_cpu.element_size() * self._reset_bank_object_quat_world_cpu.numel() +
             self._reset_bank_side_is_left_cpu.element_size() * self._reset_bank_side_is_left_cpu.numel() +
-            self._reset_bank_flat_reset_active_cpu.element_size() * self._reset_bank_flat_reset_active_cpu.numel()
+            self._reset_bank_flat_reset_active_cpu.element_size() * self._reset_bank_flat_reset_active_cpu.numel() +
+            self._reset_bank_wrong_side_active_cpu.element_size() * self._reset_bank_wrong_side_active_cpu.numel()
         )
         elapsed = time.time() - t0
         print(
             f"Built side reset bank: num_envs={num_envs}, num_objects={num_objects}, bank_size={bank_size}, slots_per_round={slots_per_round}, "
+            f"correct_bank={self._reset_bank_correct_size}, wrong_bank={self._reset_bank_wrong_size}, "
             f"cpu_mem={bank_bytes / (1024 ** 3):.3f} GB, elapsed={elapsed:.1f}s"
         )
 
     def _sample_reset_from_bank(self, env_ids):
         object_ids_cpu = self.env_object_ids[env_ids].detach().to(device="cpu", dtype=torch.long)
+        num_samples = int(object_ids_cpu.numel())
         bank_idx_cpu = torch.randint(
             low=0,
-            high=self._reset_bank_size,
-            size=(object_ids_cpu.numel(),),
+            high=self._reset_bank_correct_size,
+            size=(num_samples,),
             device="cpu",
             dtype=torch.long,
         )
+        if self._reset_bank_wrong_size > 0:
+            wrong_prob = min(max(float(self.wrong_side_sample_prob), 0.0), 1.0)
+            use_wrong_cpu = torch.rand((num_samples,), device="cpu") < wrong_prob
+            wrong_idx_cpu = self._reset_bank_correct_size + torch.randint(
+                low=0,
+                high=self._reset_bank_wrong_size,
+                size=(num_samples,),
+                device="cpu",
+                dtype=torch.long,
+            )
+            bank_idx_cpu = torch.where(use_wrong_cpu, wrong_idx_cpu, bank_idx_cpu)
 
         joint_config = self._reset_bank_joint_config_cpu[object_ids_cpu, bank_idx_cpu].to(device=self.device, dtype=self._q.dtype)
         target_quat = self._reset_bank_target_quat_cpu[object_ids_cpu, bank_idx_cpu].to(device=self.device, dtype=self._q.dtype)
@@ -344,10 +431,11 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         flat_reset_active = self._reset_bank_flat_reset_active_cpu[object_ids_cpu, bank_idx_cpu].to(device=self.device)
         object_center_world = self._reset_bank_object_center_world_cpu[object_ids_cpu, bank_idx_cpu].to(device=self.device, dtype=self._q.dtype)
         object_quat_world = self._reset_bank_object_quat_world_cpu[object_ids_cpu, bank_idx_cpu].to(device=self.device, dtype=self._q.dtype)
+        wrong_side_active = self._reset_bank_wrong_side_active_cpu[object_ids_cpu, bank_idx_cpu].to(device=self.device)
         if self.lie_flat_prob <= 0.0:
             object_quat_world.zero_()
             object_quat_world[:, 3] = 1.0
-        return joint_config, target_quat, left_mask, flat_reset_active, object_center_world, object_quat_world
+        return joint_config, target_quat, left_mask, flat_reset_active, object_center_world, object_quat_world, wrong_side_active
 
     def _apply_object_center_state(self, env_ids, object_center_world, object_quat=None):
         num_resets = int(env_ids.numel())
@@ -380,17 +468,12 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
 
         curri_factor = self._get_object_teleport_curriculum_scale()
         self.object_teleport_curriculum_scale = curri_factor
-        mode = str(self.object_teleport_args.get("mode", self.object_teleport_mode))
         schedule_len = int(self.teleport_probs.shape[0])
         if schedule_len <= 0:
             return torch.empty((0,), dtype=torch.long, device=self.device)
 
-        if mode == "fixed_prob":
-            env_proportion = max(float(self.object_teleport_args.get("env_proportion", 0.0)), 1.0e-8)
-            event_prob = min(float(self.object_teleport_fixed_prob) / env_proportion, 1.0) * float(curri_factor)
-        else:
-            event_idx = int(self.sim_steps) % schedule_len
-            event_prob = float(self.teleport_probs[event_idx].item()) * float(curri_factor)
+        event_idx = int(self.sim_steps) % schedule_len
+        event_prob = float(self.teleport_probs[event_idx].item()) * float(curri_factor)
         if event_prob <= 0.0 or random.random() >= event_prob:
             return torch.empty((0,), dtype=torch.long, device=self.device)
 
@@ -428,13 +511,60 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         if not self.object_teleport_args["enable"]:
             return 0.0
         curri_factor = float(self._get_object_teleport_curriculum_scale())
-        mode = str(self.object_teleport_args.get("mode", self.object_teleport_mode))
-        if mode == "fixed_prob":
-            return float(self.num_envs) * float(self.object_teleport_fixed_prob) * curri_factor
         schedule_len = int(self.teleport_probs.shape[0])
         if schedule_len <= 0:
             return 0.0
         return float(self.num_teleport_envs) * float(torch.mean(self.teleport_probs).item()) * curri_factor
+
+    def _wrong_side_sampling_used_for_run(self):
+        return self.lie_flat_prob <= 1.0e-6
+
+    def _wrong_side_sample_curriculum_enabled(self):
+        curriculum_cfg = self.cfg["env"]["eef_init"].get("wrong_side_curriculum", {})
+        return self._wrong_side_sampling_used_for_run() and bool(curriculum_cfg.get("enable", False))
+
+    def _get_wrong_side_sample_prob(self):
+        curriculum_cfg = self.cfg["env"]["eef_init"].get("wrong_side_curriculum", {})
+        max_prob = min(max(float(curriculum_cfg.get("max_prob", 0.0)), 0.0), 1.0)
+        if not self._wrong_side_sampling_used_for_run():
+            return 0.0
+        if not self._wrong_side_sample_curriculum_enabled():
+            return max_prob
+        num_increments = max(int(curriculum_cfg.get("num_increments", 1)), 1)
+        return max_prob * min(float(self.wrong_side_curriculum_stage) / float(num_increments), 1.0)
+
+    def _update_wrong_side_sample_curriculum(self, success_rate):
+        if not self._wrong_side_sampling_used_for_run():
+            self.wrong_side_sample_prob = 0.0
+            return
+        if not self._wrong_side_sample_curriculum_enabled():
+            self.wrong_side_sample_prob = self._get_wrong_side_sample_prob()
+            return
+
+        curriculum_cfg = self.cfg["env"]["eef_init"].get("wrong_side_curriculum", {})
+        success_threshold = float(curriculum_cfg.get("success_threshold", 0.5))
+        success_steps = max(int(curriculum_cfg.get("success_steps", 1)), 1)
+        num_increments = max(int(curriculum_cfg.get("num_increments", 1)), 1)
+
+        if self.wrong_side_curriculum_stage >= num_increments:
+            self.wrong_side_curriculum_stable_steps = 0
+        else:
+            if float(success_rate) >= success_threshold:
+                self.wrong_side_curriculum_stable_steps += 1
+            else:
+                self.wrong_side_curriculum_stable_steps = 0
+
+            if self.wrong_side_curriculum_stable_steps >= success_steps:
+                self.wrong_side_curriculum_stage += 1
+                self.wrong_side_curriculum_stable_steps = 0
+                self.wrong_side_sample_prob = self._get_wrong_side_sample_prob()
+                print(
+                    f"[wrong_side_sample_curriculum] stage={self.wrong_side_curriculum_stage}/{num_increments} "
+                    f"prob={self.wrong_side_sample_prob:.3f} "
+                    f"success_rate={float(success_rate):.3f}"
+                )
+
+        self.wrong_side_sample_prob = self._get_wrong_side_sample_prob()
 
     def _hand_obj_gate_success_curriculum_enabled(self):
         success_cfg = self.cfg["reward"]["params"].get("hand_obj_gate_success_curriculum", {})
@@ -492,6 +622,126 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
             device=self.device,
         )
 
+    def _adjust_top_long_teleport_xy_bounds(self, env_ids, xy_min, xy_max, dtype):
+        xy_min = xy_min.clone()
+        xy_max = xy_max.clone()
+
+        table_y_margin = float(self.cfg["env"]["object_settings"].get("table_y_margin", 0.0))
+        if table_y_margin > 0.0:
+            table_y_min = self.cuboid_pos[env_ids, 0, 1].to(dtype=dtype) - 0.5 * self.cuboid_dims[env_ids, 0, 1].to(dtype=dtype)
+            table_y_max = self.cuboid_pos[env_ids, 0, 1].to(dtype=dtype) + 0.5 * self.cuboid_dims[env_ids, 0, 1].to(dtype=dtype)
+            object_half_y = 0.5 * self.mesh_aabb_extents[env_ids, 1].to(dtype=dtype)
+            safe_y_min = table_y_min + object_half_y + table_y_margin
+            safe_y_max = table_y_max - object_half_y - table_y_margin
+            safe_y_mid = 0.5 * (table_y_min + table_y_max)
+            valid_y_bounds = safe_y_min <= safe_y_max
+            safe_y_min = torch.where(valid_y_bounds, safe_y_min, safe_y_mid)
+            safe_y_max = torch.where(valid_y_bounds, safe_y_max, safe_y_mid)
+            xy_min[:, 1] = torch.minimum(torch.maximum(xy_min[:, 1], safe_y_min), safe_y_max)
+            xy_max[:, 1] = torch.maximum(torch.minimum(xy_max[:, 1], safe_y_max), xy_min[:, 1])
+
+        robot_side_x_margin = float(self.cfg["env"]["object_settings"].get("robot_side_x_margin", 0.0))
+        if robot_side_x_margin > 0.0:
+            table_front_x = self.cuboid_pos[env_ids, 0, 0].to(dtype=dtype) - 0.5 * self.cuboid_dims[env_ids, 0, 0].to(dtype=dtype)
+            object_half_x = 0.5 * self.mesh_aabb_extents[env_ids, 0].to(dtype=dtype)
+            safe_x_min = table_front_x + object_half_x + robot_side_x_margin
+            xy_min[:, 0] = torch.minimum(torch.maximum(xy_min[:, 0], safe_x_min), xy_max[:, 0])
+
+        return xy_min, xy_max
+
+    def _flat_object_robot_penetration_mask(self, env_ids, robot_q_for_collision, desired_center_xy, object_quat):
+        if env_ids.numel() == 0:
+            return torch.empty((0,), dtype=torch.bool, device=self.device)
+
+        dtype = self._object_state.dtype
+        object_quat = object_quat.to(dtype=dtype)
+        desired_center_xy = desired_center_xy.to(dtype=dtype)
+
+        rot_mat = quaternion_to_matrix_ig(object_quat)
+        local_half_extents = 0.5 * self.mesh_aabb_extents[env_ids].to(dtype=dtype)
+        vertical_half_extent = torch.sum(torch.abs(rot_mat[:, 2, :]) * local_half_extents, dim=-1)
+
+        object_center_world = torch.zeros((env_ids.numel(), 3), dtype=dtype, device=self.device)
+        object_center_world[:, :2] = desired_center_xy
+        object_center_world[:, 2] = self.table_surface_height[env_ids].to(dtype=dtype) + vertical_half_extent
+
+        robot_q_collision = self._q[env_ids] if robot_q_for_collision is None else robot_q_for_collision
+        robot_pcd_world = self.robot_pcd_sampler.sample(robot_q_collision, self.torchurdf_to_isaac_idx)
+
+        rel_world = robot_pcd_world - object_center_world.unsqueeze(1)
+        num_points = int(robot_pcd_world.shape[1])
+        inv_quat = quat_conjugate(object_quat)
+        inv_quat_expanded = inv_quat.unsqueeze(1).repeat(1, num_points, 1).reshape(-1, 4)
+        rel_local = quat_apply(inv_quat_expanded, rel_world.reshape(-1, 3)).reshape(env_ids.numel(), num_points, 3)
+        local_margin = 0.01
+        inside = torch.all(
+            torch.abs(rel_local) <= (local_half_extents + local_margin).unsqueeze(1),
+            dim=-1,
+        )
+        return torch.any(inside, dim=1)
+
+    def _resample_top_long_center_xy_for_collision(
+        self,
+        env_ids,
+        desired_center_xy,
+        object_quat,
+        xy_min,
+        xy_max,
+        robot_q_for_collision=None,
+        max_rounds=12,
+    ):
+        if env_ids.numel() == 0:
+            return desired_center_xy
+
+        dtype = self._object_state.dtype
+        center_xy = desired_center_xy.clone().to(dtype=dtype)
+        xy_min = xy_min.to(dtype=dtype)
+        xy_max = xy_max.to(dtype=dtype)
+
+        penetration_mask = self._flat_object_robot_penetration_mask(
+            env_ids,
+            robot_q_for_collision,
+            center_xy,
+            object_quat,
+        )
+        for _ in range(max_rounds):
+            if not bool(torch.any(penetration_mask)):
+                break
+            bad_idx = penetration_mask.nonzero(as_tuple=False).squeeze(-1)
+            n_bad = int(bad_idx.numel())
+            center_xy[bad_idx, 0] = (
+                torch.rand(n_bad, device=self.device, dtype=dtype) * (xy_max[bad_idx, 0] - xy_min[bad_idx, 0])
+                + xy_min[bad_idx, 0]
+            )
+            center_xy[bad_idx, 1] = (
+                torch.rand(n_bad, device=self.device, dtype=dtype) * (xy_max[bad_idx, 1] - xy_min[bad_idx, 1])
+                + xy_min[bad_idx, 1]
+            )
+            penetration_mask = self._flat_object_robot_penetration_mask(
+                env_ids,
+                robot_q_for_collision,
+                center_xy,
+                object_quat,
+            )
+
+        if bool(torch.any(penetration_mask)):
+            bad_idx = penetration_mask.nonzero(as_tuple=False).squeeze(-1)
+            robot_q_collision = self._q[env_ids] if robot_q_for_collision is None else robot_q_for_collision
+            robot_pcd_world = self.robot_pcd_sampler.sample(robot_q_collision, self.torchurdf_to_isaac_idx)
+            for local_i in bad_idx.tolist():
+                x0, y0 = float(xy_min[local_i, 0].item()), float(xy_min[local_i, 1].item())
+                x1, y1 = float(xy_max[local_i, 0].item()), float(xy_max[local_i, 1].item())
+                corners = torch.tensor(
+                    [[x0, y0], [x0, y1], [x1, y0], [x1, y1]],
+                    device=self.device,
+                    dtype=dtype,
+                )
+                robot_xy = robot_pcd_world[local_i, :, :2]
+                corner_score = torch.cdist(corners.unsqueeze(0), robot_xy.unsqueeze(0)).amin(dim=-1).squeeze(0)
+                center_xy[local_i] = corners[torch.argmax(corner_score)]
+
+        return center_xy
+
     def _teleport_object_state(self, teleport_env_ids):
         if teleport_env_ids is None or teleport_env_ids.numel() == 0:
             return
@@ -500,11 +750,18 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         num_resets = int(env_ids.numel())
         device = self.device
         dtype = self._q.dtype
+        top_long_mode = self._top_long_mode()
 
-        table_center_y = self.cuboid_pos[env_ids, 0, 1].to(dtype=dtype)
-        current_object_center_y = self.states["object_center_pos"][env_ids, 1].to(dtype=dtype)
-        mirror_mask = current_object_center_y > table_center_y
-        xy_min, xy_max = self._get_reset_object_xy_bounds(env_ids, mirror_mask, dtype)
+        if top_long_mode:
+            mirror_mask = torch.zeros(num_resets, device=device, dtype=torch.bool)
+            flat_mask = torch.ones(num_resets, device=device, dtype=torch.bool)
+            xy_min, xy_max = self._get_reset_object_xy_bounds(env_ids, mirror_mask, dtype, flat_mask=flat_mask)
+            xy_min, xy_max = self._adjust_top_long_teleport_xy_bounds(env_ids, xy_min, xy_max, dtype)
+        else:
+            table_center_y = self.cuboid_pos[env_ids, 0, 1].to(dtype=dtype)
+            current_object_center_y = self.states["object_center_pos"][env_ids, 1].to(dtype=dtype)
+            mirror_mask = current_object_center_y > table_center_y
+            xy_min, xy_max = self._get_reset_object_xy_bounds(env_ids, mirror_mask, dtype)
         eef_xy = self._eef_state[env_ids, :2]
         min_xy_dist_to_eef = float(self.object_teleport_args.get("min_xy_dist_to_eef", 0.05))
         min_xy_dist_to_hand_points = float(
@@ -535,6 +792,19 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
                 if not torch.any(too_close):
                     break
                 _sample_xy_for_rows(too_close)
+            too_close = torch.norm(reset_xy - eef_xy, dim=-1) < min_xy_dist_to_eef
+            if top_long_mode and torch.any(too_close):
+                bad_idx = too_close.nonzero(as_tuple=False).squeeze(-1)
+                for local_i in bad_idx.tolist():
+                    x0, y0 = float(xy_min[local_i, 0].item()), float(xy_min[local_i, 1].item())
+                    x1, y1 = float(xy_max[local_i, 0].item()), float(xy_max[local_i, 1].item())
+                    corners = torch.tensor(
+                        [[x0, y0], [x0, y1], [x1, y0], [x1, y1]],
+                        device=device,
+                        dtype=dtype,
+                    )
+                    d = torch.norm(corners - eef_xy[local_i].unsqueeze(0), dim=-1)
+                    reset_xy[local_i] = corners[torch.argmax(d)]
 
         if force_right_of_eef:
             prev_xy = self._object_state[env_ids, :2].clone()
@@ -556,13 +826,16 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
 
         object_quat_world = torch.zeros((num_resets, 4), device=device, dtype=dtype)
         object_quat_world[:, 3] = 1.0
-        if self.lie_flat_prob >= 1.0 - 1.0e-6:
-            yaw_axis = torch.zeros((num_resets, 3), device=device, dtype=dtype)
-            yaw_axis[:, 2] = 1.0
-            yaw_angle = torch.rand(num_resets, device=device, dtype=dtype) * (2.0 * torch.pi)
-            flat_q_yaw = quat_from_angle_axis(yaw_angle, yaw_axis)
-            flat_quat_base = self._flat_object_quat_base.to(device=device, dtype=dtype).unsqueeze(0).repeat(num_resets, 1)
-            object_quat_world = quat_mul(flat_q_yaw, flat_quat_base)
+        if top_long_mode:
+            if bool(self.object_teleport_args.get("preserve_orientation", False)):
+                object_quat_world = self._object_state[env_ids, 3:7].clone().to(dtype=dtype)
+            else:
+                yaw_axis = torch.zeros((num_resets, 3), device=device, dtype=dtype)
+                yaw_axis[:, 2] = 1.0
+                yaw_angle = torch.rand(num_resets, device=device, dtype=dtype) * (2.0 * torch.pi)
+                flat_q_yaw = quat_from_angle_axis(yaw_angle, yaw_axis)
+                flat_quat_base = self._flat_object_quat_base.to(device=device, dtype=dtype).unsqueeze(0).repeat(num_resets, 1)
+                object_quat_world = quat_mul(flat_q_yaw, flat_quat_base)
             object_quat_world = object_quat_world / torch.norm(object_quat_world, dim=-1, keepdim=True).clamp_min(1.0e-8)
         elif self.lie_flat_prob > 0.0:
             local_z = torch.zeros((num_resets, 3), device=device, dtype=dtype)
@@ -593,51 +866,63 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         object_center_world[:, :2] = reset_xy
         object_center_world[:, 2] = self.table_surface_height[env_ids] + vertical_half_extent
 
-        hand_points_xy = torch.stack(
-            [
-                self._eef_state[env_ids, :2],
-                self._eef_wrist_state[env_ids, :2],
-                self._eef_finger1_state[env_ids, :2],
-                self._eef_finger2_state[env_ids, :2],
-                self._eef_finger3_state[env_ids, :2],
-                self._eef_finger4_state[env_ids, :2],
-            ],
-            dim=1,
-        )
-        min_center_to_hand_xy = object_xy_radius + min_xy_dist_to_hand_points
+        if top_long_mode:
+            reset_xy = self._resample_top_long_center_xy_for_collision(
+                env_ids,
+                reset_xy,
+                object_quat_world,
+                xy_min,
+                xy_max,
+                robot_q_for_collision=None,
+                max_rounds=min_xy_resample_rounds,
+            )
+            object_center_world[:, :2] = reset_xy
+        else:
+            hand_points_xy = torch.stack(
+                [
+                    self._eef_state[env_ids, :2],
+                    self._eef_wrist_state[env_ids, :2],
+                    self._eef_finger1_state[env_ids, :2],
+                    self._eef_finger2_state[env_ids, :2],
+                    self._eef_finger3_state[env_ids, :2],
+                    self._eef_finger4_state[env_ids, :2],
+                ],
+                dim=1,
+            )
+            min_center_to_hand_xy = object_xy_radius + min_xy_dist_to_hand_points
 
-        def _hand_clearance_mask(center_world):
-            center_xy = center_world[:, :2]
-            dists_xy = torch.norm(hand_points_xy - center_xy.unsqueeze(1), dim=-1)
-            return torch.any(dists_xy < min_center_to_hand_xy.unsqueeze(1), dim=-1)
+            def _hand_clearance_mask(center_world):
+                center_xy = center_world[:, :2]
+                dists_xy = torch.norm(hand_points_xy - center_xy.unsqueeze(1), dim=-1)
+                return torch.any(dists_xy < min_center_to_hand_xy.unsqueeze(1), dim=-1)
 
-        hand_overlap_mask = _hand_clearance_mask(object_center_world)
-        if torch.any(hand_overlap_mask):
-            for _ in range(min_xy_resample_rounds):
-                _sample_xy_for_rows(hand_overlap_mask)
-                if force_right_of_eef:
-                    prev_xy = self._object_state[env_ids, :2].clone()
-                    prev_y = prev_xy[:, 1]
-                    y_lo = torch.maximum(xy_min[:, 1], prev_y + 1.0e-4)
-                    y_hi = xy_max[:, 1]
-                    can_move = y_hi > y_lo
-                    move_mask = hand_overlap_mask & can_move
-                    if torch.any(move_mask):
-                        move_idx = move_mask.nonzero(as_tuple=False).squeeze(-1)
-                        reset_xy[move_idx, 0] = prev_xy[move_idx, 0]
-                        reset_xy[move_idx, 1] = (
-                            torch.rand(int(move_idx.numel()), device=device, dtype=dtype)
-                            * (y_hi[move_idx] - y_lo[move_idx])
-                            + y_lo[move_idx]
-                        )
-                    stay_mask = hand_overlap_mask & (~can_move)
-                    if torch.any(stay_mask):
-                        stay_idx = stay_mask.nonzero(as_tuple=False).squeeze(-1)
-                        reset_xy[stay_idx] = prev_xy[stay_idx]
-                object_center_world[:, :2] = reset_xy
-                hand_overlap_mask = _hand_clearance_mask(object_center_world)
-                if not torch.any(hand_overlap_mask):
-                    break
+            hand_overlap_mask = _hand_clearance_mask(object_center_world)
+            if torch.any(hand_overlap_mask):
+                for _ in range(min_xy_resample_rounds):
+                    _sample_xy_for_rows(hand_overlap_mask)
+                    if force_right_of_eef:
+                        prev_xy = self._object_state[env_ids, :2].clone()
+                        prev_y = prev_xy[:, 1]
+                        y_lo = torch.maximum(xy_min[:, 1], prev_y + 1.0e-4)
+                        y_hi = xy_max[:, 1]
+                        can_move = y_hi > y_lo
+                        move_mask = hand_overlap_mask & can_move
+                        if torch.any(move_mask):
+                            move_idx = move_mask.nonzero(as_tuple=False).squeeze(-1)
+                            reset_xy[move_idx, 0] = prev_xy[move_idx, 0]
+                            reset_xy[move_idx, 1] = (
+                                torch.rand(int(move_idx.numel()), device=device, dtype=dtype)
+                                * (y_hi[move_idx] - y_lo[move_idx])
+                                + y_lo[move_idx]
+                            )
+                        stay_mask = hand_overlap_mask & (~can_move)
+                        if torch.any(stay_mask):
+                            stay_idx = stay_mask.nonzero(as_tuple=False).squeeze(-1)
+                            reset_xy[stay_idx] = prev_xy[stay_idx]
+                    object_center_world[:, :2] = reset_xy
+                    hand_overlap_mask = _hand_clearance_mask(object_center_world)
+                    if not torch.any(hand_overlap_mask):
+                        break
 
         self._apply_object_center_state(env_ids, object_center_world, object_quat_world)
         self.reward_settings["object_init_height"][env_ids] = object_center_world[:, 2]
@@ -699,10 +984,14 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         object_xy_max = torch.minimum(empirical_xy_max, table_xy_max)
         return object_xy_min, object_xy_max
 
-    def _sample_reset_joint_and_target_quat(self, env_ids, use_reset_solver=False):
+    def _sample_reset_joint_and_target_quat(self, env_ids, use_reset_solver=False, force_wrong_side=None):
         num_envs = int(env_ids.numel())
         device = self.device
         dtype = self._q.dtype
+        if force_wrong_side is None:
+            force_wrong_side = torch.zeros(num_envs, device=device, dtype=torch.bool)
+        else:
+            force_wrong_side = force_wrong_side.to(device=device, dtype=torch.bool).reshape(num_envs)
 
         side_mode = self.side_mode
         if side_mode == "left":
@@ -735,6 +1024,7 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         object_center_world = torch.zeros((num_envs, 3), device=device, dtype=dtype)
         object_quat_world = torch.zeros((num_envs, 4), device=device, dtype=dtype)
         object_quat_world[:, 3] = 1.0
+        wrong_side_active_out = torch.zeros(num_envs, device=device, dtype=torch.bool)
         table_surface_height = self.table_surface_height[env_ids].to(dtype=dtype)
         remaining = torch.arange(num_envs, device=device)
         rel_min = self._reset_eef_rel_object_min.to(device=device, dtype=dtype)
@@ -772,15 +1062,8 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
                 torch.ones(batch, device=device, dtype=dtype),
                 -torch.ones(batch, device=device, dtype=dtype),
             )
-            mirror_sign = torch.where(
-                object_mirror_mask[remaining],
-                -torch.ones(batch, device=device, dtype=dtype),
-                torch.ones(batch, device=device, dtype=dtype),
-            )
-            rel_y_sign = grasp_side_sign * mirror_sign
-            wrong_side_mask = (~remaining_flat_mask) & (
-                torch.rand(batch, device=device, dtype=dtype) < self._reset_wrong_side_sample_prob
-            )
+            rel_y_sign = grasp_side_sign
+            wrong_side_mask = (~remaining_flat_mask) & force_wrong_side[remaining]
             sampled_rel_y_sign = torch.where(wrong_side_mask, -rel_y_sign, rel_y_sign)
             rel_upright[:, 1] = sampled_rel_y_sign * torch.abs(rel_upright[:, 1])
             rel_flat[:, 1] = rel_y_sign * torch.abs(rel_flat[:, 1])
@@ -951,13 +1234,14 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
                 reward_target_quat_out[solved_remaining] = reward_target_quat_valid[success]
                 object_center_world[solved_remaining] = object_center_candidate[valid_scene][success]
                 object_quat_world[solved_remaining] = candidate_object_quat[valid_scene][success]
+                wrong_side_active_out[solved_remaining] = wrong_side_mask[valid_scene][success]
                 valid_scene_idx = valid_scene.nonzero(as_tuple=False).squeeze(-1)
                 solved_batch_mask[valid_scene_idx[success]] = True
 
             if bool(torch.any(solved_batch_mask)):
                 remaining = remaining[~solved_batch_mask]
 
-        return joint_config, reward_target_quat_out, left_mask, lie_flat_mask, object_center_world, object_quat_world
+        return joint_config, reward_target_quat_out, left_mask, lie_flat_mask, object_center_world, object_quat_world, wrong_side_active_out
 
     def pre_physics_step(self, actions):
         super().pre_physics_step(actions)
@@ -999,6 +1283,32 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         )  # CODEX
         self.reward_settings["goal_align_gate_floor"] = to_torch(
             float(self.cfg["reward"]["params"].get("goal_align_gate_floor", 0.2)),
+            device=self.device,
+        )
+        self.reward_settings["goal_align_gate_full_reward"] = to_torch(
+            float(self.cfg["reward"]["params"].get("goal_align_gate_full_reward", 0.5)),
+            device=self.device,
+        )
+        self.reward_settings["hand_obj_align_gate_for_side"] = to_torch(
+            1.0 if bool(self.cfg["reward"]["params"].get("hand_obj_align_gate_for_side", False)) else 0.0,
+            device=self.device,
+        )
+        self.reward_settings["object_knockdown_penalty_enable"] = to_torch(
+            1.0 if bool(self.cfg["reward"]["params"].get("object_knockdown_penalty_enable", False)) else 0.0,
+            device=self.device,
+        )
+        self.reward_settings["object_knockdown_axis_z_abs_max"] = to_torch(
+            float(
+                np.sin(
+                    np.deg2rad(
+                        float(self.cfg["reward"]["params"].get("object_knockdown_flat_angle_deg", 30.0))
+                    )
+                )
+            ),
+            device=self.device,
+        )
+        self.reward_settings["object_knockdown_penalty"] = to_torch(
+            float(self.cfg["reward"]["params"].get("object_knockdown_penalty", 1.0)),
             device=self.device,
         )
         self.reward_settings["hand_obj_gate_floor"] = to_torch(
@@ -1124,12 +1434,21 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         if self.randomize:
             self.apply_randomizations(self.randomization_params)
 
-        joint_config, target_quat, left_mask, flat_reset_active, object_center_world, object_quat_world = self._sample_reset_from_bank(env_ids)
+        (
+            joint_config,
+            target_quat,
+            left_mask,
+            flat_reset_active,
+            object_center_world,
+            object_quat_world,
+            wrong_side_active,
+        ) = self._sample_reset_from_bank(env_ids)
         self._apply_object_center_state(env_ids, object_center_world, object_quat_world)
         self.reward_settings["object_init_height"][env_ids] = object_center_world[:, 2]
         self._resample_target_pos(env_ids)
         self.side_is_left[env_ids] = left_mask
         self.flat_reset_active_buf[env_ids] = flat_reset_active
+        self.reset_wrong_side_active_buf[env_ids] = wrong_side_active
         self.reward_settings["target_quat"][env_ids] = target_quat
         self.reward_settings["target_rot_6d"][env_ids] = matrix_to_rotation_6d(quaternion_to_matrix_ig(target_quat))
         self.set_robot_joint_state(joint_config, env_ids=env_ids)
@@ -1448,12 +1767,7 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
             torch.ones(self.num_envs, device=self.device, dtype=self._object_state.dtype),
             -torch.ones(self.num_envs, device=self.device, dtype=self._object_state.dtype),
         )
-        mirror_sign = torch.where(
-            self.states["object_center_pos"][:, 1] > self.cuboid_pos[:, 0, 1],
-            -torch.ones(self.num_envs, device=self.device, dtype=self._object_state.dtype),
-            torch.ones(self.num_envs, device=self.device, dtype=self._object_state.dtype),
-        )
-        effective_grasp_side_sign = base_grasp_side_sign * mirror_sign
+        effective_grasp_side_sign = base_grasp_side_sign
 
         # @ray not just update but also create new keys here
         self.states.update({
@@ -1703,6 +2017,8 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         canonical_center = center.clone()
         if is_mirrored:
             canonical_center[1] = 2.0 * table_center_y_t - center[1]
+        mirrored_center = canonical_center.clone()
+        mirrored_center[1] = 2.0 * table_center_y_t - canonical_center[1]
         grasp_side_sign = 1.0 if bool(self.side_is_left[env_id].item()) else -1.0
         rel_min_raw = self._reset_eef_rel_object_min.to(device=self.device, dtype=torch.float32)
         rel_max_raw = self._reset_eef_rel_object_max.to(device=self.device, dtype=torch.float32)
@@ -1717,9 +2033,8 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
             rel_max = torch.tensor([x_max.item(), -y_abs_min.item(), z_max.item()], device=self.device, dtype=torch.float32)
         canonical_limits_min = canonical_center + rel_min
         canonical_limits_max = canonical_center + rel_max
-        mirrored_limits_min, mirrored_limits_max = self._mirror_box_y_about_table(
-            canonical_limits_min, canonical_limits_max, table_center_y_t
-        )
+        mirrored_limits_min = mirrored_center + rel_min
+        mirrored_limits_max = mirrored_center + rel_max
         self._draw_wire_box(env_id, canonical_limits_min, canonical_limits_max, [0.35, 0.55, 1.0])
         self._draw_wire_box(env_id, mirrored_limits_min, mirrored_limits_max, [0.0, 0.7, 1.0])
 
@@ -1737,6 +2052,8 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         canonical_center = center.clone()
         if is_mirrored:
             canonical_center[1] = 2.0 * table_center_y_t - center[1]
+        mirrored_center = canonical_center.clone()
+        mirrored_center[1] = 2.0 * table_center_y_t - canonical_center[1]
         grasp_side_sign = 1.0 if bool(self.side_is_left[env_id].item()) else -1.0
 
         def _signed_rel_box(rel_min_raw, rel_max_raw, sign):
@@ -1794,9 +2111,8 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
 
             canonical_box_min = canonical_center + box_rel_min
             canonical_box_max = canonical_center + box_rel_max
-            mirrored_box_min, mirrored_box_max = self._mirror_box_y_about_table(
-                canonical_box_min, canonical_box_max, table_center_y_t
-            )
+            mirrored_box_min = mirrored_center + box_rel_min
+            mirrored_box_max = mirrored_center + box_rel_max
 
             self._draw_wire_box(env_id, canonical_box_min, canonical_box_max, [0.35, 0.55, 1.0])
             self._draw_wire_box(env_id, mirrored_box_min, mirrored_box_max, [0.0, 0.7, 1.0])
@@ -1806,8 +2122,8 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
             sep_x_max = float(canonical_box_max[0].item())
             sep_z_min = float(canonical_box_min[2].item())
             sep_z_max = float(canonical_box_max[2].item())
-            canonical_sep_y = float(canonical_center[1].item() + grasp_side_sign * split_offset)
-            mirrored_sep_y = float(2.0 * table_center_y - canonical_sep_y)
+            canonical_sep_y = float(canonical_center[1].item() - grasp_side_sign * split_offset)
+            mirrored_sep_y = float(mirrored_center[1].item() - grasp_side_sign * split_offset)
 
             canonical_sep_verts = [
                 sep_x_min, canonical_sep_y, sep_z_min, sep_x_max, canonical_sep_y, sep_z_min,
@@ -1966,6 +2282,7 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         self.extras["sep_reward/r_goal_align"] = torch.mean(reward_dict["r_goal_align"]).item()
         self.extras["sep_reward/r_recovery_region"] = torch.mean(reward_dict["r_recovery_region"]).item()
         self.extras["sep_reward/r_wrong_side_proximity"] = torch.mean(reward_dict["r_wrong_side_proximity"]).item()
+        self.extras["sep_reward/r_object_knockdown"] = torch.mean(reward_dict["r_object_knockdown"]).item()
         self.extras["sep_reward/r_hand_rot"] = torch.mean(reward_dict["r_hand_rot"]).item()
         self.extras["sep_reward/r_lift"] = torch.mean(reward_dict["r_lift"]).item()
         self.extras["sep_reward/r_curl"] = torch.mean(reward_dict["r_curl"]).item()
@@ -1974,11 +2291,16 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         self.extras["metrics/wrong_side_forbidden_box_rate"] = torch.mean(
             reward_dict["inside_wrong_side_forbidden_box"].float()
         ).item()
+        self.extras["metrics/object_knockdown_rate"] = torch.mean(reward_dict["object_knockdown"].float()).item()
         if self._hand_obj_gate_used_for_run():
             self.extras["metrics/hand_obj_gate"] = torch.mean(reward_dict["hand_obj_gate"]).item()
         else:
             self.extras.pop("metrics/hand_obj_gate", None)
         self.extras["metrics/goal_align_gate"] = torch.mean(reward_dict["goal_align_gate"]).item()
+        if bool(self.cfg["reward"]["params"].get("hand_obj_align_gate_for_side", False)):
+            self.extras["metrics/hand_obj_align_gate"] = torch.mean(reward_dict["hand_obj_align_gate"]).item()
+        else:
+            self.extras.pop("metrics/hand_obj_align_gate", None)
         self.extras["dis/d_hand_obj"] = torch.mean(reward_dict["d_hand_obj"]).item()
         self.extras["dis/d_lift"] = torch.mean(reward_dict["d_lift"]).item()
         self.extras["dis/d_eef_point_goal"] = torch.mean(reward_dict["d_eef_point_goal"]).item()
@@ -2070,12 +2392,21 @@ class FrankaLEAPPickTableSide(FrankaLEAP):
         self.extras["metrics/lifting_rate_5cm_per_step"] = torch.mean(self.lifting_5cm_per_step.float()).item()
         self._update_object_wrench_success_curriculum(self.extras["metrics/success_rate_5cm_per_ep"])
         self._update_object_teleport_success_curriculum(self.extras["metrics/success_rate_5cm_per_ep"])
+        self._update_wrong_side_sample_curriculum(self.extras["metrics/success_rate_5cm_per_ep"])
         if self._hand_obj_gate_used_for_run():
             self._update_hand_obj_gate_success_curriculum(self.extras["metrics/success_rate_5cm_per_ep"])
         self.extras["object_wrench/curriculum_stage"] = float(self.object_wrench_curriculum_stage)
         self.extras["object_wrench/curriculum_scale"] = float(self.object_wrench_curriculum_scale)
         self.extras["object_teleport/curriculum_stage"] = float(self.object_teleport_curriculum_stage)
         self.extras["object_teleport/curriculum_scale"] = float(self.object_teleport_curriculum_scale)
+        if self._wrong_side_sampling_used_for_run():
+            self.extras["wrong_side_sampling/curriculum_stage"] = float(self.wrong_side_curriculum_stage)
+            self.extras["wrong_side_sampling/prob"] = float(self.wrong_side_sample_prob)
+            self.extras["metrics/reset_wrong_side_rate"] = torch.mean(self.reset_wrong_side_active_buf.float()).item()
+        else:
+            self.extras.pop("wrong_side_sampling/curriculum_stage", None)
+            self.extras.pop("wrong_side_sampling/prob", None)
+            self.extras.pop("metrics/reset_wrong_side_rate", None)
         if self._hand_obj_gate_used_for_run():
             self.extras["hand_obj_gate/curriculum_stage"] = float(self.hand_obj_gate_curriculum_stage)
             self.extras["hand_obj_gate/curriculum_scale"] = float(self.hand_obj_gate_curriculum_scale)
@@ -2215,9 +2546,10 @@ def compute_franka_leap_reward(states, reward_settings, skip_wrong_side_logic: b
     grasp_side_sign = states["grasp_side_sign_effective"].squeeze(-1)
     grasp_side_split_y_offset = reward_settings["grasp_side_split_y_offset"]
     signed_y_to_grasp_side = grasp_side_sign * eef_rel_object[:, 1]
-    on_grasp_side = signed_y_to_grasp_side >= grasp_side_split_y_offset
+    split_y = -grasp_side_split_y_offset
+    on_grasp_side = signed_y_to_grasp_side >= split_y
     prelift_recovery_mode = (~states["lift"]) & (~on_grasp_side) & wrong_side_logic_active
-    d_recovery_region = torch.clamp(grasp_side_split_y_offset - signed_y_to_grasp_side, min=0.0)
+    d_recovery_region = torch.clamp(split_y - signed_y_to_grasp_side, min=0.0)
     beta_recovery_region = reward_settings["beta_recovery_region"]
     r_recovery_region = -(1.0 - torch.exp(-beta_recovery_region * d_recovery_region))
     r_recovery_region = torch.where(prelift_recovery_mode, r_recovery_region, torch.zeros_like(r_recovery_region))
@@ -2241,6 +2573,18 @@ def compute_franka_leap_reward(states, reward_settings, skip_wrong_side_logic: b
             -wrong_side_proximity_penalty * torch.ones_like(d_wrong_side_proximity),
             torch.zeros_like(d_wrong_side_proximity),
         )
+    object_knockdown_penalty_enable = reward_settings["object_knockdown_penalty_enable"] > 0.5
+    object_knockdown_axis_z_abs_max = reward_settings["object_knockdown_axis_z_abs_max"]
+    object_knockdown = (
+        object_knockdown_penalty_enable
+        & (~flat_reset_active)
+        & (torch.abs(object_z_axis_world[:, 2]) <= object_knockdown_axis_z_abs_max)
+    )
+    r_object_knockdown = torch.where(
+        object_knockdown,
+        -reward_settings["object_knockdown_penalty"] * torch.ones_like(d_hand_obj),
+        torch.zeros_like(d_hand_obj),
+    )
 
     # R2: Lifting bonus: r_lift = 1.0 if object is lifted
     target_pos = reward_settings["target_pos"].squeeze(-1)
@@ -2261,18 +2605,35 @@ def compute_franka_leap_reward(states, reward_settings, skip_wrong_side_logic: b
     d_goal_align = states["point_matching_err_hand_axis"]
     beta_goal_align = reward_settings["beta_goal_align"]
     goal_align_gate_floor = reward_settings["goal_align_gate_floor"]
+    goal_align_gate_full_reward = reward_settings["goal_align_gate_full_reward"]
+    hand_obj_align_gate_for_side = reward_settings["hand_obj_align_gate_for_side"] > 0.5
     hand_obj_gate_floor = reward_settings["hand_obj_gate_floor"]
     hand_obj_gate_curriculum_scale = reward_settings["hand_obj_gate_curriculum_scale"]
-    r_goal_align = torch.exp(-beta_goal_align * d_goal_align)
-    r_goal_align = torch.where(states["lift"], r_goal_align, torch.zeros_like(r_goal_align))
-    goal_align_gate = goal_align_gate_floor + (1.0 - goal_align_gate_floor) * r_goal_align
+    r_goal_align_raw = torch.exp(-beta_goal_align * d_goal_align)
+    r_goal_align = torch.where(states["lift"], r_goal_align_raw, torch.zeros_like(r_goal_align_raw))
+    goal_align_gate_denom = torch.maximum(
+        goal_align_gate_full_reward,
+        torch.ones_like(goal_align_gate_full_reward) * 1.0e-6,
+    )
+    goal_align_gate_alpha = torch.clamp(r_goal_align / goal_align_gate_denom, 0.0, 1.0)
+    goal_align_gate_raw = goal_align_gate_floor + (1.0 - goal_align_gate_floor) * goal_align_gate_alpha
+    goal_align_gate_active = states["lift"] & (~flat_reset_active)
+    goal_align_gate = torch.where(goal_align_gate_active, goal_align_gate_raw, torch.ones_like(goal_align_gate_raw))
+    hand_obj_align_gate_alpha = torch.clamp(r_goal_align_raw / goal_align_gate_denom, 0.0, 1.0)
+    hand_obj_align_gate_raw = goal_align_gate_floor + (1.0 - goal_align_gate_floor) * hand_obj_align_gate_alpha
+    hand_obj_align_gate_active = (~flat_reset_active) & hand_obj_align_gate_for_side
+    hand_obj_align_gate = torch.where(
+        hand_obj_align_gate_active,
+        hand_obj_align_gate_raw,
+        torch.ones_like(hand_obj_align_gate_raw),
+    )
     hand_obj_gate_raw = hand_obj_gate_floor + (1.0 - hand_obj_gate_floor) * r_hand_obj
     hand_obj_gate = 1.0 - hand_obj_gate_curriculum_scale * (1.0 - hand_obj_gate_raw)
     hand_obj_gate_active = states["lift"] & (~flat_reset_active)
     hand_obj_gate = torch.where(hand_obj_gate_active, hand_obj_gate, torch.ones_like(hand_obj_gate))
     r_obj_goal = torch.exp(-beta_object_goal * d_eef_point_goal_target)
     r_obj_goal = torch.where(states["lift"], r_obj_goal * goal_align_gate * hand_obj_gate, 0.0)
-    r_lift = r_lift * hand_obj_gate
+    r_lift = r_lift * goal_align_gate * hand_obj_gate
 
     # R4: Hand orientation reward (based on average point matching distance)
     d_eef_point_goal_hand = states["point_matching_err_hand"]
@@ -2290,6 +2651,7 @@ def compute_franka_leap_reward(states, reward_settings, skip_wrong_side_logic: b
     r_curl = torch.where(near_object, r_curl, 0.0)
 
     r_hand_obj = torch.where(prelift_recovery_mode, torch.zeros_like(r_hand_obj), r_hand_obj)
+    r_hand_obj = r_hand_obj * hand_obj_align_gate
     r_hand_orientation = torch.where(prelift_recovery_mode, torch.zeros_like(r_hand_orientation), r_hand_orientation)
     r_curl = torch.where(prelift_recovery_mode, torch.zeros_like(r_curl), r_curl)
 
@@ -2314,7 +2676,7 @@ def compute_franka_leap_reward(states, reward_settings, skip_wrong_side_logic: b
     # but compute all rewards anyways for logging
     # @ray using the same weight for obj_goal position and rotation, can be changed later if needed
     r_total =w_hand_obj*r_hand_obj + w_obj_goal*r_obj_goal + w_goal_align*r_goal_align + w_recovery_region*r_recovery_region + \
-              r_wrong_side_proximity + w_hand_orientation*r_hand_orientation + \
+              r_wrong_side_proximity + r_object_knockdown + w_hand_orientation*r_hand_orientation + \
               w_curl*r_curl * float(use_curl) + \
               w_lift*r_lift + w_actionreg*r_actionreg
 
@@ -2322,7 +2684,7 @@ def compute_franka_leap_reward(states, reward_settings, skip_wrong_side_logic: b
     success_region = states["lift"] & (d_eef_point_goal_target < success_bonus_threshold) & (r_goal_align > 0.5)
     r_success_bonus = torch.where(
         success_region,
-        torch.ones_like(r_total) * w_success_bonus,
+        goal_align_gate * hand_obj_gate * w_success_bonus,
         torch.zeros_like(r_total),
     )
     r_total = r_total + r_success_bonus
@@ -2334,14 +2696,17 @@ def compute_franka_leap_reward(states, reward_settings, skip_wrong_side_logic: b
         "r_goal_align": w_goal_align*r_goal_align,
         "r_recovery_region": w_recovery_region*r_recovery_region,
         "r_wrong_side_proximity": r_wrong_side_proximity,
+        "r_object_knockdown": r_object_knockdown,
         "r_hand_rot": w_hand_orientation*r_hand_orientation,
         "r_curl": w_curl*r_curl,
         "r_success_bonus": r_success_bonus,
         "r_actionreg": w_actionreg*r_actionreg,
         "r_total": r_total,
         "inside_wrong_side_forbidden_box": (prelift_recovery_mode & wrong_side_forbidden_mask).float(),
+        "object_knockdown": object_knockdown.float(),
         "hand_obj_gate": hand_obj_gate,
         "goal_align_gate": goal_align_gate,
+        "hand_obj_align_gate": hand_obj_align_gate,
         "d_hand_obj": d_hand_obj,
         "d_lift": object_height,
         "d_eef_point_goal": d_eef_point_goal_target,

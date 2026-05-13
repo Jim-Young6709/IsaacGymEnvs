@@ -152,6 +152,14 @@ class ViserMeshApp:
                 self.heavy_stats = self.server.gui.add_checkbox("Compute heavy stats", initial_value=False)
                 self.show_hull = self.server.gui.add_checkbox("Show convex hull", initial_value=False)
                 self.preview_fix = self.server.gui.add_checkbox("Preview watertight fix", initial_value=False)
+                self.text_anchor_mode = self.server.gui.add_dropdown(
+                    "Text placement",
+                    ["Above object", "Reference frame"],
+                    initial_value="Above object",
+                )
+                self.text_x = self.server.gui.add_number("Text X", 0.0, min=-2.0, max=2.0, step=0.005)
+                self.text_y = self.server.gui.add_number("Text Y", 0.0, min=-2.0, max=2.0, step=0.005)
+                self.text_z = self.server.gui.add_number("Text Z", 0.22, min=-2.0, max=2.0, step=0.005)
 
         with tabs.add_tab("Shortcuts"):
             self.shortcuts_md = self.server.gui.add_markdown(
@@ -483,6 +491,10 @@ class ViserMeshApp:
             self.heavy_stats,
             self.show_hull,
             self.preview_fix,
+            self.text_anchor_mode,
+            self.text_x,
+            self.text_y,
+            self.text_z,
         ):
             @handle.on_update
             def _(_: object) -> None:
@@ -895,6 +907,12 @@ class ViserMeshApp:
         }
         return mapping.get(value, "Source mesh")
 
+    def _text_anchor_mode_to_controller(self, value: str) -> str:
+        return "reference_frame" if value == "Reference frame" else "object_top"
+
+    def _controller_to_text_anchor_mode(self, value: str) -> str:
+        return "Reference frame" if value == "reference_frame" else "Above object"
+
     def _save_selected(self) -> None:
         category = self.controller.edit_category
         self.controller.save_current([category], self.controller.confidence)
@@ -989,6 +1007,14 @@ class ViserMeshApp:
         self.controller.use_mesh_analysis = bool(self.heavy_stats.value)
         self.controller.show_convex_hull = bool(self.show_hull.value)
         self.controller.fix_watertight_preview = bool(self.preview_fix.value)
+        self.controller.text_anchor_mode = self._text_anchor_mode_to_controller(
+            self.text_anchor_mode.value
+        )
+        self.controller.text_reference_xyz = (
+            float(self.text_x.value),
+            float(self.text_y.value),
+            float(self.text_z.value),
+        )
         self.controller.refresh_view()
         self._sync_from_controller()
 
@@ -1053,6 +1079,7 @@ class ViserMeshApp:
             f"**Active shell** `{self.controller.active_shell}`  \n"
             f"**Confidence** `{self.controller.confidence}`  \n"
             f"**View mode** `{self._controller_to_display_mode(self.controller.display_mesh_mode)}`  \n"
+            f"**Text placement** `{self._controller_to_text_anchor_mode(self.controller.text_anchor_mode)}`  \n"
             f"**Uniform range** `min={state.scale_min:.3f} mid={state.scale:.3f} max={state.scale_max:.3f}`  \n"
             f"**Dilation** `x={state.dilate_x:.3f} y={state.dilate_y:.3f} z={state.dilate_z:.3f}`  \n"
             f"**Dilation range** `x=[{state.dilate_x_min:.3f},{state.dilate_x_max:.3f}] y=[{state.dilate_y_min:.3f},{state.dilate_y_max:.3f}] z=[{state.dilate_z_min:.3f},{state.dilate_z_max:.3f}]`  \n"
@@ -1075,6 +1102,13 @@ class ViserMeshApp:
             self.heavy_stats.value = bool(self.controller.use_mesh_analysis)
             self.show_hull.value = bool(self.controller.show_convex_hull)
             self.preview_fix.value = bool(self.controller.fix_watertight_preview)
+            self.text_anchor_mode.value = self._controller_to_text_anchor_mode(
+                self.controller.text_anchor_mode
+            )
+            text_x, text_y, text_z = self.controller.text_reference_xyz
+            self.text_x.value = float(text_x)
+            self.text_y.value = float(text_y)
+            self.text_z.value = float(text_z)
             self.show_hand.value = bool(self.controller.show_hand)
             self.hand_x.value = float(self.controller.hand_x)
             self.hand_y.value = float(self.controller.hand_y)

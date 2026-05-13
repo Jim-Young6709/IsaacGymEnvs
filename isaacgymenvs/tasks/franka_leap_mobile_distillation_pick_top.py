@@ -95,7 +95,14 @@ class FrankaLEAPMobileDistillationPickTop(FrankaLEAPMobileDistillation):
         # log metrics
         self.lifting_5cm_per_step = self.states["lift"]
         self.lifting_flags_instant[self.lifting_5cm_per_step] = 1
-        self.success_5cm_per_step = (reward_dict["d_eef_point_goal"] < 0.05) & self.lifting_5cm_per_step
+        success_tolerance = self.reward_settings.get("success_tolerance", None)
+        if success_tolerance is None:
+            success_tolerance = to_torch(
+                self.cfg["reward"]["params"].get("success_tolerance", 0.05),
+                device=self.device,
+            )
+            self.reward_settings["success_tolerance"] = success_tolerance
+        self.success_5cm_per_step = (reward_dict["d_eef_point_goal"] < success_tolerance) & self.lifting_5cm_per_step
         self.success_flags_instant[self.success_5cm_per_step] = 1
 
         # Use step-based streak counters for duration logic.

@@ -40,6 +40,8 @@ import isaacgymenvs.utils.eef_ctrl as eef_ctrl
 from isaacgymenvs.utils.reformat import omegaconf_to_dict
 from isaacgymenvs.utils.rotation_conversions import quaternion_to_matrix_ig, matrix_to_rotation_6d, se2_transform
 from isaacgymenvs.utils.pcd_utils import transform_pcds_to_world, compute_scene_oracle_pcd, FrankaLeapSampler, GlorbotSampler
+# CODEX LIDAR MERGE: optional lidar self-filter uses the same Glorbot sphere model as old_urdf.
+from isaacgymenvs.utils.glorbot_collision_checker import GlorbotCollisionChecker
 from isaacgymenvs.utils.viser_visualizer import ViserVisualizer
 from isaacgymenvs.utils.simulate_depth_cam import simulate_depth_cam_render_from_pose
 from omegaconf import DictConfig
@@ -75,6 +77,7 @@ class FrankaLEAPMobileDistillation(VecTask):
         self.object_wrench_args = self.cfg["env"]["object_wrench"]
         self.object_teleport_args = self.cfg["env"]["object_teleport"]
         self._franka_mount_offset_from_mobile_base = torch.tensor([0.178, 0.0, 0.444775], dtype=torch.float32)
+        self.lock_mobile_base = bool(self.cfg["env"].get("robot_init", {}).get("lock_mobile_base", False))
         self.teleport_boundary_chunk_size = 0
         self.eef_init = self.cfg["env"]["eef_init"]
         self.distractor_settings = self.cfg["env"]["distractor_settings"]
@@ -639,6 +642,12 @@ class FrankaLEAPMobileDistillation(VecTask):
             device=self.device,
             num_points=self.pcd_spec_dict["num_robot_points"],
         )
+        # CODEX LIDAR MERGE: only build the sphere model when merged depth/lidar pointclouds are requested.
+        if self.pcd_spec_dict.get("simulate_sensor_pcd", False):
+            self.robot_spherical_representation = GlorbotCollisionChecker(
+                urdf_path=full_robot_asset_path,
+                device=self.device,
+            )
 
         # load FrankaLEAP asset
         asset_options = gymapi.AssetOptions()
@@ -1035,7 +1044,17 @@ class FrankaLEAPMobileDistillation(VecTask):
         #     f.write(urdf_str)
         return urdf_rel, mesh_dir
 
-    def _create_mesh(self, mesh_path, pos, scale, quat=[0, 0, 0, 1], fix_base_link=True, obj_str2int=None):
+    def _create_mesh(
+        self,
+        mesh_path,
+        pos,
+        scale,
+        quat=[0, 0, 0, 1],
+        fix_base_link=True,
+        obj_str2int=None,
+        asset_obj_id=None,
+        asset_mesh_id=None,
+    ):
         """
         Args:
             position (np.ndarray): (3,) xyz position of the mesh center
@@ -1046,7 +1065,12 @@ class FrankaLEAPMobileDistillation(VecTask):
             start_pose (gymapi.Transform): start pose of the mesh
         """
         # convert .obj into .urdf file
-        mesh_scale = [scale, scale, scale]
+        if np.isscalar(scale):
+            mesh_scale = [float(scale), float(scale), float(scale)]
+        else:
+            mesh_scale_arr = np.asarray(scale, dtype=np.float32).reshape(-1)
+            assert mesh_scale_arr.shape[0] == 3, "Mesh scale must be scalar or shape (3,)"
+            mesh_scale = mesh_scale_arr.tolist()
         mesh_mass_range = self.cfg["env"]["object_settings"]["mass_range"]
         sampled_mesh_mass = None
         if mesh_mass_range is not None:
@@ -1071,8 +1095,10 @@ class FrankaLEAPMobileDistillation(VecTask):
         # object specs including id is in apple_1.json
         # asset_specs_path = Path(mesh_path).with_suffix(".json")
 
-        asset_mesh_id = Path(mesh_path).parts[-2]
-        asset_obj_id = int(obj_str2int[asset_mesh_id])
+        if asset_mesh_id is None:
+            asset_mesh_id = Path(mesh_path).parts[-2]
+        if asset_obj_id is None:
+            asset_obj_id = int(obj_str2int[asset_mesh_id])
 
         # Create mesh asset
         opts = gymapi.AssetOptions()
@@ -1083,6 +1109,201 @@ class FrankaLEAPMobileDistillation(VecTask):
         start_pose.p = gymapi.Vec3(*pos)
         start_pose.r = gymapi.Quat(*quat)  # quat in xyzw order
         return asset, start_pose, scale, asset_obj_id, asset_mesh_id
+
+    def _load_mesh_variant_manifest_entries(self, manifest_path):
+        manifest_path = os.path.expanduser(str(manifest_path))
+        if not os.path.isabs(manifest_path):
+            manifest_path = os.path.join(os.getcwd(), manifest_path)
+        if not os.path.isfile(manifest_path):
+            raise FileNotFoundError(f"mesh variant manifest not found: {manifest_path}")
+        with open(manifest_path, "r") as f:
+            payload = json.load(f)
+        if payload.get("format") != "teacher_bank_mesh_variant_manifest_v1":
+            raise ValueError(f"Unsupported mesh variant manifest format: {manifest_path}")
+        entries = payload.get("entries", [])
+        if len(entries) == 0:
+            raise ValueError(f"mesh variant manifest contains no entries: {manifest_path}")
+        mesh_dir = payload.get("mesh_dir", self.mesh_args["mesh_dir"])
+        if not os.path.isabs(mesh_dir):
+            mesh_dir = os.path.abspath(mesh_dir)
+
+        mesh_entries = []
+        for idx, entry in enumerate(entries):
+            mesh_path = entry["mesh_path"]
+            if not os.path.isabs(mesh_path):
+                mesh_path = os.path.join(mesh_dir, mesh_path)
+            relative_scale = np.asarray(entry["relative_scale"], dtype=np.float32).reshape(-1)
+            if relative_scale.shape[0] != 3:
+                raise ValueError(f"relative_scale must have three values in manifest entry {idx}: {manifest_path}")
+            mesh_entries.append(
+                {
+                    "mesh_path": mesh_path,
+                    "asset_obj_id": int(entry.get("asset_obj_id", idx + 1)),
+                    "asset_mesh_id": str(entry.get("asset_mesh_id", entry.get("display_name", f"variant_{idx}"))),
+                    "display_name": str(entry.get("display_name", f"variant_{idx}")),
+                    "fixed_scale": relative_scale,
+                }
+            )
+        self.mesh_variant_manifest_path = manifest_path
+        return mesh_entries
+
+    def _discover_variant_mesh_entries(self, mesh_dir, object_list):
+        manifest_path = self.mesh_args.get("variant_manifest_json", None)
+        if manifest_path:
+            return self._load_mesh_variant_manifest_entries(manifest_path)
+
+        type_mapping_path = os.path.join(mesh_dir, "type_mapping.json")
+        entries = []
+        if os.path.isfile(type_mapping_path):
+            with open(type_mapping_path, "r") as f:
+                obj_str2int = json.load(f)
+            if object_list == ["all"]:
+                object_list = [obj for obj in os.listdir(mesh_dir) if obj != "type_mapping.json"]
+            object_list = sorted(
+                object_list,
+                key=lambda obj: (0, obj_str2int[obj]) if obj in obj_str2int else (1, obj),
+            )
+            for obj in object_list:
+                obj_dir = os.path.join(mesh_dir, obj)
+                if not os.path.isdir(obj_dir):
+                    continue
+                for file in sorted(os.listdir(obj_dir)):
+                    if not file.endswith(".obj"):
+                        continue
+                    mesh_path = os.path.join(obj_dir, file)
+                    asset_mesh_id = Path(mesh_path).parts[-2]
+                    entries.append(
+                        {
+                            "mesh_path": mesh_path,
+                            "asset_obj_id": int(obj_str2int[asset_mesh_id]),
+                            "asset_mesh_id": asset_mesh_id,
+                            "display_name": asset_mesh_id,
+                        }
+                    )
+            return entries
+
+        if object_list == ["all"]:
+            selected_objects = None
+        else:
+            selected_objects = set(object_list)
+
+        variant_entries = []
+        for root, _, files in os.walk(mesh_dir):
+            obj_files = sorted([f for f in files if f.endswith(".obj")])
+            if not obj_files:
+                continue
+            rel_dir = os.path.relpath(root, mesh_dir)
+            parts = rel_dir.split(os.sep)
+            if len(parts) == 3:
+                category, object_name, variant = parts
+                mesh_rel_prefix = os.path.join(category, object_name, variant)
+            elif len(parts) == 2:
+                object_name, variant = parts
+                mesh_rel_prefix = os.path.join(object_name, variant)
+            else:
+                continue
+            if selected_objects is not None and object_name not in selected_objects:
+                continue
+            for obj_file in obj_files:
+                if not obj_file.startswith(f"{object_name}_{variant}"):
+                    continue
+                mesh_path = os.path.join(root, obj_file)
+                mesh_stem = os.path.splitext(obj_file)[0]
+                json_path = os.path.join(root, mesh_stem + ".json")
+                if not os.path.isfile(json_path):
+                    continue
+                with open(json_path, "r") as jf:
+                    meta = json.load(jf)
+                if meta.get("transform_model") != "dilation_only_v1":
+                    continue
+                variant_entries.append(
+                    (
+                        f"{object_name}_{variant}",
+                        mesh_path,
+                        os.path.join(mesh_rel_prefix, mesh_stem),
+                        meta["dilation_range"],
+                        self._get_baked_dilation_from_variant_meta(meta, json_path),
+                        self._get_baked_rotation_abs_from_variant_meta(meta),
+                    )
+                )
+
+        variant_entries = sorted(variant_entries, key=lambda x: (x[0], x[1]))
+        for idx, (
+            display_name,
+            mesh_path,
+            mesh_id_rel,
+            dilation_range,
+            baked_dilation,
+            baked_rotation_abs,
+        ) in enumerate(variant_entries):
+            entries.append(
+                {
+                    "mesh_path": mesh_path,
+                    "asset_obj_id": idx + 1,
+                    "asset_mesh_id": mesh_id_rel,
+                    "display_name": display_name,
+                    "dilation_range": dilation_range,
+                    "baked_dilation": baked_dilation,
+                    "baked_rotation_abs": baked_rotation_abs,
+                }
+            )
+        return entries
+
+    def _get_baked_dilation_from_variant_meta(self, meta, json_path):
+        transform = meta.get("transform", {})
+        keys = ("dilate_x", "dilate_y", "dilate_z")
+        if all(k in transform for k in keys):
+            return np.asarray([float(transform[k]) for k in keys], dtype=np.float32)
+
+        stats = meta.get("stats", {})
+        original_extents = np.asarray(stats.get("original", {}).get("bbox_extents", []), dtype=np.float32)
+        scaled_extents = np.asarray(stats.get("scaled", {}).get("bbox_extents", []), dtype=np.float32)
+        if original_extents.shape[0] == 3 and scaled_extents.shape[0] == 3:
+            if np.all(np.abs(original_extents) > 1.0e-8):
+                return scaled_extents / original_extents
+
+        dilation_range = meta.get("dilation_range", {})
+        try:
+            return np.asarray(
+                [
+                    0.5 * (float(dilation_range["x"]["min"]) + float(dilation_range["x"]["max"])),
+                    0.5 * (float(dilation_range["y"]["min"]) + float(dilation_range["y"]["max"])),
+                    0.5 * (float(dilation_range["z"]["min"]) + float(dilation_range["z"]["max"])),
+                ],
+                dtype=np.float32,
+            )
+        except KeyError as exc:
+            raise ValueError(f"Cannot infer baked dilation from variant metadata: {json_path}") from exc
+
+    def _get_baked_rotation_abs_from_variant_meta(self, meta):
+        transform = meta.get("transform", {})
+        rx = np.deg2rad(float(transform.get("rot_x", 0.0)))
+        ry = np.deg2rad(float(transform.get("rot_y", 0.0)))
+        rz = np.deg2rad(float(transform.get("rot_z", 0.0)))
+        cx, sx = np.cos(rx), np.sin(rx)
+        cy, sy = np.cos(ry), np.sin(ry)
+        cz, sz = np.cos(rz), np.sin(rz)
+        rot_x = np.asarray([[1.0, 0.0, 0.0], [0.0, cx, -sx], [0.0, sx, cx]], dtype=np.float32)
+        rot_y = np.asarray([[cy, 0.0, sy], [0.0, 1.0, 0.0], [-sy, 0.0, cy]], dtype=np.float32)
+        rot_z = np.asarray([[cz, -sz, 0.0], [sz, cz, 0.0], [0.0, 0.0, 1.0]], dtype=np.float32)
+        return np.abs(rot_z @ rot_y @ rot_x)
+
+    def _sample_variant_dilation_and_scale(self, entry):
+        dilation_range = entry["dilation_range"]
+        target_dilation = np.asarray(
+            [
+                np.random.uniform(float(dilation_range["x"]["min"]), float(dilation_range["x"]["max"])),
+                np.random.uniform(float(dilation_range["y"]["min"]), float(dilation_range["y"]["max"])),
+                np.random.uniform(float(dilation_range["z"]["min"]), float(dilation_range["z"]["max"])),
+            ],
+            dtype=np.float32,
+        )
+        baked_dilation = np.asarray(entry["baked_dilation"], dtype=np.float32)
+        if np.any(np.abs(baked_dilation) <= 1.0e-8):
+            raise ValueError(f"Invalid baked_dilation for {entry['mesh_path']}: {baked_dilation}")
+        raw_relative_scale = target_dilation / baked_dilation
+        relative_scale = np.asarray(entry["baked_rotation_abs"], dtype=np.float32) @ raw_relative_scale
+        return target_dilation, raw_relative_scale, relative_scale
 
     def create_rand_mesh(self, fix_base_link=False):
         # get randomly sampled mesh path
@@ -1127,41 +1348,69 @@ class FrankaLEAPMobileDistillation(VecTask):
         mesh_dir = self.mesh_args["mesh_dir"]
         object_list = self.mesh_args["obj_list"]
 
-        if object_list == ["all"]:
-            object_list = [
-                obj
-                for obj in os.listdir(mesh_dir)
-                if obj != "type_mapping.json"
-            ]
+        mesh_entries = self._discover_variant_mesh_entries(mesh_dir, object_list)
+        if len(mesh_entries) == 0:
+            raise RuntimeError(
+                f"No mesh entries discovered under mesh_dir={mesh_dir} "
+                f"with obj_list={object_list}. Expected legacy type_mapping.json layout, "
+                "variant layout, or env.mesh.variant_manifest_json."
+            )
 
-        obj_mapping_path = os.path.join(mesh_dir, "type_mapping.json")
-        with open(obj_mapping_path, "r") as f:
-            obj_str2int = json.load(f)
-        object_list = sorted(
-            object_list,
-            key=lambda obj: (0, obj_str2int[obj]) if obj in obj_str2int else (1, obj),
+        self.mesh_variant_mode = (
+            ("fixed_scale" in mesh_entries[0])
+            or ("dilation_range" in mesh_entries[0])
         )
+        if self.mesh_variant_mode and "fixed_scale" not in mesh_entries[0]:
+            base_entries = mesh_entries
+            variant_count = len(base_entries)
+            explicit_preload_count = int(self.mesh_args.get("variant_preload_count", 0))
+            if explicit_preload_count > 0:
+                target_preload = explicit_preload_count
+            else:
+                preload_multiplier = int(self.mesh_args.get("variant_preload_multiplier", 1))
+                if preload_multiplier < 1:
+                    raise ValueError("env.mesh.variant_preload_multiplier must be >= 1")
+                target_preload = variant_count * preload_multiplier
+                max_preload = int(self.mesh_args.get("variant_preload_max", self.num_envs))
+                if max_preload > 0:
+                    target_preload = min(target_preload, max_preload)
+            target_preload = max(1, target_preload)
+            if target_preload < variant_count:
+                idx = np.random.choice(variant_count, size=target_preload, replace=False)
+            else:
+                idx = np.arange(target_preload, dtype=np.int64) % variant_count
+            np.random.shuffle(idx)
+            mesh_entries = [base_entries[int(i)] for i in idx.tolist()]
+            versions_per_variant = int(np.ceil(float(target_preload) / float(variant_count)))
+            print(
+                f"[mesh_variant_preload] variants={variant_count} preload={target_preload} "
+                f"versions_per_variant~={versions_per_variant}"
+            )
 
-        mesh_files = []
-        for obj in object_list:
-            obj_dir = os.path.join(mesh_dir, obj)
-            if not os.path.isdir(obj_dir):
-                continue
-            for file in sorted(os.listdir(obj_dir)):
-                if file.endswith(".obj"):
-                    mesh_files.append(os.path.join(obj_dir, file))
+        self.object_id_to_name = [entry["display_name"] for entry in mesh_entries]
 
         meshes = []
-        for mesh_file_path in tqdm(mesh_files, desc="Preparing Meshes"):
+        for entry in tqdm(mesh_entries, desc="Preparing Meshes"):
             # sample random size, pos and ori
             scale_range = self.cfg["env"]["object_settings"]["scale_range"]
             pos_range = self.cfg["env"]["object_settings"]["xyz_range"]
 
-            mesh_scale = np.random.uniform(scale_range[0], scale_range[1])
+            if "fixed_scale" in entry:
+                mesh_scale = np.asarray(entry["fixed_scale"], dtype=np.float32)
+            elif "dilation_range" in entry:
+                _, _, mesh_scale = self._sample_variant_dilation_and_scale(entry)
+            else:
+                mesh_scale = np.random.uniform(scale_range[0], scale_range[1])
             mesh_pos = np.random.uniform(pos_range[0], pos_range[1])
             mesh_quat = R.random().as_quat()
             asset, start_pose, scale, asset_obj_id, asset_mesh_id = self._create_mesh(
-                mesh_file_path, mesh_pos, mesh_scale, mesh_quat, fix_base_link, obj_str2int
+                entry["mesh_path"],
+                mesh_pos,
+                mesh_scale,
+                mesh_quat,
+                fix_base_link,
+                asset_obj_id=entry["asset_obj_id"],
+                asset_mesh_id=entry["asset_mesh_id"],
             )
             meshes.append((asset, start_pose, scale, asset_obj_id, asset_mesh_id))
         return meshes
@@ -1819,7 +2068,11 @@ class FrankaLEAPMobileDistillation(VecTask):
             current_joint_pos_fabric[:, :10] = self._q[:, :10].clone()
             current_joint_pos_fabric[:, 10:] = self._q[:, 26:].clone()
             self._validate_fabric_tensor("current_joint_pos_fabric", current_joint_pos_fabric)
-            glorbot_fk = self.franka_fabric.forward_kinematics(["camera_link", "panda_link0"], current_joint_pos_fabric) # (num_envs, num_links, xyz+xyzw)
+            # CODEX LIDAR MERGE: include the lidar link in FK only for the opt-in lidar path.
+            if self.pcd_spec_dict.get("simulate_sensor_pcd", False):
+                glorbot_fk = self.franka_fabric.forward_kinematics(["camera_link", "lidar", "panda_link0"], current_joint_pos_fabric) # (num_envs, num_links, xyz+xyzw)
+            else:
+                glorbot_fk = self.franka_fabric.forward_kinematics(["camera_link", "panda_link0"], current_joint_pos_fabric) # (num_envs, num_links, xyz+xyzw)
 
         # update point clouds
         object_pcds_world = transform_pcds_to_world(self.object_pcds, self._object_state[:, :7])
@@ -1889,10 +2142,18 @@ class FrankaLEAPMobileDistillation(VecTask):
         })
 
         if self.enable_fabric:
-            self.states.update({
-                "camera_pose7": glorbot_fk[:, 0, :],  # camera_link, xyz + xyzw
-                "franka_base_pose7": glorbot_fk[:, 1, :],  # panda_link0, xyz + xyzw
-            })
+            # CODEX LIDAR MERGE: expose lidar_pose7 to the DAgger trainer when lidar simulation is enabled.
+            if self.pcd_spec_dict.get("simulate_sensor_pcd", False):
+                self.states.update({
+                    "camera_pose7": glorbot_fk[:, 0, :],  # camera_link, xyz + xyzw
+                    "lidar_pose7": glorbot_fk[:, 1, :],  # lidar, xyz + xyzw
+                    "franka_base_pose7": glorbot_fk[:, 2, :],  # panda_link0, xyz + xyzw
+                })
+            else:
+                self.states.update({
+                    "camera_pose7": glorbot_fk[:, 0, :],  # camera_link, xyz + xyzw
+                    "franka_base_pose7": glorbot_fk[:, 1, :],  # panda_link0, xyz + xyzw
+                })
 
     def _get_eef_point_matching_err(self, curent_eef_pos7: torch.Tensor, target_eef_pos7: torch.Tensor):
         """
@@ -2352,8 +2613,13 @@ class FrankaLEAPMobileDistillation(VecTask):
 
         if self.enable_fabric:
             # @ray use fabrics actions to override teacher actions when switch enables
-            # teacher_actions_abs[:, :3] = abs_full_joint_actions_fabric[:, :3] # @ray activating the base fabric during teacher rl messes up the rl policy, need to tune fabric
-            teacher_actions_abs[self.fabric_switch_enable, :10] = abs_full_joint_actions_fabric[self.fabric_switch_enable, :10]
+            # CODEX: let fabric move the base before RL activates; freeze the
+            # base once control switches to the RL/teacher policy.
+            base_lock_mask = self._get_mobile_base_lock_mask()
+            teacher_actions_abs[base_lock_mask, :3] = self.states["q"][base_lock_mask, :3]
+            base_fabric_enable = ~base_lock_mask
+            teacher_actions_abs[base_fabric_enable, :3] = abs_full_joint_actions_fabric[base_fabric_enable, :3] # @ray activating the base fabric during teacher rl messes up the rl policy, need to tune fabric
+            teacher_actions_abs[self.fabric_switch_enable, 3:10] = abs_full_joint_actions_fabric[self.fabric_switch_enable, 3:10]
             teacher_actions_abs[self.fabric_switch_enable, 10:26] = self.canonical_joint_config[self.fabric_switch_enable, 10:26]
             teacher_actions_abs[:, 26:] = abs_full_joint_actions_fabric[:, 10:]
 
@@ -2853,6 +3119,23 @@ class FrankaLEAPMobileDistillation(VecTask):
         valid = y_hi >= y_lo
         return candidate_xy[valid]
 
+    def _get_mobile_base_lock_mask(self):
+        lift_state = self.states.get(
+            "lift",
+            torch.zeros((self.num_envs,), dtype=torch.bool, device=self.device),
+        ).to(dtype=torch.bool)
+
+        if self.lock_mobile_base:
+            if self.enable_fabric:
+                # CODEX: fabric_switch_enable=True means fabric is still moving
+                # toward the RL activation pose. Lock only after RL activates.
+                return ~self.fabric_switch_enable.to(dtype=torch.bool)
+            return torch.ones((self.num_envs,), dtype=torch.bool, device=self.device)
+
+        if hasattr(self, "post_lift_target_active"):
+            return lift_state | self.post_lift_target_active.to(dtype=torch.bool)
+        return lift_state
+
     def pre_physics_step(self, actions):
         """
         Args:
@@ -2863,6 +3146,12 @@ class FrankaLEAPMobileDistillation(VecTask):
             self.abs_actions[:] = self._pre_physics_step_student(actions)
         else:
             self.abs_actions[:] = self._pre_physics_step_teacher(actions)
+
+        # CODEX: enforce base-lock invariant for both teacher-forced and student
+        # rollouts. Top-long locks once RL activates; legacy behavior without
+        # lock_mobile_base still locks after lift/post-lift.
+        base_lock_mask = self._get_mobile_base_lock_mask()
+        self.abs_actions[base_lock_mask, :3] = self.states["q"][base_lock_mask, :3]
 
         self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(self.abs_actions))
 

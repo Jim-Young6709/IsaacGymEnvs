@@ -1,0 +1,654 @@
+"""
+CODEX LIDAR MERGE: copied in from old_urdf for lidar self-filtering during the DAgger merge.
+Spherical collision checker for the 32-DoF mobile manipulator (Glorbot/Tidybot + Franka + LEAP + X5).
+"""
+
+import argparse
+import time
+import numpy as np
+import torch
+
+from isaacgymenvs.utils.torch_urdf import TorchURDF
+from isaacgymenvs.utils.geometry import TorchSpheres
+
+
+class GlorbotCollisionChecker:
+    """Spherical collision representation for the 32-DoF mobile manipulator."""
+
+    DEFAULT_JOINT_ORDER = [
+        "base_x_joint",
+        "base_y_joint",
+        "base_rotation_joint",
+        "panda_joint1",
+        "panda_joint2",
+        "panda_joint3",
+        "panda_joint4",
+        "panda_joint5",
+        "panda_joint6",
+        "panda_joint7",
+        "finger_joint_1",
+        "finger_joint_0",
+        "finger_joint_2",
+        "finger_joint_3",
+        "finger_joint_12",
+        "finger_joint_13",
+        "finger_joint_14",
+        "finger_joint_15",
+        "finger_joint_5",
+        "finger_joint_4",
+        "finger_joint_6",
+        "finger_joint_7",
+        "finger_joint_9",
+        "finger_joint_8",
+        "finger_joint_10",
+        "finger_joint_11",
+        "x5_joint1",
+        "x5_joint2",
+        "x5_joint3",
+        "x5_joint4",
+        "x5_joint5",
+        "x5_joint6",
+    ]
+
+    def __init__(
+        self,
+        urdf_path: str,
+        device,
+        input_joint_names=None,
+    ):
+        self.device = device
+        self.robot = TorchURDF.load(urdf_path, lazy_load_meshes=True, device=self.device)
+
+        self.input_joint_names = (
+            list(input_joint_names)
+            if input_joint_names is not None
+            else list(self.DEFAULT_JOINT_ORDER)
+        )
+        self.robot_joint_names = [joint.name for joint in self.robot.actuated_joints]
+        self.default_joint_mapping = self._build_joint_mapping()
+        self.collision_model = self.get_collision_model()
+
+        self._link_to_geometry = {}
+        self._link_visual_origin_inv = {}
+        for link in self.robot.links:
+            if not link.visuals:
+                continue
+            visual = link.visuals[0]
+            self._link_to_geometry[link.name] = visual.geometry
+            self._link_visual_origin_inv[link.name] = torch.linalg.inv(
+                visual.origin.to(self.device, dtype=torch.float32)
+            )
+        self._setup_sphere_buffers()
+
+    def _build_joint_mapping(self):
+        missing = [name for name in self.robot_joint_names if name not in self.input_joint_names]
+        if missing:
+            return None
+        return [self.input_joint_names.index(name) for name in self.robot_joint_names]
+
+    def _prepare_joint_angles(self, joint_angles, joint_mapping_list=None):
+        if isinstance(joint_angles, np.ndarray):
+            joint_angles = torch.from_numpy(joint_angles)
+        if not isinstance(joint_angles, torch.Tensor):
+            joint_angles = torch.tensor(joint_angles, dtype=torch.float32)
+        joint_angles = joint_angles.to(self.device, dtype=torch.float32)
+        if joint_angles.ndim == 1:
+            joint_angles = joint_angles.unsqueeze(0)
+        if joint_angles.ndim != 2:
+            raise ValueError(f"joint_angles must have shape (B, C) or (C,), got {joint_angles.shape}.")
+
+        if joint_mapping_list is not None:
+            joint_angles = joint_angles[:, joint_mapping_list]
+        elif (
+            self.default_joint_mapping is not None
+            and joint_angles.shape[1] == len(self.input_joint_names)
+        ):
+            joint_angles = joint_angles[:, self.default_joint_mapping]
+
+        expected_dim = len(self.robot_joint_names)
+        if joint_angles.shape[1] != expected_dim:
+            raise ValueError(
+                f"Expected {expected_dim} joints in URDF order {self.robot_joint_names}, "
+                f"got {joint_angles.shape[1]}. Pass joint_mapping_list if your order differs."
+            )
+        return joint_angles
+
+    def _setup_sphere_buffers(self):
+        link_names = []
+        link_to_idx = {}
+        sphere_link_idxs = []
+        sphere_centers = []
+        sphere_radii = []
+        missing_links = []
+
+        for link_name, spheres in self.collision_model.items():
+            if link_name not in self._link_to_geometry:
+                missing_links.append((link_name, link_name))
+                continue
+
+            if link_name not in link_to_idx:
+                link_to_idx[link_name] = len(link_names)
+                link_names.append(link_name)
+            link_idx = link_to_idx[link_name]
+
+            for center, radius in spheres:
+                sphere_link_idxs.append(link_idx)
+                sphere_centers.append(center)
+                sphere_radii.append([radius])
+
+        if missing_links:
+            missing_str = ", ".join([f"{src}->{resolved}" for src, resolved in missing_links])
+            raise ValueError(
+                f"Collision model references missing URDF links: {missing_str}. "
+            )
+
+        self._fk_links = link_names
+        self._sphere_link_idxs = torch.tensor(sphere_link_idxs, dtype=torch.long, device=self.device)
+        self._sphere_centers_local = torch.tensor(
+            sphere_centers, dtype=torch.float32, device=self.device
+        )
+        ones = torch.ones((self._sphere_centers_local.shape[0], 1), device=self.device)
+        self._sphere_centers_local_h = torch.cat([self._sphere_centers_local, ones], dim=1)
+        self._sphere_radii = torch.tensor(sphere_radii, dtype=torch.float32, device=self.device)
+
+    def get_collision_model(self):
+        model = dict()
+        model["tidybot2_base_link"] = [
+            # base body
+            ([0.17, 0.15, 0.17], 0.17),
+            ([0.17, 0.15, 0.34], 0.17),
+            ([0.17, -0.15, 0.17], 0.17),
+            ([0.17, -0.15, 0.34], 0.17),
+            ([0.17, 0.0, 0.17], 0.17),
+            ([0.17, 0.0, 0.34], 0.17),
+            ([-0.17, 0.15, 0.17], 0.17),
+            ([-0.17, 0.15, 0.34], 0.17),
+            ([-0.17, -0.15, 0.17], 0.17),
+            ([-0.17, -0.15, 0.34], 0.17),
+            ([-0.17, 0.0, 0.17], 0.17),
+            ([-0.17, 0.0, 0.34], 0.17),
+            ([0.0, 0.15, 0.17], 0.17),
+            ([0.0, 0.15, 0.34], 0.17),
+            ([0.0, -0.15, 0.17], 0.17),
+            ([0.0, -0.15, 0.34], 0.17),
+            # franka control box
+            ([-0.0335, 0.17, 0.51], 0.12),
+            ([-0.0335, 0.06, 0.51], 0.12),
+            ([-0.0335, -0.06, 0.51], 0.12),
+            ([-0.0335, -0.17, 0.51], 0.12),
+            ([-0.0335 - 0.23, 0.17, 0.51], 0.12),
+            ([-0.0335 - 0.23, 0.06, 0.51], 0.12),
+            ([-0.0335 - 0.23, -0.06, 0.51], 0.12),
+            ([-0.0335 - 0.23, -0.17, 0.51], 0.12),
+            ([-0.0335 - 0.115, 0.17, 0.51], 0.12),
+            ([-0.0335 - 0.115, 0.06, 0.51], 0.12),
+            ([-0.0335 - 0.115, -0.06, 0.51], 0.12),
+            ([-0.0335 - 0.115, -0.17, 0.51], 0.12),
+            # center column
+            ([-0.0335 - 0.02, 0.0, 0.65], 0.1),
+            ([-0.0335 - 0.19 / 2.0, 0.0, 0.65], 0.1),
+            ([-0.0335 - 0.17, 0.0, 0.65], 0.1),
+            # lidar beam
+            *[([-0.26, 0.0, 0.75 + 0.07 * i], 0.05) for i in range(12)],
+            ([-0.2, 0.0, 0.75 + 0.07 * 11.4], 0.07),
+        ]
+
+        model["panda_link0"] = [([-0.02, 0.0, 0.05], 0.12)]
+        model["panda_link1"] = [
+            ([0.0, -0.08, 0.0], 0.06),
+            ([0.0, -0.03, 0.0], 0.06),
+            ([0.0, 0.0, -0.12], 0.06),
+            ([0.0, 0.0, -0.17], 0.06),
+        ]
+        model["panda_link2"] = [
+            ([0.0, 0.0, 0.03], 0.06),
+            ([0.0, 0.0, 0.08], 0.06),
+            ([0.0, -0.12, 0.0], 0.06),
+            ([0.0, -0.17, 0.0], 0.06),
+        ]
+        model["panda_link3"] = [
+            ([0.0, 0.0, -0.06], 0.05),
+            ([0.0, 0.0, -0.1], 0.06),
+            ([0.08, 0.06, 0.0], 0.055),
+            ([0.08, 0.02, 0.0], 0.055),
+        ]
+        model["panda_link4"] = [
+            ([0.0, 0.0, 0.02], 0.055),
+            ([0.0, 0.0, 0.06], 0.055),
+            ([-0.08, 0.095, 0.0], 0.06),
+            ([-0.08, 0.06, 0.0], 0.055),
+        ]
+        model["panda_link5"] = [
+            ([0.0, 0.055, 0.0], 0.06),
+            ([0.0, 0.075, 0.0], 0.06),
+            ([0.0, 0.0, -0.22], 0.06),
+            ([0.0, 0.05, -0.18], 0.05),
+            ([0.01, 0.08, -0.14], 0.025),
+            ([0.01, 0.085, -0.11], 0.025),
+            ([0.01, 0.09, -0.08], 0.025),
+            ([0.01, 0.095, -0.05], 0.025),
+            ([-0.01, 0.08, -0.14], 0.025),
+            ([-0.01, 0.085, -0.11], 0.025),
+            ([-0.01, 0.09, -0.08], 0.025),
+            ([-0.01, 0.095, -0.05], 0.025),
+        ]
+        model["panda_link6"] = [
+            ([0.0, 0.0, 0.0], 0.06),
+            ([0.08, 0.03, 0.0], 0.06),
+            ([0.08, -0.01, 0.0], 0.06),
+        ]
+        model["panda_link7"] = [
+            ([0.0, 0.0, 0.07], 0.05),
+            ([0.02, 0.04, 0.08], 0.025),
+            ([0.04, 0.02, 0.08], 0.025),
+            ([0.04, 0.06, 0.085], 0.02),
+            ([0.06, 0.04, 0.085], 0.02),
+        ]
+
+        model["x5_base_link"] = [([0.0, 0.0, 0.03], 0.05)]
+        model["link1"] = [([0.01, 0.0, 0.03], 0.052)]
+        model["link2"] = [
+            ([-0.05, 0.0, 0.0], 0.04),
+            ([-0.05 - 0.05 * 1, 0.0, 0.0], 0.04),
+            ([-0.05 - 0.05 * 2, 0.0, 0.0], 0.04),
+            ([-0.05 - 0.05 * 3, 0.0, 0.0], 0.04),
+            ([-0.05 - 0.051 * 4, 0.0, 0.0], 0.05),
+        ]
+        model["link3"] = [
+            ([0.03, 0.0, -0.02], 0.05),
+            ([0.06, 0.0, -0.05], 0.038),
+            ([0.1, 0.0, -0.055], 0.035),
+            ([0.15, 0.0, -0.055], 0.035),
+            ([0.2, 0.0, -0.055], 0.035),
+            ([0.25, 0.0, -0.055], 0.042),
+        ]
+        model["link4"] = [
+            ([0.072, 0.0, 0.0], 0.04),
+            ([0.068, 0.0, -0.06], 0.04),
+        ]
+        model["x5_camera_link"] = [
+            ([0.016, 0.0, 0.0], 0.03),
+            ([0.016, -0.025, 0.025], 0.03),
+            ([0.016, 0.025, -0.025], 0.03),
+        ]
+        model["palm_lower"] = [
+            ([-0.04, -0.035, 0.01], 0.035),
+            ([-0.04, -0.070, 0.01], 0.035),
+            ([-0.04,  0.0, 0.01], 0.035),
+            ([-0.070, -0.060, 0.01], 0.032),
+            ([-0.070, -0.010, 0.01], 0.032),
+        ]
+
+        for i in [1, 2, 3]:
+            model[f"mcp_{i}"] = [([-0.025, 0.04, 0.015], 0.025)]
+            model[f"pip_{i}"] = [([0.01, 0.0, -0.01], 0.02)]
+            model[f"dip_{i}"] = [([0.01, -0.035, 0.015], 0.02)]
+            model[f"fingertip_{i}"] = [([0.0, -0.035, 0.015], 0.02)]
+
+        model["pip_4"] = [([0.0, 0.0, 0.0], 0.02)]
+        model["dip_4"] = [([0.001, 0.01, -0.02], 0.02)]
+        model["fingertip_4"] = [
+            ([0.0, -0.045, -0.01], 0.02),
+            ([0.0, -0.02, -0.01], 0.02),
+            ([0.0, 0.0, -0.01], 0.02),
+        ]
+        return model
+
+    def torch_spheres(self, joint_angles, joint_mapping_list=None):
+        """
+        Build a batched spherical robot model from joint angles.
+
+        Args:
+            joint_angles: shape (B, 32) or (32,).
+            joint_mapping_list: optional index mapping to URDF joint order.
+
+        Returns:
+            TorchSpheres with centers (B, M, 3) and radii (B, M, 1).
+        """
+        joint_angles = self._prepare_joint_angles(
+            joint_angles=joint_angles, joint_mapping_list=joint_mapping_list
+        )
+        fk = self.robot.visual_geometry_fk_batch(joint_angles)
+        link_transforms_list = []
+        for link_name in self._fk_links:
+            geom_tf = fk[self._link_to_geometry[link_name]]
+            origin_inv = self._link_visual_origin_inv[link_name].type_as(geom_tf)
+            link_transforms_list.append(torch.matmul(geom_tf, origin_inv))
+        link_transforms = torch.stack(link_transforms_list, dim=1)
+
+        B = joint_angles.shape[0]
+        sphere_link_transforms = link_transforms[:, self._sphere_link_idxs]  # (B, M, 4, 4)
+        local_offsets = (
+            self._sphere_centers_local_h.to(joint_angles.dtype)
+            .unsqueeze(0)
+            .expand(B, -1, -1)
+            .unsqueeze(-1)
+        )  # (B, M, 4, 1)
+
+        centers = torch.matmul(sphere_link_transforms, local_offsets)[:, :, :3, 0]
+        radii = self._sphere_radii.to(joint_angles.dtype).unsqueeze(0).expand(B, -1, -1)
+        return TorchSpheres(centers=centers, radii=radii)
+
+    def torch_spheres_cr(self, joint_angles, joint_mapping_list=None):
+        """Return tensor arrays of sphere xyz and radius."""
+        spheres = self.torch_spheres(joint_angles, joint_mapping_list=joint_mapping_list)
+        return spheres.centers, spheres.radii
+
+    def torch_sphere_list(self, joint_angles, joint_mapping_list=None):
+        """Return shape (B, M, 4): [x, y, z, radius] per sphere."""
+        centers, radii = self.torch_spheres_cr(
+            joint_angles=joint_angles, joint_mapping_list=joint_mapping_list
+        )
+        return torch.cat([centers, radii], dim=-1)
+
+    def filter_pointcloud_outside_spheres(
+        self,
+        pointclouds: torch.Tensor,
+        joint_angles: torch.Tensor,
+        sdf_cutoff: float = 0.02,
+        joint_mapping_list=None,
+        pad_value: float = torch.nan,
+        max_points_per_process: int = 5000,
+    ):
+        """
+        Filter out points that are inside the robot sphere model (sdf < 0).
+
+        Args:
+            pointclouds: (B, N, 3) tensor or ndarray.
+            joint_angles: (B, 32) in input joint order.
+            joint_mapping_list: optional index mapping to URDF joint order.
+            pad_value: value used in padded output mode.
+            max_points_per_process: optional chunk size over N. If set and N is larger,
+                                    process pointcloud in chunks and concatenate.
+
+        Returns:
+            filtered pointcloud, and optionally mask/sdf.
+        """
+
+        spheres = self.torch_spheres(joint_angles, joint_mapping_list=joint_mapping_list)
+        if spheres.centers.shape[0] != pointclouds.shape[0]:
+            raise ValueError(
+                f"Batch size mismatch: pointclouds batch={pointclouds.shape[0]}, "
+                f"joint batch={spheres.centers.shape[0]}."
+            )
+
+        B, N, _ = pointclouds.shape
+        if N <= max_points_per_process:
+            sdf = spheres.sdf(pointclouds)  # (B, N)
+            outside_mask = sdf >= sdf_cutoff
+            filtered = pointclouds.clone()
+            filtered[~outside_mask] = pad_value
+        else:
+            chunks = []
+            for start_idx in range(0, N, max_points_per_process):
+                end_idx = min(start_idx + max_points_per_process, N)
+                pointcloud_chunk = pointclouds[:, start_idx:end_idx, :]
+                sdf_chunk = spheres.sdf(pointcloud_chunk)  # (B, n_chunk)
+                outside_mask_chunk = sdf_chunk >= sdf_cutoff
+                filtered_chunk = pointcloud_chunk.clone()
+                filtered_chunk[~outside_mask_chunk] = pad_value
+                chunks.append(filtered_chunk)
+            filtered = torch.cat(chunks, dim=1)
+
+        filtered = filtered.to(pointclouds.device, dtype=pointclouds.dtype)
+
+        return filtered
+
+
+def test_visualize_spheres(
+    urdf_path: str,
+    joint_angles=None,
+    joint_mapping_list=None,
+    device=None,
+    samples_per_sphere: int = 150,
+    sphere_noise: float = 0.0,
+    save_ply_path: str = None,
+    show: bool = True,
+):
+    """
+    Generate and visualize the sphere model for one robot configuration.
+
+    Args:
+        urdf_path: Robot URDF file path.
+        joint_angles: 32-DoF input config in DEFAULT_JOINT_ORDER. If None, uses zeros.
+        joint_mapping_list: Optional mapping list to URDF joint order.
+        device: 'cpu' or 'cuda'. If None, auto-select.
+        samples_per_sphere: Surface points sampled per sphere.
+        sphere_noise: Uniform noise added to sampled sphere surface points.
+        save_ply_path: Optional .ply output path.
+        show: Whether to open an Open3D viewer.
+
+    Returns:
+        centers (torch.Tensor): (1, M, 3)
+        radii (torch.Tensor): (1, M, 1)
+    """
+    checker = GlorbotCollisionChecker(urdf_path=urdf_path, device=device)
+    if joint_angles is None:
+        joint_angles = torch.zeros((1, len(checker.DEFAULT_JOINT_ORDER)), dtype=torch.float32)
+    elif not isinstance(joint_angles, torch.Tensor):
+        joint_angles = torch.tensor(joint_angles, dtype=torch.float32)
+    if joint_angles.ndim == 1:
+        joint_angles = joint_angles.unsqueeze(0)
+
+    spheres = checker.torch_spheres(joint_angles, joint_mapping_list=joint_mapping_list)
+    centers, radii = spheres.centers, spheres.radii
+    sampled_points = spheres.sample_surface(samples_per_sphere, noise=sphere_noise)[0].reshape(-1, 3)
+    sampled_points_np = sampled_points.detach().cpu().numpy()
+
+    if save_ply_path is not None or show:
+        try:
+            import open3d as o3d
+        except ModuleNotFoundError as exc:
+            raise ModuleNotFoundError(
+                "open3d is required for visualization/saving. Install it to use this test function."
+            ) from exc
+
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(sampled_points_np)
+        colors = np.zeros_like(sampled_points_np)
+        colors[:, 1] = 1.0
+        pcd.colors = o3d.utility.Vector3dVector(colors)
+
+        if save_ply_path is not None:
+            o3d.io.write_point_cloud(save_ply_path, pcd)
+            print(f"[glorbot_collision_checker] saved sphere point cloud: {save_ply_path}")
+        if show:
+            o3d.visualization.draw_geometries([pcd], window_name="Glorbot Collision Spheres")
+
+    print(
+        "[glorbot_collision_checker] centers shape:", tuple(centers.shape),
+        "radii shape:", tuple(radii.shape),
+        "num spheres:", centers.shape[1],
+    )
+    return centers, radii
+
+
+def test_filter_pointcloud_outside_spheres(
+    urdf_path: str,
+    batch_size: int = 512,
+    num_points: int = 8192,
+    num_trials: int = 20,
+    warmup_trials: int = 5,
+    pointcloud_bound: float = 1.2,
+    device=None,
+):
+    """
+    Benchmark/filter test for `filter_pointcloud_outside_spheres`.
+
+    Randomly samples:
+      - pointclouds: uniform in [-pointcloud_bound, pointcloud_bound], shape (B, N, 3)
+      - joint angles: uniform in [-1, 1], shape (B, 32)
+
+    Prints timing and filtering statistics.
+    """
+    checker = GlorbotCollisionChecker(urdf_path=urdf_path, device=device)
+    dev = checker.device if isinstance(checker.device, torch.device) else torch.device(checker.device)
+    dof = len(checker.DEFAULT_JOINT_ORDER)
+
+    def _sample_inputs():
+        pcd = (
+            (torch.rand(batch_size, num_points, 3, device=dev, dtype=torch.float32) * 2.0) - 1.0
+        ) * pointcloud_bound
+        q = (torch.rand(batch_size, dof, device=dev, dtype=torch.float32) * 2.0) - 1.0
+        return pcd, q
+
+    # Warmup
+    for _ in range(max(warmup_trials, 0)):
+        pcd, q = _sample_inputs()
+        _ = checker.filter_pointcloud_outside_spheres(
+            pointclouds=pcd,
+            joint_angles=q,
+        )
+    if dev.type == "cuda":
+        torch.cuda.synchronize(dev)
+
+    # Timed trials
+    elapsed = []
+    kept_ratios = []
+    for _ in range(max(num_trials, 1)):
+        pcd, q = _sample_inputs()
+        if dev.type == "cuda":
+            torch.cuda.synchronize(dev)
+        t0 = time.perf_counter()
+        filtered = checker.filter_pointcloud_outside_spheres(
+            pointclouds=pcd,
+            joint_angles=q,
+        )
+        if dev.type == "cuda":
+            torch.cuda.synchronize(dev)
+        t1 = time.perf_counter()
+        elapsed.append(t1 - t0)
+
+        kept_mask = ~torch.isnan(filtered[..., 0])
+        kept_ratios.append(kept_mask.float().mean().item())
+
+    elapsed = np.asarray(elapsed, dtype=np.float64)
+    kept_ratios = np.asarray(kept_ratios, dtype=np.float64)
+    total_points = batch_size * num_points
+
+    print("[glorbot_collision_checker] Filter test complete")
+    print(f"  device: {dev}")
+    print(
+        f"  config: B={batch_size}, N={num_points}, total_points_per_trial={total_points}, "
+        f"trials={max(num_trials, 1)}, warmup={max(warmup_trials, 0)}, sdf_cutoff={0.02}"
+    )
+    print(
+        f"  time (ms): mean={elapsed.mean()*1000:.3f}, std={elapsed.std()*1000:.3f}, "
+        f"min={elapsed.min()*1000:.3f}, max={elapsed.max()*1000:.3f}"
+    )
+    print(
+        f"  throughput: {total_points/elapsed.mean():.1f} points/s "
+        f"(~{(total_points/elapsed.mean())/1e6:.3f} Mpoints/s)"
+    )
+    print(
+        f"  kept ratio: mean={kept_ratios.mean():.4f}, min={kept_ratios.min():.4f}, "
+        f"max={kept_ratios.max():.4f}"
+    )
+
+    return {
+        "time_s": elapsed,
+        "kept_ratio": kept_ratios,
+        "device": str(dev),
+        "batch_size": batch_size,
+        "num_points": num_points,
+        "num_trials": max(num_trials, 1),
+        "warmup_trials": max(warmup_trials, 0),
+    }
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="Visualize Glorbot collision spheres.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Example:\n"
+            "  python ./isaacgymenvs/utils/glorbot_collision_checker.py \\\n"
+            "      --urdf_path /path/to/glorbot.urdf \\\n"
+            "      --samples_per_sphere 300 \\\n"
+            "      --sphere_noise 0.002\n"
+        ),
+    )
+    parser.add_argument("--urdf_path", type=str, required=True, help="Path to robot URDF.")
+    parser.add_argument(
+        "--joint_angles",
+        type=float,
+        nargs="*",
+        default=None,
+        help="Optional 32 joint values in DEFAULT_JOINT_ORDER.",
+    )
+    parser.add_argument(
+        "--samples_per_sphere",
+        type=int,
+        default=150,
+        help="Number of sampled surface points per sphere.",
+    )
+    parser.add_argument(
+        "--sphere_noise",
+        type=float,
+        default=0.0,
+        help="Uniform noise for sampled points.",
+    )
+    parser.add_argument(
+        "--save_ply",
+        type=str,
+        default=None,
+        help="Optional output .ply path for sampled sphere points.",
+    )
+    parser.add_argument(
+        "--device",
+        type=str,
+        default="cuda",
+        choices=[None, "cpu", "cuda"],
+        help="Computation device.",
+    )
+    parser.add_argument(
+        "--no_show",
+        action="store_true",
+        help="Disable Open3D viewer window.",
+    )
+    parser.add_argument(
+        "--test_filter",
+        action="store_true",
+        help="Run random batched filter_pointcloud_outside_spheres timing test.",
+    )
+    parser.add_argument("--batch_size", type=int, default=512, help="Batch size for --test_filter.")
+    parser.add_argument("--num_points", type=int, default=8192, help="Num points for --test_filter.")
+    parser.add_argument("--num_trials", type=int, default=100, help="Timed trials for --test_filter.")
+    parser.add_argument(
+        "--warmup_trials",
+        type=int,
+        default=5,
+        help="Warmup trials (not timed) for --test_filter.",
+    )
+    parser.add_argument(
+        "--pointcloud_bound",
+        type=float,
+        default=1.2,
+        help="Uniform sampling bound for random pointclouds: [-b, b].",
+    )
+    args = parser.parse_args()
+
+    ja = None
+    if args.joint_angles is not None and len(args.joint_angles) > 0:
+        ja = torch.tensor(args.joint_angles, dtype=torch.float32)
+
+    if args.test_filter:
+        test_filter_pointcloud_outside_spheres(
+            urdf_path=args.urdf_path,
+            batch_size=args.batch_size,
+            num_points=args.num_points,
+            num_trials=args.num_trials,
+            warmup_trials=args.warmup_trials,
+            pointcloud_bound=args.pointcloud_bound,
+            device=args.device,
+        )
+    else:
+        test_visualize_spheres(
+            urdf_path=args.urdf_path,
+            joint_angles=ja,
+            device=args.device,
+            samples_per_sphere=args.samples_per_sphere,
+            sphere_noise=args.sphere_noise,
+            save_ply_path=args.save_ply,
+            show=(not args.no_show),
+        )

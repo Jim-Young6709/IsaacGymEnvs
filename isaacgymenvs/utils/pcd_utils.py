@@ -308,23 +308,36 @@ def crop_local_pcd(
     local_range: torch.float,
     num_local_points: torch.int,
     is_cylindrical: bool = False,
+    crop_center: torch.Tensor = None,
+    x_direction_cutoff: torch.float = None,
+    log_name: str = "",
 ):
     """
     Crop the point cloud to a local region around the origin with 0 padding.
     Args:
         pcd: (B, N, 3) tensor
-        range: float, the radius of the local region
+        local_range: float, the radius of the local region
+        crop_center: optional (B, 3) center in the same frame as pcd.
     """
     B, N, _ = pcd.shape
     device = pcd.device
 
+    # CODEX LIDAR MERGE: optional crop_center/log_name lets lidar merge crop global-frame sensor clouds directly.
+    if crop_center is None:
+        crop_center = torch.zeros((B, 3), device=device, dtype=pcd.dtype)
+    pcd_centered = pcd - crop_center.unsqueeze(1)
+
     # get local pcd
-    masked_pcds = shuffle_pcd(pcd)
+    masked_pcds = shuffle_pcd(pcd_centered)
     if is_cylindrical:
         dist = torch.norm(masked_pcds[..., :2], dim=-1)
     else:
         dist = torch.norm(masked_pcds, dim=-1)
     mask = dist < local_range # nan < X always returns false, so if there are nan values in pcd input, it get automatically filtered out
+
+    if x_direction_cutoff is not None:
+        mask = mask & (masked_pcds[:, :, 0] > x_direction_cutoff)
+
     masked_pcds[~mask] = float("nan")
 
     # sort to get all the valid points
@@ -338,13 +351,15 @@ def crop_local_pcd(
     min_num_valid_points = is_valid.sum(dim=-1).min()
 
     crop_type = "cylindrical" if is_cylindrical else "spherical"
+    log_prefix = f"{log_name}_" if log_name else ""
     logs = {
-        f"local_{crop_type}_crop/avg_num_valid_points": avg_num_valid_points.item(),
-        f"local_{crop_type}_crop/min_num_valid_points": min_num_valid_points.item(),
+        f"{log_prefix}local_{crop_type}_crop/avg_num_valid_points": avg_num_valid_points.item(),
+        f"{log_prefix}local_{crop_type}_crop/min_num_valid_points": min_num_valid_points.item(),
     }
 
     # replace nan values as 0s
     local_pcd_zero_padding = torch.nan_to_num(pcd_local_nan_padding, nan=0.0)
+    local_pcd_zero_padding = local_pcd_zero_padding + crop_center.unsqueeze(1)
 
     return local_pcd_zero_padding, logs
 

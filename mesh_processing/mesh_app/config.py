@@ -18,7 +18,7 @@ class CylinderSpec:
 
 @dataclass
 class AppConfig:
-    mesh_root: str = "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long" # "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new"
+    mesh_root: str = "/home/rayliu/grogu/IsaacGymEnvs/meshes_side/long_new" # "/home/rayliu/grogu/IsaacGymEnvs/meshes_69_new"
     output_root: str = "/home/rayliu/grogu/IsaacGymEnvs/meshes_long"
     history_keep: int = 10
     discard_dir: str = "discard"

@@ -19,21 +19,44 @@ env:
     mirror_y_prob: 0.5
     flat_xyz_range: [[0.3792, -0.4, 0.2], [0.7, 0.4, 0.25]]
     flat_mirror_y_prob: 0.0
+    table_y_margin: 0.05 # top-long teleport/reset-style sampling margin from table y edges
+    robot_side_x_margin: 0.0 # optional top-long margin from the robot-side table x edge
     object_grasp_target_z_scale: 0.25 # @ray z scale for the hand-object reward, special for side grasp
     lie_flat_prob: 0.0
   object_teleport:
-    mode: fixed_prob
-    per_env_prob: 0.02
+    enable: False
+    mode: schedule
+    preserve_orientation: False # top-long teleport: preserve existing flat yaw if True, else resample yaw
+    top_long_match_distillation: True # for lie_flat_prob=1.0, use distillation top-long teleport schedule/geometry
+    env_proportion: 1.0
+    swap_frequency: 1
+    curri_steps: 1
+    n0: 20
+    n1: 105
+    n2: 105
+    min_xy_dist_to_eef: 0.05
+    min_xy_dist_to_hand_points: 0.05
+    min_xy_dist_resample_rounds: 12
+    force_right_of_eef: False
     success_curriculum:
-      enable: True
+      enable: False
       success_threshold: 0.85
       success_steps: 500
       num_increments: 10
       start_stage: 1
+  reset_bank:
+    size: 4096
+    max_ik_goals: 4096
   eef_init:
     side_mode: both
     flat_side_recovery_prob: 0.0 # for lie_flat resets: fraction that use side-style eef/base init instead of pure top-down init
-    wrong_side_sample_prob: 0.0
+    wrong_side_curriculum:
+      enable: True
+      success_threshold: 0.85
+      success_steps: 500
+      num_increments: 10
+      start_stage: 0
+      max_prob: 0.5
     yaw_noise_deg: 45.0
     pitch_roll_noise_deg: 45.0
     rel_object_min: [-0.3, -0.3, 0.0282] # [-0.1178, 0.05, 0.0282]
@@ -62,6 +85,11 @@ reward:
     orientation_reward_mode: old_targetquat # old_targetquat | canonical_axis | object_axis
     object_upright_reward_floor: 0.3 # only used when orientation_reward_mode=object_axis
     goal_align_gate_floor: 0.2
+    goal_align_gate_full_reward: 0.5 # alignment gate saturates to 1.0 once r_goal_align reaches this
+    hand_obj_align_gate_for_side: False # if true, normal side hand-object reward is multiplied by the alignment gate
+    object_knockdown_penalty_enable: False
+    object_knockdown_flat_angle_deg: 30.0 # normal side only; penalize when object local z is within this angle of the table plane
+    object_knockdown_penalty: 1.0
     grasp_side_split_y_offset: 0.03
     wrong_side_proximity_threshold: 0.05
     wrong_side_proximity_penalty: 1.0
@@ -95,7 +123,7 @@ reward:
   weights:
     w_hand_obj: 1.0
     w_obj_goal: 4.0
-    w_goal_align: 1.0
+    w_goal_align: 0.2
     w_recovery_region: 0.2
     w_hand_orientation: 2.0
     w_lift: 2.0

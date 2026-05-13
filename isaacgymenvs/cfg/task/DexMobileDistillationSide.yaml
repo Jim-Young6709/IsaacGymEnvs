@@ -116,6 +116,11 @@ env:
     hdf5_path: ./teacher_state_banks/side_activation_snapshots.hdf5
     capacity_per_env: 64 # local per-rank snapshot cap per env slot before repack by variation
 
+sim:
+  physx:
+    num_position_iterations: 32 #48 #16
+    num_velocity_iterations: 4 #1
+
 fabric:
   enable: True
 

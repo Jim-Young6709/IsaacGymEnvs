@@ -46,3 +46,16 @@ debug_teacher_state_stats*.json
 debug_teacher_state_stats*.jsonl
 dagger_rank_logs/
 .matplotlib_cache/
+
+# Local checkpoints / generated reset-state banks
+good_checkpoints/
+reset_state_bank_*/
+teacher_state_bank_*/
+teacher_state_bank_top_long/
+
+# Local scratch/debug copies
+*_dummy.py
+*_dummy_debug.py
+* copy.py
+isaacgymenvs/utils/pcd_utils_lidar.py
+isaacgymenvs/distillation/dagger_mobile_trainer_lidar.py

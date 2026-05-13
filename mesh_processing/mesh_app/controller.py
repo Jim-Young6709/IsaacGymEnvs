@@ -118,6 +118,8 @@ class MeshController:
         self.use_mesh_analysis = False
         self.show_convex_hull = False
         self.fix_watertight_preview = False
+        self.text_anchor_mode = "object_top"
+        self.text_reference_xyz = (0.0, 0.0, 0.22)
         self.mesh_info = {}
         self.hand_mesh = None
         self.show_hand = False
@@ -291,6 +293,8 @@ class MeshController:
                     hand_xy=(self.hand_x, self.hand_y),
                     title_text=f"{self.edit_category}\n{entry.full_name} / {self.selected_variant} [{save_status}] [{self.active_shell}]",
                     stats_text=self._viewer_stats_text(min_cov_mesh, max_cov_mesh),
+                    text_anchor_mode=self.text_anchor_mode,
+                    text_reference_xyz=self.text_reference_xyz,
                 )
             else:
                 self.viewer.show_grid(

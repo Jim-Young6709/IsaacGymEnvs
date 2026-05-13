@@ -10,7 +10,9 @@ from collections import OrderedDict
 from isaacgymenvs.utils.rotation_conversions import quaternion_to_matrix_ig
 from isaacgymenvs.utils.pcd_utils import downsample_pcd_batched, crop_local_pcd, visualize_pcd
 from isaacgymenvs.utils.training_utils import *
-from isaacgymenvs.utils.simulate_depth_cam import simulate_depth_cam_render_from_pose
+# CODEX LIDAR MERGE: use compiled depth/lidar renderers for the merged sensor pointcloud path.
+from isaacgymenvs.utils.simulate_depth_cam_compile import simulate_depth_cam_render_from_pose
+from isaacgymenvs.utils.simulate_lidar_compile import simulate_lidar_render_from_pose
 
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -140,6 +142,7 @@ class DaggerMobile:
 
         self.learning_rate = cfg.dagger.learning_rate
         self.weight_decay = cfg.dagger.weight_decay
+        self.use_bf16 = bool(cfg.dagger.get("use_bf16", True)) and str(cfg.rl_device).startswith("cuda")
         # load env
         run_name = self.exp_name  # keep local video run folder consistent with experiment+timestamp naming.
         def create_isaacgym_env(**kwargs) -> FrankaLEAPMobileDistillation:
@@ -203,12 +206,14 @@ class DaggerMobile:
         self.env.delta_arx_action = self.cfg.action_space.delta_arx_action
         self.student_action_dim = int(self.env.teacher_actions_converted.shape[1]) # @ray need to update student action dim in runtime
         # @ray we override success/lifting with early termination logic
-        reset_window_steps = int(self.reaching_reset_threshold)
+        reward_params_cfg = self.env.cfg.get("reward", {}).get("params", {})
+        success_window_steps = int(reward_params_cfg.get("success_timeout_steps", self.reaching_reset_threshold))
+        lifting_window_steps = int(reward_params_cfg.get("lifting_timeout_steps", success_window_steps))
         self.env.reward_settings["success_timeout_steps"] = torch.full(
-            (self.env.num_envs,), reset_window_steps, dtype=torch.int32, device=self.device
+            (self.env.num_envs,), success_window_steps, dtype=torch.int32, device=self.device
         )
         self.env.reward_settings["lifting_timeout_steps"] = torch.full(
-            (self.env.num_envs,), reset_window_steps, dtype=torch.int32, device=self.device
+            (self.env.num_envs,), lifting_window_steps, dtype=torch.int32, device=self.device
         )
 
         # load teacher
@@ -252,7 +257,8 @@ class DaggerMobile:
                 "[DaggerMobile/train_mode] "
                 f"enableDebugVis={bool(cfg.task.env.get('enableDebugVis', False))} "
                 f"disable_updates_when_debug_viz={self.disable_updates_when_debug_viz} "
-                f"updates_enabled={self.updates_enabled}"
+                f"updates_enabled={self.updates_enabled} "
+                f"use_bf16={self.use_bf16}"
             )
 
         # dagger
@@ -268,6 +274,14 @@ class DaggerMobile:
 
         self.state_encoders_keys = self.cfg.model.state_encoders_cfg.keys()
         self.pcd_encoders_keys = self.cfg.model.pcd_encoders_cfg.keys()
+        if not bool(self.env.pcd_spec_dict.get("simulate_sensor_pcd", False)):
+            raise RuntimeError(
+                "DaggerMobile lidar merge expects task.pcd_spec.simulate_sensor_pcd=True."
+            )
+        if "local_pcd_t" not in self.pcd_encoders_keys:
+            raise RuntimeError(
+                "DaggerMobile lidar merge expects model.pcd_encoders_cfg.local_pcd_t."
+            )
 
         self.save_dir = Path("dagger_ckpts") / self.exp_name
         self.save_freq = self.cfg.dagger.save_freq
@@ -430,6 +444,7 @@ class DaggerMobile:
 
     def preprocess_inputs(self, obs):
         wandb_logs = {}
+        local_crop_wandb_logs = {}
 
         # franka base states
         franka_base_pos = self.env.states['franka_base_pose7'][:, :3] # (num_envs, 3)
@@ -437,155 +452,175 @@ class DaggerMobile:
         franka_base_rot_mat = quaternion_to_matrix_ig(franka_base_quat)
         rot_global2base = franka_base_rot_mat.transpose(1, 2) # (num_envs, 3, 3)
 
-        obs['full_pcd_t'] = torch.cat([obs["full_scene_pcd_t"], obs["robot_pcd_t"]], dim=1)
+        obs['gt_pcd_t'] = torch.cat([obs["full_scene_pcd_t"], obs["robot_pcd_t"]], dim=1)
+        obs['full_pcd_t'] = obs['gt_pcd_t']
 
-        if self.env.pcd_spec_dict['simulate_depth_cam']:
-            # based on scene pointcloud, simulate a partial pointcloud from the robot camera
-            num_full_pcd_points = self.env.pcd_spec_dict['num_static_points'] + \
-                                  self.env.pcd_spec_dict['num_robot_points'] + \
-                                  self.env.pcd_spec_dict['num_object_points']
+        # CODEX LIDAR MERGE: keep old_urdf ordering for the supported depth+lidar path.
+        depth_pcd_ratio = self.cfg["task"]["pcd_spec"].get("depth_pcd_ratio", 1.0)
 
-            camera_pose7 = self.env.states['camera_pose7'].clone() # (num_envs, 7)
-            sim_depth_pcd, sim_depth_render_logs = simulate_depth_cam_render_from_pose(
-                pcd=obs['full_pcd_t'],
-                camera_pose=camera_pose7,
-                num_points=num_full_pcd_points,
+        # Simulate both wrist depth camera and base lidar, then concatenate them.
+        num_full_pcd_points = self.env.pcd_spec_dict['num_static_points'] + \
+                              self.env.pcd_spec_dict['num_robot_points'] + \
+                              self.env.pcd_spec_dict['num_object_points'] + \
+                              self.env.pcd_spec_dict.get('num_distractor_points', 0)
+        num_full_pcd_points = min(10000, num_full_pcd_points)
+
+        camera_pose7 = self.env.states['camera_pose7'].clone() # (num_envs, 7)
+        sim_depth_pcd, sim_depth_render_logs = simulate_depth_cam_render_from_pose(
+            pcd=obs['gt_pcd_t'],
+            camera_pose=camera_pose7,
+            num_points=num_full_pcd_points,
+        )
+
+        # lidar pcd
+        lidar_pose7 = self.env.states["lidar_pose7"].clone() # (num_envs, 7)
+        sim_lidar_pcd_raw, sim_lidar_render_logs = simulate_lidar_render_from_pose(
+            pcd=obs['gt_pcd_t'],
+            lidar_pose=lidar_pose7,
+            num_points=num_full_pcd_points,
+            num_azimuth=128,
+            num_polar=256,
+            suppress_bins=2,
+            jitter_std_m=0.001,
+        )
+        sim_lidar_pcd = self.env.robot_spherical_representation.filter_pointcloud_outside_spheres(
+            pointclouds=sim_lidar_pcd_raw,
+            joint_angles=self.env.states['q'].clone(),
+        )
+
+        if self.use_wandb:
+            wandb_logs.update(sim_depth_render_logs)
+            wandb_logs.update(sim_lidar_render_logs)
+
+        obs['depth_pcd_t'] = sim_depth_pcd
+        obs['lidar_pcd_t'] = sim_lidar_pcd
+        obs['full_pcd_t'] = torch.cat([sim_depth_pcd, sim_lidar_pcd], dim=1)
+
+        # Viser debug utils
+        # env_id = self.env.viser_visualizer.env_id
+        # self.env.viser_visualizer.update_point_cloud(
+        #     point_cloud_type="rendered_points",
+        #     point_cloud=obs['full_pcd_t'][env_id].cpu().numpy()
+        # )
+        # self.env.viser_visualizer.update_point_cloud(
+        #     point_cloud_type="hand_pcd_t",
+        #     point_cloud=obs["hand_pcd_t"][env_id].cpu().numpy()
+        # )
+        # self.env.viser_visualizer.update_point_cloud(
+        #     point_cloud_type="seg_static_obsacles_t0",
+        #     point_cloud=obs["static_scene_pcd_t0"][env_id].cpu().numpy()
+        # )
+        # self.env.viser_visualizer.update_point_cloud(
+        #     point_cloud_type="seg_static_object_t0",
+        #     point_cloud=obs["object_pcd_t0"][env_id].cpu().numpy()
+        # )
+
+        # sample local pointcloud around the base, eef, and auxiliary object state
+        # CODEX LIDAR MERGE: this mirrors old_urdf's local depth/lidar crop order.
+        num_points = torch.tensor(self.cfg.model.pcd_encoders_cfg["local_pcd_t"]["num_points"], device=self.device, dtype=torch.int) # [num cylindrical points, num spherical eef points, num spherical aux points]
+        num_points_dict = {}
+        num_points_dict['depth'] = (num_points * depth_pcd_ratio).to(torch.int)
+        num_points_dict['lidar'] = num_points - num_points_dict['depth']
+
+        local_ranges = self.local_pcd_range
+        eef_pos = self.env.states['eef_pos'] # (num_envs, 3)
+
+        aux_crop_origin = eef_pos
+        if "aux_object_state" in self.state_encoders_keys:
+            aux_crop_origin = self._base_points_to_world_frame(
+                self.aux_anchor_state.clone(),
+                self.env.states["franka_base_pose7"].clone(),
+            )
+            if aux_crop_origin.ndim == 3:
+                aux_crop_origin = aux_crop_origin[:, 0, :]
+
+        for key in ['depth', 'lidar']:
+            if num_points_dict[key][1] > 0:
+                eef_spherical_local_pcd_t, eef_spherical_crop_logs = crop_local_pcd(
+                    pcd=obs[f'{key}_pcd_t'],
+                    local_range=local_ranges[1],
+                    num_local_points=num_points_dict[key][1],
+                    is_cylindrical=False,
+                    crop_center=eef_pos,
+                    log_name=f"eef{key}",
+                ) # (num_envs, num_local_points, 3)
+            else:
+                eef_spherical_local_pcd_t = torch.zeros((self.env.num_envs, 0, 3), device=self.device)
+            obs[f"local_eef{key}_pcd_t"] = eef_spherical_local_pcd_t
+
+            aux_spherical_local_pcd_t, aux_spherical_crop_logs = crop_local_pcd(
+                pcd=obs[f'{key}_pcd_t'],
+                local_range=local_ranges[2],
+                num_local_points=num_points_dict[key][2],
+                is_cylindrical=False,
+                crop_center=aux_crop_origin,
+                log_name=f"aux{key}",
+            ) # (num_envs, num_local_points, 3)
+            obs[f"local_aux{key}_pcd_t"] = aux_spherical_local_pcd_t
+
+            base_cylindrical_local_pcd_t, base_cylindrical_crop_logs = crop_local_pcd(
+                pcd=obs[f'{key}_pcd_t'],
+                local_range=local_ranges[0],
+                num_local_points=num_points_dict[key][0],
+                is_cylindrical=True,
+                crop_center=franka_base_pos,
+                log_name=f"base{key}",
+            ) # (num_envs, num_local_points, 3)
+            obs[f"local_base{key}_pcd_t"] = base_cylindrical_local_pcd_t
+
+            if self.use_wandb:
+                if num_points_dict[key][1] > 0:
+                    local_crop_wandb_logs.update(eef_spherical_crop_logs)
+                local_crop_wandb_logs.update(aux_spherical_crop_logs)
+                local_crop_wandb_logs.update(base_cylindrical_crop_logs)
+
+        obs["local_pcd_t"] = torch.cat(
+            [
+                obs["local_basedepth_pcd_t"],
+                obs["local_baselidar_pcd_t"],
+                obs["local_eefdepth_pcd_t"],
+                obs["local_eeflidar_pcd_t"],
+                obs["local_auxdepth_pcd_t"],
+                obs["local_auxlidar_pcd_t"],
+            ],
+            dim=1,
+        )
+
+        # for viser visualization
+        if self.env.enable_viser:
+            env_id = self.env.viser_visualizer.env_id
+            self.env.viser_visualizer.update_point_cloud(
+                point_cloud_type="full_points",
+                point_cloud=obs['gt_pcd_t'][env_id].cpu().numpy()
+            )
+            self.env.viser_visualizer.update_point_cloud(
+                point_cloud_type="rendered_full_points",
+                point_cloud=obs['full_pcd_t'][env_id].cpu().numpy()
+            )
+            self.env.viser_visualizer.update_point_cloud(
+                point_cloud_type="rendered_cam_points",
+                point_cloud=sim_depth_pcd[env_id].cpu().numpy()
+            )
+            self.env.viser_visualizer.update_point_cloud(
+                point_cloud_type="rendered_lidar_points",
+                point_cloud=sim_lidar_pcd[env_id].cpu().numpy()
+            )
+            self.env.viser_visualizer.update_point_cloud(
+                point_cloud_type="policy_input_points",
+                point_cloud=obs["local_pcd_t"][env_id].cpu().numpy()
             )
 
-            if self.use_wandb:
-                wandb_logs.update(sim_depth_render_logs)
-
-            obs['full_pcd_t'] = sim_depth_pcd
-
-        # Viser debug utils
-        # env_id = self.env.viser_visualizer.env_id
-        # self.env.viser_visualizer.update_point_cloud(
-        #     point_cloud_type="rendered_points",
-        #     point_cloud=obs['full_pcd_t'][env_id].cpu().numpy()
-        # )
-        # self.env.viser_visualizer.update_point_cloud(
-        #     point_cloud_type="hand_pcd_t",
-        #     point_cloud=obs["hand_pcd_t"][env_id].cpu().numpy()
-        # )
-        # self.env.viser_visualizer.update_point_cloud(
-        #     point_cloud_type="seg_static_obsacles_t0",
-        #     point_cloud=obs["static_scene_pcd_t0"][env_id].cpu().numpy()
-        # )
-        # self.env.viser_visualizer.update_point_cloud(
-        #     point_cloud_type="seg_static_object_t0",
-        #     point_cloud=obs["object_pcd_t0"][env_id].cpu().numpy()
-        # )
-
-        if "local_pcd_t" in self.pcd_encoders_keys:
-            # sample local pointcloud around the eef and (optionally object)
-            num_points = self.cfg.model.pcd_encoders_cfg["local_pcd_t"]["num_points"] # [num cylindrical points, num spherical eef points, num spherical aux points]
-            local_ranges = self.local_pcd_range
-            local_eef_spherical_range = local_ranges[1]
-            local_aux_spherical_range = local_ranges[2]
-
-            # get full pcd in eef frame (only xyz shifted, not rotated)
-            eef_pos = self.env.states['eef_pos'] # (num_envs, 3)
-            full_pcd_shifted = obs['full_pcd_t'] - eef_pos.unsqueeze(1) # (num_envs, N, 3)
-            eef_spherical_local_pcd_t, eef_spherical_crop_logs = crop_local_pcd(full_pcd_shifted, local_eef_spherical_range, num_points[1], is_cylindrical=False) # (num_envs, num_local_points, 3)
-            # local eef pcd in global frame
-            obs["local_eef_pcd_t"] = eef_spherical_local_pcd_t + eef_pos.unsqueeze(1) # back to global frame for now, will be converted to franka base frame later
-
-            # aux-centered local pcd in global frame
-            aux_crop_origin = eef_pos
-            if "aux_object_state" in self.state_encoders_keys:
-                aux_crop_origin = self._base_points_to_world_frame(
-                    self.aux_anchor_state.clone(),
-                    self.env.states["franka_base_pose7"].clone(),
-                )
-                if aux_crop_origin.ndim == 3:
-                    aux_crop_origin = aux_crop_origin[:, 0, :]
-            aux_full_pcd_shifted = obs['full_pcd_t'] - aux_crop_origin.unsqueeze(1) # (num_envs, N, 3)
-            aux_spherical_local_pcd_t, aux_spherical_crop_logs = crop_local_pcd(aux_full_pcd_shifted, local_aux_spherical_range, num_points[2], is_cylindrical=False) # (num_envs, num_local_points, 3)
-            obs["local_aux_pcd_t"] = aux_spherical_local_pcd_t + aux_crop_origin.unsqueeze(1)
-
-        # env_id = self.env.viser_visualizer.env_id
-        # self.env.viser_visualizer.update_point_cloud(
-        #     point_cloud_type="rendered_points",
-        #     point_cloud=obs['full_pcd_t'][env_id].cpu().numpy()
-        # )
-        # self.env.viser_visualizer.update_point_cloud(
-        #     point_cloud_type="hand_pcd_t",
-        #     point_cloud=obs["local_eef_pcd_t"][env_id].cpu().numpy()
-        # )
-        # self.env.viser_visualizer.update_point_cloud(
-        #     point_cloud_type="seg_static_obsacles_t0",
-        #     point_cloud=obs["local_aux_pcd_t"][env_id].cpu().numpy()
-        # )
-        # self.env.viser_visualizer.update_point_cloud(
-        #     point_cloud_type="obj_point_t",
-        #     point_cloud=aux_crop_origin[env_id].reshape(1, 3).cpu().numpy()
-        # )
-
-        # convert all pcd to franka base frame
-        for key in obs.keys():
-            if "pcd" in key:
-                pcd_shifted = obs[key] - franka_base_pos.unsqueeze(1) # (num_envs, N, 3)
-                pcd_base_frame = torch.bmm(pcd_shifted, rot_global2base) # (num_envs, N, 3), bmm is like matmul but specifically made for batches of 2D matrices, faster than matmul
-                obs[key] = pcd_base_frame
-
-        # Viser debug utils
-        # env_id = self.env.viser_visualizer.env_id
-        # self.env.viser_visualizer.update_point_cloud(
-        #     point_cloud_type="rendered_points",
-        #     point_cloud=obs['full_pcd_t'][env_id].cpu().numpy()
-        # )
-        # self.env.viser_visualizer.update_point_cloud(
-        #     point_cloud_type="hand_pcd_t",
-        #     point_cloud=obs["hand_pcd_t"][env_id].cpu().numpy()
-        # )
-        # self.env.viser_visualizer.update_point_cloud(
-        #     point_cloud_type="seg_static_obsacles_t0",
-        #     point_cloud=obs["static_scene_pcd_t0"][env_id].cpu().numpy()
-        # )
-        # self.env.viser_visualizer.update_point_cloud(
-        #     point_cloud_type="seg_static_object_t0",
-        #     point_cloud=obs["object_pcd_t0"][env_id].cpu().numpy()
-        # )
-        # self.env.viser_visualizer.wheel_odom_frame.position = franka_base_pos[env_id].cpu().numpy()
-        # self.env.viser_visualizer.wheel_odom_frame.wxyz = franka_base_quat[env_id, [3, 0, 1, 2]].cpu().numpy()
-
         obs_student = OrderedDict()
+        obs_student["local_pcd_t"] = obs["local_pcd_t"]
+        if self.use_wandb:
+            wandb_logs.update(local_crop_wandb_logs)
 
-        if "full_scene_pcd_t0" in self.pcd_encoders_keys:
-            obs["full_scene_pcd_t0"] = torch.cat([obs["static_scene_pcd_t0"], obs["object_pcd_t0"]], dim=1)
-
-        for key in self.pcd_encoders_keys:
-            if key in ["static_scene_pcd_t0", "object_pcd_t0", "full_scene_pcd_t0", "full_scene_pcd_t", "robot_pcd_t", "hand_pcd_t"]:
-                num_points_key = self.cfg.model.pcd_encoders_cfg[key]["num_points"]
-                obs_student[key] = downsample_pcd_batched(obs[key], num_points_key)
-
-        if "full_pcd_t" in self.pcd_encoders_keys:
-            num_points_full_pcd_t = self.cfg.model.pcd_encoders_cfg["full_pcd_t"]["num_points"]
-            if self.env.pcd_spec_dict['simulate_depth_cam']:
-                full_pcd_t = obs["full_pcd_t"][:, :num_points_full_pcd_t]
-                # replace nan values as 0s
-                full_pcd_t_zero_padding = torch.nan_to_num(full_pcd_t, nan=0.0)
-                obs_student["full_pcd_t"] = full_pcd_t_zero_padding
-            else:
-                obs_student["full_pcd_t"] = downsample_pcd_batched(obs["full_pcd_t"], num_points_full_pcd_t)
-
-        if "local_pcd_t" in self.pcd_encoders_keys:
-            num_points = self.cfg.model.pcd_encoders_cfg["local_pcd_t"]["num_points"] # [num cylindrical points, num spherical eef points, num spherical aux points]
-            cylindrical_local_pcd_t, cylindrical_crop_logs = crop_local_pcd(obs['full_pcd_t'], self.local_pcd_range[0], num_points[0], is_cylindrical=True) # (num_envs, num_local_points, 3)
-            obs_student["local_pcd_t"] = torch.cat([cylindrical_local_pcd_t, obs["local_eef_pcd_t"], obs["local_aux_pcd_t"]], dim=1)
-
-            if self.use_wandb:
-                wandb_logs.update(cylindrical_crop_logs)
-                wandb_logs.update(eef_spherical_crop_logs)
-                wandb_logs.update({
-                    "local_spherical_crop_aux/avg_num_valid_points": aux_spherical_crop_logs["local_spherical_crop/avg_num_valid_points"],
-                    "local_spherical_crop_aux/min_num_valid_points": aux_spherical_crop_logs["local_spherical_crop/min_num_valid_points"],
-                })
-
-        elif "local_scene_pcd_t" in self.pcd_encoders_keys: # TODO: this is kinda outdated
-            obs_student["local_scene_pcd_t"], crop_logs = crop_local_pcd(obs["full_scene_pcd_t"], self.local_pcd_range[0], self.cfg.model.pcd_encoders_cfg["local_pcd_t"]["num_points"][0], is_cylindrical=True)
-            if self.use_wandb:
-                wandb_logs.update(crop_logs)
+        # CODEX LIDAR MERGE: old_urdf converts policy-input pcds only after obs_student is assembled.
+        for key in obs_student.keys():
+            if "pcd" in key:
+                pcd_shifted = obs_student[key] - franka_base_pos.unsqueeze(1) # (num_envs, N, 3)
+                pcd_base_frame = torch.bmm(pcd_shifted, rot_global2base) # (num_envs, N, 3), bmm is like matmul but specifically made for batches of 2D matrices, faster than matmul
+                obs_student[key] = pcd_base_frame
 
         # Viser debug utils
         # vis_local_pcd_t = obs_student['local_pcd_t'].clone()
@@ -767,17 +802,20 @@ class DaggerMobile:
             with torch.no_grad():
                 student_model = self.student_model.module if self.multi_gpu else self.student_model
                 student_model.eval()
-                output = student_model(obs_input_a0)
-                student_actions_chunk = output["action"]
+                # CODEX BF16: student forward is the heavy transformer/PointNet path; keep env/teacher in fp32.
+                with torch.autocast(device_type="cuda", dtype=torch.bfloat16, enabled=self.use_bf16):
+                    output = student_model(obs_input_a0)
+                student_actions_chunk = output["action"].float()
                 train_aux_metrics = None
                 if self.has_aux_input:
                     object_pos = self._get_aux_object_pos_in_base_frame()
+                    aux_output = output["aux"].float()
                     train_aux_metrics = self._compute_aux_metrics(
-                        output["aux"],
+                        aux_output,
                         obs_input_a0["aux_object_state"],
                         object_pos,
                     )
-                    aux_chunk_abs = self._decode_aux_prediction(output["aux"], obs_input_a0["aux_object_state"])
+                    aux_chunk_abs = self._decode_aux_prediction(aux_output, obs_input_a0["aux_object_state"])
                     self.last_aux_state_from_prev_chunk_world[:] = self._base_points_to_world_frame(
                         aux_chunk_abs[:, -1, :],
                         self.chunk_anchor_base_pose7,
@@ -903,7 +941,8 @@ class DaggerMobile:
                             batch_indices = indices[batch_start:batch_start + self.batch_size]
                             batch_obs = {k: v[batch_indices] for k, v in rollout_obs.items()}
                             batch_actions = rollout_actions[batch_indices]
-                            loss = self.student_model.forward(batch_obs, batch_actions, action_chunk_idx=0)
+                            with torch.autocast(device_type="cuda", dtype=torch.bfloat16, enabled=self.use_bf16):
+                                loss = self.student_model.forward(batch_obs, batch_actions, action_chunk_idx=0)
                             self.optimizer.zero_grad()
                             loss["total"].backward()
                             torch.nn.utils.clip_grad_norm_(self.student_model.parameters(), max_norm=self.max_grad_norm)
@@ -985,7 +1024,12 @@ class DaggerMobile:
             if hasattr(self.env, "_episode_length_max_total")
             else None
         )
-        category_eval_enabled = bool(getattr(self.env, "_verified_teacher_bank_loaded", False))
+        category_eval_enabled = (
+            hasattr(self.env, "VERIFIED_BANK_CATEGORY_NAMES")
+            and hasattr(self.env, "current_episode_verified_bank_category")
+            and hasattr(self.env, "per_verified_bank_episode_counts")
+            and hasattr(self.env, "per_verified_bank_success_counts")
+        )
         pre_category_eps = (
             self.env.per_verified_bank_episode_counts.clone()
             if category_eval_enabled and hasattr(self.env, "per_verified_bank_episode_counts")
@@ -1030,6 +1074,25 @@ class DaggerMobile:
         eval_aux_loss_sum = 0.0
         eval_aux_metric_count = 0
         eval_completed_episode_lengths = []
+        # CODEX EVAL: latch the same env success/lift flags that drive the side
+        # table green/red outcome logic, so fixed-horizon eval does not depend on
+        # whether resets are observed inside this exact window.
+        eval_episode_done = torch.zeros((self.env.num_envs,), device=self.device, dtype=torch.bool)
+        eval_success_once = torch.zeros((self.env.num_envs,), device=self.device, dtype=torch.bool)
+        eval_lifting_once = torch.zeros((self.env.num_envs,), device=self.device, dtype=torch.bool)
+        eval_success_first_step = torch.full((self.env.num_envs,), -1, device=self.device, dtype=torch.long)
+        eval_lifting_first_step = torch.full((self.env.num_envs,), -1, device=self.device, dtype=torch.long)
+        eval_episode_length = torch.full(
+            (self.env.num_envs,),
+            int(total_eval_sim_steps),
+            device=self.device,
+            dtype=torch.long,
+        )
+        eval_start_category = (
+            self.env.current_episode_verified_bank_category.clone()
+            if hasattr(self.env, "current_episode_verified_bank_category")
+            else None
+        )
         for _ in tqdm(range(eval_chunks), desc="Evaluating", \
             ncols=None, dynamic_ncols=True, disable=(self.multi_gpu and self.global_rank != 0) ):
 
@@ -1098,19 +1161,21 @@ class DaggerMobile:
             with torch.no_grad():
                 student_model = self.student_model.module if self.multi_gpu else self.student_model
                 student_model.eval()
-                output = student_model(obs_input_a0)
-                student_actions_chunk = output["action"]
+                with torch.autocast(device_type="cuda", dtype=torch.bfloat16, enabled=self.use_bf16):
+                    output = student_model(obs_input_a0)
+                student_actions_chunk = output["action"].float()
                 if self.has_aux_input:
                     object_pos = self._get_aux_object_pos_in_base_frame()
+                    aux_output = output["aux"].float()
                     eval_aux_metrics = self._compute_aux_metrics(
-                        output["aux"],
+                        aux_output,
                         obs_input_a0["aux_object_state"],
                         object_pos,
                     )
                     eval_aux_diff_l2_sum += eval_aux_metrics["aux_diff_l2"]
                     eval_aux_loss_sum += eval_aux_metrics["aux_loss"]
                     eval_aux_metric_count += 1
-                    aux_chunk_abs = self._decode_aux_prediction(output["aux"], obs_input_a0["aux_object_state"])  # CODEX NEW
+                    aux_chunk_abs = self._decode_aux_prediction(aux_output, obs_input_a0["aux_object_state"])  # CODEX NEW
                     self.last_aux_state_from_prev_chunk_world[:] = self._base_points_to_world_frame(  # CODEX NEW
                         aux_chunk_abs[:, -1, :],
                         self.chunk_anchor_base_pose7,
@@ -1152,12 +1217,92 @@ class DaggerMobile:
                 # Let eval use the normal reset path. Forcing reset_buf to zero keeps bad states
                 # alive far past their safety termination and can destabilize GPU kernels.
                 self.env.step(step_actions)
+                if hasattr(self.env, "success_long_enough"):
+                    current_success = self.env.success_long_enough.detach().to(dtype=torch.bool)
+                else:
+                    current_success = self.env.success_5cm_per_step.detach().to(dtype=torch.bool)
+                if hasattr(self.env, "lifting_long_enough"):
+                    current_lifting = self.env.lifting_long_enough.detach().to(dtype=torch.bool)
+                else:
+                    current_lifting = self.env.lifting_5cm_per_step.detach().to(dtype=torch.bool)
+                active_eval_episode = ~eval_episode_done
+                newly_success = active_eval_episode & current_success & (~eval_success_once)
+                newly_lifting = active_eval_episode & current_lifting & (~eval_lifting_once)
+                eval_success_first_step[newly_success] = int(eval_sim_step + 1)
+                eval_lifting_first_step[newly_lifting] = int(eval_sim_step + 1)
+                eval_success_once |= active_eval_episode & current_success
+                eval_lifting_once |= active_eval_episode & current_lifting
                 done_mask = self.env.reset_buf > 0
+                first_episode_done_mask = active_eval_episode & (current_success | done_mask)
+                if torch.any(first_episode_done_mask):
+                    eval_episode_length[first_episode_done_mask] = int(eval_sim_step + 1)
+                    eval_episode_done[first_episode_done_mask] = True
                 if torch.any(done_mask):
                     done_lengths = (self.env.progress_buf[done_mask].to(dtype=torch.long) + 1).detach().cpu().tolist()
                     eval_completed_episode_lengths.extend(int(x) for x in done_lengths)
                 self.last_student_actions[:] = step_actions.detach()
                 eval_sim_step += 1  # CODEX
+
+        # Unfinished envs count as one full-horizon eval episode. This avoids the
+        # old zero-length print when no reset event happened during the window.
+        eval_episode_length[~eval_episode_done] = int(total_eval_sim_steps)
+        eval_completed_episode_lengths = eval_episode_length.detach().cpu().tolist()
+        eval_horizon_counts = torch.tensor(
+            [
+                int(self.env.num_envs),
+                int(eval_success_once.sum().item()),
+                int(eval_lifting_once.sum().item()),
+                int(eval_success_first_step[eval_success_first_step >= 0].sum().item()),
+                int(eval_lifting_first_step[eval_lifting_first_step >= 0].sum().item()),
+                int(eval_episode_length.sum().item()),
+                int(eval_episode_length[eval_success_once].sum().item()),
+                int(eval_episode_length[~eval_success_once].sum().item()),
+            ],
+            device=self.device,
+            dtype=torch.long,
+        )
+        eval_horizon_episode_length_max_tensor = torch.tensor(
+            [int(eval_episode_length.max().item()) if eval_episode_length.numel() > 0 else 0],
+            device=self.device,
+            dtype=torch.long,
+        )
+        if self.multi_gpu:
+            dist.all_reduce(eval_horizon_counts, op=dist.ReduceOp.SUM)
+            dist.all_reduce(eval_horizon_episode_length_max_tensor, op=dist.ReduceOp.MAX)
+        eval_horizon_env_count = int(eval_horizon_counts[0].item())
+        eval_horizon_success_count = int(eval_horizon_counts[1].item())
+        eval_horizon_lifting_count = int(eval_horizon_counts[2].item())
+        eval_horizon_success_step_sum = int(eval_horizon_counts[3].item())
+        eval_horizon_lifting_step_sum = int(eval_horizon_counts[4].item())
+        eval_horizon_episode_length_sum = int(eval_horizon_counts[5].item())
+        eval_horizon_success_episode_length_sum = int(eval_horizon_counts[6].item())
+        eval_horizon_failure_episode_length_sum = int(eval_horizon_counts[7].item())
+        eval_horizon_episode_length_max = int(eval_horizon_episode_length_max_tensor[0].item())
+
+        eval_horizon_category_counts = None
+        eval_horizon_category_success_counts = None
+        if eval_start_category is not None and hasattr(self.env, "VERIFIED_BANK_CATEGORY_NAMES"):
+            valid_category = eval_start_category >= 0
+            if torch.any(valid_category):
+                eval_horizon_category_counts = torch.bincount(
+                    eval_start_category[valid_category],
+                    minlength=len(self.env.VERIFIED_BANK_CATEGORY_NAMES),
+                ).to(dtype=torch.long)
+                success_category = valid_category & eval_success_once
+                eval_horizon_category_success_counts = torch.bincount(
+                    eval_start_category[success_category],
+                    minlength=len(self.env.VERIFIED_BANK_CATEGORY_NAMES),
+                ).to(dtype=torch.long)
+            else:
+                eval_horizon_category_counts = torch.zeros(
+                    (len(self.env.VERIFIED_BANK_CATEGORY_NAMES),),
+                    device=self.device,
+                    dtype=torch.long,
+                )
+                eval_horizon_category_success_counts = torch.zeros_like(eval_horizon_category_counts)
+            if self.multi_gpu:
+                dist.all_reduce(eval_horizon_category_counts, op=dist.ReduceOp.SUM)
+                dist.all_reduce(eval_horizon_category_success_counts, op=dist.ReduceOp.SUM)
 
         if restore_training_state:
             # Restore a fresh post-reset state for the training loop.
@@ -1181,6 +1326,20 @@ class DaggerMobile:
         eval_success_episode_length_mean_per_ep = self.env.extras.get("metrics/success_episode_length_mean_per_ep", 0.0)
         eval_failure_episode_length_mean_per_ep = self.env.extras.get("metrics/failure_episode_length_mean_per_ep", 0.0)
         eval_episode_length_max = self.env.extras.get("metrics/episode_length_max", 0)
+        if eval_horizon_env_count > 0:
+            eval_success_rate_per_ep = float(eval_horizon_success_count) / float(eval_horizon_env_count)
+            eval_lifting_rate_per_ep = float(eval_horizon_lifting_count) / float(eval_horizon_env_count)
+            eval_episode_length_mean_per_ep = float(eval_horizon_episode_length_sum) / float(eval_horizon_env_count)
+            eval_episode_length_max = eval_horizon_episode_length_max
+            if eval_horizon_success_count > 0:
+                eval_success_episode_length_mean_per_ep = (
+                    float(eval_horizon_success_episode_length_sum) / float(eval_horizon_success_count)
+                )
+            eval_horizon_failure_count = max(eval_horizon_env_count - eval_horizon_success_count, 0)
+            if eval_horizon_failure_count > 0:
+                eval_failure_episode_length_mean_per_ep = (
+                    float(eval_horizon_failure_episode_length_sum) / float(eval_horizon_failure_count)
+                )
         if pre_total_eps is not None and pre_total_succ is not None and pre_total_lift is not None:
             post_total_eps = int(self.env.per_object_episode_counts.sum().item())
             post_total_succ = int(self.env.per_object_success_counts.sum().item())
@@ -1241,14 +1400,30 @@ class DaggerMobile:
                         float(delta_failure_episode_length_sum) / float(delta_failure_eps)
                     ) if delta_failure_eps > 0 else 0.0
                     eval_episode_length_max = post_episode_length_max
+        if eval_horizon_env_count > 0:
+            # CODEX EVAL: the printed eval success rate should answer "did this
+            # eval episode reach success before its first terminal event?", using
+            # the same success_long_enough latch that colors side tables green.
+            eval_success_rate_per_ep = float(eval_horizon_success_count) / float(eval_horizon_env_count)
+            eval_lifting_rate_per_ep = float(eval_horizon_lifting_count) / float(eval_horizon_env_count)
+            eval_episode_length_mean_per_ep = float(eval_horizon_episode_length_sum) / float(eval_horizon_env_count)
+            eval_episode_length_max = eval_horizon_episode_length_max
 
         eval_wandb_logs = {
             f"{metric_prefix}/eval_success_rate_5cm_per_step": self.env.extras["metrics/success_rate_5cm_per_step"],
             f"{metric_prefix}/eval_success_rate_5cm_per_ep_instant": self.env.extras["metrics/success_rate_5cm_per_ep_instant"],
             f"{metric_prefix}/eval_success_rate_5cm_per_ep": eval_success_rate_per_ep,
+            f"{metric_prefix}/eval_success_rate_5cm_per_eval_horizon": (
+                float(eval_horizon_success_count) / float(max(eval_horizon_env_count, 1))
+            ),
+            f"{metric_prefix}/eval_success_count_5cm_per_eval_horizon": eval_horizon_success_count,
+            f"{metric_prefix}/eval_env_count_per_eval_horizon": eval_horizon_env_count,
             f"{metric_prefix}/eval_lifting_rate_5cm_per_step": self.env.extras["metrics/lifting_rate_5cm_per_step"],
             f"{metric_prefix}/eval_lifting_rate_5cm_per_ep_instant": self.env.extras["metrics/lifting_rate_5cm_per_ep_instant"],
             f"{metric_prefix}/eval_lifting_rate_5cm_per_ep": eval_lifting_rate_per_ep,
+            f"{metric_prefix}/eval_lifting_rate_5cm_per_eval_horizon": (
+                float(eval_horizon_lifting_count) / float(max(eval_horizon_env_count, 1))
+            ),
             f"{metric_prefix}/eval_episode_length_mean_per_ep": eval_episode_length_mean_per_ep,
             f"{metric_prefix}/eval_success_episode_length_mean_per_ep": eval_success_episode_length_mean_per_ep,
             f"{metric_prefix}/eval_failure_episode_length_mean_per_ep": eval_failure_episode_length_mean_per_ep,
@@ -1289,6 +1464,25 @@ class DaggerMobile:
                 eval_wandb_logs[
                     f"{metric_prefix}/eval_success_rate_5cm_per_ep_{category_name}_count"
                 ] = category_total_eps
+        if eval_horizon_category_counts is not None and eval_horizon_category_success_counts is not None:
+            for category_id, category_name in enumerate(self.env.VERIFIED_BANK_CATEGORY_NAMES):
+                category_total_eps = int(eval_horizon_category_counts[category_id].item())
+                category_success_eps = int(eval_horizon_category_success_counts[category_id].item())
+                category_success_rate = (
+                    float(category_success_eps) / float(category_total_eps)
+                ) if category_total_eps > 0 else 0.0
+                eval_wandb_logs[
+                    f"{metric_prefix}/eval_success_rate_5cm_per_ep_{category_name}"
+                ] = category_success_rate
+                eval_wandb_logs[
+                    f"{metric_prefix}/eval_success_rate_5cm_per_ep_{category_name}_count"
+                ] = category_total_eps
+                eval_wandb_logs[
+                    f"{metric_prefix}/eval_success_rate_5cm_per_eval_horizon_{category_name}"
+                ] = category_success_rate
+                eval_wandb_logs[
+                    f"{metric_prefix}/eval_success_rate_5cm_per_eval_horizon_{category_name}_count"
+                ] = category_total_eps
         if policy_source == "student" and self.has_aux_input and eval_aux_metric_count > 0:
             eval_wandb_logs[f"{metric_prefix}/aux_diff_l2"] = eval_aux_diff_l2_sum / eval_aux_metric_count
             eval_wandb_logs[f"{metric_prefix}/aux_loss"] = eval_aux_loss_sum / eval_aux_metric_count
@@ -1305,7 +1499,7 @@ class DaggerMobile:
                 f"failure_length_mean={float(eval_wandb_logs[f'{metric_prefix}/eval_failure_episode_length_mean_per_ep']):.1f} "
                 f"episode_length_max={int(eval_wandb_logs[f'{metric_prefix}/eval_episode_length_max'])}"
             )  # CODEX
-            if pre_category_eps is not None and pre_category_succ is not None:
+            if hasattr(self.env, "VERIFIED_BANK_CATEGORY_NAMES"):
                 category_parts = []
                 for category_name in self.env.VERIFIED_BANK_CATEGORY_NAMES:
                     rate_key = f"{metric_prefix}/eval_success_rate_5cm_per_ep_{category_name}"

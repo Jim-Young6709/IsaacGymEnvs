@@ -764,7 +764,7 @@ class TransformRepository:
     ) -> None:
         init_scale = self.mesh_repo.get_urdf_initial_scale(entry.urdf_path)
         R = transform.rotation_matrix()
-        scale_vec = float(transform.scale) * transform.dilation_vector()
+        dilation_vec = transform.dilation_vector()
         mass_value = 0.5 if mass_value is None else float(mass_value)
         mesh_filename = entry.full_name + ".obj" if mesh_filename is None else str(mesh_filename)
 
@@ -773,7 +773,7 @@ class TransformRepository:
                 tree = ET.parse(entry.urdf_path)
                 root = tree.getroot()
 
-                def update_origin(tag, apply_rotation: bool, apply_init_scale: bool = True) -> None:
+                def update_origin(tag, apply_init_scale: bool = True) -> None:
                     if tag is None:
                         return
                     xyz_str = tag.get("xyz")
@@ -784,9 +784,8 @@ class TransformRepository:
                         return
                     if apply_init_scale:
                         vec = vec * init_scale
-                    vec = vec * scale_vec
-                    if apply_rotation:
-                        vec = R @ vec
+                    # Apply the same linear transform baked into the exported mesh.
+                    vec = R @ (vec * dilation_vec)
                     tag.set("xyz", f"{vec[0]:.6f} {vec[1]:.6f} {vec[2]:.6f}")
 
                 def update_mesh_tag(geometry_tag) -> None:
@@ -799,13 +798,13 @@ class TransformRepository:
 
                 for link in root.findall("link"):
                     for visual in link.findall("visual"):
-                        update_origin(visual.find("origin"), apply_rotation=True)
+                        update_origin(visual.find("origin"), apply_init_scale=True)
                         update_mesh_tag(visual.find("geometry"))
                     for collision in link.findall("collision"):
-                        update_origin(collision.find("origin"), apply_rotation=True)
+                        update_origin(collision.find("origin"), apply_init_scale=True)
                         update_mesh_tag(collision.find("geometry"))
                     for inertial in link.findall("inertial"):
-                        update_origin(inertial.find("origin"), apply_rotation=False, apply_init_scale=False)
+                        update_origin(inertial.find("origin"), apply_init_scale=False)
                         mass_tag = inertial.find("mass")
                         if mass_tag is not None:
                             mass_tag.set("value", f"{mass_value:.6f}")

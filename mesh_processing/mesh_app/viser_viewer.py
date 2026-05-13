@@ -372,6 +372,39 @@ class ViserMeshViewer:
         except Exception:
             return None
 
+    def _object_top_label_layout(
+        self,
+        mesh: trimesh.Trimesh,
+        shift: np.ndarray,
+    ) -> tuple[np.ndarray, float, float]:
+        bounds = mesh.bounds
+        if bounds is None:
+            return shift + np.array([0.0, 0.0, 0.08], dtype=np.float32), 0.02, 0.12
+        ext = np.asarray(bounds[1] - bounds[0], dtype=np.float32)
+        xy_center = 0.5 * (bounds[0][:2] + bounds[1][:2])
+        max_extent = float(max(np.max(ext), 1e-4))
+        height = float(max(ext[2], 1e-4))
+        top_padding = max(0.035, 0.16 * height, 0.060 * max_extent)
+        title_gap = max(0.020, 0.075 * max_extent)
+        side_offset = max(0.075, 0.65 * float(max(ext[0], ext[1], 1e-4)))
+        position = shift + np.array(
+            [xy_center[0], xy_center[1], bounds[1][2] + top_padding],
+            dtype=np.float32,
+        )
+        return position.astype(np.float32), title_gap, side_offset
+
+    def _reference_frame_label_layout(
+        self,
+        text_reference_xyz: Optional[tuple[float, float, float]],
+        cell_extent: float,
+    ) -> tuple[np.ndarray, float, float]:
+        xyz = text_reference_xyz or (0.0, 0.0, 0.22)
+        position = np.asarray(xyz, dtype=np.float32).reshape(3)
+        extent = float(max(cell_extent, 1e-4))
+        title_gap = max(0.020, 0.075 * extent)
+        side_offset = max(0.075, 0.65 * extent)
+        return position, title_gap, side_offset
+
     def _add_mesh(
         self,
         name: str,
@@ -461,6 +494,8 @@ class ViserMeshViewer:
         hand_xy: Optional[tuple[float, float]] = None,
         title_text: Optional[str] = None,
         stats_text: Optional[str] = None,
+        text_anchor_mode: str = "object_top",
+        text_reference_xyz: Optional[tuple[float, float, float]] = None,
     ) -> None:
         self._clear()
         self._scene_stats = scene_stats or {}
@@ -475,6 +510,7 @@ class ViserMeshViewer:
 
         category_rgb = self._category_color(category)[:3]
         grounded_obj, _ = self._grounded_mesh(obj_mesh)
+        label_mesh = grounded_obj
         if min_cov_mesh is not None:
             grounded_cov_min, _ = self._grounded_mesh(min_cov_mesh)
             self._set_mesh_handle(
@@ -488,6 +524,8 @@ class ViserMeshViewer:
                 False,
                 False,
             )
+            if active_shell == "min":
+                label_mesh = grounded_cov_min
         else:
             self._set_mesh_handle(
                 "_min_cov_handle",
@@ -513,6 +551,8 @@ class ViserMeshViewer:
                 False,
                 False,
             )
+            if active_shell == "max":
+                label_mesh = grounded_cov_max
         else:
             self._set_mesh_handle(
                 "_max_cov_handle",
@@ -524,6 +564,16 @@ class ViserMeshViewer:
                 False,
                 False,
                 False,
+            )
+        if text_anchor_mode == "reference_frame":
+            label_base, title_gap, label_side_offset = self._reference_frame_label_layout(
+                text_reference_xyz,
+                cell_extent,
+            )
+        else:
+            label_base, title_gap, label_side_offset = self._object_top_label_layout(
+                label_mesh,
+                shift,
             )
         if min_cov_mesh is None and max_cov_mesh is None:
             self._set_mesh_handle(
@@ -624,7 +674,7 @@ class ViserMeshViewer:
                 "/mesh_processing/bbox_dims",
                 dims_text,
                 (18, 42, 92),
-                shift + np.array([0.0, 0.0, cell_extent * 0.95], dtype=np.float32),
+                label_base + np.array([0.0, -label_side_offset, 0.0], dtype=np.float32),
                 "bottom-center",
                 1.5,
             )
@@ -652,14 +702,14 @@ class ViserMeshViewer:
         self._replace_hand_handle(hand_mesh, hand_z, hand_xy)
         if title_text:
             category_title, object_title = self._split_title_text(title_text)
-            title_base = shift + np.array([0.0, 0.0, cell_extent * 0.80], dtype=np.float32)
+            title_base = label_base
             if category_title:
                 self._set_label(
                     "_title_category_handle",
                     "/mesh_processing/viewer_title_category",
                     category_title,
                     (72, 32, 110),
-                    title_base + np.array([0.0, 0.0, cell_extent * 0.035], dtype=np.float32),
+                    title_base + np.array([0.0, 0.0, title_gap], dtype=np.float32),
                     "bottom-center",
                     3.10,
                 )
@@ -679,7 +729,7 @@ class ViserMeshViewer:
                 object_title,
                 (20, 48, 118),
                 title_base,
-                "top-center",
+                "bottom-center",
                 1.75,
             )
         else:
@@ -709,8 +759,8 @@ class ViserMeshViewer:
                     "/mesh_processing/viewer_stats",
                     formatted_stats,
                     (18, 76, 28),
-                    shift + np.array([cell_extent * 0.68, 0.0, cell_extent * 0.50], dtype=np.float32),
-                    "center-left",
+                    label_base + np.array([label_side_offset, 0.0, 0.0], dtype=np.float32),
+                    "bottom-left",
                     1.65,
                 )
             else:

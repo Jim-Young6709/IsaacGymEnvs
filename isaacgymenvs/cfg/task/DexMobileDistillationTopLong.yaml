@@ -6,44 +6,56 @@ defaults:
 name: FrankaLEAPMobileDistillationPickTopLong
 
 env:
+  episodeLength: 1000
   scene:
     table_size_range: [[0.5, 0.6, 0.01], [0.7, 1.2, 0.1]]
     z_shift_range: [0.4, 0.8] # [0.01, 0.8]
+    teacher_bank_height_bins: 0
+    teacher_bank_variation_json: null
+    teacher_bank_height_assignment_json: null
 
   teacher_obs_action_frame: "eef"
   rl_reference_table_surface_height: 0.175
 
   object_settings:
-    xyz_range: [[0.35, -0.3, 0.2], [0.75, 0.2, 0.25]] # xy is center position, z is BOTTOM height
+    xyz_range: [[0.25, -0.6, 0.2], [0.55, 0.6, 0.25]] # xy is center position, z is BOTTOM height
     object_grasp_target_z_scale: 0.4
     lie_flat_prob: 1.0
+    table_y_margin: 0.05 # CODEX: keep sampled object centers this far from both table y edges.
     robot_side_x_margin: 0.0
   eef_init:
     side_mode: left
     yaw_noise_deg: 45.0
     pitch_roll_noise_deg: 45.0
     hand_joint_noise_deg: 20.0
-    flat_topdown_rel_object_min: [-0.4, -0.4, 0.10]
-    flat_topdown_rel_object_max: [0.4, 0.4, 0.45]
+    flat_topdown_recovery_base_init_range: [[-0.2, -0.4, -0.08], [-0.4, 0.2, 0.08]]
     flat_topdown_near_recovery_rel_object_min: [-0.16, -0.16, 0.10]
     flat_topdown_near_recovery_rel_object_max: [0.16, 0.16, 0.28]
     flat_topdown_far_recovery_rel_object_min: [-0.32, -0.32, 0.10]
     flat_topdown_far_recovery_rel_object_max: [0.32, 0.32, 0.40]
     flat_topdown_min_palm_object_dist: 0.05
     flat_topdown_max_resample_attempts: 32
+    flat_topdown_hard_max_resample_attempts: 1024
+    flat_topdown_recovery_bank_size: 128
+    flat_topdown_recovery_bank_max_ik_goals: 2048
+    flat_topdown_debug_sampling: False
+    flat_topdown_debug_sampling_min_rounds: 64
 
   robot_init:
-    base_init_range: [[-1.0, -0.25, -0.3], [-0.2, 0.25, 0.3]]
+    base_init_range: [[-0.4, -0.2, -0.08], [-1.0, 0.2, 0.08]]
+    resample_base_each_reset: True
+    lock_mobile_base: True
     switch_pos_offset: [0.0, 0.0, 0.2]
     switch_tol: 0.2
-    switch_pos_tol: 0.5
+    switch_activate_radius: 0.35
+    switch_activate_radius_exit: 0.38
     switch_rot_tol_deg: 30.0
     switch_use_orientation_target: False
 
   object_teleport:
     enable: False
     preserve_orientation: False
-    env_proportion: 1.0
+    env_proportion: 0.25
     swap_frequency: 1
     curri_steps: 1
     n0: 20
@@ -85,11 +97,19 @@ observation:
 reward:
   params:
     target_pos: [0.5, 0.0, 0.55]
-    target_pos_after_lift_base: [0.7, 0.0, 0.55]
-    target_pos_after_lift_z_from_table: 0.55
+    target_pos_noise: [0.0, 0.0, 0.0]
+    target_pos_after_lift_base: [0.7, 0.0, 0.35]
+    target_pos_after_lift_z_from_table: 0.35
+    use_post_lift_base_target: False
     target_lift_dis: 0.1
     target_quat: [1.0, 0.0, 0.0, 0.0]
-    use_goal_orientation_target: False
+    use_goal_orientation_target: True
+    flat_object_axis_z_abs_max: 0.5
+    success_tolerance: 0.1
+    target_waypoint:
+      enable: False
+      eef_delta_abs_max: [0.25, 0.25, 0.35]
+      until_lift: True
     curl_reaching_threshold: 0.15
     include_palm_in_hand_obj: True
 
