@@ -13,7 +13,7 @@ env:
 
     add_on_obstacles:
       cuboids:
-        num: 3
+        num: 20
         size_xy: [[0.05, 0.05], [0.1, 0.1]]
         size_z_min: 0.1
       spheres:
@@ -26,9 +26,9 @@ env:
 
     mobile_obstacles:
       x_offset_range: [-0.4, -0.2]
-      y_offset_range: [0.2, 0.5]
+      y_offset_range: [0.2, 1.0]
       cuboids:
-        num: 1
+        num: 2 # 1
         size_range: [[0.15, 0.15, 0.3], [0.4, 0.4, 1.7]]
       capsules:
         num: 0 # 1
@@ -37,8 +37,8 @@ env:
     safety_box:
       wall_thickness: 0.01
       # size: [[0.25, 0.25, 0.15], [0.5, 0.5, 0.25]] # x, y, z
-      size: [[0.4, 0.4, 0.1], [0.4, 0.4, 0.1]] # x, y, z
-      x_shift_range: [0.35, 0.65]
+      size: [[0.25, 0.25, 0.1], [0.5, 0.5, 0.2]] # x, y, z
+      x_shift_range: [0.3, 0.7]
       y_shift_range: [-0.3, 0.3]
       z: [-0.2, 0.5]
       r: [0.2, 0.4] # rot_ex radius
@@ -47,7 +47,7 @@ env:
       obj_wall_tol: 0.05
       colli_reset: False
       corner_obstacles_range: [0, 0] # [4, 6] # low & high inclusive
-      extra_surrounding_obstacles_range: [0, 0] # [4, 6] # low & high inclusive
+      extra_surrounding_obstacles_range: [8, 12] # [4, 6] # low & high inclusive
       shift_other_obstacles_range: [0.1, 0.2]
 
   robot_init:
