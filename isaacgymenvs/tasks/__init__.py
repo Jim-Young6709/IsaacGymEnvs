@@ -39,6 +39,10 @@ from .franka_leap_mobile_pick_table import FrankaLEAPMobilePickTable
 from .franka_leap_mobile_pick_table_multi import FrankaLEAPMobilePickTableMulti
 from .franka_leap_mobile_pick_top_full import FrankaLEAPMobilePickTopFull
 from .franka_leap_mobile_pick_full import FrankaLEAPMobilePickFull
+from .franka_leap_mobile_distillation_side_base import FrankaLEAPMobileDistillation  # CODEX: isolated side distillation base.
+from .franka_leap_mobile_distillation_pick_side_isolated import (
+    FrankaLEAPMobileDistillationPickSide as FrankaLEAPMobileDistillationPickSideIsolated,
+)  # CODEX
 
 from .franka_cmd import FrankaCMD
 from .franka_cmd_pick_table import FrankaCMDPickTable
@@ -59,6 +63,7 @@ isaacgym_task_map = {
     "FrankaLEAPMobilePickTableMulti": FrankaLEAPMobilePickTableMulti,
     "FrankaLEAPMobilePickTopFull": FrankaLEAPMobilePickTopFull,
     "FrankaLEAPMobilePickFull": FrankaLEAPMobilePickFull,
+    "FrankaLEAPMobileDistillationPickSideIsolated": FrankaLEAPMobileDistillationPickSideIsolated,  # CODEX
     "FrankaCMD": FrankaCMD,
     "FrankaCMDPickTable": FrankaCMDPickTable,
 }
