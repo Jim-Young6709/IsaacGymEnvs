@@ -14,6 +14,8 @@ STATE_PREFIX_DIMS = 15
 IDENTITY_QUAT = np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float32)
 COMPARTMENT_CLEARANCE = 1e-3
 NUMERICAL_TOL = 1e-6
+REGULAR_COMPARTMENT_MIN_XY_DIM = np.array([0.25, 0.25], dtype=np.float32)
+SHELF_COMPARTMENT_MIN_XY_DIM = np.array([0.2, 0.25], dtype=np.float32)
 
 
 def load_distractor_params(task_name: str):
@@ -129,7 +131,6 @@ def cuboid_intersects_compartment(
     compartment_half_dim = np.asarray(compartment_dims, dtype=np.float32) * 0.5
 
     # All boxes are assumed upright, so z overlap is just interval overlap.
-    print(abs(center_local[2]) - compartment_half_dim[2] - cuboid_half_dim[2])
     if abs(center_local[2]) > compartment_half_dim[2] + cuboid_half_dim[2] - NUMERICAL_TOL:
         return False
 
@@ -156,6 +157,73 @@ def cuboid_intersects_compartment(
             return False
 
     return True
+
+
+def sample_shrunk_boundary(rng, low: float, high: float):
+    if high - low <= NUMERICAL_TOL:
+        return None
+    return float(rng.uniform(low, high))
+
+
+def shrink_compartment_boundaries(demo_group, rng, shrink_prob: float, shelf: bool = False) -> int:
+    if shrink_prob <= 0.0:
+        return 0
+
+    shrink_prob = min(float(shrink_prob), 1.0)
+    compartment_dataset = demo_group["compartment_states"]
+    compartment_states = np.asarray(compartment_dataset[:], dtype=np.float32).reshape(-1, 10)
+    min_xy_dim = SHELF_COMPARTMENT_MIN_XY_DIM if shelf else REGULAR_COMPARTMENT_MIN_XY_DIM
+
+    compartment_dims = compartment_states[0, :3].copy()
+    compartment_center = compartment_states[0, 3:6].copy()
+    compartment_quat = compartment_states[0, 6:10]
+    compartment_rot = quaternion_to_matrix_xyzw(compartment_quat)
+
+    x_min = -0.5 * float(compartment_dims[0])
+    x_max = 0.5 * float(compartment_dims[0])
+    y_min = -0.5 * float(compartment_dims[1])
+    y_max = 0.5 * float(compartment_dims[1])
+
+    selected_boundaries = {
+        "front": (not shelf) and rng.uniform(0.0, 1.0) < shrink_prob,
+        "back": rng.uniform(0.0, 1.0) < shrink_prob,
+        "right": rng.uniform(0.0, 1.0) < shrink_prob,
+        "left": rng.uniform(0.0, 1.0) < shrink_prob,
+    }
+
+    changed = False
+    if selected_boundaries["front"]:
+        new_x_min = sample_shrunk_boundary(rng, x_min, x_max - float(min_xy_dim[0]))
+        if new_x_min is not None:
+            x_min = new_x_min
+            changed = True
+    if selected_boundaries["back"]:
+        new_x_max = sample_shrunk_boundary(rng, x_min + float(min_xy_dim[0]), x_max)
+        if new_x_max is not None:
+            x_max = new_x_max
+            changed = True
+    if selected_boundaries["right"]:
+        new_y_min = sample_shrunk_boundary(rng, y_min, y_max - float(min_xy_dim[1]))
+        if new_y_min is not None:
+            y_min = new_y_min
+            changed = True
+    if selected_boundaries["left"]:
+        new_y_max = sample_shrunk_boundary(rng, y_min + float(min_xy_dim[1]), y_max)
+        if new_y_max is not None:
+            y_max = new_y_max
+            changed = True
+
+    if not changed:
+        return 0
+
+    compartment_dims[:2] = np.array([x_max - x_min, y_max - y_min], dtype=np.float32)
+    center_offset_local = np.array([(x_min + x_max) * 0.5, (y_min + y_max) * 0.5, 0.0], dtype=np.float32)
+    moved_center = compartment_center + compartment_rot @ center_offset_local
+    compartment_states[0, :2] = compartment_dims[:2]
+    compartment_states[0, 3:5] = moved_center[:2]
+    compartment_dataset[...] = compartment_states.reshape(compartment_dataset.shape)
+
+    return 1
 
 
 def move_cuboids_outside_first_compartment(
@@ -270,7 +338,14 @@ def build_scene_pcd_params(
     return updated_scene
 
 
-def process_demo(demo_group, demo_idx: int, base_seed: int, distractor_params, shelf: bool = False):
+def process_demo(
+    demo_group,
+    demo_idx: int,
+    base_seed: int,
+    distractor_params,
+    shelf: bool = False,
+    compartment_shrink_prob: float = 0.3,
+):
     states_dataset = demo_group["states"]
     states = np.asarray(states_dataset[:], dtype=np.float32)
     scene_pcd_params = states[0, 15:]
@@ -318,6 +393,13 @@ def process_demo(demo_group, demo_idx: int, base_seed: int, distractor_params, s
         obj_ids = np.concatenate((obj_ids, zero_vec))
         mesh_ids = np.concatenate((mesh_ids, zero_vec))
 
+    rng = np.random.default_rng(base_seed + demo_idx + 1000003) # add random large offset to avoid correlation with distractor sampling
+    shrunk = shrink_compartment_boundaries(
+        demo_group,
+        rng,
+        compartment_shrink_prob,
+        shelf=shelf,
+    )
     moved = move_cuboids_outside_first_compartment(
         demo_group,
         cuboid_dims,
@@ -325,8 +407,8 @@ def process_demo(demo_group, demo_idx: int, base_seed: int, distractor_params, s
         cuboid_quats,
         shelf=shelf,
     )
-    if added == 0 and moved == 0:
-        return 0, 0
+    if added == 0 and moved == 0 and shrunk == 0:
+        return 0, 0, 0
 
     updated_scene = build_scene_pcd_params(
         cuboid_dims,
@@ -361,7 +443,7 @@ def process_demo(demo_group, demo_idx: int, base_seed: int, distractor_params, s
         for key, value in attrs.items():
             dataset.attrs[key] = value
 
-    return added, moved
+    return added, moved, shrunk
 
 
 def parse_args():
@@ -374,6 +456,12 @@ def parse_args():
         "--shelf",
         action="store_true",
         help="Do not move intersecting cuboids to the compartment front, defined as negative local x.",
+    )
+    parser.add_argument(
+        "--compartment_shrink_prob",
+        type=float,
+        default=0.3,
+        help="Independent probability of shrinking each compartment xy boundary during post-processing.",
     )
     return parser.parse_args()
 
@@ -412,11 +500,20 @@ def main():
 
         total_added = 0
         total_moved = 0
+        total_shrunk = 0
         for demo_key in tqdm(demo_keys, desc="Post-processing demos"):
             demo_idx = int(demo_key.split("_")[-1])
-            added, moved = process_demo(demo_root[demo_key], demo_idx, args.seed, distractor_params, shelf=args.shelf)
+            added, moved, shrunk = process_demo(
+                demo_root[demo_key],
+                demo_idx,
+                args.seed,
+                distractor_params,
+                shelf=args.shelf,
+                compartment_shrink_prob=args.compartment_shrink_prob,
+            )
             total_added += added
             total_moved += moved
+            total_shrunk += shrunk
 
         hdf5_file.attrs["distractor_postprocessed"] = True
 
@@ -424,6 +521,7 @@ def main():
     print(f"Updated demos: {len(demo_keys)}")
     print(f"Added distractor cuboids: {total_added}")
     print(f"Moved cuboids outside first compartment: {total_moved}")
+    print(f"Shrunk compartments: {total_shrunk}")
 
 
 if __name__ == "__main__":
