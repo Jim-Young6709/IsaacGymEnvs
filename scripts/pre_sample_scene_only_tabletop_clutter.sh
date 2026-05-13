@@ -17,7 +17,7 @@ TABLE_HEIGHT_RANGES=(
 NUM_ENVS_LIST=(1000)
 
 SEED=1
-TASK_NAME="May13_tabletop_10k_part1"
+TASK_NAME="May13_tabletopclutter_10k_part1"
 SCENE_DIR="./presampled_envs/scene_only"
 HEADLESS="True"
 
@@ -38,6 +38,7 @@ for num_envs in "${NUM_ENVS_LIST[@]}"; do
 
     python isaacgymenvs/presampling/pre_sample_scene_states_table_multi.py \
       num_envs="${num_envs}" task.env.scene.z_shift_range="[${z_min},${z_max}]" \
+      task=DexMobileExpTableClutter.yaml \
       presample.output_hdf5_name="${hdf5_name}"
 
   done
