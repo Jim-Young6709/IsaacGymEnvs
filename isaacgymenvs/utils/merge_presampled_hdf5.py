@@ -60,6 +60,26 @@ def load_demos(src_path, num_demos=None):
     return demos, src_success_rate, selected_count
 
 
+def check_all_hdf5_postprocessed(input_paths):
+    not_postprocessed_paths = []
+    for input_path in input_paths:
+        with h5py.File(input_path, "r") as hdf5_file:
+            if not bool(hdf5_file.attrs.get("postprocessed", False)):
+                not_postprocessed_paths.append(input_path)
+
+    all_postprocessed = not not_postprocessed_paths
+    if not all_postprocessed:
+        print(
+            "Warning: not all HDF5 files are postprocessed; "
+            "the merged HDF5 will not be marked as postprocessed."
+        )
+        print("HDF5 files that are not postprocessed:")
+        for input_path in not_postprocessed_paths:
+            print(f"  {input_path}")
+
+    return all_postprocessed
+
+
 def merge_hdf5_files(input_specs, output_path):
     if not input_specs:
         raise ValueError("No input HDF5 files provided.")
@@ -85,6 +105,8 @@ def merge_hdf5_files(input_specs, output_path):
             total_weighted_success += float(src_success_rate) * selected_count
             total_weight += selected_count
 
+    all_postprocessed = check_all_hdf5_postprocessed(input_paths)
+
     random.shuffle(all_demos)
 
     merged_demo_count = len(all_demos)
@@ -108,6 +130,8 @@ def merge_hdf5_files(input_specs, output_path):
             dst_file.attrs["presample_success_rate"] = np.nan
         dst_file.attrs["num_source_files"] = len(input_paths)
         dst_file.attrs["source_files"] = np.array(input_paths, dtype=h5py.string_dtype("utf-8"))
+        if all_postprocessed:
+            dst_file.attrs["postprocessed"] = True
 
     print(
         f"Merged {len(input_paths)} files with {merged_demo_count} demos into {output_path}. "
