@@ -354,7 +354,7 @@ def shrink_compartment_boundaries(demo_group, rng, shrink_prob: float, shelf: bo
     return 1, shrink_events
 
 
-def create_add_on_cuboids_from_shrink_events(table_pos, table_size, shrink_events, params, rng):
+def create_add_on_cuboids_from_shrink_events(shrink_events, params, rng):
     if not shrink_events:
         return empty_cuboids()
 
@@ -365,7 +365,6 @@ def create_add_on_cuboids_from_shrink_events(table_pos, table_size, shrink_event
 
     size_xy = np.asarray(cuboid_cfg["size_xy"], dtype=np.float32)
     size_z_min = float(cuboid_cfg["size_z_min"])
-    table_surface_height = float(table_pos[2] + table_size[2] * 0.5)
 
     dims = []
     centers = []
@@ -400,7 +399,8 @@ def create_add_on_cuboids_from_shrink_events(table_pos, table_size, shrink_event
 
             compartment_rot = quaternion_to_matrix_xyzw(event["quat"])
             world_center = event["center"] + compartment_rot @ center_local
-            world_center[2] = table_surface_height + cuboid_dim[2] * 0.5
+            compartment_bottom_height = float(event["center"][2] - event["dims"][2] * 0.5)
+            world_center[2] = compartment_bottom_height + cuboid_dim[2] * 0.5
 
             dims.append(cuboid_dim)
             centers.append(world_center.astype(np.float32))
@@ -610,8 +610,6 @@ def process_demo(
     )
 
     add_on_dims, add_on_centers, add_on_quats = create_add_on_cuboids_from_shrink_events(
-        table_pos,
-        table_size,
         shrink_events,
         scene_cfg.add_on_obstacles,
         rng,
