@@ -292,8 +292,8 @@ def shrink_compartment_boundaries(demo_group, rng, shrink_prob: float, shelf: bo
     shrunk_boundaries = []
 
     selected_boundaries = {
-        "front": (not shelf) and rng.uniform(0.0, 1.0) < shrink_prob,
-        "back": rng.uniform(0.0, 1.0) < shrink_prob,
+        "front": rng.uniform(0.0, 1.0) < shrink_prob,
+        "back": (not shelf) and rng.uniform(0.0, 1.0) < shrink_prob,
         "right": rng.uniform(0.0, 1.0) < shrink_prob,
         "left": rng.uniform(0.0, 1.0) < shrink_prob,
     }
@@ -462,7 +462,7 @@ def move_cuboids_outside_first_compartment(
             "left": abs(y_max - center_local[1]),
         }
         if shelf:
-            del boundary_distances["front"]
+            del boundary_distances["back"]
         closest_boundary = min(boundary_distances, key=boundary_distances.get)
         half_extent_xy = cuboid_xy_half_extent(cuboid_dims[idx], cuboid_quats[idx], compartment_rot)
 
@@ -750,7 +750,7 @@ def parse_args():
     parser.add_argument(
         "--shelf",
         action="store_true",
-        help="Do not move intersecting cuboids to the compartment front, defined as negative local x.",
+        help="Do not move intersecting cuboids to the shelf opening side, defined as positive local x.",
     )
     parser.add_argument(
         "--compartment_shrink_prob",
