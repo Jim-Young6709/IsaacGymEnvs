@@ -65,12 +65,12 @@ TABLE_HEIGHT_RANGES=(
 )
 NUM_ENVS_LIST=(1250)
 
-BASE_INIT_RANGE="[[-1.0, -0.5, -1.5], [-0.2, 0.5, 1.5]]"
-SEED=11
-TASK_NAME="May13_drawer_t0inview_part1"
+BASE_INIT_RANGE="[[-0.3, -0.5, -1.5], [-0.2, 0.5, 1.5]]"
+SEED=1
+TASK_NAME="May13_tabletopclutter_t0inview_close"
 TEACHER_CKPT="./rl_ckpts/exp_top_May13.pth"
 SCENE_DIR="./presampled_envs/scene_only"
-SCENE_HDF5="May13_drawer10k_part1_post.hdf5"
+SCENE_HDF5="May13_tabletopclutter10k_part2.hdf5"
 HEADLESS="True"
 SCENE_GEN_ONLY="False"
 OBJECT_T0="True"

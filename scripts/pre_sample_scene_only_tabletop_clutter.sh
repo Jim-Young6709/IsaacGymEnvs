@@ -38,7 +38,7 @@ for num_envs in "${NUM_ENVS_LIST[@]}"; do
 
     python isaacgymenvs/presampling/pre_sample_scene_states_table_multi.py \
       num_envs="${num_envs}" task.env.scene.z_shift_range="[${z_min},${z_max}]" \
-      task=DexMobileExpTableClutter.yaml \
+      task=DexMobileExpTableClutter \
       presample.output_hdf5_name="${hdf5_name}"
 
   done

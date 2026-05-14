@@ -66,11 +66,11 @@ TABLE_HEIGHT_RANGES=(
 NUM_ENVS_LIST=(1250)
 
 BASE_INIT_RANGE="[[-1.0, -0.5, -1.5], [-0.2, 0.5, 1.5]]"
-SEED=1
-TASK_NAME="May8_box_t0inview_part2"
-TEACHER_CKPT="./rl_ckpts/exp_top_Apr9.pth"
+SEED=11
+TASK_NAME="May13_box_t0inview_part1"
+TEACHER_CKPT="./rl_ckpts/exp_top_May13.pth"
 SCENE_DIR="./presampled_envs/scene_only"
-SCENE_HDF5="May8_box10k_part2.hdf5"
+SCENE_HDF5="May13_box10k_part1_post.hdf5"
 HEADLESS="True"
 SCENE_GEN_ONLY="False"
 OBJECT_T0="True"
