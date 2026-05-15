@@ -2965,6 +2965,12 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
         self.reward_settings["grasp_on_object_z_height_gate_floor"]  = to_torch(self.cfg["reward"]["params"]["grasp_on_object_z_height_gate_floor"], device=self.device)
         self.reward_settings["grasp_on_object_z_height_gate_enabled"] = to_torch(1.0 if bool(self.cfg["reward"]["params"]["grasp_on_object_z_height_gate_enabled"]) else 0.0, device=self.device)
         self.reward_settings["success_tolerance"] = to_torch(self.cfg["reward"]["params"]["success_tolerance"], device=self.device)
+        # CODEX: side compute_reward uses *_timeout_steps, while older/base configs use *_timeout.
+        reward_params = self.cfg["reward"]["params"]
+        success_timeout_steps = reward_params.get("success_timeout_steps", reward_params.get("success_timeout", 50))
+        lifting_timeout_steps = reward_params.get("lifting_timeout_steps", reward_params.get("lifting_timeout", success_timeout_steps))
+        self.reward_settings["success_timeout_steps"] = to_torch(success_timeout_steps, device=self.device)
+        self.reward_settings["lifting_timeout_steps"] = to_torch(lifting_timeout_steps, device=self.device)
 
         # Initialize right-side-only target quaternions for all envs.
         all_env_ids = torch.arange(self.num_envs, device=self.device)

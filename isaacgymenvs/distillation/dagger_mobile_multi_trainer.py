@@ -26,20 +26,20 @@ import wandb
 
 from typing import Dict
 from pathlib import Path
-from omegaconf import ListConfig
+from omegaconf import DictConfig, ListConfig, OmegaConf, open_dict  # CODEX: rank-local task config composition.
 from isaacgymenvs.tasks import FrankaLEAPMobile
 
 
 class DaggerMobileMultiExp:
     def __init__(self, cfg):
-        # overwrite the video logging freq so it aligns well with the eval pattern
-        cfg.task.env.video_logging.freq = max((cfg.dagger.eval_freq + 1), 10) * cfg.task.env.episodeLength
-
         # load configs
         self.multi_gpu = cfg.multi_gpu
         self.local_rank = 0  # CODEX: keep rank fields available for optional env hooks in single-GPU runs.
         self.global_rank = 0  # CODEX: verified-bank loading uses this shard rank when present.
         self.world_size = 1  # CODEX
+        expert_idx = 0  # CODEX: used by optional per-expert task/env config selection.
+        teacher_ckpts = cfg.teacher.ckpt  # CODEX: per-expert rank mapping must be known before env creation.
+        num_experts = len(teacher_ckpts) if isinstance(teacher_ckpts, (list, tuple, ListConfig)) else 1
         if self.multi_gpu:
             dist.init_process_group(backend="nccl")
             self.local_rank = int(os.getenv("LOCAL_RANK", "0"))
@@ -59,18 +59,21 @@ class DaggerMobileMultiExp:
 
             cfg.seed = max(cfg.seed, 1) * (self.global_rank + 1)
 
-            num_experts = len(cfg.teacher.ckpt)
             expert_idx = self.local_rank % num_experts
-            cfg.teacher.ckpt = cfg.teacher.ckpt[expert_idx]
-            cfg.task.env.mesh.mesh_dir = cfg.task.env.mesh.mesh_dir[expert_idx]
-            cfg.task.cfg_override = cfg.task.cfg_override[expert_idx]
-            cfg.task.env.scene.hdf5_path = cfg.task.env.scene.hdf5_path[expert_idx]
-            # CODEX: side distillation uses its own verified reset-bank schema, separate from scene.hdf5_path.
-            if "verified_teacher_bank" in cfg.task.env:
-                verified_bank_cfg = cfg.task.env.verified_teacher_bank
-                for key in ("enable", "hdf5_path", "capacity_per_env"):
-                    if key in verified_bank_cfg:
-                        verified_bank_cfg[key] = self._select_expert_value(verified_bank_cfg[key], expert_idx)
+        self.num_experts = num_experts  # CODEX
+        self.expert_rank, self.expert_world_size = self._compute_expert_rank_info(expert_idx, num_experts)  # CODEX
+        self._expert_override_values = self._snapshot_expert_overrides(cfg)  # CODEX
+        # CODEX: WBCMultiExp can mix task lineages by composing a rank-local task config before env creation.
+        self._apply_expert_task_config(cfg, expert_idx)  # CODEX
+        self._apply_expert_overrides(cfg, expert_idx)  # CODEX
+        self._apply_expert_rank_config(cfg)  # CODEX
+        if self.multi_gpu and self._has_cfg_path(cfg, "task.env.scene.batch_idx"):
+            self._set_cfg_path(cfg, "task.env.scene.batch_idx", self.global_rank)  # CODEX
+        if self.multi_gpu and self.local_rank != 0:
+            cfg.task.env.video_logging.capture = False # note the actual video logging flag is in task env, not in general cfg.capture_video
+        cfg.task.env.video_logging.freq = max((cfg.dagger.eval_freq + 1), 10) * cfg.task.env.episodeLength
+        self.expert_idx = expert_idx  # CODEX: identify per-rank expert for W&B/task logs.
+        self.expert_task_name = str(cfg.task.get("name", cfg.task_name))  # CODEX
 
         self.cfg = cfg
         self.total_episodes = cfg.dagger.total_episodes
@@ -170,6 +173,7 @@ class DaggerMobileMultiExp:
         self.use_wandb = self.cfg.wandb_activate
         self.wandb_project = self.cfg.wandb_project
         self.wandb_name = self.cfg.wandb_name
+        self.wandb_group = self.cfg.wandb_group or self.exp_name  # CODEX: group per-rank expert runs.
         self.wandb_id = None
 
         self.state_encoders_keys = self.cfg.model.state_encoders_cfg.keys()
@@ -185,9 +189,14 @@ class DaggerMobileMultiExp:
         self.profile_print_freq = int(self.cfg.dagger.get("profile_print_freq", 1))
         self.profile_cuda_sync = bool(self.cfg.dagger.get("profile_cuda_sync", True))
 
-        if self.multi_gpu:            
-            self.use_wandb = (self.cfg.wandb_activate and self.global_rank == 0)
-
+        if self.multi_gpu:
+            self.use_wandb = self.cfg.wandb_activate  # CODEX: log one W&B run per expert/rank.
+            if self.use_wandb:
+                base_wandb_name = str(self.cfg.wandb_name)
+                self.wandb_name = (
+                    f"{base_wandb_name}_rank{self.global_rank}"
+                    f"_expert{self.expert_idx}_{self.expert_task_name}"
+                )  # CODEX
             self.student_model = self.student_model.to(self.device)
             self.student_model = DDP(
                 self.student_model,
@@ -206,6 +215,8 @@ class DaggerMobileMultiExp:
             wandb.init(
                 project=self.wandb_project,
                 name=self.wandb_name,
+                group=self.wandb_group,  # CODEX: keep all per-expert runs under one experiment group.
+                job_type=f"expert_{self.expert_idx}",  # CODEX
                 id=self.wandb_id,
                 resume="must" if self.wandb_id else None,
                 config={
@@ -214,6 +225,12 @@ class DaggerMobileMultiExp:
                     "num_episodes": self.total_episodes,
                     "learning_rate": self.learning_rate,
                     "weight_decay": self.weight_decay,
+                    "rank": self.global_rank,  # CODEX
+                    "local_rank": self.local_rank,  # CODEX
+                    "expert_idx": self.expert_idx,  # CODEX
+                    "expert_rank": self.expert_rank,  # CODEX
+                    "expert_world_size": self.expert_world_size,  # CODEX
+                    "expert_task_name": self.expert_task_name,  # CODEX
                 }
             )
 
@@ -237,8 +254,164 @@ class DaggerMobileMultiExp:
     def _select_expert_value(self, value, expert_idx):
         # CODEX: support optional per-expert side-bank config lists without affecting scalar configs.
         if isinstance(value, (list, tuple, ListConfig)):
+            if expert_idx >= len(value):
+                raise ValueError(
+                    f"Per-expert override has {len(value)} entries, but rank maps to expert_idx={expert_idx}"
+                )
             return value[expert_idx]
         return value
+
+    def _compute_expert_rank_info(self, expert_idx, num_experts):
+        # CODEX: side reset banks are sharded by expert-local ranks, not by all WBCMultiExp launcher ranks.
+        if num_experts <= 0:
+            raise ValueError(f"num_experts must be positive, got {num_experts}")
+        world_size = max(int(self.world_size), 1)
+        matching_ranks = [rank for rank in range(world_size) if rank % num_experts == int(expert_idx)]
+        if not matching_ranks:
+            return 0, 1
+        expert_rank = sum(1 for rank in matching_ranks if rank < int(self.global_rank))
+        return expert_rank, len(matching_ranks)
+
+    def _task_cfg_dir(self):
+        # CODEX: load copied task config stacks from this checkout, not from an installed package path.
+        return Path(__file__).resolve().parents[1] / "cfg" / "task"
+
+    def _load_task_cfg_with_defaults(self, task_name, seen=None):
+        # CODEX: small Hydra-defaults loader for rank-local task swaps inside an already-composed Hydra job.
+        if seen is None:
+            seen = set()
+        task_name = str(task_name)
+        if task_name in seen:
+            raise ValueError(f"Recursive task defaults while loading {task_name}: {sorted(seen)}")
+        seen.add(task_name)
+
+        task_path = self._task_cfg_dir() / f"{task_name}.yaml"
+        if not task_path.is_file():
+            raise FileNotFoundError(f"Per-expert task config not found: {task_path}")
+
+        task_cfg = OmegaConf.load(task_path)
+        merged_cfg = OmegaConf.create()
+        for entry in task_cfg.get("defaults", []):
+            if isinstance(entry, str):
+                if entry == "_self_":
+                    continue
+                default_name = entry.split("@", 1)[0]
+                merged_cfg = OmegaConf.merge(
+                    merged_cfg,
+                    self._load_task_cfg_with_defaults(default_name, seen=seen),
+                )
+            elif isinstance(entry, dict):
+                for _, default_name in entry.items():
+                    if default_name in (None, "_self_"):
+                        continue
+                    merged_cfg = OmegaConf.merge(
+                        merged_cfg,
+                        self._load_task_cfg_with_defaults(default_name, seen=seen),
+                    )
+
+        if "defaults" in task_cfg:
+            with open_dict(task_cfg):
+                del task_cfg["defaults"]
+        seen.remove(task_name)
+        return OmegaConf.merge(merged_cfg, task_cfg)
+
+    def _has_cfg_path(self, cfg, path):
+        # CODEX: safe path probes let optional side-only config keys coexist with dex tasks.
+        node = cfg
+        for key in path.split("."):
+            if not isinstance(node, DictConfig) or key not in node:
+                return False
+            node = node[key]
+        return True
+
+    def _get_cfg_path(self, cfg, path):
+        # CODEX: read whitelisted per-expert override paths before task config replacement.
+        node = cfg
+        for key in path.split("."):
+            node = node[key]
+        return node
+
+    def _set_cfg_path(self, cfg, path, value):
+        # CODEX: write rank-local override values after the selected task config is loaded.
+        node = cfg
+        parts = path.split(".")
+        for key in parts[:-1]:
+            node = node[key]
+        with open_dict(node):
+            node[parts[-1]] = value
+
+    def _snapshot_expert_overrides(self, cfg):
+        # CODEX: only these paths are interpreted as per-expert lists; ordinary task list fields stay untouched.
+        paths = (
+            "teacher.cfg",
+            "teacher.ckpt",
+            "task.task.randomize",
+            "task.cfg_override",
+            "task.env.video_logging.capture",
+            "task.env.video_logging.envs",
+            "task.env.enableDebugVis",
+            "task.env.enable_viser",
+            "task.env.teacher_obs_action_frame",
+            "task.env.mesh.mesh_dir",
+            "task.env.grasp_guide_idx",
+            "task.env.object_settings.mass_range",
+            "task.env.object_teleport.enable",
+            "task.env.object_wrench.enable",
+            "task.env.scene.hdf5_path",
+            "task.env.scene.teacher_bank_variation_json",
+            "task.env.scene.teacher_bank_height_assignment_json",
+            "task.env.scene.teacher_bank_height_bins",
+            "task.env.verified_teacher_bank.enable",
+            "task.env.verified_teacher_bank.hdf5_path",
+            "task.env.verified_teacher_bank.capacity_per_env",
+            "task.env.verified_teacher_bank.collection_region_filter",
+            "task.env.verified_teacher_bank.sampling_probs.afar",
+            "task.env.verified_teacher_bank.sampling_probs.near_recovery",
+            "task.env.verified_teacher_bank.sampling_probs.far_recovery",
+        )
+        return {path: self._get_cfg_path(cfg, path) for path in paths if self._has_cfg_path(cfg, path)}
+
+    def _apply_expert_task_config(self, cfg, expert_idx):
+        task_names = cfg.dagger.get("multi_task_names", None)
+        if task_names is None:
+            return
+        selected_task_name = self._select_expert_value(task_names, expert_idx)
+        if selected_task_name in (None, "", "null"):
+            return
+
+        selected_task_cfg = self._load_task_cfg_with_defaults(selected_task_name)
+        if self._has_cfg_path(cfg, "task.type"):
+            with open_dict(selected_task_cfg):
+                selected_task_cfg.type = cfg.task.type
+        with open_dict(cfg):
+            cfg.task = selected_task_cfg
+        print(
+            f"[DaggerMobileMultiExp/CODEX] rank={self.global_rank} local_rank={self.local_rank} "
+            f"expert_idx={expert_idx} task={selected_task_name}"
+        )
+
+    def _apply_expert_overrides(self, cfg, expert_idx):
+        for path, value in self._expert_override_values.items():
+            if not self._has_cfg_path(cfg, path):
+                continue
+            self._set_cfg_path(cfg, path, self._select_expert_value(value, expert_idx))
+
+    def _apply_expert_rank_config(self, cfg):
+        # CODEX: isolated side env reads this to slice variation/HDF5 shards per side expert only.
+        if not self._has_cfg_path(cfg, "task.env"):
+            return
+        self._set_cfg_path(
+            cfg,
+            "task.env.multi_teacher_rank",
+            {
+                "local_rank": int(self.expert_rank),
+                "global_rank": int(self.expert_rank),
+                "world_size": int(self.expert_world_size),
+                "launcher_local_rank": int(self.local_rank),
+                "launcher_global_rank": int(self.global_rank),
+                "launcher_world_size": int(self.world_size),
+            },
+        )
 
     # teacher loading utils
     def load_param_dict(self, cfg_path) -> Dict:
@@ -320,16 +493,17 @@ class DaggerMobileMultiExp:
         if not hasattr(self.env, "load_verified_teacher_bank_hdf5"):
             raise RuntimeError("Env enables verified_teacher_bank but does not implement load_verified_teacher_bank_hdf5")
 
-        loaded_verified_bank = self.env.load_verified_teacher_bank_hdf5(rank=self.global_rank, strict=False)
-        if (not self.multi_gpu) or (self.global_rank == 0):
+        bank_rank = int(getattr(self, "expert_rank", self.global_rank))  # CODEX: side banks use expert-local shards.
+        loaded_verified_bank = self.env.load_verified_teacher_bank_hdf5(rank=bank_rank, strict=False)
+        if (not self.multi_gpu) or (self.global_rank == 0) or loaded_verified_bank:
             shard_path = (
-                self.env._get_verified_teacher_bank_shard_path(rank=self.global_rank)
+                self.env._get_verified_teacher_bank_shard_path(rank=bank_rank)
                 if hasattr(self.env, "_get_verified_teacher_bank_shard_path")
                 else "<unknown>"
             )
             print(
                 "[DaggerMobile/verified_teacher_bank] "
-                f"enable=True loaded={loaded_verified_bank} path={shard_path}"
+                f"enable=True loaded={loaded_verified_bank} rank={bank_rank} path={shard_path}"
             )
 
         if loaded_verified_bank:
@@ -1049,7 +1223,7 @@ class DaggerMobileMultiExp:
             while True:
                 eval_wandb_logs = self.eval(policy_source="teacher")  # CODEX
                 self.total_steps += int(self.env.max_episode_length)
-                if ((not self.multi_gpu) or (self.global_rank == 0)) and self.use_wandb:
+                if self.use_wandb:  # CODEX: every expert rank owns its own W&B run.
                     wandb.log(eval_wandb_logs, step=self.total_steps)
                 self.episode += 1
             return
@@ -1068,34 +1242,38 @@ class DaggerMobileMultiExp:
 
             per_gpu_metric_logs = self._get_per_gpu_metric_logs()
 
+            episode_time = time.time() - start_time  # CODEX: log local timing for every expert run.
+            estimated_finish_time = start_time + episode_time * remaining_episodes
+
+            metrics["train/loss_episode"] = train_loss
+            metrics["time/episode_time"] = episode_time
+            metrics["episode"] = self.episode
+            metrics["train/teacher_forcing_prop"] = self.teacher_forcing_prop
+            metrics["expert/rank"] = self.global_rank  # CODEX
+            metrics["expert/local_rank"] = self.local_rank  # CODEX
+            metrics["expert/index"] = self.expert_idx  # CODEX
+            if self.profile_timing and train_profile_stats:
+                avg_step_time = train_profile_stats.get("train/step_total", 0.0) / max(self.steps_per_episode, 1)
+                ranked_profile_items = sorted(
+                    [(key, value) for key, value in train_profile_stats.items() if key != "train/step_total"],
+                    key=lambda item: item[1],
+                    reverse=True,
+                )
+                if ranked_profile_items:
+                    top_name, top_value = ranked_profile_items[0]
+                    metrics["profile/train_top_section_seconds"] = top_value
+                    metrics["profile/train_top_section_pct"] = 100.0 * top_value / max(train_profile_stats.get("train/step_total", 1e-8), 1e-8)
+                    metrics["profile/train_avg_step_seconds"] = avg_step_time
+            metrics.update(self.env.extras)
             if (not self.multi_gpu) or (self.global_rank == 0):
-                episode_time = time.time() - start_time
-                estimated_finish_time = start_time + episode_time * remaining_episodes
-
-                metrics["train/loss_episode"] = train_loss
-                metrics["time/episode_time"] = episode_time
-                metrics["episode"] = self.episode
-                metrics["train/teacher_forcing_prop"] = self.teacher_forcing_prop
-                if self.profile_timing and train_profile_stats:
-                    avg_step_time = train_profile_stats.get("train/step_total", 0.0) / max(self.steps_per_episode, 1)
-                    ranked_profile_items = sorted(
-                        [(key, value) for key, value in train_profile_stats.items() if key != "train/step_total"],
-                        key=lambda item: item[1],
-                        reverse=True,
-                    )
-                    if ranked_profile_items:
-                        top_name, top_value = ranked_profile_items[0]
-                        metrics["profile/train_top_section_seconds"] = top_value
-                        metrics["profile/train_top_section_pct"] = 100.0 * top_value / max(train_profile_stats.get("train/step_total", 1e-8), 1e-8)
-                        metrics["profile/train_avg_step_seconds"] = avg_step_time
-                metrics.update(self.env.extras)
                 metrics.update(per_gpu_metric_logs)
-                if eval_policy:
-                    metrics.update(eval_wandb_logs)
+            if eval_policy:
+                metrics.update(eval_wandb_logs)
 
-                if self.use_wandb:
-                    wandb.log(metrics, step=self.total_steps)
+            if self.use_wandb:
+                wandb.log(metrics, step=self.total_steps)
 
+            if (not self.multi_gpu) or (self.global_rank == 0):
                 self.save_checkpoint(self.episode, metrics["metrics/success_rate_5cm_per_ep"], metrics.get("metrics/eval_lifting_rate_5cm_per_ep", None))
 
                 colorprint(f"Episode {self.episode + 1}/{self.total_episodes} completed in {timedelta(seconds=int(episode_time))}", color="magenta")

@@ -64,24 +64,5 @@ if __name__ == "__main__":
     import torch._dynamo
     torch._dynamo.config.disable = True
 
-    if os.environ.get(_RELAUNCH_ENV_KEY) == "1":
-        main()
-    else:
-        child_env = os.environ.copy()
-        child_env[_RELAUNCH_ENV_KEY] = "1"
-
-        for _ in range(_MAX_RETRY):
-            result = subprocess.run([sys.executable, *sys.argv], env=child_env)
-
-            if result.returncode == 0:
-                break
-
-            if result.returncode in (-2, 130):
-                print("Training stopped by user. Exiting launcher.")
-                break
-
-            print(
-                f"Training crashed with code {result.returncode}. "
-                f"Relaunching in {_RELAUNCH_DELAY_SECONDS}s..."
-            )
-            time.sleep(_RELAUNCH_DELAY_SECONDS)
+    # CODEX: fail fast for multi-teacher debugging instead of hiding the first traceback behind relaunches.
+    main()

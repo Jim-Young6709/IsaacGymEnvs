@@ -64,9 +64,14 @@ class FrankaLEAPMobileDistillation(VecTask):
         self.device = sim_device
         self.rl_device = rl_device
         self.graphics_device_id_cfg = graphics_device_id
-        self.local_rank = int(os.getenv("LOCAL_RANK", "0"))
-        self.global_rank = int(os.getenv("RANK", "0"))
-        self.world_size = int(os.getenv("WORLD_SIZE", "1"))
+        # CODEX: WBCMultiExp can launch this env on only a subset of ranks, so bank slicing uses expert-local ranks.
+        multi_teacher_rank_cfg = self.cfg["env"].get("multi_teacher_rank", {})
+        self.local_rank = int(multi_teacher_rank_cfg.get("local_rank", os.getenv("LOCAL_RANK", "0")))
+        self.global_rank = int(multi_teacher_rank_cfg.get("global_rank", os.getenv("RANK", "0")))
+        self.world_size = int(multi_teacher_rank_cfg.get("world_size", os.getenv("WORLD_SIZE", "1")))
+        self.launcher_local_rank = int(multi_teacher_rank_cfg.get("launcher_local_rank", os.getenv("LOCAL_RANK", "0")))
+        self.launcher_global_rank = int(multi_teacher_rank_cfg.get("launcher_global_rank", os.getenv("RANK", "0")))
+        self.launcher_world_size = int(multi_teacher_rank_cfg.get("launcher_world_size", os.getenv("WORLD_SIZE", "1")))
         self.max_episode_length = self.cfg["env"]["episodeLength"]
         self.action_scale = self.cfg["env"]["actionScale"]
         self.reset_noise_scale = self.cfg["env"]["resetNoiseScale"]
@@ -436,9 +441,16 @@ class FrankaLEAPMobileDistillation(VecTask):
             if num_entries == expected_global_entries:
                 start = int(self.global_rank) * local_num_envs
                 return start, start + local_num_envs, num_entries
+            # CODEX: allow reusing a variation file generated as N local shards even when this run uses fewer side ranks.
+            if num_entries > local_num_envs and num_entries % local_num_envs == 0:
+                num_shards = num_entries // local_num_envs
+                shard_rank = int(self.global_rank) % num_shards
+                start = shard_rank * local_num_envs
+                return start, start + local_num_envs, num_entries
             raise ValueError(
                 "teacher_bank_variation_assignment_json has wrong length: "
-                f"expected either local {local_num_envs} or global {expected_global_entries}, got {num_entries}"
+                f"expected local {local_num_envs}, global {expected_global_entries}, "
+                f"or a multiple of local num_envs, got {num_entries}"
             )
 
         object_id_values = None

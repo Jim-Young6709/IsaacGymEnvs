@@ -70,6 +70,7 @@ dagger:
   save_freq: 1
   eval_freq: 0
   teacher_eval_only: False # CODEX: run repeated teacher rollouts without training.
+  multi_task_names: null # CODEX: optional per-rank task configs for WBCMultiExp, e.g. [DexMobileExpFull,DexMobileDistillationSideIsolated].
   aux_init_only: False
   aux_feedback_to_policy: True
   aux_feedback_start_steps: 30000
