@@ -73,6 +73,7 @@ def crop_local_pcd(
     is_cylindrical: bool = False,
     crop_center: torch.Tensor = None,
     x_direction_cutoff: torch.float = -0.5,
+    z_direction_cutoff: torch.float = 1.9, # according to the current scene gen setup, max z should be 1.85
     log_name: str = "",
 ):
     """
@@ -102,6 +103,10 @@ def crop_local_pcd(
     if x_direction_cutoff is not None:
         x_dir_mask = masked_pcds[:, :, 0] > x_direction_cutoff
         masked_pcds[~x_dir_mask] = float("nan")
+
+    if z_direction_cutoff is not None:
+        z_dir_mask = masked_pcds[:, :, 2] > z_direction_cutoff
+        masked_pcds[~z_dir_mask] = float("nan")
 
     # sort to get all the valid points
     is_valid = mask.int()
