@@ -143,10 +143,19 @@ class PresampleInitPose:
         # self.cfg_franka_canonical = [0.0, -0.25*np.pi, 0.0, -0.75*np.pi, 0.0, 0.5*np.pi, 0.5*np.pi] # shelf debug config
         self.cfg_franka_canonical = [0.0, -0.25*np.pi, 0.0, -0.75*np.pi, 0.0, 0.5*np.pi, 0.0]
         self.cfg_franka_noise = 0.5
-        self.cfg_leap_canonical = [1.57, 0.0, 1.57, 0.0,
-                                   0.0, 0.0, 1.0,  0.57,
-                                   1.57, 0.0, 1.57, 0.0,
-                                   1.57, 0.0, 1.57, 0.0,]
+        # self.cfg_leap_canonical = [
+        #     1.57, 0.0, 1.57, 0.0,
+        #     0.0, 0.0, 1.0,  0.57,
+        #     1.57, 0.0, 1.57, 0.0,
+        #     1.57, 0.0, 1.57, 0.0,
+        # ]
+        self.cfg_leap_canonical = [
+            0.7, -0.2,  0.7,  0.7,
+            0.8,   1.57, 0.77,  0.9,
+            0.65,  0.0,  0.65,  0.65,
+            0.7,  0.2,  0.7,  0.7,
+        ]
+
         self.cfg_leap_noise = 0.5
         self.cfg_arx_canonical = [0.0, 1.0, 2.0, -1.0, 0.0, 0.0]
         self.cfg_arx_noise = 0.5
