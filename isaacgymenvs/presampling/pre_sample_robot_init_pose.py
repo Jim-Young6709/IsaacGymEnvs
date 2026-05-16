@@ -308,6 +308,9 @@ class PresampleInitPose:
             success_rate_per_env += self.env.success_flags
 
             self.episode += 1
+            current_success_rate = (success_rate_per_env / self.episode).mean().item()
+            if not self.multi_gpu or self.global_rank == 0:
+                print(f"Sampling success rate after episode {self.episode}/{self.total_episodes}: {current_success_rate:.4f}")
 
         final_success_rate = (success_rate_per_env / self.total_episodes).mean().item()
         final_success_flag = ((success_rate_per_env / self.total_episodes) == 1.0)
