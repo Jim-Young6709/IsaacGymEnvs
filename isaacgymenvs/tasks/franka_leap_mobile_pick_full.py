@@ -53,7 +53,7 @@ class FrankaLEAPMobilePickFull(FrankaLEAPMobile):
         elif self.cfg_override == "SideConstrained":
             cfg["env"]["numObservations"] = 61
             cfg["env"]["numStates"] = 106
-            cfg["env"]["robot_init"]["switch_pos_offset"] = [-0.2,0.0,0.15] # TODO: the x offset should be along box_quat's x-axis, but now its the global x axis, update this later
+            cfg["env"]["robot_init"]["switch_pos_offset"] = [-0.1,0.0,0.15] # TODO: the x offset should be along box_quat's x-axis, but now its the global x axis, update this later
             cfg["env"]["robot_init"]["switch_tol"] = 0.2
             cfg["reward"]["params"]["target_quat"] = [0.5, -0.5, 0.5, -0.5]
 
