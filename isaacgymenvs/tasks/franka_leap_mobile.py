@@ -1356,9 +1356,11 @@ class FrankaLEAPMobile(VecTask):
         local_pts = torch.tensor(
             [[0.1, 0., 0.],
             [-0.1, 0., 0.],
-            [0., 0., 0.],
+            # [0., 0., 0.],
             [0., 0.1, 0.],
-            [0., -0.1, 0.]],
+            [0., -0.1, 0.],
+            [0., 0., 0.1],
+            [0., 0., -0.1]],
             dtype=curent_eef_pos7.dtype,
             device=curent_eef_pos7.device
         )
@@ -1907,7 +1909,7 @@ class FrankaLEAPMobile(VecTask):
 
         # randomize actions
         if self.dr_randomizations.get('actions', None):
-            actions[~self.fabric_switch_enable][:, :26] = self.dr_randomizations['actions']['noise_lambda'](actions)[~self.fabric_switch_enable][:, :26]
+            actions[~self.fabric_switch_enable][:, :26] = self.dr_randomizations['actions']['noise_lambda'](actions)[~self.fabric_switch_enable][:, :26] # might have minor bugs here according to codex?
 
         action_tensor = torch.clamp(actions, -self.clip_actions, self.clip_actions)
         # apply actions
