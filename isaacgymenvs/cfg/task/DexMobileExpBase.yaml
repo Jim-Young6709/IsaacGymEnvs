@@ -33,6 +33,10 @@ pcd_spec:
 # Domain Randomization, decrease dr range for franka, otherwise current fabric tuning might not work
 task:
   randomization_params:
+    observations:
+      range: [0, .00001] # this part will only mess up rl policy, so set to minimal noise
+    actions:
+      range: [0, .05]
     actor_params:
       franka:
         # color: True
