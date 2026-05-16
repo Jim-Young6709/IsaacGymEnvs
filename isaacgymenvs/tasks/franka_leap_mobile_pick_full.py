@@ -453,7 +453,7 @@ class FrankaLEAPMobilePickFull(FrankaLEAPMobile):
             pass
         elif self.cfg_override == "SideConstrained":
             self.obj_pos_target[:] = self.box_pos.clone()
-            self.obj_pos_target[:, 0] -= (self.box_dims[:, 0] / 2 + 0.2)
+            self.obj_pos_target[:, 0] -= (self.box_dims[:, 0] / 2 + 0.1)
             self.obj_pos_target[:, 2] += 0.1 # self.box_dims[:, 2] / 2
 
         self.switching_target_pos = self.states['object_center_pos'].clone()
