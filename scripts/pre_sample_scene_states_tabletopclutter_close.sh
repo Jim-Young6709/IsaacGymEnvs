@@ -67,8 +67,8 @@ NUM_ENVS_LIST=(1250)
 
 BASE_INIT_RANGE="[[-0.3, -0.5, -1.5], [-0.2, 0.5, 1.5]]"
 SEED=1
-TASK_NAME="May13_tabletopclutter_t0inview_close"
-TEACHER_CKPT="./rl_ckpts/exp_top_May13.pth"
+TASK_NAME="May16_tabletopclutter_newfabricnewcanoninewswitching_t0inview_close"
+TEACHER_CKPT="./rl_ckpts/exp_top_Apr9.pth"
 SCENE_DIR="./presampled_envs/scene_only"
 SCENE_HDF5="May13_tabletopclutter10k_part2.hdf5"
 HEADLESS="True"

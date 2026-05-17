@@ -67,8 +67,8 @@ NUM_ENVS_LIST=(1250)
 
 BASE_INIT_RANGE="[[-1.0, -0.5, -1.5], [-0.2, 0.5, 1.5]]"
 SEED=11
-TASK_NAME="May13_box_t0inview_part1"
-TEACHER_CKPT="./rl_ckpts/exp_top_May13.pth"
+TASK_NAME="May16_box_newfabricnewcanoninewswitching_t0inview_part1"
+TEACHER_CKPT="./rl_ckpts/exp_top_Apr9.pth"
 SCENE_DIR="./presampled_envs/scene_only"
 SCENE_HDF5="May13_box10k_part1_post.hdf5"
 HEADLESS="True"
