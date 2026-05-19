@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "polar_bear",
+  "base_name": "1",
+  "full_name": "polar_bear_1",
+  "category": "default",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-05-18 21:49:41",
+  "transform": {
+    "dilate_x": 0.07999999999999939,
+    "dilate_y": 0.07999999999999939,
+    "dilate_z": 0.07999999999999939,
+    "dilate_x_min": 0.07999999999999939,
+    "dilate_x_max": 0.07999999999999939,
+    "dilate_y_min": 0.07999999999999939,
+    "dilate_y_max": 0.07999999999999939,
+    "dilate_z_min": 0.07999999999999939,
+    "dilate_z_max": 0.07999999999999939,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 0.07999999999999939,
+      "max": 0.07999999999999939
+    },
+    "y": {
+      "min": 0.07999999999999939,
+      "max": 0.07999999999999939
+    },
+    "z": {
+      "min": 0.07999999999999939,
+      "max": 0.07999999999999939
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.99797961,
+        0.48704831,
+        1.00197564
+      ],
+      "volume": 0.19004900437628494,
+      "max_dim": 1.00197564
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.07983836879999939,
+        0.038963864799999706,
+        0.08015805119999939
+      ],
+      "volume": 9.730509024065568e-05,
+      "max_dim": 0.08015805119999939
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/polar_bear_1/v000/polar_bear_1_v000.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/polar_bear_1/v000/polar_bear_1_v000.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/polar_bear_1/v000/polar_bear_1_v000.npy",
+      "urdf": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/polar_bear_1/v000/polar_bear_1_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/polar_bear/1.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/polar_bear/1.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/polar_bear/1.npy",
+      "urdf": null
+    }
+  }
+}

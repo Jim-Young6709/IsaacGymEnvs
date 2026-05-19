@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "flute_glass",
+  "base_name": "0",
+  "full_name": "flute_glass_0",
+  "category": "default",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-05-18 19:49:57",
+  "transform": {
+    "dilate_x": 1.0,
+    "dilate_y": 1.0,
+    "dilate_z": 1.0,
+    "dilate_x_min": 1.0,
+    "dilate_x_max": 1.0,
+    "dilate_y_min": 1.0,
+    "dilate_y_max": 1.0,
+    "dilate_z_min": 1.0,
+    "dilate_z_max": 1.0,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 1.0,
+      "max": 1.0
+    },
+    "y": {
+      "min": 1.0,
+      "max": 1.0
+    },
+    "z": {
+      "min": 1.0,
+      "max": 1.0
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.044879716,
+        0.044892825,
+        0.09996028400000001
+      ],
+      "volume": 1.414155838397201e-05,
+      "max_dim": 0.09996028400000001
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.044879716,
+        0.044892825,
+        0.09996028400000001
+      ],
+      "volume": 1.414155838397201e-05,
+      "max_dim": 0.09996028400000001
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/flute_glass_0/v000/flute_glass_0_v000.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/flute_glass_0/v000/flute_glass_0_v000.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/flute_glass_0/v000/flute_glass_0_v000.npy",
+      "urdf": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/flute_glass_0/v000/flute_glass_0_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/flute_glass/0.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/flute_glass/0.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/flute_glass/0.npy",
+      "urdf": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/flute_glass/0.urdf"
+    }
+  }
+}

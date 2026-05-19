@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "grits",
+  "base_name": "1",
+  "full_name": "grits_1",
+  "category": "default",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-05-18 19:58:20",
+  "transform": {
+    "dilate_x": 1.0,
+    "dilate_y": 1.0,
+    "dilate_z": 1.0,
+    "dilate_x_min": 1.0,
+    "dilate_x_max": 1.0,
+    "dilate_y_min": 1.0,
+    "dilate_y_max": 1.0,
+    "dilate_z_min": 1.0,
+    "dilate_z_max": 1.0,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 1.0,
+      "max": 1.0
+    },
+    "y": {
+      "min": 1.0,
+      "max": 1.0
+    },
+    "z": {
+      "min": 1.0,
+      "max": 1.0
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.086735977,
+        0.094820132,
+        0.030073344000000002
+      ],
+      "volume": 5.484920253205969e-05,
+      "max_dim": 0.094820132
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.086735977,
+        0.094820132,
+        0.030073344000000002
+      ],
+      "volume": 5.484920253205969e-05,
+      "max_dim": 0.094820132
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/grits_1/v000/grits_1_v000.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/grits_1/v000/grits_1_v000.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/grits_1/v000/grits_1_v000.npy",
+      "urdf": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/grits_1/v000/grits_1_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/grits/1.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/grits/1.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/grits/1.npy",
+      "urdf": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/grits/1.urdf"
+    }
+  }
+}

@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "chicken_(animal)",
+  "base_name": "2",
+  "full_name": "chicken_(animal)_2",
+  "category": "default",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-05-04 20:34:13",
+  "transform": {
+    "dilate_x": 1.0,
+    "dilate_y": 1.0,
+    "dilate_z": 1.0,
+    "dilate_x_min": 1.0,
+    "dilate_x_max": 1.0,
+    "dilate_y_min": 1.0,
+    "dilate_y_max": 1.0,
+    "dilate_z_min": 1.0,
+    "dilate_z_max": 1.0,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 1.0,
+      "max": 1.0
+    },
+    "y": {
+      "min": 1.0,
+      "max": 1.0
+    },
+    "z": {
+      "min": 1.0,
+      "max": 1.0
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.041478392,
+        0.044023101,
+        0.098015091
+      ],
+      "volume": 6.443366149671743e-05,
+      "max_dim": 0.098015091
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.041478392,
+        0.044023101,
+        0.098015091
+      ],
+      "volume": 6.443366149671743e-05,
+      "max_dim": 0.098015091
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/default/chicken_(animal)_2/v000/chicken_(animal)_2_v000.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/default/chicken_(animal)_2/v000/chicken_(animal)_2_v000.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/default/chicken_(animal)_2/v000/chicken_(animal)_2_v000.npy",
+      "urdf": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/default/chicken_(animal)_2/v000/chicken_(animal)_2_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/chicken_(animal)/2.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/chicken_(animal)/2.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/chicken_(animal)/2.npy",
+      "urdf": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/chicken_(animal)/2.urdf"
+    }
+  }
+}

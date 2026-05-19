@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "hamster",
+  "base_name": "1",
+  "full_name": "hamster_1",
+  "category": "default",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-05-18 20:04:58",
+  "transform": {
+    "dilate_x": 1.0,
+    "dilate_y": 1.0,
+    "dilate_z": 1.0,
+    "dilate_x_min": 1.0,
+    "dilate_x_max": 1.0,
+    "dilate_y_min": 1.0,
+    "dilate_y_max": 1.0,
+    "dilate_z_min": 1.0,
+    "dilate_z_max": 1.0,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 1.0,
+      "max": 1.0
+    },
+    "y": {
+      "min": 1.0,
+      "max": 1.0
+    },
+    "z": {
+      "min": 1.0,
+      "max": 1.0
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.051883993,
+        0.056515756,
+        0.10211080900000001
+      ],
+      "volume": 0.00015333298339731833,
+      "max_dim": 0.10211080900000001
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.051883993,
+        0.056515756,
+        0.10211080900000001
+      ],
+      "volume": 0.00015333298339731833,
+      "max_dim": 0.10211080900000001
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/hamster_1/v000/hamster_1_v000.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/hamster_1/v000/hamster_1_v000.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/hamster_1/v000/hamster_1_v000.npy",
+      "urdf": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/hamster_1/v000/hamster_1_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/hamster/1.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/hamster/1.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/hamster/1.npy",
+      "urdf": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/hamster/1.urdf"
+    }
+  }
+}

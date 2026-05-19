@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "pouch",
+  "base_name": "1",
+  "full_name": "pouch_1",
+  "category": "default",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-05-18 21:51:34",
+  "transform": {
+    "dilate_x": 0.1199999999999994,
+    "dilate_y": 0.1199999999999994,
+    "dilate_z": 0.1199999999999994,
+    "dilate_x_min": 0.1199999999999994,
+    "dilate_x_max": 0.1199999999999994,
+    "dilate_y_min": 0.1199999999999994,
+    "dilate_y_max": 0.1199999999999994,
+    "dilate_z_min": 0.1199999999999994,
+    "dilate_z_max": 0.1199999999999994,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 0.1199999999999994,
+      "max": 0.1199999999999994
+    },
+    "y": {
+      "min": 0.1199999999999994,
+      "max": 0.1199999999999994
+    },
+    "z": {
+      "min": 0.1199999999999994,
+      "max": 0.1199999999999994
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.6015911300000001,
+        0.89981836,
+        0.91064299
+      ],
+      "volume": 0.327040706872337,
+      "max_dim": 0.91064299
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.07219093559999964,
+        0.10797820319999946,
+        0.10927715879999945
+      ],
+      "volume": 0.0005651263414753898,
+      "max_dim": 0.10927715879999945
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/pouch_1/v000/pouch_1_v000.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/pouch_1/v000/pouch_1_v000.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/pouch_1/v000/pouch_1_v000.npy",
+      "urdf": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/pouch_1/v000/pouch_1_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/pouch/1.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/pouch/1.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/pouch/1.npy",
+      "urdf": null
+    }
+  }
+}

@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "radio_receiver",
+  "base_name": "2",
+  "full_name": "radio_receiver_2",
+  "category": "default",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-05-18 21:54:44",
+  "transform": {
+    "dilate_x": 0.0999999999999994,
+    "dilate_y": 0.0999999999999994,
+    "dilate_z": 0.0999999999999994,
+    "dilate_x_min": 0.0999999999999994,
+    "dilate_x_max": 0.0999999999999994,
+    "dilate_y_min": 0.0999999999999994,
+    "dilate_y_max": 0.0999999999999994,
+    "dilate_z_min": 0.0999999999999994,
+    "dilate_z_max": 0.0999999999999994,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 0.0999999999999994,
+      "max": 0.0999999999999994
+    },
+    "y": {
+      "min": 0.0999999999999994,
+      "max": 0.0999999999999994
+    },
+    "z": {
+      "min": 0.0999999999999994,
+      "max": 0.0999999999999994
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.93393737,
+        0.33719418,
+        0.69275391
+      ],
+      "volume": 0.19226325855462695,
+      "max_dim": 0.93393737
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.09339373699999944,
+        0.03371941799999979,
+        0.06927539099999958
+      ],
+      "volume": 0.00019226325855462343,
+      "max_dim": 0.09339373699999944
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/radio_receiver_2/v000/radio_receiver_2_v000.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/radio_receiver_2/v000/radio_receiver_2_v000.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/radio_receiver_2/v000/radio_receiver_2_v000.npy",
+      "urdf": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/radio_receiver_2/v000/radio_receiver_2_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/radio_receiver/2.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/radio_receiver/2.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/radio_receiver/2.npy",
+      "urdf": null
+    }
+  }
+}

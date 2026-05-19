@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "pumpkin",
+  "base_name": "3",
+  "full_name": "pumpkin_3",
+  "category": "default",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-05-18 21:53:14",
+  "transform": {
+    "dilate_x": 0.11000000000000001,
+    "dilate_y": 0.11000000000000001,
+    "dilate_z": 0.11000000000000001,
+    "dilate_x_min": 0.11,
+    "dilate_x_max": 0.11000000000000003,
+    "dilate_y_min": 0.11,
+    "dilate_y_max": 0.11000000000000003,
+    "dilate_z_min": 0.11,
+    "dilate_z_max": 0.11000000000000003,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 0.11,
+      "max": 0.11000000000000003
+    },
+    "y": {
+      "min": 0.11,
+      "max": 0.11000000000000003
+    },
+    "z": {
+      "min": 0.11,
+      "max": 0.11000000000000003
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        1.0215048100000002,
+        1.0608952,
+        0.84342404
+      ],
+      "volume": 0.46981977754357196,
+      "max_dim": 1.0608952
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.11236552910000003,
+        0.116698472,
+        0.09277664440000001
+      ],
+      "volume": 0.0006253301239104944,
+      "max_dim": 0.116698472
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/pumpkin_3/v000/pumpkin_3_v000.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/pumpkin_3/v000/pumpkin_3_v000.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/pumpkin_3/v000/pumpkin_3_v000.npy",
+      "urdf": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/pumpkin_3/v000/pumpkin_3_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/pumpkin/3.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/pumpkin/3.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/pumpkin/3.npy",
+      "urdf": null
+    }
+  }
+}

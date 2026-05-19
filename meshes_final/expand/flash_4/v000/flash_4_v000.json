@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "flash",
+  "base_name": "4",
+  "full_name": "flash_4",
+  "category": "default",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-05-18 19:48:53",
+  "transform": {
+    "dilate_x": 0.0999999999999994,
+    "dilate_y": 0.0999999999999994,
+    "dilate_z": 0.0999999999999994,
+    "dilate_x_min": 0.0999999999999994,
+    "dilate_x_max": 0.0999999999999994,
+    "dilate_y_min": 0.0999999999999994,
+    "dilate_y_max": 0.0999999999999994,
+    "dilate_z_min": 0.0999999999999994,
+    "dilate_z_max": 0.0999999999999994,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 0.0999999999999994,
+      "max": 0.0999999999999994
+    },
+    "y": {
+      "min": 0.0999999999999994,
+      "max": 0.0999999999999994
+    },
+    "z": {
+      "min": 0.0999999999999994,
+      "max": 0.0999999999999994
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.7061527000000001,
+        0.53601908,
+        0.94678351
+      ],
+      "volume": 0.1044258110279761,
+      "max_dim": 0.94678351
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.07061526999999958,
+        0.05360190799999967,
+        0.09467835099999944
+      ],
+      "volume": 0.00010442581102797418,
+      "max_dim": 0.09467835099999944
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/flash_4/v000/flash_4_v000.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/flash_4/v000/flash_4_v000.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/flash_4/v000/flash_4_v000.npy",
+      "urdf": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/flash_4/v000/flash_4_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/flash/4.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/flash/4.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/flash/4.npy",
+      "urdf": null
+    }
+  }
+}

@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "papaya",
+  "base_name": "2",
+  "full_name": "papaya_2",
+  "category": "default",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-05-18 21:23:55",
+  "transform": {
+    "dilate_x": 1.0,
+    "dilate_y": 1.0,
+    "dilate_z": 1.0,
+    "dilate_x_min": 1.0,
+    "dilate_x_max": 1.0,
+    "dilate_y_min": 1.0,
+    "dilate_y_max": 1.0,
+    "dilate_z_min": 1.0,
+    "dilate_z_max": 1.0,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 1.0,
+      "max": 1.0
+    },
+    "y": {
+      "min": 1.0,
+      "max": 1.0
+    },
+    "z": {
+      "min": 1.0,
+      "max": 1.0
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.057334895999999996,
+        0.060266059000000004,
+        0.099293425
+      ],
+      "volume": 0.00013631287361469836,
+      "max_dim": 0.099293425
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.057334895999999996,
+        0.060266059000000004,
+        0.099293425
+      ],
+      "volume": 0.00013631287361469836,
+      "max_dim": 0.099293425
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/papaya_2/v000/papaya_2_v000.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/papaya_2/v000/papaya_2_v000.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/papaya_2/v000/papaya_2_v000.npy",
+      "urdf": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/papaya_2/v000/papaya_2_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/papaya/2.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/papaya/2.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/papaya/2.npy",
+      "urdf": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/papaya/2.urdf"
+    }
+  }
+}

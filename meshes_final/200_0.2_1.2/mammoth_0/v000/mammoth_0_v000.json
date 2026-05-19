@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "mammoth",
+  "base_name": "0",
+  "full_name": "mammoth_0",
+  "category": "default",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-05-18 21:20:07",
+  "transform": {
+    "dilate_x": 0.1399999999999994,
+    "dilate_y": 0.1399999999999994,
+    "dilate_z": 0.1399999999999994,
+    "dilate_x_min": 0.1399999999999994,
+    "dilate_x_max": 0.1399999999999994,
+    "dilate_y_min": 0.1399999999999994,
+    "dilate_y_max": 0.1399999999999994,
+    "dilate_z_min": 0.1399999999999994,
+    "dilate_z_max": 0.1399999999999994,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 0.1399999999999994,
+      "max": 0.1399999999999994
+    },
+    "y": {
+      "min": 0.1399999999999994,
+      "max": 0.1399999999999994
+    },
+    "z": {
+      "min": 0.1399999999999994,
+      "max": 0.1399999999999994
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.29420484,
+        0.84418553,
+        0.68176417
+      ],
+      "volume": 0.11451525205805864,
+      "max_dim": 0.84418553
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.04118867759999983,
+        0.11818597419999949,
+        0.0954469837999996
+      ],
+      "volume": 0.0003142298516473089,
+      "max_dim": 0.11818597419999949
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/mammoth_0/v000/mammoth_0_v000.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/mammoth_0/v000/mammoth_0_v000.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/mammoth_0/v000/mammoth_0_v000.npy",
+      "urdf": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/mammoth_0/v000/mammoth_0_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/mammoth/0.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/mammoth/0.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/mammoth/0.npy",
+      "urdf": null
+    }
+  }
+}

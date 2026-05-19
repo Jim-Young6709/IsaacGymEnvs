@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "ferret",
+  "base_name": "3",
+  "full_name": "ferret_3",
+  "category": "default",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-05-18 19:46:00",
+  "transform": {
+    "dilate_x": 0.0999999999999994,
+    "dilate_y": 0.0999999999999994,
+    "dilate_z": 0.0999999999999994,
+    "dilate_x_min": 0.0999999999999994,
+    "dilate_x_max": 0.0999999999999994,
+    "dilate_y_min": 0.0999999999999994,
+    "dilate_y_max": 0.0999999999999994,
+    "dilate_z_min": 0.0999999999999994,
+    "dilate_z_max": 0.0999999999999994,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 0.0999999999999994,
+      "max": 0.0999999999999994
+    },
+    "y": {
+      "min": 0.0999999999999994,
+      "max": 0.0999999999999994
+    },
+    "z": {
+      "min": 0.0999999999999994,
+      "max": 0.0999999999999994
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.31189734,
+        0.92302087,
+        0.41966153
+      ],
+      "volume": 0.03283560407412515,
+      "max_dim": 0.92302087
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.031189733999999813,
+        0.09230208699999944,
+        0.04196615299999975
+      ],
+      "volume": 3.283560407412456e-05,
+      "max_dim": 0.09230208699999944
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/ferret_3/v000/ferret_3_v000.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/ferret_3/v000/ferret_3_v000.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/ferret_3/v000/ferret_3_v000.npy",
+      "urdf": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/ferret_3/v000/ferret_3_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/ferret/3.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/ferret/3.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/ferret/3.npy",
+      "urdf": null
+    }
+  }
+}

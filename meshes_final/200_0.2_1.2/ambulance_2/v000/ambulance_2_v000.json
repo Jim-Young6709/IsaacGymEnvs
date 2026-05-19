@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "ambulance_2",
+  "base_name": "ambulance_2",
+  "full_name": "ambulance_2",
+  "category": "default",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-05-04 19:57:51",
+  "transform": {
+    "dilate_x": 1.0,
+    "dilate_y": 1.0,
+    "dilate_z": 1.0,
+    "dilate_x_min": 1.0,
+    "dilate_x_max": 1.0,
+    "dilate_y_min": 1.0,
+    "dilate_y_max": 1.0,
+    "dilate_z_min": 1.0,
+    "dilate_z_max": 1.0,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 1.0,
+      "max": 1.0
+    },
+    "y": {
+      "min": 1.0,
+      "max": 1.0
+    },
+    "z": {
+      "min": 1.0,
+      "max": 1.0
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.09997997,
+        0.04069928,
+        0.04493451
+      ],
+      "volume": 0.00013940324306111005,
+      "max_dim": 0.09997997
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.09997997,
+        0.04069928,
+        0.04493451
+      ],
+      "volume": 0.00013940324306111005,
+      "max_dim": 0.09997997
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/default/ambulance_2/v000/ambulance_2_v000.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/default/ambulance_2/v000/ambulance_2_v000.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/default/ambulance_2/v000/ambulance_2_v000.npy",
+      "urdf": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/default/ambulance_2/v000/ambulance_2_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_69_new/ambulance_2/ambulance_2.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_69_new/ambulance_2/ambulance_2.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_69_new/ambulance_2/ambulance_2.npy",
+      "urdf": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_69_new/ambulance_2/ambulance_2.urdf"
+    }
+  }
+}

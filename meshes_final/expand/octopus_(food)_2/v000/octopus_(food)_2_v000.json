@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "octopus_(food)",
+  "base_name": "2",
+  "full_name": "octopus_(food)_2",
+  "category": "default",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-05-18 21:22:36",
+  "transform": {
+    "dilate_x": 1.0,
+    "dilate_y": 1.0,
+    "dilate_z": 1.0,
+    "dilate_x_min": 1.0,
+    "dilate_x_max": 1.0,
+    "dilate_y_min": 1.0,
+    "dilate_y_max": 1.0,
+    "dilate_z_min": 1.0,
+    "dilate_z_max": 1.0,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 1.0,
+      "max": 1.0
+    },
+    "y": {
+      "min": 1.0,
+      "max": 1.0
+    },
+    "z": {
+      "min": 1.0,
+      "max": 1.0
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.08621763,
+        0.085840149,
+        0.10203283299999999
+      ],
+      "volume": 0.00042892362298081353,
+      "max_dim": 0.10203283299999999
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.08621763,
+        0.085840149,
+        0.10203283299999999
+      ],
+      "volume": 0.00042892362298081353,
+      "max_dim": 0.10203283299999999
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/octopus_(food)_2/v000/octopus_(food)_2_v000.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/octopus_(food)_2/v000/octopus_(food)_2_v000.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/octopus_(food)_2/v000/octopus_(food)_2_v000.npy",
+      "urdf": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/octopus_(food)_2/v000/octopus_(food)_2_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/octopus_(food)/2.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/octopus_(food)/2.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/octopus_(food)/2.npy",
+      "urdf": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/octopus_(food)/2.urdf"
+    }
+  }
+}

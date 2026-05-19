@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "penny_(coin)",
+  "base_name": "1",
+  "full_name": "penny_(coin)_1",
+  "category": "default",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-05-18 21:40:39",
+  "transform": {
+    "dilate_x": 1.0,
+    "dilate_y": 2.5,
+    "dilate_z": 1.0,
+    "dilate_x_min": 1.0,
+    "dilate_x_max": 1.0,
+    "dilate_y_min": 2.5,
+    "dilate_y_max": 2.5,
+    "dilate_z_min": 1.0,
+    "dilate_z_max": 1.0,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 1.0,
+      "max": 1.0
+    },
+    "y": {
+      "min": 2.5,
+      "max": 2.5
+    },
+    "z": {
+      "min": 1.0,
+      "max": 1.0
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.09862601500000001,
+        0.013920969000000002,
+        0.10014725200000002
+      ],
+      "volume": 0.00010744417904821078,
+      "max_dim": 0.10014725200000002
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.09862601500000001,
+        0.0348024225,
+        0.10014725200000002
+      ],
+      "volume": 0.00026861044762052687,
+      "max_dim": 0.10014725200000002
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/penny_(coin)_1/v000/penny_(coin)_1_v000.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/penny_(coin)_1/v000/penny_(coin)_1_v000.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/penny_(coin)_1/v000/penny_(coin)_1_v000.npy",
+      "urdf": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/penny_(coin)_1/v000/penny_(coin)_1_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/penny_(coin)/1.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/penny_(coin)/1.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/penny_(coin)/1.npy",
+      "urdf": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/penny_(coin)/1.urdf"
+    }
+  }
+}

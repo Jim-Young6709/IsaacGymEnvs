@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "puppy",
+  "base_name": "3",
+  "full_name": "puppy_3",
+  "category": "default",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-05-18 21:54:03",
+  "transform": {
+    "dilate_x": 0.3199999999999994,
+    "dilate_y": 0.3199999999999994,
+    "dilate_z": 0.3199999999999994,
+    "dilate_x_min": 0.3199999999999994,
+    "dilate_x_max": 0.3199999999999994,
+    "dilate_y_min": 0.3199999999999994,
+    "dilate_y_max": 0.3199999999999994,
+    "dilate_z_min": 0.3199999999999994,
+    "dilate_z_max": 0.3199999999999994,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 0.3199999999999994,
+      "max": 0.3199999999999994
+    },
+    "y": {
+      "min": 0.3199999999999994,
+      "max": 0.3199999999999994
+    },
+    "z": {
+      "min": 0.3199999999999994,
+      "max": 0.3199999999999994
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.08525096400000001,
+        0.10837612,
+        0.09085217100000001
+      ],
+      "volume": 0.00042545557106412127,
+      "max_dim": 0.10837612
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.027280308479999953,
+        0.03468035839999994,
+        0.029072694719999948
+      ],
+      "volume": 1.3941328152629047e-05,
+      "max_dim": 0.03468035839999994
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/puppy_3/v000/puppy_3_v000.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/puppy_3/v000/puppy_3_v000.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/puppy_3/v000/puppy_3_v000.npy",
+      "urdf": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/puppy_3/v000/puppy_3_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/puppy/3.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/puppy/3.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/puppy/3.npy",
+      "urdf": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/puppy/3.urdf"
+    }
+  }
+}

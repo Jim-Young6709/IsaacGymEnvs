@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "piggy_bank",
+  "base_name": "3",
+  "full_name": "piggy_bank_3",
+  "category": "default",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-05-18 21:42:37",
+  "transform": {
+    "dilate_x": 0.1199999999999994,
+    "dilate_y": 0.1199999999999994,
+    "dilate_z": 0.1199999999999994,
+    "dilate_x_min": 0.1199999999999994,
+    "dilate_x_max": 0.1199999999999994,
+    "dilate_y_min": 0.1199999999999994,
+    "dilate_y_max": 0.1199999999999994,
+    "dilate_z_min": 0.1199999999999994,
+    "dilate_z_max": 0.1199999999999994,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 0.1199999999999994,
+      "max": 0.1199999999999994
+    },
+    "y": {
+      "min": 0.1199999999999994,
+      "max": 0.1199999999999994
+    },
+    "z": {
+      "min": 0.1199999999999994,
+      "max": 0.1199999999999994
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.99840274,
+        0.81813309,
+        0.80989846
+      ],
+      "volume": 0.3594624343044178,
+      "max_dim": 0.99840274
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.1198083287999994,
+        0.09817597079999951,
+        0.09718781519999951
+      ],
+      "volume": 0.0006211510864780247,
+      "max_dim": 0.1198083287999994
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/piggy_bank_3/v000/piggy_bank_3_v000.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/piggy_bank_3/v000/piggy_bank_3_v000.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/piggy_bank_3/v000/piggy_bank_3_v000.npy",
+      "urdf": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/piggy_bank_3/v000/piggy_bank_3_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/piggy_bank/3.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/piggy_bank/3.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/piggy_bank/3.npy",
+      "urdf": null
+    }
+  }
+}

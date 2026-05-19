@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "flashlight",
+  "base_name": "1",
+  "full_name": "flashlight_1",
+  "category": "default",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-05-18 19:49:41",
+  "transform": {
+    "dilate_x": 0.0999999999999997,
+    "dilate_y": 0.0999999999999997,
+    "dilate_z": 0.0999999999999997,
+    "dilate_x_min": 0.09999999999999938,
+    "dilate_x_max": 0.1,
+    "dilate_y_min": 0.09999999999999938,
+    "dilate_y_max": 0.1,
+    "dilate_z_min": 0.09999999999999938,
+    "dilate_z_max": 0.1,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 0.09999999999999938,
+      "max": 0.1
+    },
+    "y": {
+      "min": 0.09999999999999938,
+      "max": 0.1
+    },
+    "z": {
+      "min": 0.09999999999999938,
+      "max": 0.1
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.24900284,
+        0.9982098100000001,
+        0.24900301
+      ],
+      "volume": 0.0427774273668162,
+      "max_dim": 0.9982098100000001
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.024900283999999925,
+        0.0998209809999997,
+        0.024900300999999923
+      ],
+      "volume": 4.2777427366815826e-05,
+      "max_dim": 0.0998209809999997
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/flashlight_1/v000/flashlight_1_v000.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/flashlight_1/v000/flashlight_1_v000.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/flashlight_1/v000/flashlight_1_v000.npy",
+      "urdf": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/flashlight_1/v000/flashlight_1_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/flashlight/1.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/flashlight/1.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/flashlight/1.npy",
+      "urdf": null
+    }
+  }
+}

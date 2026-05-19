@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "battery_4",
+  "base_name": "battery_4",
+  "full_name": "battery_4",
+  "category": "default",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-05-04 19:58:17",
+  "transform": {
+    "dilate_x": 1.0,
+    "dilate_y": 1.0,
+    "dilate_z": 1.0,
+    "dilate_x_min": 1.0,
+    "dilate_x_max": 1.0,
+    "dilate_y_min": 1.0,
+    "dilate_y_max": 1.0,
+    "dilate_z_min": 1.0,
+    "dilate_z_max": 1.0,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 1.0,
+      "max": 1.0
+    },
+    "y": {
+      "min": 1.0,
+      "max": 1.0
+    },
+    "z": {
+      "min": 1.0,
+      "max": 1.0
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.098929,
+        0.04494949,
+        0.05814563
+      ],
+      "volume": 0.0002507112342001638,
+      "max_dim": 0.098929
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.098929,
+        0.04494949,
+        0.05814563
+      ],
+      "volume": 0.0002507112342001638,
+      "max_dim": 0.098929
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/default/battery_4/v000/battery_4_v000.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/default/battery_4/v000/battery_4_v000.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/default/battery_4/v000/battery_4_v000.npy",
+      "urdf": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/default/battery_4/v000/battery_4_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_69_new/battery_4/battery_4.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_69_new/battery_4/battery_4.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_69_new/battery_4/battery_4.npy",
+      "urdf": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_69_new/battery_4/battery_4.urdf"
+    }
+  }
+}

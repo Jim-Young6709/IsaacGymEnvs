@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "frog",
+  "base_name": "3",
+  "full_name": "frog_3",
+  "category": "default",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-05-18 19:51:57",
+  "transform": {
+    "dilate_x": 0.1199999999999994,
+    "dilate_y": 0.1199999999999994,
+    "dilate_z": 0.1199999999999994,
+    "dilate_x_min": 0.1199999999999994,
+    "dilate_x_max": 0.1199999999999994,
+    "dilate_y_min": 0.1199999999999994,
+    "dilate_y_max": 0.1199999999999994,
+    "dilate_z_min": 0.1199999999999994,
+    "dilate_z_max": 0.1199999999999994,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 0.1199999999999994,
+      "max": 0.1199999999999994
+    },
+    "y": {
+      "min": 0.1199999999999994,
+      "max": 0.1199999999999994
+    },
+    "z": {
+      "min": 0.1199999999999994,
+      "max": 0.1199999999999994
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        1.0,
+        0.6896551799999999,
+        0.55172414
+      ],
+      "volume": 0.2364541697006457,
+      "max_dim": 1.0
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.1199999999999994,
+        0.08275862159999958,
+        0.06620689679999966
+      ],
+      "volume": 0.00040859280524270953,
+      "max_dim": 0.1199999999999994
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/frog_3/v000/frog_3_v000.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/frog_3/v000/frog_3_v000.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/frog_3/v000/frog_3_v000.npy",
+      "urdf": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/frog_3/v000/frog_3_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/frog/3.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/frog/3.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/frog/3.npy",
+      "urdf": null
+    }
+  }
+}

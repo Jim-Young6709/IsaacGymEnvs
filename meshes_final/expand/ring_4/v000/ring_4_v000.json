@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "ring",
+  "base_name": "4",
+  "full_name": "ring_4",
+  "category": "default",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-05-18 22:17:02",
+  "transform": {
+    "dilate_x": 0.0999999999999994,
+    "dilate_y": 0.0999999999999994,
+    "dilate_z": 0.0999999999999994,
+    "dilate_x_min": 0.0999999999999994,
+    "dilate_x_max": 0.0999999999999994,
+    "dilate_y_min": 0.0999999999999994,
+    "dilate_y_max": 0.0999999999999994,
+    "dilate_z_min": 0.0999999999999994,
+    "dilate_z_max": 0.0999999999999994,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 0.0999999999999994,
+      "max": 0.0999999999999994
+    },
+    "y": {
+      "min": 0.0999999999999994,
+      "max": 0.0999999999999994
+    },
+    "z": {
+      "min": 0.0999999999999994,
+      "max": 0.0999999999999994
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.9999999900000001,
+        1.00000043,
+        0.26302742
+      ],
+      "volume": 0.06575920523362348,
+      "max_dim": 1.00000043
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.0999999989999994,
+        0.1000000429999994,
+        0.02630274199999984
+      ],
+      "volume": 6.575920523362227e-05,
+      "max_dim": 0.1000000429999994
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/ring_4/v000/ring_4_v000.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/ring_4/v000/ring_4_v000.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/ring_4/v000/ring_4_v000.npy",
+      "urdf": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/ring_4/v000/ring_4_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/ring/4.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/ring/4.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/ring/4.npy",
+      "urdf": null
+    }
+  }
+}

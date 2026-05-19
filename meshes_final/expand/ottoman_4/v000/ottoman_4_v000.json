@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "ottoman",
+  "base_name": "4",
+  "full_name": "ottoman_4",
+  "category": "default",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-05-18 21:23:13",
+  "transform": {
+    "dilate_x": 1.0,
+    "dilate_y": 1.0,
+    "dilate_z": 1.0,
+    "dilate_x_min": 1.0,
+    "dilate_x_max": 1.0,
+    "dilate_y_min": 1.0,
+    "dilate_y_max": 1.0,
+    "dilate_z_min": 1.0,
+    "dilate_z_max": 1.0,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 1.0,
+      "max": 1.0
+    },
+    "y": {
+      "min": 1.0,
+      "max": 1.0
+    },
+    "z": {
+      "min": 1.0,
+      "max": 1.0
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.09999977900000001,
+        0.05980039400000001,
+        0.045338592000000004
+      ],
+      "volume": 0.00026996448577207375,
+      "max_dim": 0.09999977900000001
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.09999977900000001,
+        0.05980039400000001,
+        0.045338592000000004
+      ],
+      "volume": 0.00026996448577207375,
+      "max_dim": 0.09999977900000001
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/ottoman_4/v000/ottoman_4_v000.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/ottoman_4/v000/ottoman_4_v000.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/ottoman_4/v000/ottoman_4_v000.npy",
+      "urdf": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/ottoman_4/v000/ottoman_4_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/ottoman/4.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/ottoman/4.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/ottoman/4.npy",
+      "urdf": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/ottoman/4.urdf"
+    }
+  }
+}

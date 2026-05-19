@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "phonebook",
+  "base_name": "0",
+  "full_name": "phonebook_0",
+  "category": "default",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-05-18 21:41:43",
+  "transform": {
+    "dilate_x": 0.1199999999999994,
+    "dilate_y": 0.1199999999999994,
+    "dilate_z": 0.1199999999999994,
+    "dilate_x_min": 0.1199999999999994,
+    "dilate_x_max": 0.1199999999999994,
+    "dilate_y_min": 0.1199999999999994,
+    "dilate_y_max": 0.1199999999999994,
+    "dilate_z_min": 0.1199999999999994,
+    "dilate_z_max": 0.1199999999999994,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 0.1199999999999994,
+      "max": 0.1199999999999994
+    },
+    "y": {
+      "min": 0.1199999999999994,
+      "max": 0.1199999999999994
+    },
+    "z": {
+      "min": 0.1199999999999994,
+      "max": 0.1199999999999994
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.8645691099999999,
+        0.9174589499999999,
+        0.30099729
+      ],
+      "volume": 0.23463578350167938,
+      "max_dim": 0.9174589499999999
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.10374829319999948,
+        0.11009507399999945,
+        0.036119674799999814
+      ],
+      "volume": 0.0004054506338908959,
+      "max_dim": 0.11009507399999945
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/phonebook_0/v000/phonebook_0_v000.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/phonebook_0/v000/phonebook_0_v000.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/phonebook_0/v000/phonebook_0_v000.npy",
+      "urdf": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/expand/default/phonebook_0/v000/phonebook_0_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/phonebook/0.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/phonebook/0.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/phonebook/0.npy",
+      "urdf": null
+    }
+  }
+}

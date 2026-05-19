@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "chair",
+  "base_name": "3",
+  "full_name": "chair_3",
+  "category": "default",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-05-04 20:33:16",
+  "transform": {
+    "dilate_x": 0.0999999999999994,
+    "dilate_y": 0.0999999999999994,
+    "dilate_z": 0.0999999999999994,
+    "dilate_x_min": 0.0999999999999994,
+    "dilate_x_max": 0.0999999999999994,
+    "dilate_y_min": 0.0999999999999994,
+    "dilate_y_max": 0.0999999999999994,
+    "dilate_z_min": 0.0999999999999994,
+    "dilate_z_max": 0.0999999999999994,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 0.0999999999999994,
+      "max": 0.0999999999999994
+    },
+    "y": {
+      "min": 0.0999999999999994,
+      "max": 0.0999999999999994
+    },
+    "z": {
+      "min": 0.0999999999999994,
+      "max": 0.0999999999999994
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.62086741,
+        0.62086741,
+        0.96291085
+      ],
+      "volume": 0.04294304489265355,
+      "max_dim": 0.96291085
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.06208674099999962,
+        0.062086740999999626,
+        0.09629108499999942
+      ],
+      "volume": 4.2943044892652765e-05,
+      "max_dim": 0.09629108499999942
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/default/chair_3/v000/chair_3_v000.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/default/chair_3/v000/chair_3_v000.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/default/chair_3/v000/chair_3_v000.npy",
+      "urdf": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/default/chair_3/v000/chair_3_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/chair/3.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/chair/3.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_all/chair/3.npy",
+      "urdf": null
+    }
+  }
+}

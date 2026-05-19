@@ -1,0 +1,72 @@
+{
+  "transform_model": "dilation_only_v1",
+  "label": "bell_3",
+  "base_name": "bell_3",
+  "full_name": "bell_3",
+  "category": "default",
+  "confidence": "confident",
+  "version": "v000",
+  "timestamp": "2026-05-04 19:58:23",
+  "transform": {
+    "dilate_x": 1.0,
+    "dilate_y": 1.0,
+    "dilate_z": 1.0,
+    "dilate_x_min": 1.0,
+    "dilate_x_max": 1.0,
+    "dilate_y_min": 1.0,
+    "dilate_y_max": 1.0,
+    "dilate_z_min": 1.0,
+    "dilate_z_max": 1.0,
+    "rot_x": 0.0,
+    "rot_y": 0.0,
+    "rot_z": 0.0
+  },
+  "dilation_range": {
+    "x": {
+      "min": 1.0,
+      "max": 1.0
+    },
+    "y": {
+      "min": 1.0,
+      "max": 1.0
+    },
+    "z": {
+      "min": 1.0,
+      "max": 1.0
+    }
+  },
+  "stats": {
+    "original": {
+      "bbox_extents": [
+        0.10691724,
+        0.10691724999999999,
+        0.09999994
+      ],
+      "volume": 0.0004407816594238327,
+      "max_dim": 0.10691724999999999
+    },
+    "scaled": {
+      "bbox_extents": [
+        0.10691724,
+        0.10691724999999999,
+        0.09999994
+      ],
+      "volume": 0.0004407816594238327,
+      "max_dim": 0.10691724999999999
+    }
+  },
+  "paths": {
+    "output": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/default/bell_3/v000/bell_3_v000.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/default/bell_3/v000/bell_3_v000.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/default/bell_3/v000/bell_3_v000.npy",
+      "urdf": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_final/default/bell_3/v000/bell_3_v000.urdf"
+    },
+    "original": {
+      "obj": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_69_new/bell_3/bell_3.obj",
+      "glb": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_69_new/bell_3/bell_3.glb",
+      "npy": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_69_new/bell_3/bell_3.npy",
+      "urdf": "/home/jimyoung/Dex/IsaacGymEnvs/meshes_69_new/bell_3/bell_3.urdf"
+    }
+  }
+}
