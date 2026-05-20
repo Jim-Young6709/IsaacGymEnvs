@@ -35,8 +35,8 @@ FALLBACK_ROBOT_URDF = ISAACGYM_ROOT / "assets/glorbot/glorbot.urdf"
 # CODEX: Remap HDF5s saved on another machine back onto this checkout.
 REPO_PATH_ANCHORS = ("IsaacGymEnvs",)
 # CODEX: Make the replay object visually distinct from the shelf/table geometry.
-OBJECT_MESH_RGBA = (220, 30, 30, 255)
-OBJECT_PLACEHOLDER_RGB = (220, 30, 30)
+OBJECT_MESH_RGBA = (70, 130, 245, 255)
+OBJECT_PLACEHOLDER_RGB = (70, 130, 245)
 DEFAULT_SECONDS_PER_FRAME = 1.0 / 60.0
 PLAYBACK_POLL_SECONDS = 0.005
 
@@ -340,15 +340,14 @@ def add_cuboid_obstacles(server: viser.ViserServer, demo: ReplayDemo) -> list[ob
     for idx, (dims, pos, quat) in enumerate(
         zip(demo.cuboid_dimensions, demo.cuboid_positions, demo.cuboid_quaternions)
     ):
-        is_table = idx == 0
         handles.append(
             server.scene.add_box(
                 name=f"/scene/cuboid_{idx}",
                 dimensions=tuple(float(v) for v in dims),
                 position=tuple(float(v) for v in pos),
                 wxyz=xyzw_to_wxyz(quat),
-                color=(160, 160, 160) if is_table else (80, 180, 120),
-                opacity=0.38 if is_table else 0.55,
+                color=(145, 220, 165),
+                opacity=0.9,
             )
         )
     return handles
@@ -372,9 +371,8 @@ def add_compartment_state(
             dimensions=tuple(float(v) for v in demo.compartment_size),
             position=tuple(float(v) for v in demo.compartment_position),
             wxyz=xyzw_to_wxyz(demo.compartment_quaternion),
-            color=(245, 80, 80),
-            opacity=0.16,
-            wireframe=True,
+            color=(255, 35, 35),
+            opacity=0.23,
         ),
     ]
     if show_compartment_frame:
