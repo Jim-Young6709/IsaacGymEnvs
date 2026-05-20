@@ -81,6 +81,23 @@ def xyzw_to_wxyz(quat_xyzw: np.ndarray) -> tuple[float, float, float, float]:
     return (float(quat[3]), float(quat[0]), float(quat[1]), float(quat[2]))
 
 
+def quat_xyzw_to_matrix(quat_xyzw: np.ndarray) -> np.ndarray:
+    # CODEX: Used for hand-drawn compartment box edges without Viser's face diagonals.
+    x, y, z, w = np.asarray(quat_xyzw, dtype=np.float64).reshape(4)
+    norm = np.sqrt(x * x + y * y + z * z + w * w)
+    if norm <= 0.0:
+        return np.eye(3, dtype=np.float64)
+    x, y, z, w = x / norm, y / norm, z / norm, w / norm
+    return np.asarray(
+        [
+            [1.0 - 2.0 * (y * y + z * z), 2.0 * (x * y - z * w), 2.0 * (x * z + y * w)],
+            [2.0 * (x * y + z * w), 1.0 - 2.0 * (x * x + z * z), 2.0 * (y * z - x * w)],
+            [2.0 * (x * z - y * w), 2.0 * (y * z + x * w), 1.0 - 2.0 * (x * x + y * y)],
+        ],
+        dtype=np.float64,
+    )
+
+
 def _decode_string(value) -> str:
     if isinstance(value, bytes):
         return value.decode("utf-8")
@@ -346,11 +363,51 @@ def add_cuboid_obstacles(server: viser.ViserServer, demo: ReplayDemo) -> list[ob
                 dimensions=tuple(float(v) for v in dims),
                 position=tuple(float(v) for v in pos),
                 wxyz=xyzw_to_wxyz(quat),
-                color=(145, 220, 165),
+                color=(145, 215, 165),
                 opacity=0.9,
             )
         )
     return handles
+
+
+def add_box_edge_segments(
+    server: viser.ViserServer,
+    name: str,
+    dimensions: np.ndarray,
+    position: np.ndarray,
+    quat_xyzw: np.ndarray,
+    color: tuple[int, int, int],
+    line_width: float,
+) -> object:
+    dims = np.asarray(dimensions, dtype=np.float64).reshape(3)
+    center = np.asarray(position, dtype=np.float64).reshape(3)
+    rotation = quat_xyzw_to_matrix(quat_xyzw)
+    hx, hy, hz = dims / 2.0
+    corners = np.asarray(
+        [
+            [-hx, -hy, -hz],
+            [hx, -hy, -hz],
+            [hx, hy, -hz],
+            [-hx, hy, -hz],
+            [-hx, -hy, hz],
+            [hx, -hy, hz],
+            [hx, hy, hz],
+            [-hx, hy, hz],
+        ],
+        dtype=np.float64,
+    )
+    world_corners = center + corners @ rotation.T
+    edge_indices = np.asarray(
+        [
+            [0, 1], [1, 2], [2, 3], [3, 0],
+            [4, 5], [5, 6], [6, 7], [7, 4],
+            [0, 4], [1, 5], [2, 6], [3, 7],
+        ],
+        dtype=np.int64,
+    )
+    points = world_corners[edge_indices].astype(np.float32)
+    colors = np.tile(np.asarray(color, dtype=np.uint8), (points.shape[0], 2, 1))
+    return server.scene.add_line_segments(name=name, points=points, colors=colors, line_width=line_width)
 
 
 def add_compartment_state(
@@ -371,8 +428,17 @@ def add_compartment_state(
             dimensions=tuple(float(v) for v in demo.compartment_size),
             position=tuple(float(v) for v in demo.compartment_position),
             wxyz=xyzw_to_wxyz(demo.compartment_quaternion),
-            color=(255, 35, 35),
-            opacity=0.23,
+            color=(255, 60, 60),
+            opacity=0.14,
+        ),
+        add_box_edge_segments(
+            server,
+            name="/scene/compartment_state_outline",
+            dimensions=tuple(float(v) for v in demo.compartment_size),
+            position=tuple(float(v) for v in demo.compartment_position),
+            quat_xyzw=demo.compartment_quaternion,
+            color=(255, 0, 0),
+            line_width=3.0,
         ),
     ]
     if show_compartment_frame:
