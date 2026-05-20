@@ -37,6 +37,8 @@ REPO_PATH_ANCHORS = ("IsaacGymEnvs",)
 # CODEX: Make the replay object visually distinct from the shelf/table geometry.
 OBJECT_MESH_RGBA = (220, 30, 30, 255)
 OBJECT_PLACEHOLDER_RGB = (220, 30, 30)
+DEFAULT_SECONDS_PER_FRAME = 1.0 / 60.0
+PLAYBACK_POLL_SECONDS = 0.005
 
 # Existing IsaacGym -> Viser joint-order conversion from
 # isaacgymenvs/utils/viser_visualizer.py. Used only if saved dof names are absent.
@@ -462,7 +464,6 @@ def create_viewer(
     robot_urdf_override: Optional[str],
     host: str,
     port: int,
-    fps: float,
     show_paths: bool,
     show_world_axes: bool,
     show_eef_frame: bool,
@@ -511,7 +512,7 @@ def create_viewer(
         initial_value=0,
         disabled=(num_frames == 1),
     )
-    fps_handle = server.gui.add_number("FPS", initial_value=float(fps), min=1.0, max=240.0, step=1.0)
+    speed_handle = server.gui.add_number("Speed", initial_value=1.0, min=0.1, max=10.0, step=0.1)
     loop_handle = server.gui.add_checkbox("Loop", initial_value=False)
     replay_button = server.gui.add_button("Replay")
 
@@ -529,6 +530,8 @@ def create_viewer(
         "object_source": "",
         "generation": 0,
         "loading_demo": False,
+        "playing": False,
+        "setting_frame_slider": False,
         "robot_urdf_path": demo.robot_urdf_path,
     }
 
@@ -536,6 +539,22 @@ def create_viewer(
         demo_idx = int(state["demo_idx"])
         previous_demo_button.disabled = demo_idx <= 0
         next_demo_button.disabled = demo_idx >= len(demo_keys) - 1
+
+    def set_playing(playing: bool) -> None:
+        # CODEX: Keep the replay button itself as the play/pause toggle.
+        state["playing"] = bool(playing)
+        replay_button.label = "Pause" if bool(state["playing"]) else "Replay"
+
+    def pause_replay() -> None:
+        if bool(state["playing"]):
+            set_playing(False)
+
+    def set_frame_slider_value(frame_idx: int) -> None:
+        state["setting_frame_slider"] = True
+        try:
+            frame_slider.value = int(frame_idx)
+        finally:
+            state["setting_frame_slider"] = False
 
     def reload_dynamic_scene() -> None:
         demo = state["demo"]
@@ -621,9 +640,10 @@ def create_viewer(
                 eef_frame.wxyz = xyzw_to_wxyz(eef_pose[3:7])
 
             if update_slider and int(frame_slider.value) != frame_idx:
-                frame_slider.value = frame_idx
+                set_frame_slider_value(frame_idx)
 
     def load_demo_by_index(new_demo_idx: int) -> None:
+        pause_replay()
         new_demo_idx = int(np.clip(new_demo_idx, 0, len(demo_keys) - 1))
         if new_demo_idx == int(state["demo_idx"]):
             state["loading_demo"] = True
@@ -655,7 +675,7 @@ def create_viewer(
             state["loading_demo"] = True
             try:
                 demo_index_handle.value = float(new_demo_idx)
-                frame_slider.value = 0
+                set_frame_slider_value(0)
             finally:
                 state["loading_demo"] = False
             update_demo_buttons()
@@ -682,29 +702,54 @@ def create_viewer(
 
     @frame_slider.on_update
     def _(_) -> None:
+        if not bool(state["setting_frame_slider"]):
+            pause_replay()
         update_frame(int(frame_slider.value), update_slider=False)
 
     def replay_once() -> None:
         with replay_lock:
-            replay_button.disabled = True
             generation = int(state["generation"])
-            try:
-                while True:
-                    num_frames = int(state["num_frames"])
-                    for frame_idx in range(num_frames):
-                        if generation != int(state["generation"]):
-                            return
-                        update_frame(frame_idx)
-                        time.sleep(1.0 / max(float(fps_handle.value), 1.0))
-                    if generation != int(state["generation"]):
+            frame_cursor = float(frame_slider.value)
+            last_time = time.monotonic()
+            while bool(state["playing"]):
+                if generation != int(state["generation"]):
+                    set_playing(False)
+                    return
+
+                num_frames = int(state["num_frames"])
+                now = time.monotonic()
+                elapsed = now - last_time
+                last_time = now
+                frame_cursor += (
+                    elapsed
+                    * max(float(speed_handle.value), 0.01)
+                    / DEFAULT_SECONDS_PER_FRAME
+                )
+
+                if frame_cursor >= num_frames:
+                    if bool(loop_handle.value):
+                        frame_cursor %= max(float(num_frames), 1.0)
+                    else:
+                        if int(frame_slider.value) != num_frames - 1:
+                            update_frame(num_frames - 1)
+                        set_playing(False)
                         return
-                    if not bool(loop_handle.value):
-                        break
-            finally:
-                replay_button.disabled = False
+
+                frame_idx = int(np.clip(frame_cursor, 0, num_frames - 1))
+                if frame_idx == int(frame_slider.value):
+                    time.sleep(PLAYBACK_POLL_SECONDS)
+                    continue
+                update_frame(frame_idx)
+                time.sleep(PLAYBACK_POLL_SECONDS)
 
     @replay_button.on_click
     def _(_) -> None:
+        if bool(state["playing"]):
+            pause_replay()
+            return
+        if int(frame_slider.value) >= int(state["num_frames"]) - 1:
+            update_frame(0)
+        set_playing(True)
         thread = threading.Thread(target=replay_once, name="ViserReplay", daemon=True)
         thread.start()
 
@@ -733,7 +778,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--demo", default="0", help="Demo index or key, e.g. 0 or demo_0.")
     parser.add_argument("--host", default="0.0.0.0", help="Viser server host.")
     parser.add_argument("--port", type=int, default=8080, help="Viser server port.")
-    parser.add_argument("--fps", type=float, default=60.0, help="Replay speed.")
     parser.add_argument("--robot-urdf", default=None, help="Optional robot URDF path override.")
     parser.add_argument("--show-paths", action="store_true", help="Show object and EEF trajectory polylines.")
     parser.add_argument("--show-world-axes", action="store_true", help="Show the world coordinate axes.")
@@ -754,7 +798,6 @@ def main() -> None:
         robot_urdf_override=args.robot_urdf,
         host=args.host,
         port=args.port,
-        fps=args.fps,
         show_paths=args.show_paths,
         show_world_axes=args.show_world_axes,
         show_eef_frame=args.show_eef_frame,
