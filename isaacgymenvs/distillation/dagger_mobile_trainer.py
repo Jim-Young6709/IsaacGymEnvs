@@ -467,28 +467,20 @@ class DaggerMobile:
             self._profile_end(profile_stats, "preprocess/local_crop", profile_start)
 
         # for viser visualization
-        if self.env.enable_viser:
+        if getattr(self.env, "enable_viser", False):
             env_id = self.env.viser_visualizer.env_id
-            self.env.viser_visualizer.update_point_cloud(
-                point_cloud_type="full_points", 
-                point_cloud=obs['gt_pcd_t'][env_id].cpu().numpy()
-            )
-            self.env.viser_visualizer.update_point_cloud(
-                point_cloud_type="rendered_full_points",
-                point_cloud=obs['full_pcd_t'][env_id].cpu().numpy()
-            )
-            self.env.viser_visualizer.update_point_cloud(
-                point_cloud_type="rendered_cam_points",
-                point_cloud=sim_depth_pcd[env_id].cpu().numpy()
-            )
-            self.env.viser_visualizer.update_point_cloud(
-                point_cloud_type="rendered_lidar_points",
-                point_cloud=sim_lidar_pcd[env_id].cpu().numpy()
-            )
-            self.env.viser_visualizer.update_point_cloud(
-                point_cloud_type="policy_input_points",
-                point_cloud=obs["local_pcd_t"][env_id].cpu().numpy()
-            )
+            for point_cloud_type, obs_key in (
+                ("full_points", "gt_pcd_t"),
+                ("rendered_full_points", "full_pcd_t"),
+                ("rendered_cam_points", "depth_pcd_t"),
+                ("rendered_lidar_points", "lidar_pcd_t"),
+                ("policy_input_points", "local_pcd_t"),
+            ):
+                if obs_key in obs:
+                    self.env.viser_visualizer.update_point_cloud(
+                        point_cloud_type=point_cloud_type,
+                        point_cloud=obs[obs_key][env_id].detach().cpu().numpy(),
+                    )
 
         obs_student = OrderedDict()
 

@@ -89,6 +89,16 @@ dagger:
   local_pcd_range: [1.5, 0.5, 0.5] # Codex: [cylindrical range, eef spherical range, aux spherical range]
   load_ckpt_path: null
 
+eval:
+  ckpt_path: null
+  num_episodes: 1
+  include_env_extras: True
+  debug_visuals: False
+  enable_viewer: null
+  enable_viser: null
+  save_metrics: True
+  save_metrics_path: null
+
 # TODO: are these args still actively in use? or its just DRP stuff
 normalize_state: True
 normalize_action: True
