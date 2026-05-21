@@ -44,12 +44,6 @@ def _apply_eval_overrides(cfg: DictConfig, ckpt_path: Path) -> None:
         else:
             cfg.headless = True
 
-        enable_viser = _cfg(cfg.eval, "enable_viser")
-        if enable_viser is not None:
-            cfg.task.env.enable_viser = bool(enable_viser)
-        elif debug_visuals:
-            cfg.task.env.enable_viser = True
-
         if debug_visuals:
             cfg.force_render = True
 
