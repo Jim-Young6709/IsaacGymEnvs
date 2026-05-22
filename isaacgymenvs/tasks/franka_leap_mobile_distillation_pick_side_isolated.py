@@ -1480,17 +1480,22 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
             return joint_config
 
         afar_env_ids = env_ids[afar_mask]
+        afar_hand_target = getattr(
+            self,
+            "fabric_afar_hand_joint_config",
+            self.canonical_joint_config[:, 10:26],
+        )[afar_env_ids]
         hand_reset_noise = torch.rand((afar_env_ids.numel(), 16), device=self.device, dtype=joint_config.dtype)
         hand_reset_noise = 2.0 * (hand_reset_noise - 0.5)
 
         if self.reset_noise_scale["leap"] is None:
             hand_reset_noise = self.unnormalize_robot_joints(hand_reset_noise, robot="leap", delta=False)
-            hand_reset_noise -= self.canonical_joint_config[afar_env_ids, 10:26]
+            hand_reset_noise -= afar_hand_target
         else:
             hand_reset_noise *= self.reset_noise_scale["leap"]
 
         joint_config = joint_config.clone()
-        joint_config[afar_mask, 10:26] = self.canonical_joint_config[afar_env_ids, 10:26] + hand_reset_noise
+        joint_config[afar_mask, 10:26] = afar_hand_target + hand_reset_noise
         joint_config = tensor_clamp(
             joint_config,
             self.robot_dof_lower_limits,

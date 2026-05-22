@@ -58,6 +58,14 @@ from fabrics_sim.utils.utils import initialize_warp
 
 
 class FrankaLEAPMobileDistillation(VecTask):
+    FABRIC_AFAR_HAND_JOINT_CONFIG = [
+        0.7, -0.2, 0.7, 0.7,
+        0.8, 1.57, 0.77, 0.9,
+        0.65, 0.0, 0.65, 0.65,
+        0.7, 0.2, 0.7, 0.7,
+    ]
+    FABRIC_NEAR_BASE_DISTANCE = 1.0
+
     # class inits
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
         self.cfg = cfg
@@ -290,6 +298,13 @@ class FrankaLEAPMobileDistillation(VecTask):
                 ] * self.num_envs
             ).to(self.device)
             self.canonical_joint_config[:, :3] = base_init_pose
+
+        self.fabric_afar_hand_joint_config = torch.tensor(
+            self.FABRIC_AFAR_HAND_JOINT_CONFIG,
+            device=self.device,
+            dtype=self.canonical_joint_config.dtype,
+        ).unsqueeze(0).repeat(self.num_envs, 1)
+        self.fabric_near_hand_enable = torch.zeros((self.num_envs,), dtype=torch.bool, device=self.device)
 
         self.ik_regularization_config = self.canonical_joint_config[:, :10]
         self.delta_joint_actions = torch.zeros((self.num_envs, self.num_robot_dofs), device=self.device, dtype=torch.float) # Current delta actions to be deployed
@@ -1167,9 +1182,14 @@ class FrankaLEAPMobileDistillation(VecTask):
         entries = payload.get("entries", [])
         if len(entries) == 0:
             raise ValueError(f"mesh variant manifest contains no entries: {manifest_path}")
-        mesh_dir = payload.get("mesh_dir", self.mesh_args["mesh_dir"])
-        if not os.path.isabs(mesh_dir):
-            mesh_dir = os.path.abspath(mesh_dir)
+        # Manifests may be generated from another checkout. Resolve relative
+        # mesh paths against the runtime Hydra mesh_dir override, not the
+        # absolute mesh_dir embedded in the manifest.
+        runtime_mesh_dir = str(self.mesh_args["mesh_dir"])
+        if os.path.isabs(runtime_mesh_dir):
+            mesh_dir = runtime_mesh_dir
+        else:
+            mesh_dir = os.path.abspath(runtime_mesh_dir)
 
         mesh_entries = []
         for idx, entry in enumerate(entries):
@@ -2000,6 +2020,7 @@ class FrankaLEAPMobileDistillation(VecTask):
         self._validate_fabric_tensor("fabric_q", self.fabric_q)
         self._validate_fabric_tensor("fabric_qd", self.fabric_qd)
         self._validate_fabric_tensor("gaze_target", gaze_target, expected_last_dim=3)
+        self.fabric_near_hand_enable = self._get_fabric_near_hand_enable(eef_target)
 
         self.franka_fabric.set_features(
             eef_target,
@@ -2015,6 +2036,23 @@ class FrankaLEAPMobileDistillation(VecTask):
         )
 
         return self.fabric_q
+
+    def _get_fabric_near_hand_enable(self, eef_target):
+        # Mirror GlorbotVisionFabric's base-distance gate for enabling the gripper attractor.
+        base_to_target = eef_target[:, 0:2] - self.fabric_q[:, 0:2]
+        return torch.linalg.norm(base_to_target, dim=1) < self.FABRIC_NEAR_BASE_DISTANCE
+
+    def _get_fabric_hand_joint_target(self):
+        near_mask = getattr(
+            self,
+            "fabric_near_hand_enable",
+            torch.zeros((self.num_envs,), dtype=torch.bool, device=self.device),
+        ).unsqueeze(-1)
+        return torch.where(
+            near_mask,
+            self.canonical_joint_config[:, 10:26],
+            self.fabric_afar_hand_joint_config,
+        )
 
     @abstractmethod
     def _update_fabric_switching_target(self, object_center_pos):
@@ -2664,7 +2702,8 @@ class FrankaLEAPMobileDistillation(VecTask):
             base_fabric_enable = ~base_lock_mask
             teacher_actions_abs[base_fabric_enable, :3] = abs_full_joint_actions_fabric[base_fabric_enable, :3] # @ray activating the base fabric during teacher rl messes up the rl policy, need to tune fabric
             teacher_actions_abs[self.fabric_switch_enable, 3:10] = abs_full_joint_actions_fabric[self.fabric_switch_enable, 3:10]
-            teacher_actions_abs[self.fabric_switch_enable, 10:26] = self.canonical_joint_config[self.fabric_switch_enable, 10:26]
+            fabric_hand_target = self._get_fabric_hand_joint_target()
+            teacher_actions_abs[self.fabric_switch_enable, 10:26] = fabric_hand_target[self.fabric_switch_enable]
             teacher_actions_abs[:, 26:] = abs_full_joint_actions_fabric[:, 10:]
 
         if self.distillation_mode:
