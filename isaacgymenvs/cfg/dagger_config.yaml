@@ -44,8 +44,8 @@ multi_gpu: False
 wandb_activate: False
 wandb_group: ''
 wandb_name: ${train.params.config.name}
-wandb_entity: 'jimyoung6709'
-wandb_project: 'Dex_dagger'
+wandb_entity: "daedalus2060-carnegie-mellon-university"
+wandb_project: "dexgym"
 wandb_tags: []
 wandb_logcode_dir: '' 
 
@@ -70,6 +70,7 @@ dagger:
   save_freq: 1
   eval_freq: 0
   teacher_eval_only: False # CODEX: run repeated teacher rollouts without training.
+  eval_only: False # CODEX: temporary debug mode; repeatedly run student eval and skip training.
   multi_task_names: null # CODEX: optional per-rank task configs for WBCMultiExp, e.g. [DexMobileExpFull,DexMobileDistillationSideIsolated].
   aux_init_only: False
   aux_feedback_to_policy: True
@@ -90,6 +91,7 @@ dagger:
   reaching_reset_threshold: 100
   local_pcd_range: [1.5, 0.5, 0.5] # Codex: [cylindrical range, eef spherical range, aux spherical range]
   load_ckpt_path: null
+  resume_wandb: False # CODEX: resume weights/episode from checkpoint but start fresh W&B runs unless explicitly enabled.
 
 # TODO: are these args still actively in use? or its just DRP stuff
 normalize_state: True

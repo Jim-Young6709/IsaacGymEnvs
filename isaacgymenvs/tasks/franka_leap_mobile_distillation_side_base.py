@@ -714,6 +714,21 @@ class FrankaLEAPMobileDistillation(VecTask):
         self._robot_effort_limits = to_torch(self._robot_effort_limits, device=self.device)
         return robot_dof_props
 
+    def _get_decoupled_gripper_pose_attractor_override(self):
+        # CODEX: allow per-run selection instead of relying on the shared fabric params YAML.
+        mode = str(self.cfg.get("fabric", {}).get("gripper_pose_attractor", "default")).lower()
+        if mode in ("default", "yaml", "auto", "none"):
+            return None
+        if mode in ("legacy", "coupled", "old"):
+            return False
+        if mode in ("decoupled", "new"):
+            return True
+        raise ValueError(
+            "fabric.gripper_pose_attractor must be one of "
+            "default/yaml, legacy/coupled/old, or decoupled/new; "
+            f"got {mode}"
+        )
+
     def _init_fabric(self):
         self.fabrics_world_model = WorldMeshesModel(
             batch_size=self.num_envs,
@@ -724,7 +739,11 @@ class FrankaLEAPMobileDistillation(VecTask):
         self.fabrics_object_ids, self.fabrics_object_indicator = self.fabrics_world_model.get_object_ids()
 
         # Create franka fabric
-        self.franka_fabric = GlorbotVisionFabric(self.num_envs, self.device)
+        self.franka_fabric = GlorbotVisionFabric(
+            self.num_envs,
+            self.device,
+            decoupled_gripper_pose_attractor=self._get_decoupled_gripper_pose_attractor_override(),
+        )
 
         # Create integrator for the fabric dynamics.
         self.franka_integrator = DisplacementIntegrator(self.franka_fabric)

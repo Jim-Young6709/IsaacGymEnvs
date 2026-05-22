@@ -36,9 +36,11 @@ from .franka_leap_pick_top_full import FrankaLEAPPickTopFull
 
 from .franka_leap_mobile import FrankaLEAPMobile
 from .franka_leap_mobile_pick_table import FrankaLEAPMobilePickTable
+from .franka_leap_mobile_pick_table_rl import FrankaLEAPMobilePickTableRL  # CODEX: no-fabric full-body RL baseline.
 from .franka_leap_mobile_pick_table_multi import FrankaLEAPMobilePickTableMulti
 from .franka_leap_mobile_pick_top_full import FrankaLEAPMobilePickTopFull
 from .franka_leap_mobile_pick_full import FrankaLEAPMobilePickFull
+from .franka_leap_mobile_pick_full_rl import FrankaLEAPMobilePickFullRL  # CODEX: no-fabric full-body RL baseline for full scenes.
 from .franka_leap_mobile_distillation_side_base import FrankaLEAPMobileDistillation  # CODEX: isolated side distillation base.
 from .franka_leap_mobile_distillation_pick_side_isolated import (
     FrankaLEAPMobileDistillationPickSide as FrankaLEAPMobileDistillationPickSideIsolated,
@@ -60,9 +62,11 @@ isaacgym_task_map = {
     "FrankaLEAPPickTopFull": FrankaLEAPPickTopFull,
     "FrankaLEAPMobile": FrankaLEAPMobile,
     "FrankaLEAPMobilePickTable": FrankaLEAPMobilePickTable,
+    "FrankaLEAPMobilePickTableRL": FrankaLEAPMobilePickTableRL,  # CODEX
     "FrankaLEAPMobilePickTableMulti": FrankaLEAPMobilePickTableMulti,
     "FrankaLEAPMobilePickTopFull": FrankaLEAPMobilePickTopFull,
     "FrankaLEAPMobilePickFull": FrankaLEAPMobilePickFull,
+    "FrankaLEAPMobilePickFullRL": FrankaLEAPMobilePickFullRL,  # CODEX
     "FrankaLEAPMobileDistillationPickSideIsolated": FrankaLEAPMobileDistillationPickSideIsolated,  # CODEX
     "FrankaCMD": FrankaCMD,
     "FrankaCMDPickTable": FrankaCMDPickTable,

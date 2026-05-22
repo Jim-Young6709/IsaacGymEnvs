@@ -51,16 +51,14 @@ class DaggerMobileMultiExp:
             cfg.rl_device = f"cuda:{self.local_rank}"
             torch.cuda.set_device(self.local_rank)
 
-            if self.local_rank == 0:
-                cfg.graphics_device_id = self.local_rank
-            else:
-                cfg.task.env.video_logging.capture = False # note the actual video logging flag is in task env, not in general cfg.capture_video
-                cfg.graphics_device_id = -1
-
             cfg.seed = max(cfg.seed, 1) * (self.global_rank + 1)
 
             expert_idx = self.local_rank % num_experts
         self.num_experts = num_experts  # CODEX
+        # CODEX: keep the launcher-level rollout length before rank-local task swaps.
+        # Env reset length remains task-local via cfg.task.env.episodeLength, so side can
+        # reset at 600 while the multi-teacher training iteration still runs 1000 steps.
+        launcher_steps_per_episode = int(cfg.dagger.steps_per_episode / cfg.chunk_size)
         self.expert_rank, self.expert_world_size = self._compute_expert_rank_info(expert_idx, num_experts)  # CODEX
         self._expert_override_values = self._snapshot_expert_overrides(cfg)  # CODEX
         # CODEX: WBCMultiExp can mix task lineages by composing a rank-local task config before env creation.
@@ -69,15 +67,15 @@ class DaggerMobileMultiExp:
         self._apply_expert_rank_config(cfg)  # CODEX
         if self.multi_gpu and self._has_cfg_path(cfg, "task.env.scene.batch_idx"):
             self._set_cfg_path(cfg, "task.env.scene.batch_idx", self.global_rank)  # CODEX
-        if self.multi_gpu and self.local_rank != 0:
-            cfg.task.env.video_logging.capture = False # note the actual video logging flag is in task env, not in general cfg.capture_video
-        cfg.task.env.video_logging.freq = max((cfg.dagger.eval_freq + 1), 10) * cfg.task.env.episodeLength
         self.expert_idx = expert_idx  # CODEX: identify per-rank expert for W&B/task logs.
         self.expert_task_name = str(cfg.task.get("name", cfg.task_name))  # CODEX
+        self._configure_rank_video_logging(cfg)  # CODEX: one video rank per expert/task.
+        cfg.task.env.video_logging.freq = max((cfg.dagger.eval_freq + 1), 10) * cfg.task.env.episodeLength
 
         self.cfg = cfg
         self.total_episodes = cfg.dagger.total_episodes
-        self.steps_per_episode = int(cfg.dagger.steps_per_episode / cfg.chunk_size)
+        self.steps_per_episode = launcher_steps_per_episode  # CODEX: decoupled from rank-local env episodeLength.
+        self.env_episode_length = int(cfg.task.env.episodeLength)  # CODEX: task-local timeout/reset length.
         self.warmup_episodes = cfg.dagger.warmup_episodes
         self.max_grad_norm = cfg.dagger.max_grad_norm
         self.local_pcd_range = cfg.dagger.local_pcd_range
@@ -169,11 +167,12 @@ class DaggerMobileMultiExp:
         self.batch_idx = 0
         self.batch_size = self.cfg.dagger.batch_size
         self.grad_updates_per_step = self.cfg.dagger.grad_updates_per_step
+        self.resume_wandb = bool(self.cfg.dagger.get("resume_wandb", False))  # CODEX: checkpoint resume starts fresh W&B runs by default.
 
         self.use_wandb = self.cfg.wandb_activate
         self.wandb_project = self.cfg.wandb_project
         self.wandb_name = self.cfg.wandb_name
-        self.wandb_group = self.cfg.wandb_group or self.exp_name  # CODEX: group per-rank expert runs.
+        self.wandb_group = self.cfg.wandb_group or self.exp_name  # CODEX: group per-task expert runs.
         self.wandb_id = None
 
         self.state_encoders_keys = self.cfg.model.state_encoders_cfg.keys()
@@ -185,17 +184,19 @@ class DaggerMobileMultiExp:
 
         self.eval_freq = self.cfg.dagger.eval_freq
         self.teacher_eval_only = bool(self.cfg.dagger.get("teacher_eval_only", False))  # CODEX
+        self.eval_only = bool(self.cfg.dagger.get("eval_only", False))  # CODEX: skip training and repeatedly run student eval.
         self.profile_timing = bool(self.cfg.dagger.get("profile_timing", True))
         self.profile_print_freq = int(self.cfg.dagger.get("profile_print_freq", 1))
         self.profile_cuda_sync = bool(self.cfg.dagger.get("profile_cuda_sync", True))
+        self.debug_eval_sync = bool(self.cfg.dagger.get("debug_eval_sync", False))  # CODEX: diagnose eval rollout vs post-eval all_gather stalls.
+        self.debug_eval_steps = int(self.cfg.dagger.get("debug_eval_steps", 2))  # CODEX: only print detailed eval checkpoints for the first few steps.
 
         if self.multi_gpu:
-            self.use_wandb = self.cfg.wandb_activate  # CODEX: log one W&B run per expert/rank.
+            self.use_wandb = bool(self.cfg.wandb_activate) and (int(self.expert_rank) == 0)  # CODEX: one W&B run per task/expert.
             if self.use_wandb:
                 base_wandb_name = str(self.cfg.wandb_name)
                 self.wandb_name = (
-                    f"{base_wandb_name}_rank{self.global_rank}"
-                    f"_expert{self.expert_idx}_{self.expert_task_name}"
+                    f"{base_wandb_name}_expert{self.expert_idx}_{self.expert_task_name}"
                 )  # CODEX
             self.student_model = self.student_model.to(self.device)
             self.student_model = DDP(
@@ -210,19 +211,30 @@ class DaggerMobileMultiExp:
         if load_checkpoint_path is not None:
             success_rate_ep = self.load_checkpoint(load_checkpoint_path)
             colorprint(f"Resumed training from {load_checkpoint_path}: steps={self.total_steps}, success_rate_ep={success_rate_ep}", color="magenta")
-
         if self.use_wandb:
+            wandb_run_id = self.wandb_id
+            wandb_resume = "must" if self.wandb_id else "never"
+            if wandb_run_id is None:
+                wandb_run_id = (
+                    f"{wandb.util.generate_id()}-"
+                    f"e{int(self.expert_idx)}-r{int(self.global_rank)}"
+                )  # CODEX: avoid shared WANDB_RUN_ID/run-file collisions across expert owner ranks.
+            wandb_dir = Path("wandb") / f"expert_{int(self.expert_idx)}_rank_{int(self.global_rank)}"  # CODEX
+            os.makedirs(wandb_dir, exist_ok=True)  # CODEX
             wandb.init(
                 project=self.wandb_project,
                 name=self.wandb_name,
                 group=self.wandb_group,  # CODEX: keep all per-expert runs under one experiment group.
                 job_type=f"expert_{self.expert_idx}",  # CODEX
-                id=self.wandb_id,
-                resume="must" if self.wandb_id else None,
+                id=wandb_run_id,  # CODEX
+                resume=wandb_resume,  # CODEX
+                dir=str(wandb_dir),  # CODEX: isolate local W&B datastore by expert owner rank.
                 config={
                     "batch_size": self.batch_size,
                     "grad_updates_per_step": self.grad_updates_per_step,
                     "num_episodes": self.total_episodes,
+                    "steps_per_episode": self.steps_per_episode,  # CODEX
+                    "env_episode_length": self.env_episode_length,  # CODEX
                     "learning_rate": self.learning_rate,
                     "weight_decay": self.weight_decay,
                     "rank": self.global_rank,  # CODEX
@@ -250,7 +262,6 @@ class DaggerMobileMultiExp:
         self.aux_anchor_base_pose7 = torch.zeros(self.env.num_envs, 7, device=self.device)  # CODEX
         self.aux_anchor_base_pose7[:, 6] = 1.0  # CODEX: identity quaternion until first refresh.
         self.last_aux_state_from_prev_step_world = torch.zeros(self.env.num_envs, 3, device=self.device)  # CODEX
-
     def _select_expert_value(self, value, expert_idx):
         # CODEX: support optional per-expert side-bank config lists without affecting scalar configs.
         if isinstance(value, (list, tuple, ListConfig)):
@@ -271,6 +282,155 @@ class DaggerMobileMultiExp:
             return 0, 1
         expert_rank = sum(1 for rank in matching_ranks if rank < int(self.global_rank))
         return expert_rank, len(matching_ranks)
+
+    def _configure_rank_video_logging(self, cfg):
+        # CODEX: log videos from one GPU per task/expert instead of only launcher rank 0.
+        # For 8 GPUs and experts [shelf, side, top], this enables video on ranks 0, 1, 2.
+        if not self._has_cfg_path(cfg, "task.env.video_logging.capture"):
+            return
+
+        requested_capture = bool(cfg.task.env.video_logging.capture)
+        capture_this_rank = requested_capture and ((not self.multi_gpu) or int(self.expert_rank) == 0)
+        self._set_cfg_path(cfg, "task.env.video_logging.capture", capture_this_rank)
+
+        if self.multi_gpu:
+            cfg.graphics_device_id = int(self.local_rank) if capture_this_rank else -1
+
+        if capture_this_rank:
+            print(
+                "[DaggerMobileMultiExp/CODEX] "
+                f"video_capture rank={self.global_rank} expert_idx={self.expert_idx} "
+                f"expert_rank={self.expert_rank} graphics_device_id={cfg.graphics_device_id}"
+            )
+
+    def _maybe_start_env_video(self, mode, total_steps, periodic=False):
+        # CODEX: copied side-distillation env uses explicit train/eval video capture windows,
+        # while dex envs use their own modulo video_logger. This hook only affects envs
+        # that expose the explicit side-style flags.
+        if not bool(getattr(self.env, "video_logging", {}).get("capture", False)):
+            return
+
+        active_attr = f"{mode}_video_active"
+        total_attr = f"{mode}_video_total_steps"
+        step_attr = f"{mode}_video_step_idx"
+        if not all(hasattr(self.env, attr) for attr in (active_attr, total_attr, step_attr)):
+            return
+        if bool(getattr(self.env, active_attr)):
+            return
+
+        if periodic:
+            video_freq = int(self.env.video_logging.get("freq", 0))
+            if video_freq <= 0 or (int(self.env.sim_steps) % video_freq) != 0:
+                return
+
+        setattr(self.env, active_attr, True)
+        setattr(self.env, total_attr, int(total_steps))
+        setattr(self.env, step_attr, 0)
+
+    def _env_has_explicit_video_window(self, mode):
+        # CODEX: side isolated envs expose explicit video windows; legacy dex envs do not.
+        active_attr = f"{mode}_video_active"
+        total_attr = f"{mode}_video_total_steps"
+        step_attr = f"{mode}_video_step_idx"
+        return all(hasattr(self.env, attr) for attr in (active_attr, total_attr, step_attr))
+
+    def _disable_legacy_eval_video_if_needed(self):
+        # CODEX: legacy dex video_logger captures/render-buffers every eval step and can
+        # make eval appear stuck. Keep explicit side-style eval videos enabled.
+        video_logging = getattr(self.env, "video_logging", None)
+        if not isinstance(video_logging, (dict, DictConfig)):
+            return None
+        if not bool(video_logging.get("capture", False)):
+            return None
+        if self._env_has_explicit_video_window("eval"):
+            return None
+
+        prev_capture = video_logging["capture"]
+        video_logging["capture"] = False
+        if (not self.multi_gpu) or int(self.expert_rank) == 0:
+            print(
+                "[DaggerMobileMultiExp/CODEX eval] disabled legacy env video_logger during eval "
+                f"rank={self.global_rank} expert_idx={self.expert_idx} task={self.expert_task_name}",
+                flush=True,
+            )
+        return prev_capture
+
+    def _restore_legacy_eval_video(self, prev_capture):
+        # CODEX: restore train-time capture after eval if we temporarily disabled it.
+        if prev_capture is None:
+            return
+        video_logging = getattr(self.env, "video_logging", None)
+        if isinstance(video_logging, (dict, DictConfig)):
+            video_logging["capture"] = prev_capture
+
+    def _debug_eval_checkpoint(self, eval_step, stage):
+        # CODEX: optional per-rank breadcrumbs to identify the exact eval section that stalls.
+        if not self.debug_eval_sync:
+            return
+        if int(eval_step) >= int(self.debug_eval_steps):
+            return
+        if torch.cuda.is_available():
+            torch.cuda.synchronize(device=torch.device(self.device))
+        print(
+            "[DaggerMobileMultiExp/CODEX eval_step] "
+            f"rank={self.global_rank} expert_idx={self.expert_idx} expert_rank={self.expert_rank} "
+            f"step={int(eval_step)} stage={stage}",
+            flush=True,
+        )
+
+    def _debug_eval_action_snapshot(self, eval_step, step_actions):
+        # CODEX: temporary eval-only crash diagnostic. This prints immediately
+        # before PhysX sees the action, so we can separate bad policy outputs
+        # from bad reset/scene state.
+        if not (self.debug_eval_sync or self.eval_only):
+            return
+        if int(eval_step) >= int(self.debug_eval_steps):
+            return
+
+        def _tensor_summary(name, tensor):
+            if tensor is None:
+                return f"{name}=missing"
+            with torch.no_grad():
+                t = tensor.detach()
+                finite = bool(torch.isfinite(t).all().item())
+                tf = t.float()
+                return (
+                    f"{name}:finite={finite} "
+                    f"min={float(tf.min().item()):.4g} "
+                    f"max={float(tf.max().item()):.4g} "
+                    f"mean={float(tf.mean().item()):.4g}"
+                )
+
+        def _action_slice_summary(name, start, end):
+            # CODEX: aggregate action stats can hide one saturated subsystem.
+            if step_actions.shape[-1] <= start:
+                return f"{name}=missing"
+            return _tensor_summary(name, step_actions[:, start:min(end, step_actions.shape[-1])])
+
+        states = getattr(self.env, "states", {})
+        progress = getattr(self.env, "progress_buf", None)
+        reset_buf = getattr(self.env, "reset_buf", None)
+        progress_text = "progress=missing"
+        if progress is not None:
+            progress_text = f"progress_min={int(progress.min().item())} progress_max={int(progress.max().item())}"
+        reset_text = "reset_buf=missing"
+        if reset_buf is not None:
+            reset_text = f"reset_sum={int(reset_buf.sum().item())}"
+
+        print(
+            "[DaggerMobileMultiExp/CODEX eval_action] "
+            f"rank={self.global_rank} expert_idx={self.expert_idx} expert_rank={self.expert_rank} "
+            f"task={self.expert_task_name} step={int(eval_step)} "
+            f"{_tensor_summary('action', step_actions)} "
+            f"{_action_slice_summary('base_action', 0, 3)} "
+            f"{_action_slice_summary('franka_action', 3, 10)} "
+            f"{_action_slice_summary('hand_action', 10, 26)} "
+            f"{_action_slice_summary('camera_action', 26, 32)} "
+            f"{_tensor_summary('q', states.get('q'))} "
+            f"{_tensor_summary('object_pos', states.get('object_pos'))} "
+            f"{progress_text} {reset_text}",
+            flush=True,
+        )
 
     def _task_cfg_dir(self):
         # CODEX: load copied task config stacks from this checkout, not from an installed package path.
@@ -481,10 +641,15 @@ class DaggerMobileMultiExp:
         self.episode = (checkpoint["episode"] + 1) % self.total_episodes
         self.total_steps = checkpoint["total_steps"]
         self.batch_idx = checkpoint["batch_idx"]
-        if "wandb_id" in checkpoint:
+        if self.resume_wandb and "wandb_id" in checkpoint:
             self.wandb_id = checkpoint["wandb_id"]
             self.wandb_name = checkpoint["wandb_name"]
             self.wandb_project = checkpoint["wandb_project"]
+        elif "wandb_id" in checkpoint:
+            colorprint(  # CODEX
+                "Checkpoint contains W&B metadata, but dagger.resume_wandb=False; starting a fresh W&B run.",
+                color="yellow",
+            )
         return checkpoint["train_success_rate_ep"]
 
     def _maybe_load_verified_teacher_bank(self):
@@ -872,7 +1037,7 @@ class DaggerMobileMultiExp:
         teacher_forcing_env_idx = np.random.choice(self.env.num_envs, size=num_teacher_forcing_envs, replace=False)
         self.teacher_forcing_prop = teacher_forcing_prop # for logging purposes
 
-        for _ in tqdm(range(self.steps_per_episode), desc=f"Training {self.episode+1}/{self.total_episodes}", \
+        for rollout_step in tqdm(range(self.steps_per_episode), desc=f"Training {self.episode+1}/{self.total_episodes}", \
             ncols=None, dynamic_ncols=True, disable=(self.multi_gpu and self.global_rank != 0) ):
             self.total_steps += 1
             step_start = self._profile_start()
@@ -1000,6 +1165,11 @@ class DaggerMobileMultiExp:
 
                 # sync distillation steps for wandb video logging
                 self.env.distillation_steps = self.total_steps
+                self._maybe_start_env_video(  # CODEX: side-style train video window, one rank per expert.
+                    mode="train",
+                    total_steps=min(int(self.env.max_episode_length * 2), int(self.steps_per_episode)),
+                    periodic=True,
+                )
                 profile_start = self._profile_start()
                 self.env.step(step_actions)
                 self._profile_end(episode_profile_stats, "train/env_step", profile_start)
@@ -1078,33 +1248,55 @@ class DaggerMobileMultiExp:
         self.env.reset_idx()
         self.env.compute_observations()
         self.env.abs_actions[:] = self.env.states['q'].clone()
+        eval_steps = min(int(self.env.max_episode_length), int(self.steps_per_episode))  # CODEX: eval should respect task-local episode length.
+        if self.debug_eval_sync:
+            print(
+                "[DaggerMobileMultiExp/CODEX eval] "
+                f"rank={self.global_rank} expert_idx={self.expert_idx} expert_rank={self.expert_rank} "
+                f"policy={policy_source} eval_steps={eval_steps} env_max={int(self.env.max_episode_length)} "
+                f"launcher_steps={int(self.steps_per_episode)} start",
+                flush=True,
+            )
+        legacy_eval_video_capture = self._disable_legacy_eval_video_if_needed()  # CODEX
+        self._maybe_start_env_video(  # CODEX: side-style eval video window, one rank per expert.
+            mode="eval",
+            total_steps=eval_steps,
+            periodic=False,
+        )
 
-        for _ in tqdm(range(self.steps_per_episode), desc="Evaluating", \
+        for eval_step in tqdm(range(eval_steps), desc="Evaluating", \
             ncols=None, dynamic_ncols=True, disable=(self.multi_gpu and self.global_rank != 0) ):
 
             if policy_source == "teacher":
                 # CODEX: teacher-only eval should not depend on student inputs or student forward.
                 for _ in range(self.chunk_size):
+                    self._debug_eval_checkpoint(eval_step, "teacher_action_start")
                     step_actions = self._get_teacher_step_actions()
                     step_actions = torch.clamp(step_actions, -self.env.clip_actions, self.env.clip_actions)
                     self.env.progress_buf[:] = 0
+                    self._debug_eval_checkpoint(eval_step, "teacher_env_step_start")
                     self.env.step(step_actions)
+                    self._debug_eval_checkpoint(eval_step, "teacher_env_step_done")
                 continue
 
             # get obs t_a0 for student, q_hand, rel_pcd
+            self._debug_eval_checkpoint(eval_step, "obs_collection_start")
             q_robot = self.env.states['q'].clone() # (num_envs, 32)
             self.aux_anchor_base_pose7[:] = self.env.states['franka_base_pose7'].clone()  # CODEX
             self._refresh_aux_anchor_state(add_noise=False, use_initial_frame=self.aux_init_only)  # CODEX
 
             full_scene_pcd_t = self.env.combined_pcds # scene pcd + object pcd
             robot_pcd_t = self.env.robot_pcd_sampler.sample(q_robot, self.env.torchurdf_to_isaac_idx)
+            self._debug_eval_checkpoint(eval_step, "obs_collection_done")
 
             # prepare pcd inputs
             obs_dict_a0 = OrderedDict([
                 ("full_scene_pcd_t", full_scene_pcd_t),
                 ("robot_pcd_t", robot_pcd_t),
             ])
+            self._debug_eval_checkpoint(eval_step, "preprocess_start")
             obs_input_a0, _ = self.preprocess_inputs(obs_dict_a0)
+            self._debug_eval_checkpoint(eval_step, "preprocess_done")
 
             # prepare state inputs
             q_arm_manip = self.env.states['q'][:, 3:10].clone() # (num_envs, 7)
@@ -1125,6 +1317,7 @@ class DaggerMobileMultiExp:
                 if hasattr(self.env, "object_reset_mask"):
                     self.env.object_reset_mask[:] = False
 
+            self._debug_eval_checkpoint(eval_step, "student_forward_start")
             with torch.no_grad():
                 student_model = self.student_model.module if self.multi_gpu else self.student_model
                 student_model.eval()
@@ -1138,6 +1331,7 @@ class DaggerMobileMultiExp:
                         self.aux_buffer[:, 0, :],
                         self.aux_anchor_base_pose7,
                     )
+            self._debug_eval_checkpoint(eval_step, "student_forward_done")
 
             # plot aux prediction in gui
             if not self.env.headless:
@@ -1151,7 +1345,19 @@ class DaggerMobileMultiExp:
 
                 self.env.progress_buf[:] = 0 # since we are only evaling one episode, just disable env resets, it might mess up loggings a little bit
 
+                self._debug_eval_checkpoint(eval_step, "env_step_start")
+                self._debug_eval_action_snapshot(eval_step, step_actions)  # CODEX
                 self.env.step(step_actions)
+                self._debug_eval_checkpoint(eval_step, "env_step_done")
+
+        self._restore_legacy_eval_video(legacy_eval_video_capture)  # CODEX
+        if self.debug_eval_sync:
+            print(
+                "[DaggerMobileMultiExp/CODEX eval] "
+                f"rank={self.global_rank} expert_idx={self.expert_idx} expert_rank={self.expert_rank} "
+                f"policy={policy_source} rollout_done",
+                flush=True,
+            )
 
         # set env state back for training
         self.env.reset_idx()
@@ -1209,21 +1415,100 @@ class DaggerMobileMultiExp:
         gathered_metrics = [torch.empty_like(local_metrics) for _ in range(self.world_size)]
         dist.all_gather(gathered_metrics, local_metrics)
 
-        if self.global_rank != 0:
+        if int(self.expert_rank) != 0:
             return {}
 
+        expert_global_ranks = [
+            rank for rank in range(int(self.world_size))
+            if (rank % int(self.num_experts)) == int(self.expert_idx)
+        ]
+        expert_metrics = torch.stack([gathered_metrics[rank] for rank in expert_global_ranks], dim=0)
+        expert_mean_metrics = torch.mean(expert_metrics, dim=0)
+
         per_gpu_logs = {}
-        for rank, rank_metrics in enumerate(gathered_metrics):
+        for key, value in zip(metric_keys, expert_mean_metrics):
+            # CODEX: make the main success/lift curves task-level means for the one W&B run per task.
+            per_gpu_logs[key] = value.item()
+            per_gpu_logs[f"{key}/expert_mean"] = value.item()
+        for rank in expert_global_ranks:
+            rank_metrics = gathered_metrics[rank]
             for key, value in zip(metric_keys, rank_metrics):
                 per_gpu_logs[f"{key}/gpu_{rank}"] = value.item()
         return per_gpu_logs
+
+    def _aggregate_expert_scalar_logs(self, logs):
+        # CODEX: one W&B run per task should show task-level eval means, not only
+        # the local logging GPU. All ranks still call all_gather to avoid DDP hangs.
+        if not self.multi_gpu:
+            return logs
+
+        scalar_items = [
+            (key, float(value))
+            for key, value in logs.items()
+            if isinstance(value, (int, float))
+        ]
+        if not scalar_items:
+            return logs if int(self.expert_rank) == 0 else {}
+
+        keys = [key for key, _ in scalar_items]
+        local_values = torch.tensor(
+            [value for _, value in scalar_items],
+            device=self.device,
+            dtype=torch.float32,
+        )
+        gathered_values = [torch.empty_like(local_values) for _ in range(self.world_size)]
+        if self.debug_eval_sync:
+            print(
+                "[DaggerMobileMultiExp/CODEX eval] "
+                f"rank={self.global_rank} expert_idx={self.expert_idx} expert_rank={self.expert_rank} "
+                f"enter_eval_all_gather num_scalars={len(scalar_items)}",
+                flush=True,
+            )
+        dist.all_gather(gathered_values, local_values)
+        if self.debug_eval_sync:
+            print(
+                "[DaggerMobileMultiExp/CODEX eval] "
+                f"rank={self.global_rank} expert_idx={self.expert_idx} expert_rank={self.expert_rank} "
+                "exit_eval_all_gather",
+                flush=True,
+            )
+
+        if int(self.expert_rank) != 0:
+            return {}
+
+        expert_global_ranks = [
+            rank for rank in range(int(self.world_size))
+            if (rank % int(self.num_experts)) == int(self.expert_idx)
+        ]
+        expert_values = torch.stack([gathered_values[rank] for rank in expert_global_ranks], dim=0)
+        expert_mean_values = torch.mean(expert_values, dim=0)
+
+        aggregated_logs = {}
+        for key, value in zip(keys, expert_mean_values):
+            aggregated_logs[key] = value.item()
+            aggregated_logs[f"{key}/expert_mean"] = value.item()
+        for rank in expert_global_ranks:
+            rank_values = gathered_values[rank]
+            for key, value in zip(keys, rank_values):
+                aggregated_logs[f"{key}/gpu_{rank}"] = value.item()
+        return aggregated_logs
 
     def train(self):
         if self.teacher_eval_only:
             while True:
                 eval_wandb_logs = self.eval(policy_source="teacher")  # CODEX
+                eval_wandb_logs = self._aggregate_expert_scalar_logs(eval_wandb_logs)  # CODEX
                 self.total_steps += int(self.env.max_episode_length)
-                if self.use_wandb:  # CODEX: every expert rank owns its own W&B run.
+                if self.use_wandb:  # CODEX: only expert_rank 0 owns the task W&B run.
+                    wandb.log(eval_wandb_logs, step=self.total_steps)
+                self.episode += 1
+            return
+        if self.eval_only:
+            while True:
+                eval_wandb_logs = self.eval(policy_source="student")  # CODEX
+                eval_wandb_logs = self._aggregate_expert_scalar_logs(eval_wandb_logs)  # CODEX
+                self.total_steps += int(self.env.max_episode_length)
+                if self.use_wandb:  # CODEX
                     wandb.log(eval_wandb_logs, step=self.total_steps)
                 self.episode += 1
             return
@@ -1239,6 +1524,7 @@ class DaggerMobileMultiExp:
             eval_policy = (self.eval_freq > 0) and (self.episode % self.eval_freq == 0) and (self.episode > 0) # skip eval at episode 0
             if eval_policy:
                 eval_wandb_logs = self.eval()
+                eval_wandb_logs = self._aggregate_expert_scalar_logs(eval_wandb_logs)  # CODEX
 
             per_gpu_metric_logs = self._get_per_gpu_metric_logs()
 
@@ -1265,7 +1551,7 @@ class DaggerMobileMultiExp:
                     metrics["profile/train_top_section_pct"] = 100.0 * top_value / max(train_profile_stats.get("train/step_total", 1e-8), 1e-8)
                     metrics["profile/train_avg_step_seconds"] = avg_step_time
             metrics.update(self.env.extras)
-            if (not self.multi_gpu) or (self.global_rank == 0):
+            if (not self.multi_gpu) or (int(self.expert_rank) == 0):
                 metrics.update(per_gpu_metric_logs)
             if eval_policy:
                 metrics.update(eval_wandb_logs)

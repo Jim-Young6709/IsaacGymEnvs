@@ -118,12 +118,13 @@ env:
 
 sim:
   physx:
-    num_position_iterations: 32 #48 #16
+    num_position_iterations: 48 #48 #16
     num_velocity_iterations: 4 #1
     contact_offset: 0.005 # CODEX: merged duplicate sim block for OmegaConf rank-local task loading.
 
 fabric:
   enable: True
+  gripper_pose_attractor: legacy # CODEX: match older side distillation behavior in dex_compare.
 
 observation:
   usage:

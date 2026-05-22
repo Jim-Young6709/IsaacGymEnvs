@@ -152,6 +152,7 @@ sim:
 
 fabric:
   enable: False
+  gripper_pose_attractor: legacy # CODEX: side-isolated dex_compare keeps legacy fabric behavior by default.
 
 reward:
   params:

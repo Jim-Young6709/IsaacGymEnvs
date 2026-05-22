@@ -124,6 +124,7 @@ sim:
 
 fabric:
   enable: False
+  gripper_pose_attractor: legacy # CODEX: dex_compare keeps older coupled/keypoint fabric behavior by default.
 
 reward:
   params:

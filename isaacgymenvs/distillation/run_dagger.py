@@ -27,6 +27,13 @@ def _maybe_set_resume_checkpoint(cfg: DictConfig) -> None:
     if not _RESUME_FROM_LATEST:
         return
 
+    explicit_ckpt = cfg.dagger.get("load_ckpt_path", None)
+    if explicit_ckpt:
+        print("-----------------------------------------------------------")
+        print(f"Using explicit checkpoint: {explicit_ckpt}")  # CODEX: preserve CLI-provided checkpoint instead of overriding with latest.pt.
+        print("-----------------------------------------------------------")
+        return
+
     latest_ckpt = _get_latest_checkpoint_path(cfg)
     if latest_ckpt.is_file():
         cfg.dagger.load_ckpt_path = str(latest_ckpt)

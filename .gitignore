@@ -42,3 +42,7 @@ dagger_ckpts_archive/
 /build
 presampled_envs/
 assets/franka_cmd/
+rl_ckpts/
+good_checkpoints/
+teacher_state_bank/
+teacher_state_bank_3/

@@ -43,6 +43,7 @@ pcd_spec:
 
 fabric:
   enable: True
+  gripper_pose_attractor: legacy # CODEX: keep dex_compare multi-teacher baseline on legacy fabric.
 
 reward:
   params:
