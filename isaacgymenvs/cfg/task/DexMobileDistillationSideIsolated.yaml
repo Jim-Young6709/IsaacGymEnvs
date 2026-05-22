@@ -16,7 +16,7 @@ env:
   teacher_obs_action_frame: "eef"
   rl_reference_table_surface_height: 0.175
   object_settings:
-    object_grasp_target_z_scale: 0.25 # @ray z scale for the hand-object reward, special for side grasp
+    object_grasp_target_z_scale: 0.4 # CODEX: match the side RL teacher's object_grasp_target_to_eef observation.
     robot_side_x_margin: 0.1
     xyz_range: [[0.25, -0.2, 0.2], [0.55, 0.2, 0.25]] # [[0.45, -0.3, 0.2], [0.55, 0.3, 0.25]]  # xy is center position, z is BOTTOM height
   robot_init:
@@ -24,6 +24,7 @@ env:
     resample_base_each_reset: True
     switch_pos_offset: [0.0, 0.0, 0.2]
     switch_tol: 0.1 # 0.05
+    lock_mobile_base: True
 
   actionScale: # note this will multiply sim.dt
     # used for wbc policies
@@ -73,10 +74,12 @@ env:
     upright_near_table_max_resample_attempts: 32
     upright_near_table_bank_size: 128
     upright_near_table_bank_max_ik_goals: 2048
+    failure_recovery_flat_side_span_deg: 120.0 # CODEX: per-side flat object yaw sector; left+right total 240 deg.
 
   fabric_switch:
-    mode: simple_anchor # staged | simple_anchor
-    lateral_offset: 0.2
+    mode: guarded_cylinder # staged | simple_anchor | guarded_cylinder
+    align_target_quat_on_activation: False # CODEX: keep RL teacher target_quat semantics fixed unless explicitly enabled.
+    lateral_offset: 0.15
     high_z_offset: 0.2
     high_z_tol: 0.05
     stage3_z_offset: 0.025
@@ -86,14 +89,25 @@ env:
     object_xy_tol_exit: 0.23
     teacher_activate_z_offset: 0.075
     flat_table_reset_steps: 1
+    reset_on_flat_table: True # CODEX: set False to allow fallen/flat objects to continue instead of resetting.
     bad_state_xy_margin: 0.05
 
     simple_lateral_offset: 0.15
+    simple_anchor_table_z_offset: 0.1
     simple_high_z_offset: 0.2
     simple_high_z_tol: 0.05
     simple_activate_radius: 0.25
     simple_activate_radius_exit: 0.28
     simple_teacher_activate_z_offset: 0.075
+    base_to_target_attractor_activation_distance: 1.0 # CODEX: debug-viz radius; keep in sync with GlorbotVisionFabric.
+
+    guarded_activate_radius: 0.2
+    guarded_activate_radius_exit: 0.23
+    guarded_activation_height_offset: 0.15
+    guarded_wrong_high_z_offset: 0.15
+    guarded_wrong_lift_step: 0.08
+    guarded_high_wrong_y_exit_tol: 0.02
+    guarded_correct_exit_y_tol: 0.03
 
   verified_teacher_bank:
     enable: False
@@ -101,6 +115,8 @@ env:
     capacity_per_env: 8 # collection target per shared variation; also the local per-rank storage cap
     correct_region_margin: 0.03
     collection_region_filter: all # options: all, correct_only, wrong_only
+    resample_afar_hand_joints: True
+    perturb_far_recovery_hand_joints: True
     far_recovery_hand_noise_scale: 1.0
     far_recovery_hand_bank_size: 1024
     far_recovery_hand_bank_candidate_batch_size: 256
@@ -111,6 +127,7 @@ env:
       afar: 0.4
       near_recovery: 0.3
       far_recovery: 0.3
+      failure_recovery: 0.0
   activation_snapshot_bank:
     enable: False
     hdf5_path: ./teacher_state_banks/side_activation_snapshots.hdf5
@@ -118,13 +135,13 @@ env:
 
 sim:
   physx:
-    num_position_iterations: 48 #48 #16
+    num_position_iterations: 32 #48 #16
     num_velocity_iterations: 4 #1
     contact_offset: 0.005 # CODEX: merged duplicate sim block for OmegaConf rank-local task loading.
 
 fabric:
   enable: True
-  gripper_pose_attractor: legacy # CODEX: match older side distillation behavior in dex_compare.
+  gripper_pose_attractor: decoupled # CODEX: main side distillation uses decoupled gripper fabric by default.
 
 observation:
   usage:
@@ -140,6 +157,7 @@ reward:
     target_lift_dis: 0.1
     target_quat_right: [-0.7071067811865475, 0.0, 0.0, 0.7071067811865476]
     target_quat_left: [0.7071067811865475, 0.0, 0.0, 0.7071067811865476]
+    flat_object_axis_z_abs_max: 0.5
     grasp_on_object_z_height_tolerance: [0.005, 0.01]
     grasp_on_object_z_height_slope: 3000
     grasp_on_object_z_height_offset: 0.05

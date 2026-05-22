@@ -27,7 +27,9 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
     VERIFIED_BANK_AFAR = 0
     VERIFIED_BANK_NEAR_RECOVERY = 1
     VERIFIED_BANK_FAR_RECOVERY = 2
-    VERIFIED_BANK_CATEGORY_NAMES = ("afar", "near_recovery", "far_recovery")
+    VERIFIED_BANK_FAILURE_RECOVERY = 3
+    VERIFIED_BANK_CATEGORY_NAMES = ("afar", "near_recovery", "far_recovery", "failure_recovery")
+    VERIFIED_BANK_DEFAULT_COLLECTION_CATEGORY_NAMES = ("afar", "near_recovery", "far_recovery")
 
     def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
         # @ray unlike the rl env where we keep object spawn location fixed, let object spawn location vary
@@ -42,12 +44,14 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
         self.use_center_tracking_switch_target = False  # CODEX
         self.fabric_switch_cfg = cfg["env"]["fabric_switch"]
         self.fabric_switch_mode = str(self.fabric_switch_cfg.get("mode", "staged"))
-        if self.fabric_switch_mode not in ("staged", "simple_anchor"):
+        if self.fabric_switch_mode not in ("staged", "simple_anchor", "guarded_cylinder"):
             raise ValueError(
                 f"Unsupported env.fabric_switch.mode={self.fabric_switch_mode}. "
-                "Expected one of: staged, simple_anchor."
+                "Expected one of: staged, simple_anchor, guarded_cylinder."
             )
+        self.align_target_quat_on_activation = bool(self.fabric_switch_cfg.get("align_target_quat_on_activation", False))
         self.switch_tol = float(self.fabric_switch_cfg["lateral_offset"])
+        self.flat_object_axis_z_abs_max = float(cfg["reward"]["params"].get("flat_object_axis_z_abs_max", 0.5))
         self.rl_target_xy_offset = torch.tensor([0.05, 0.0], dtype=torch.float32)
         reference_table_height = float(cfg["env"].get("rl_reference_table_surface_height", 0.175))
         self.rl_target_z_offset = float(cfg["reward"]["params"]["target_pos"][2]) - reference_table_height
@@ -114,6 +118,15 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
         )
         self._reset_pitch_roll_noise_deg = float(cfg["env"]["eef_init"].get("pitch_roll_noise_deg", 45.0))
         self._reset_pitch_roll_noise_rad = float(np.deg2rad(self._reset_pitch_roll_noise_deg))
+        self._failure_recovery_flat_side_span_deg = float(
+            cfg["env"]["eef_init"].get("failure_recovery_flat_side_span_deg", 120.0)
+        )
+        if self._failure_recovery_flat_side_span_deg <= 0.0 or self._failure_recovery_flat_side_span_deg > 180.0:
+            raise ValueError(
+                "env.eef_init.failure_recovery_flat_side_span_deg must be in (0, 180]. "
+                "Use 120 for two side sectors totaling 240 degrees."
+            )
+        self._failure_recovery_flat_side_span_rad = float(np.deg2rad(self._failure_recovery_flat_side_span_deg))
         teacher_state_bank_cfg = cfg.get("dagger", {}).get("teacher_state_bank", {})
         self._teacher_state_bank_collect_requested = bool(
             teacher_state_bank_cfg.get("collect_before_train", False)
@@ -134,6 +147,12 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
                 "verified_teacher_bank.collection_region_filter must be one of "
                 "['all', 'correct_only', 'wrong_only']"
             )
+        self._verified_teacher_bank_resample_afar_hand_joints = bool(
+            verified_bank_cfg.get("resample_afar_hand_joints", True)
+        )
+        self._verified_teacher_bank_perturb_far_recovery_hand_joints = bool(
+            verified_bank_cfg.get("perturb_far_recovery_hand_joints", True)
+        )
         self._verified_teacher_bank_far_recovery_hand_noise_scale = float(
             verified_bank_cfg.get("far_recovery_hand_noise_scale", 0.0)
         )
@@ -155,9 +174,8 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
         self._verified_teacher_bank_sampling_probs_cfg = verified_bank_cfg["sampling_probs"]
         self._verified_teacher_bank_sampling_probs = torch.tensor(
             [
-                float(self._verified_teacher_bank_sampling_probs_cfg["afar"]),
-                float(self._verified_teacher_bank_sampling_probs_cfg["near_recovery"]),
-                float(self._verified_teacher_bank_sampling_probs_cfg["far_recovery"]),
+                float(self._verified_teacher_bank_sampling_probs_cfg.get(category_name, 0.0))
+                for category_name in self.VERIFIED_BANK_CATEGORY_NAMES
             ],
             dtype=torch.float32,
         )
@@ -883,6 +901,13 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
             self.VERIFIED_BANK_CATEGORY_NAMES.index(category_name)
         )
 
+    def _is_verified_bank_recovery_category(self, category_id):
+        return int(category_id) in (
+            self.VERIFIED_BANK_NEAR_RECOVERY,
+            self.VERIFIED_BANK_FAR_RECOVERY,
+            self.VERIFIED_BANK_FAILURE_RECOVERY,
+        )
+
     def _verified_teacher_bank_category_full(self, category_id):
         counts = self._verified_teacher_bank_counts_cpu[category_id]
         return bool(torch.all(counts >= int(self._verified_teacher_bank_capacity_per_env)).item())
@@ -1048,77 +1073,70 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
                     raise RuntimeError(
                         f"Verified teacher bank object_mass mismatch: path={shard_path}"
                     )
-            self._verified_teacher_bank_counts_cpu.copy_(torch.from_numpy(f["counts"][...]).to(dtype=torch.int32))
-            if "failure_counts" in f:
-                self._verified_teacher_bank_failure_counts_cpu.copy_(torch.from_numpy(f["failure_counts"][...]).to(dtype=torch.int32))
-            else:
-                self._verified_teacher_bank_failure_counts_cpu.zero_()
-            self._verified_teacher_bank_attempt_counts_cpu.copy_(torch.from_numpy(f["attempt_counts"][...]).to(dtype=torch.int32))
-            self._verified_teacher_bank_success_counts_cpu.copy_(torch.from_numpy(f["success_counts"][...]).to(dtype=torch.int32))
-            if "episode_steps" in f:
-                self._verified_teacher_bank_episode_steps_cpu.copy_(torch.from_numpy(f["episode_steps"][...]).to(dtype=torch.int32))
-            else:
-                self._verified_teacher_bank_episode_steps_cpu.zero_()
-            if "failure_episode_steps" in f:
-                self._verified_teacher_bank_failure_episode_steps_cpu.copy_(torch.from_numpy(f["failure_episode_steps"][...]).to(dtype=torch.int32))
-            else:
-                self._verified_teacher_bank_failure_episode_steps_cpu.zero_()
-            if "attempt_episode_step_sum" in f:
-                self._verified_teacher_bank_attempt_episode_step_sum_cpu.copy_(torch.from_numpy(f["attempt_episode_step_sum"][...]).to(dtype=torch.int64))
-            else:
-                self._verified_teacher_bank_attempt_episode_step_sum_cpu.zero_()
-            if "success_episode_step_sum" in f:
-                self._verified_teacher_bank_success_episode_step_sum_cpu.copy_(torch.from_numpy(f["success_episode_step_sum"][...]).to(dtype=torch.int64))
-            else:
-                self._verified_teacher_bank_success_episode_step_sum_cpu.zero_()
-            if "failure_episode_step_sum" in f:
-                self._verified_teacher_bank_failure_episode_step_sum_cpu.copy_(torch.from_numpy(f["failure_episode_step_sum"][...]).to(dtype=torch.int64))
-            else:
-                self._verified_teacher_bank_failure_episode_step_sum_cpu.zero_()
-            if "attempt_episode_step_max" in f:
-                self._verified_teacher_bank_attempt_episode_step_max_cpu.copy_(torch.from_numpy(f["attempt_episode_step_max"][...]).to(dtype=torch.int32))
-            else:
-                self._verified_teacher_bank_attempt_episode_step_max_cpu.zero_()
-            if "success_episode_step_max" in f:
-                self._verified_teacher_bank_success_episode_step_max_cpu.copy_(torch.from_numpy(f["success_episode_step_max"][...]).to(dtype=torch.int32))
-            else:
-                self._verified_teacher_bank_success_episode_step_max_cpu.zero_()
-            if "failure_episode_step_max" in f:
-                self._verified_teacher_bank_failure_episode_step_max_cpu.copy_(torch.from_numpy(f["failure_episode_step_max"][...]).to(dtype=torch.int32))
-            else:
-                self._verified_teacher_bank_failure_episode_step_max_cpu.zero_()
-            self._verified_teacher_bank_joint_config_cpu.copy_(torch.from_numpy(f["joint_config"][...]).to(dtype=self._q.dtype))
-            if "failure_joint_config" in f:
-                self._verified_teacher_bank_failure_joint_config_cpu.copy_(torch.from_numpy(f["failure_joint_config"][...]).to(dtype=self._q.dtype))
-            else:
-                self._verified_teacher_bank_failure_joint_config_cpu.zero_()
-            self._verified_teacher_bank_object_center_world_cpu.copy_(torch.from_numpy(f["object_center_world"][...]).to(dtype=self._q.dtype))
-            if "failure_object_center_world" in f:
-                self._verified_teacher_bank_failure_object_center_world_cpu.copy_(torch.from_numpy(f["failure_object_center_world"][...]).to(dtype=self._q.dtype))
-            else:
-                self._verified_teacher_bank_failure_object_center_world_cpu.zero_()
-            self._verified_teacher_bank_object_quat_world_cpu.copy_(torch.from_numpy(f["object_quat_world"][...]).to(dtype=self._q.dtype))
-            if "failure_object_quat_world" in f:
-                self._verified_teacher_bank_failure_object_quat_world_cpu.copy_(torch.from_numpy(f["failure_object_quat_world"][...]).to(dtype=self._q.dtype))
-            else:
-                self._verified_teacher_bank_failure_object_quat_world_cpu.zero_()
-            self._verified_teacher_bank_side_is_left_cpu.copy_(torch.from_numpy(f["side_is_left"][...].astype(np.bool_)))
-            if "correct_region" in f:
-                self._verified_teacher_bank_correct_region_cpu.copy_(
-                    torch.from_numpy(f["correct_region"][...].astype(np.bool_))
-                )
-            else:
-                self._verified_teacher_bank_correct_region_cpu.zero_()
-            if "failure_side_is_left" in f:
-                self._verified_teacher_bank_failure_side_is_left_cpu.copy_(torch.from_numpy(f["failure_side_is_left"][...].astype(np.bool_)))
-            else:
-                self._verified_teacher_bank_failure_side_is_left_cpu.zero_()
-            if "failure_correct_region" in f:
-                self._verified_teacher_bank_failure_correct_region_cpu.copy_(
-                    torch.from_numpy(f["failure_correct_region"][...].astype(np.bool_))
-                )
-            else:
-                self._verified_teacher_bank_failure_correct_region_cpu.zero_()
+            file_category_names = json.loads(
+                f.attrs.get("category_names_json", json.dumps(list(self.VERIFIED_BANK_CATEGORY_NAMES)))
+            )
+            if len(file_category_names) != int(f["counts"].shape[0]):
+                file_category_names = list(self.VERIFIED_BANK_CATEGORY_NAMES[: int(f["counts"].shape[0])])
+            file_category_to_idx = {name: idx for idx, name in enumerate(file_category_names)}
+
+            def _copy_category_dataset(target, dataset_name, dtype, bool_dataset=False):
+                target.zero_()
+                if dataset_name not in f:
+                    return
+                data_np = f[dataset_name][...]
+                if bool_dataset:
+                    data_np = data_np.astype(np.bool_)
+                data = torch.from_numpy(data_np)
+                if int(data.shape[0]) == int(target.shape[0]):
+                    target.copy_(data.to(dtype=dtype))
+                    return
+                for dst_idx, category_name in enumerate(self.VERIFIED_BANK_CATEGORY_NAMES):
+                    src_idx = file_category_to_idx.get(category_name, None)
+                    if src_idx is None or src_idx >= int(data.shape[0]):
+                        continue
+                    target[dst_idx].copy_(data[src_idx].to(dtype=dtype))
+
+            _copy_category_dataset(self._verified_teacher_bank_counts_cpu, "counts", torch.int32)
+            _copy_category_dataset(self._verified_teacher_bank_failure_counts_cpu, "failure_counts", torch.int32)
+            _copy_category_dataset(self._verified_teacher_bank_attempt_counts_cpu, "attempt_counts", torch.int32)
+            _copy_category_dataset(self._verified_teacher_bank_success_counts_cpu, "success_counts", torch.int32)
+            _copy_category_dataset(self._verified_teacher_bank_episode_steps_cpu, "episode_steps", torch.int32)
+            _copy_category_dataset(self._verified_teacher_bank_failure_episode_steps_cpu, "failure_episode_steps", torch.int32)
+            _copy_category_dataset(self._verified_teacher_bank_attempt_episode_step_sum_cpu, "attempt_episode_step_sum", torch.int64)
+            _copy_category_dataset(self._verified_teacher_bank_success_episode_step_sum_cpu, "success_episode_step_sum", torch.int64)
+            _copy_category_dataset(self._verified_teacher_bank_failure_episode_step_sum_cpu, "failure_episode_step_sum", torch.int64)
+            _copy_category_dataset(self._verified_teacher_bank_attempt_episode_step_max_cpu, "attempt_episode_step_max", torch.int32)
+            _copy_category_dataset(self._verified_teacher_bank_success_episode_step_max_cpu, "success_episode_step_max", torch.int32)
+            _copy_category_dataset(self._verified_teacher_bank_failure_episode_step_max_cpu, "failure_episode_step_max", torch.int32)
+            _copy_category_dataset(self._verified_teacher_bank_joint_config_cpu, "joint_config", self._q.dtype)
+            _copy_category_dataset(self._verified_teacher_bank_failure_joint_config_cpu, "failure_joint_config", self._q.dtype)
+            _copy_category_dataset(self._verified_teacher_bank_object_center_world_cpu, "object_center_world", self._q.dtype)
+            _copy_category_dataset(
+                self._verified_teacher_bank_failure_object_center_world_cpu,
+                "failure_object_center_world",
+                self._q.dtype,
+            )
+            _copy_category_dataset(self._verified_teacher_bank_object_quat_world_cpu, "object_quat_world", self._q.dtype)
+            _copy_category_dataset(
+                self._verified_teacher_bank_failure_object_quat_world_cpu,
+                "failure_object_quat_world",
+                self._q.dtype,
+            )
+            _copy_category_dataset(self._verified_teacher_bank_side_is_left_cpu, "side_is_left", torch.bool, bool_dataset=True)
+            _copy_category_dataset(self._verified_teacher_bank_correct_region_cpu, "correct_region", torch.bool, bool_dataset=True)
+            _copy_category_dataset(
+                self._verified_teacher_bank_failure_side_is_left_cpu,
+                "failure_side_is_left",
+                torch.bool,
+                bool_dataset=True,
+            )
+            _copy_category_dataset(
+                self._verified_teacher_bank_failure_correct_region_cpu,
+                "failure_correct_region",
+                torch.bool,
+                bool_dataset=True,
+            )
         self._verified_teacher_bank_loaded = True
         return True
 
@@ -1454,6 +1472,9 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
         )
 
     def _resample_verified_teacher_bank_afar_hand_joints(self, env_ids, category_ids, joint_config):
+        if not self._verified_teacher_bank_resample_afar_hand_joints:
+            return joint_config
+
         afar_mask = category_ids == self.VERIFIED_BANK_AFAR
         if not torch.any(afar_mask):
             return joint_config
@@ -1585,6 +1606,8 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
     def _init_far_recovery_safe_hand_joint_bank(self):
         self._far_recovery_safe_hand_joint_bank = torch.empty((0, 16), device=self.device, dtype=self._q.dtype)
         self._far_recovery_safe_hand_joint_bank_collision_pairs = []
+        if not self._verified_teacher_bank_perturb_far_recovery_hand_joints:
+            return
         if self._verified_teacher_bank_far_recovery_hand_noise_scale <= 0.0:
             return
         if self._verified_teacher_bank_far_recovery_hand_bank_size <= 0:
@@ -1626,6 +1649,9 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
         )
 
     def _perturb_verified_teacher_bank_far_recovery_hand_joints(self, env_ids, category_ids, joint_config):
+        if not self._verified_teacher_bank_perturb_far_recovery_hand_joints:
+            return joint_config
+
         if self._far_recovery_safe_hand_joint_bank.shape[0] <= 0:
             return joint_config
 
@@ -1738,6 +1764,45 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
             gymtorch.unwrap_tensor(multi_env_ids_int32),
             len(multi_env_ids_int32),
         )
+
+    def _sample_failure_recovery_flat_object_quat(self, env_ids):
+        num_resets = int(env_ids.numel())
+        dtype = self._object_state.dtype
+        device = self.device
+        if num_resets == 0:
+            return torch.empty((0, 4), device=device, dtype=dtype)
+
+        half_span = 0.5 * float(self._failure_recovery_flat_side_span_rad)
+        flat_sector_is_left = torch.rand((num_resets,), device=device) < 0.5
+        center_yaw = torch.where(
+            flat_sector_is_left,
+            torch.full((num_resets,), 0.5 * np.pi, device=device, dtype=dtype),
+            torch.full((num_resets,), -0.5 * np.pi, device=device, dtype=dtype),
+        )
+        yaw = center_yaw + (2.0 * torch.rand((num_resets,), device=device, dtype=dtype) - 1.0) * half_span
+
+        # Rotate local +Z onto a horizontal side-facing direction. The two side
+        # sectors are centered at +/-Y, each spanning failure_recovery_flat_side_span_deg.
+        axis = torch.zeros((num_resets, 3), device=device, dtype=dtype)
+        axis[:, 0] = -torch.sin(yaw)
+        axis[:, 1] = torch.cos(yaw)
+        flat_quat = torch.zeros((num_resets, 4), device=device, dtype=dtype)
+        flat_quat[:, :3] = axis * float(np.sin(0.25 * np.pi))
+        flat_quat[:, 3] = float(np.cos(0.25 * np.pi))
+        return flat_quat / torch.norm(flat_quat, dim=-1, keepdim=True).clamp_min(1.0e-8)
+
+    def _place_flat_object_center_on_table(self, env_ids, object_center_world, object_quat):
+        object_center_world = object_center_world.clone()
+        rot = quaternion_to_matrix_ig(object_quat)
+        local_half_extents = 0.5 * self.mesh_aabb_extents[env_ids].to(
+            device=self.device,
+            dtype=object_center_world.dtype,
+        )
+        vertical_half_extent = torch.sum(torch.abs(rot[:, 2, :]) * local_half_extents, dim=-1)
+        object_center_world[:, 2] = self.table_surface_height[env_ids].to(
+            dtype=object_center_world.dtype
+        ) + vertical_half_extent
+        return object_center_world, vertical_half_extent
 
     def _sample_upright_near_table_recovery_states(self, env_ids):
         dtype = self._q.dtype
@@ -2218,11 +2283,16 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
             return
 
         if self.debug_viz:
+            reset_success = self.success_long_enough[env_ids]
+            if self.reset_on_flat_table:
+                reset_failure = self.flat_table_long_enough[env_ids] | (~reset_success)
+            else:
+                reset_failure = ~reset_success
             pre_reset_color_state = torch.where(
-                self.flat_table_long_enough[env_ids],
+                reset_failure,
                 torch.full((env_ids.numel(),), 2, device=self.device, dtype=self._table_debug_color_state_prev.dtype),
                 torch.where(
-                    self.success_long_enough[env_ids],
+                    reset_success,
                     torch.full((env_ids.numel(),), 1, device=self.device, dtype=self._table_debug_color_state_prev.dtype),
                     torch.zeros((env_ids.numel(),), device=self.device, dtype=self._table_debug_color_state_prev.dtype),
                 ),
@@ -2249,11 +2319,33 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
             and self._verified_teacher_bank_loaded
             and (not collection_enabled)
         )
+        online_sampled_category_ids = None
+        online_recovery_category_ids = None
 
         if use_verified_teacher_bank:
             recovery_env_ids = torch.empty((0,), dtype=torch.long, device=self.device)
-        elif collection_enabled and (collection_category in (self.VERIFIED_BANK_NEAR_RECOVERY, self.VERIFIED_BANK_FAR_RECOVERY)):
+        elif collection_enabled and self._is_verified_bank_recovery_category(collection_category):
             recovery_env_ids = env_ids.clone()
+        elif (not collection_enabled) and (not use_verified_teacher_bank):
+            sampling_probs = self._verified_teacher_bank_sampling_probs.to(device=self.device)
+            prob_sum = torch.sum(sampling_probs)
+            if float(prob_sum.item()) > 0.0:
+                online_sampled_category_ids = torch.multinomial(
+                    sampling_probs / prob_sum,
+                    num_samples=int(env_ids.numel()),
+                    replacement=True,
+                )
+                recovery_mask = torch.zeros((env_ids.numel(),), dtype=torch.bool, device=self.device)
+                for category_id in (
+                    self.VERIFIED_BANK_NEAR_RECOVERY,
+                    self.VERIFIED_BANK_FAR_RECOVERY,
+                    self.VERIFIED_BANK_FAILURE_RECOVERY,
+                ):
+                    recovery_mask = recovery_mask | (online_sampled_category_ids == int(category_id))
+                recovery_env_ids = env_ids[recovery_mask]
+                online_recovery_category_ids = online_sampled_category_ids[recovery_mask]
+            else:
+                recovery_env_ids = torch.empty((0,), dtype=torch.long, device=self.device)
         elif self._reset_upright_near_table_recovery_prob > 0.0:
             select_mask = torch.rand(env_ids.numel(), device=self.device) < self._reset_upright_near_table_recovery_prob
             recovery_env_ids = env_ids[select_mask]
@@ -2263,18 +2355,68 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
         recovery_palm_pos = torch.empty((0, 3), dtype=self._q.dtype, device=self.device)
         recovery_left_mask = torch.empty((0,), dtype=torch.bool, device=self.device)
         recovery_palm_quat = torch.empty((0, 4), dtype=self._q.dtype, device=self.device)
+        online_solved_category_ids = torch.empty((0,), dtype=torch.long, device=self.device)
         if use_verified_teacher_bank:
             sampled_env_ids, sampled_category_ids = self._apply_verified_teacher_bank_reset(env_ids)
             recovery_env_ids = torch.empty((0,), dtype=torch.long, device=self.device)
         elif recovery_env_ids.numel() > 0:
-            if collection_enabled and (collection_category in (self.VERIFIED_BANK_NEAR_RECOVERY, self.VERIFIED_BANK_FAR_RECOVERY)):
+            if collection_enabled and self._is_verified_bank_recovery_category(collection_category):
                 force_far = bool(collection_category == self.VERIFIED_BANK_FAR_RECOVERY)
+                flat_object = bool(collection_category == self.VERIFIED_BANK_FAILURE_RECOVERY)
                 recovery_env_ids, recovery_palm_pos, recovery_left_mask, recovery_palm_quat = (
                     self._apply_upright_near_table_recovery_reset_for_env_ids(
                         recovery_env_ids,
                         force_far=force_far,
+                        flat_object=flat_object,
                     )
                 )
+            elif online_recovery_category_ids is not None:
+                solved_env_chunks = []
+                palm_pos_chunks = []
+                left_mask_chunks = []
+                palm_quat_chunks = []
+                category_chunks = []
+                for category_id in (
+                    self.VERIFIED_BANK_NEAR_RECOVERY,
+                    self.VERIFIED_BANK_FAR_RECOVERY,
+                    self.VERIFIED_BANK_FAILURE_RECOVERY,
+                ):
+                    category_mask = online_recovery_category_ids == int(category_id)
+                    if not torch.any(category_mask):
+                        continue
+                    category_env_ids = recovery_env_ids[category_mask]
+                    (
+                        solved_env_ids,
+                        solved_palm_pos,
+                        solved_left_mask,
+                        solved_palm_quat,
+                    ) = self._apply_upright_near_table_recovery_reset_for_env_ids(
+                        category_env_ids,
+                        force_far=bool(category_id == self.VERIFIED_BANK_FAR_RECOVERY),
+                        flat_object=bool(category_id == self.VERIFIED_BANK_FAILURE_RECOVERY),
+                    )
+                    if solved_env_ids.numel() == 0:
+                        continue
+                    solved_env_chunks.append(solved_env_ids)
+                    palm_pos_chunks.append(solved_palm_pos)
+                    left_mask_chunks.append(solved_left_mask)
+                    palm_quat_chunks.append(solved_palm_quat)
+                    category_chunks.append(
+                        torch.full(
+                            (solved_env_ids.numel(),),
+                            int(category_id),
+                            device=self.device,
+                            dtype=torch.long,
+                        )
+                    )
+                if solved_env_chunks:
+                    recovery_env_ids = torch.cat(solved_env_chunks, dim=0)
+                    recovery_palm_pos = torch.cat(palm_pos_chunks, dim=0)
+                    recovery_left_mask = torch.cat(left_mask_chunks, dim=0)
+                    recovery_palm_quat = torch.cat(palm_quat_chunks, dim=0)
+                    online_solved_category_ids = torch.cat(category_chunks, dim=0)
+                else:
+                    recovery_env_ids = torch.empty((0,), dtype=torch.long, device=self.device)
             elif self._recovery_reset_bank_ready:
                 force_far = None
                 if collection_enabled:
@@ -2303,16 +2445,27 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
         reset_related_env_ids = env_ids
         snapshot_env_ids = reset_related_env_ids
         self.current_episode_verified_bank_category[reset_related_env_ids] = -1
-        if collection_enabled and (
-            collection_category in (self.VERIFIED_BANK_NEAR_RECOVERY, self.VERIFIED_BANK_FAR_RECOVERY)
-        ):
+        self.failure_recovery_mode_active[reset_related_env_ids] = False  # CODEX: reset clears fallen-object recovery mode.
+        if collection_enabled and self._is_verified_bank_recovery_category(collection_category):
             # Only solved recovery resets belong in the recovery-state banks. Any envs
             # that fell back to the superclass reset remain ordinary afar-like starts.
             snapshot_env_ids = recovery_env_ids
         if use_verified_teacher_bank and sampled_env_ids.numel() > 0:
             self.current_episode_verified_bank_category[sampled_env_ids] = sampled_category_ids
+            failure_replay_mask = sampled_category_ids == self.VERIFIED_BANK_FAILURE_RECOVERY  # CODEX
+            if torch.any(failure_replay_mask):  # CODEX
+                self.failure_recovery_mode_active[sampled_env_ids[failure_replay_mask]] = True  # CODEX
         elif collection_enabled and snapshot_env_ids.numel() > 0:
             self.current_episode_verified_bank_category[snapshot_env_ids] = int(collection_category)
+            if collection_category == self.VERIFIED_BANK_FAILURE_RECOVERY:  # CODEX
+                self.failure_recovery_mode_active[snapshot_env_ids] = True  # CODEX
+        elif online_sampled_category_ids is not None:
+            self.current_episode_verified_bank_category[env_ids] = online_sampled_category_ids
+            if recovery_env_ids.numel() > 0 and online_solved_category_ids.numel() == recovery_env_ids.numel():
+                self.current_episode_verified_bank_category[recovery_env_ids] = online_solved_category_ids
+            failure_online_mask = self.current_episode_verified_bank_category[env_ids] == self.VERIFIED_BANK_FAILURE_RECOVERY
+            if torch.any(failure_online_mask):
+                self.failure_recovery_mode_active[env_ids[failure_online_mask]] = True
         self.debug_recovery_reset_active[reset_related_env_ids] = False
 
         self.switch_target_quat_latched[reset_related_env_ids] = False  # CODEX: force switching target refresh after teleport/reset.
@@ -2386,7 +2539,7 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
             successes.append(chunk_success)
         return torch.cat(solutions, dim=0), torch.cat(successes, dim=0)
 
-    def _apply_upright_near_table_recovery_reset_for_env_ids(self, recovery_env_ids, force_far=None):
+    def _apply_upright_near_table_recovery_reset_for_env_ids(self, recovery_env_ids, force_far=None, flat_object=False):
         if recovery_env_ids.numel() == 0:
             return (
                 torch.empty((0,), dtype=torch.long, device=self.device),
@@ -2440,8 +2593,21 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
         table_xy_min = table_center_xy - table_half_xy
         table_xy_max = table_center_xy + table_half_xy
         object_center = self._object_center_init_state[recovery_env_ids, :3].to(dtype=dtype)
+        flat_object_quat = None
+        if flat_object:
+            flat_object_quat = self._sample_failure_recovery_flat_object_quat(
+                recovery_env_ids,
+            ).to(dtype=dtype)
+            object_center, flat_vertical_half_extent = self._place_flat_object_center_on_table(
+                recovery_env_ids,
+                object_center,
+                flat_object_quat,
+            )
         object_half_xy = 0.5 * self.mesh_aabb_extents[recovery_env_ids, :2].to(dtype=dtype)
-        object_top_z = table_height + self.mesh_aabb_extents[recovery_env_ids, 2].to(dtype=dtype)
+        if flat_object:
+            object_top_z = object_center[:, 2] + flat_vertical_half_extent
+        else:
+            object_top_z = table_height + self.mesh_aabb_extents[recovery_env_ids, 2].to(dtype=dtype)
 
         solved_mask = torch.zeros(num_recovery, device=device, dtype=torch.bool)
         solved_joint_config = self.canonical_joint_config[recovery_env_ids].clone()
@@ -2608,6 +2774,12 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
             )
 
         solved_env_ids = recovery_env_ids[solved_mask]
+        if flat_object:
+            self._apply_object_center_state(
+                solved_env_ids,
+                object_center[solved_mask],
+                flat_object_quat[solved_mask],
+            )
         self.set_robot_joint_state(solved_joint_config[solved_mask], env_ids=solved_env_ids)
 
         if self.enable_fabric:
@@ -2713,6 +2885,13 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
         target_pos[:, 2] = target_pos[:, 2] * 2.0 + self.switching_target_z_offset
         return target_pos
 
+    def _set_active_fabric_target_to_object_center(self, object_center_pos):
+        # Once RL is active, fabric still drives auxiliary joints/base, but should
+        # track the object center instead of the pre-activation approach anchor.
+        teacher_active = ~self.fabric_switch_enable
+        if torch.any(teacher_active):
+            self.switching_target_pos[teacher_active] = object_center_pos[teacher_active]
+
     def _update_fabric_switching_target(self, object_center_pos):
         if self.use_center_tracking_switch_target:  # CODEX
             # CODEX: latch switch target pose once and keep fixed during fabric.
@@ -2754,6 +2933,7 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
             # CODEX: radius-based trigger around object center.
             center_radius = float(self.fabric_switch_cfg["lateral_offset"])  # CODEX
             self.switch_activate_radius = torch.full((self.num_envs,), center_radius, device=self.device, dtype=object_center_pos.dtype)  # CODEX
+            self._set_active_fabric_target_to_object_center(object_center_pos)
             return  # CODEX
 
         if self.fabric_switch_mode == "simple_anchor":
@@ -2772,6 +2952,63 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
                 device=self.device,
                 dtype=object_center_pos.dtype,
             )
+            self._set_active_fabric_target_to_object_center(object_center_pos)
+            return
+
+        if self.fabric_switch_mode == "guarded_cylinder":
+            switch_geom = self._get_guarded_cylinder_switch_geometry(object_center_pos)
+            eef_pos = self._eef_state[:, :3]
+            inside_region = self._inside_guarded_cylinder_activation_region(
+                eef_pos,
+                object_center_pos,
+                switch_geom,
+                switch_geom["enter_radius"],
+            )
+            correct_region, _signed_y = self._guarded_cylinder_correct_side_mask(
+                eef_pos,
+                object_center_pos,
+                switch_geom,
+            )
+            wrong_region = inside_region & (~correct_region)
+            high_wrong_region = wrong_region & (eef_pos[:, 2] >= switch_geom["high_wrong_z"])
+            lower_wrong_region = wrong_region & (~high_wrong_region)
+
+            lift_target_pos = eef_pos.clone()
+            lift_target_pos[:, 2] += float(switch_geom["lift_step"])
+
+            side_sign = torch.where(
+                self.side_is_left,
+                torch.ones((self.num_envs,), device=self.device, dtype=eef_pos.dtype),
+                -torch.ones((self.num_envs,), device=self.device, dtype=eef_pos.dtype),
+            )
+            correct_side_y = object_center_pos[:, 1] + side_sign * (
+                float(self._verified_teacher_bank_correct_region_margin)
+                + float(switch_geom["high_wrong_y_exit_tol"])
+            )
+            lateral_target_pos = eef_pos.clone()
+            lateral_target_pos[:, 1] = correct_side_y
+
+            anchor_target_pos = switch_geom["anchor_target_pos"]
+            guarded_target_pos = torch.where(
+                lower_wrong_region.unsqueeze(-1),
+                lift_target_pos,
+                torch.where(high_wrong_region.unsqueeze(-1), lateral_target_pos, anchor_target_pos),
+            )
+            # Failure recovery skips correct-side staging; fabric only brings the
+            # hand into the activation region and lets RL handle the fallen object.
+            self.switching_target_pos = torch.where(
+                self.failure_recovery_mode_active.unsqueeze(-1),
+                anchor_target_pos,
+                guarded_target_pos,
+            )
+            self.switching_target_quat = self._get_switch_target_quat_from_side_mask()
+            self.switch_activate_radius = torch.full(
+                (self.num_envs,),
+                float(switch_geom["enter_radius"]),
+                device=self.device,
+                dtype=object_center_pos.dtype,
+            )
+            self._set_active_fabric_target_to_object_center(object_center_pos)
             return
 
         # CODEX: pure region-based switching target for non-center mode.
@@ -2801,9 +3038,7 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
             left_lower_target_pos,
             torch.where(high_far_region.unsqueeze(-1), stage2_target_pos, stage3_target_pos),
         )
-        teacher_active = ~self.fabric_switch_enable
-        if torch.any(teacher_active):
-            self.switching_target_pos[teacher_active] = object_center_pos[teacher_active]
+        self._set_active_fabric_target_to_object_center(object_center_pos)
         self.switching_target_quat = stage_target_quat
 
         switch_radius = torch.norm(self.switching_target_pos - object_center_pos, dim=-1)
@@ -2841,17 +3076,116 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
         }
 
     def _get_simple_switch_geometry(self, object_center_pos):
-        lateral_offset = float(self.fabric_switch_cfg["lateral_offset"])
+        lateral_offset = float(self.fabric_switch_cfg.get("simple_lateral_offset", self.fabric_switch_cfg["lateral_offset"]))
         object_top_z = self.table_surface_height + self.mesh_aabb_extents[:, 2]
+        anchor_table_z_offset = self.fabric_switch_cfg.get("simple_anchor_table_z_offset", None)
 
         anchor_target_pos = object_center_pos.clone()
         anchor_target_pos[:, 1] += lateral_offset
-        anchor_target_pos[:, 2] = object_top_z
+        if anchor_table_z_offset is None:
+            anchor_target_pos[:, 2] = object_top_z
+        else:
+            anchor_target_pos[:, 2] = self.table_surface_height + float(anchor_table_z_offset)
 
         return {
             "lateral_offset": lateral_offset,
             "anchor_target_pos": anchor_target_pos,
         }
+
+    def _get_switch_target_quat_from_side_mask(self):
+        target_quat = self.target_quat_right.repeat(self.num_envs, 1)
+        left_mask = self.side_is_left.to(dtype=torch.bool)
+        if int(left_mask.sum().item()) > 0:
+            target_quat[left_mask] = self.target_quat_left.repeat(int(left_mask.sum().item()), 1)
+        return target_quat
+
+    def _get_guarded_cylinder_switch_geometry(self, object_center_pos):
+        enter_radius = float(
+            self.fabric_switch_cfg.get(
+                "guarded_activate_radius",
+                self.fabric_switch_cfg.get("simple_activate_radius", self.fabric_switch_cfg["lateral_offset"]),
+            )
+        )
+        exit_radius = float(
+            self.fabric_switch_cfg.get(
+                "guarded_activate_radius_exit",
+                self.fabric_switch_cfg.get("simple_activate_radius_exit", enter_radius + 0.03),
+            )
+        )
+        activation_height_offset = float(
+            self.fabric_switch_cfg.get(
+                "guarded_activation_height_offset",
+                self.fabric_switch_cfg.get(
+                    "simple_teacher_activate_z_offset",
+                    self.fabric_switch_cfg["teacher_activate_z_offset"],
+                ),
+            )
+        )
+        wrong_high_z_offset = float(
+            self.fabric_switch_cfg.get(
+                "guarded_wrong_high_z_offset",
+                self.fabric_switch_cfg.get("teacher_activate_z_offset", activation_height_offset),
+            )
+        )
+        high_wrong_y_exit_tol = float(self.fabric_switch_cfg.get("guarded_high_wrong_y_exit_tol", 0.02))
+        correct_exit_y_tol = float(self.fabric_switch_cfg.get("guarded_correct_exit_y_tol", 0.03))
+        lift_step = float(self.fabric_switch_cfg.get("guarded_wrong_lift_step", 0.08))
+
+        simple_geom = self._get_simple_switch_geometry(object_center_pos)
+        object_top_z = self.table_surface_height + self.mesh_aabb_extents[:, 2]
+        cylinder_top_z = object_top_z + activation_height_offset
+        high_wrong_z = object_top_z + wrong_high_z_offset
+
+        return {
+            "anchor_target_pos": simple_geom["anchor_target_pos"],
+            "enter_radius": enter_radius,
+            "exit_radius": exit_radius,
+            "object_top_z": object_top_z,
+            "cylinder_top_z": cylinder_top_z,
+            "high_wrong_z": high_wrong_z,
+            "high_wrong_y_exit_tol": high_wrong_y_exit_tol,
+            "correct_exit_y_tol": correct_exit_y_tol,
+            "lift_step": lift_step,
+        }
+
+    def _inside_guarded_cylinder_activation_region(self, eef_pos, object_center_pos, switch_geom, radius):
+        if not torch.is_tensor(radius):
+            radius = torch.full_like(switch_geom["object_top_z"], float(radius))
+        radius_sq = radius * radius
+        radial_xy_sq = torch.sum((eef_pos[:, :2] - object_center_pos[:, :2]) ** 2, dim=-1)
+        z = eef_pos[:, 2]
+        cylinder_bottom_z = self.table_surface_height - 0.02
+        cylinder_top_z = switch_geom["cylinder_top_z"]
+        dome_z = z - cylinder_top_z
+
+        inside_cylinder = (
+            (radial_xy_sq <= radius_sq)
+            & (z >= cylinder_bottom_z)
+            & (z <= cylinder_top_z)
+        )
+        inside_dome = (dome_z >= 0.0) & ((radial_xy_sq + dome_z * dome_z) <= radius_sq)
+        return inside_cylinder | inside_dome
+
+    def _guarded_cylinder_correct_side_mask(self, eef_pos, object_center_pos, switch_geom, teacher_active_prev=None):
+        side_sign = torch.where(
+            self.side_is_left,
+            torch.ones((self.num_envs,), device=self.device, dtype=eef_pos.dtype),
+            -torch.ones((self.num_envs,), device=self.device, dtype=eef_pos.dtype),
+        )
+        signed_y = side_sign * (eef_pos[:, 1] - object_center_pos[:, 1])
+        enter_margin = (
+            float(self._verified_teacher_bank_correct_region_margin)
+            + float(switch_geom["high_wrong_y_exit_tol"])
+        )
+        if teacher_active_prev is None:
+            return signed_y >= enter_margin, signed_y
+
+        exit_margin = float(self._verified_teacher_bank_correct_region_margin) - float(
+            switch_geom["correct_exit_y_tol"]
+        )
+        margin = torch.full_like(signed_y, enter_margin)
+        margin[teacher_active_prev] = exit_margin
+        return signed_y >= margin, signed_y
 
     def _get_noncenter_switch_region_codes(self, object_center_pos):
         switch_geom = self._get_noncenter_switch_geometry(object_center_pos)
@@ -2917,10 +3251,12 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
             )
         )
         self.flat_table_reset_steps = int(self.fabric_switch_cfg["flat_table_reset_steps"])
+        self.reset_on_flat_table = bool(self.fabric_switch_cfg.get("reset_on_flat_table", True))  # CODEX
         self.debug_last_region_code = torch.full((self.num_envs,), -1, device=self.device, dtype=torch.long)
         self.debug_viz_env_ids = [0,1,2,3]
         self.flat_table_duration = torch.zeros((self.num_envs,), device=self.device, dtype=torch.int32)
         self.flat_table_long_enough = torch.zeros((self.num_envs,), device=self.device, dtype=torch.bool)
+        self.failure_recovery_mode_active = torch.zeros((self.num_envs,), device=self.device, dtype=torch.bool)  # CODEX
         self.post_lift_target_active = torch.zeros((self.num_envs,), device=self.device, dtype=torch.bool)
         self.debug_recovery_reset_active = torch.zeros((self.num_envs,), device=self.device, dtype=torch.bool)
         self.debug_recovery_reset_palm_pos = torch.zeros((self.num_envs, 3), device=self.device, dtype=torch.float32)
@@ -2995,6 +3331,7 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
                 # self._draw_eef_quat_at_teacher_target_pose(env_id=debug_env_id, axis_len=0.095, clear_lines=False)  # CODEX
                 # self._draw_teacher_target_pose(env_id=debug_env_id, axis_len=0.08, clear_lines=False)
                 self._draw_fabric_switch_regions(env_id=debug_env_id, clear_lines=False)
+                self._draw_base_to_target_attractor_radius(env_id=debug_env_id, clear_lines=False)  # CODEX
                 self._draw_base_relative_target(env_id=debug_env_id, axis_len=0.08, clear_lines=False)
                 self._draw_recovery_reset_pose(env_id=debug_env_id, axis_len=0.07, clear_lines=False)
             # self._draw_object_grasp_center(env_id=debug_env_id, cross_len=0.2, clear_lines=False)
@@ -3103,6 +3440,10 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
             self.gym.add_lines(self.viewer, self.envs[env_id], len(verts) // 6, verts, colors)
             return
 
+        if self.fabric_switch_mode == "guarded_cylinder":
+            self._draw_guarded_cylinder_switch_regions(env_id=env_id)
+            return
+
         region_codes, switch_geom = self._get_noncenter_switch_region_codes(object_center_pos)
 
         obj = object_center_pos[env_id]
@@ -3190,6 +3531,147 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
         region_code = int(region_codes[env_id].item())
         if int(self.debug_last_region_code[env_id].item()) != region_code:
             self.debug_last_region_code[env_id] = region_code
+
+    def _draw_guarded_cylinder_switch_regions(self, env_id=0):
+        object_center_pos = self.states["object_center_pos"]
+        switch_geom = self._get_guarded_cylinder_switch_geometry(object_center_pos)
+        obj = object_center_pos[env_id]
+        target = self.switching_target_pos[env_id]
+
+        cx = float(obj[0].item())
+        cy = float(obj[1].item())
+        bottom_z = float(self.table_surface_height[env_id].item()) - 0.02
+        cap_z = float(switch_geom["cylinder_top_z"][env_id].item())
+        high_wrong_z = float(switch_geom["high_wrong_z"][env_id].item())
+        enter_r = float(switch_geom["enter_radius"])
+        exit_r = float(switch_geom["exit_radius"])
+        side_sign = 1.0 if bool(self.side_is_left[env_id].item()) else -1.0
+        correct_margin = (
+            float(self._verified_teacher_bank_correct_region_margin)
+            + float(switch_geom["high_wrong_y_exit_tol"])
+        )
+        boundary_y = cy + side_sign * correct_margin
+        wrong_edge_y = cy - side_sign * enter_r
+
+        verts = []
+        colors = []
+
+        def add_line(p0, p1, color):
+            verts.extend([float(p0[0]), float(p0[1]), float(p0[2]), float(p1[0]), float(p1[1]), float(p1[2])])
+            colors.extend(color)
+
+        def add_circle(radius, z, color, num_seg=48):
+            for i in range(num_seg):
+                a0 = 2.0 * np.pi * float(i) / float(num_seg)
+                a1 = 2.0 * np.pi * float(i + 1) / float(num_seg)
+                add_line(
+                    [cx + radius * np.cos(a0), cy + radius * np.sin(a0), z],
+                    [cx + radius * np.cos(a1), cy + radius * np.sin(a1), z],
+                    color,
+                )
+
+        def add_cylinder_dome(radius, color, num_seg=48, dome_rings=4):
+            add_circle(radius, bottom_z, color, num_seg=num_seg)
+            add_circle(radius, cap_z, color, num_seg=num_seg)
+            for i in range(0, num_seg, max(1, num_seg // 8)):
+                a = 2.0 * np.pi * float(i) / float(num_seg)
+                x = cx + radius * np.cos(a)
+                y = cy + radius * np.sin(a)
+                add_line([x, y, bottom_z], [x, y, cap_z], color)
+
+            for ring_id in range(1, dome_rings + 1):
+                theta = 0.5 * np.pi * float(ring_id) / float(dome_rings)
+                ring_radius = radius * np.cos(theta)
+                z = cap_z + radius * np.sin(theta)
+                add_circle(ring_radius, z, color, num_seg=num_seg)
+
+            for i in range(0, num_seg, max(1, num_seg // 8)):
+                a = 2.0 * np.pi * float(i) / float(num_seg)
+                prev = [cx + radius * np.cos(a), cy + radius * np.sin(a), cap_z]
+                for ring_id in range(1, dome_rings + 1):
+                    theta = 0.5 * np.pi * float(ring_id) / float(dome_rings)
+                    p = [
+                        cx + radius * np.cos(theta) * np.cos(a),
+                        cy + radius * np.cos(theta) * np.sin(a),
+                        cap_z + radius * np.sin(theta),
+                    ]
+                    add_line(prev, p, color)
+                    prev = p
+
+        add_cylinder_dome(enter_r, [1.0, 0.8, 0.2], num_seg=48, dome_rings=4)
+        if exit_r > enter_r:
+            add_cylinder_dome(exit_r, [1.0, 1.0, 0.0], num_seg=32, dome_rings=3)
+
+        x0 = cx - enter_r
+        x1 = cx + enter_r
+        y0 = min(wrong_edge_y, boundary_y)
+        y1 = max(wrong_edge_y, boundary_y)
+        dome_top_z = cap_z + enter_r
+
+        for x in (x0, x1):
+            add_line([x, boundary_y, bottom_z], [x, boundary_y, dome_top_z], [0.2, 1.0, 0.2])
+        add_line([x0, boundary_y, bottom_z], [x1, boundary_y, bottom_z], [0.2, 1.0, 0.2])
+        add_line([x0, boundary_y, cap_z], [x1, boundary_y, cap_z], [0.2, 1.0, 0.2])
+
+        add_line([x0, y0, high_wrong_z], [x1, y0, high_wrong_z], [1.0, 0.0, 1.0])
+        add_line([x1, y0, high_wrong_z], [x1, y1, high_wrong_z], [1.0, 0.0, 1.0])
+        add_line([x1, y1, high_wrong_z], [x0, y1, high_wrong_z], [1.0, 0.0, 1.0])
+        add_line([x0, y1, high_wrong_z], [x0, y0, high_wrong_z], [1.0, 0.0, 1.0])
+
+        cross_len = 0.035
+        add_line(
+            target + torch.tensor([-cross_len, 0.0, 0.0], device=self.device),
+            target + torch.tensor([cross_len, 0.0, 0.0], device=self.device),
+            [0.0, 0.8, 1.0],
+        )
+        add_line(
+            target + torch.tensor([0.0, -cross_len, 0.0], device=self.device),
+            target + torch.tensor([0.0, cross_len, 0.0], device=self.device),
+            [0.0, 0.8, 1.0],
+        )
+        add_line(
+            target + torch.tensor([0.0, 0.0, -cross_len], device=self.device),
+            target + torch.tensor([0.0, 0.0, cross_len], device=self.device),
+            [0.0, 0.8, 1.0],
+        )
+
+        self.gym.add_lines(self.viewer, self.envs[env_id], len(verts) // 6, verts, colors)
+
+    def _draw_base_to_target_attractor_radius(self, env_id=0, clear_lines=False, num_seg=96):
+        if self.viewer is None or not hasattr(self, "switching_target_pos"):
+            return
+        if clear_lines:
+            self.gym.clear_lines(self.viewer)
+
+        radius = float(self.fabric_switch_cfg.get("base_to_target_attractor_activation_distance", 1.0))
+        if radius <= 0.0:
+            return
+
+        target = self.switching_target_pos[env_id]
+        cx = float(target[0].item())
+        cy = float(target[1].item())
+        z = float(self.table_surface_height[env_id].item()) + 0.02
+        num_seg = max(8, int(num_seg))
+
+        verts = []
+        colors = []
+        color = [0.2, 1.0, 1.0]
+        for i in range(num_seg):
+            a0 = 2.0 * np.pi * float(i) / float(num_seg)
+            a1 = 2.0 * np.pi * float(i + 1) / float(num_seg)
+            verts.extend(
+                [
+                    cx + radius * np.cos(a0),
+                    cy + radius * np.sin(a0),
+                    z,
+                    cx + radius * np.cos(a1),
+                    cy + radius * np.sin(a1),
+                    z,
+                ]
+            )
+            colors.extend(color)
+
+        self.gym.add_lines(self.viewer, self.envs[env_id], len(verts) // 6, verts, colors)
 
     def _draw_base_init_pose_grid(self, env_id=0, clear_lines=False, num_div_x=8, num_div_y=6):
         if self.viewer is None:
@@ -3706,6 +4188,7 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
         target_changed_mask = torch.zeros((self.num_envs,), device=self.device, dtype=torch.bool)
         if torch.any(self.object_reset_mask):
             reset_object_env_ids = self.object_reset_mask.nonzero(as_tuple=False).squeeze(-1)
+            self.failure_recovery_mode_active[reset_object_env_ids] = False  # CODEX: teleported/new objects leave fallen recovery.
             self.post_lift_target_active[reset_object_env_ids] = False
             self.reward_settings["target_pos"][reset_object_env_ids] = self._build_fixed_target_pos(reset_object_env_ids)
             self._set_reward_target_quat_from_side_mask(reset_object_env_ids)
@@ -3746,6 +4229,25 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
                 activate_radius = torch.full_like(radial_dist, enter_r)
                 activate_radius[teacher_active_prev] = exit_r
                 activate_now = radial_dist <= activate_radius
+            elif self.fabric_switch_mode == "guarded_cylinder":
+                switch_geom = self._get_guarded_cylinder_switch_geometry(obj_center)
+                activate_radius = torch.full_like(radial_dist, float(switch_geom["enter_radius"]))
+                activate_radius[teacher_active_prev] = float(switch_geom["exit_radius"])
+                inside_activation_region = self._inside_guarded_cylinder_activation_region(
+                    eef_pos,
+                    obj_center,
+                    switch_geom,
+                    activate_radius,
+                )
+                correct_region, _signed_y = self._guarded_cylinder_correct_side_mask(
+                    eef_pos,
+                    obj_center,
+                    switch_geom,
+                    teacher_active_prev=teacher_active_prev,
+                )
+                # Normal side episodes require the correct approach side. Fallen
+                # recovery activates RL anywhere in the same cylinder+dome.
+                activate_now = inside_activation_region & (correct_region | self.failure_recovery_mode_active)
             else:  # CODEX
                 object_top_z = self.table_surface_height + self.mesh_aabb_extents[:, 2]
                 high_z = object_top_z + self.switching_target_z_offset
@@ -3776,6 +4278,7 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
 
             self.fabric_switch_enable[:] = ~teacher_active
             self.fabric_switch_enable[self.progress_buf == 0] = True
+            self._set_active_fabric_target_to_object_center(obj_center)
             activated_now = (~teacher_active_prev) & teacher_active
             # if self.debug_teacher_state_stats_enabled:
             #     teleport_env_ids = getattr(self, "debug_last_teleport_env_ids", torch.empty((0,), dtype=torch.long, device=self.device))
@@ -3787,7 +4290,7 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
             #     self._flush_debug_teacher_state_stats(force=False)
 
         active_ids = activated_now.nonzero(as_tuple=False).squeeze(-1)
-        if active_ids.numel() > 0:
+        if self.align_target_quat_on_activation and active_ids.numel() > 0:
             obj_center_active = self.states["object_center_pos"][active_ids]
             num_active = active_ids.numel()
             eef_pos_active = self._eef_state[active_ids, :3]
@@ -3835,7 +4338,7 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
                 activated_ids = activated_now.nonzero(as_tuple=False).squeeze(-1)
                 if (
                     activated_ids.numel() > 0
-                    and collection_category in (self.VERIFIED_BANK_NEAR_RECOVERY, self.VERIFIED_BANK_FAR_RECOVERY)
+                    and self._is_verified_bank_recovery_category(collection_category)
                 ):
                     activated_ids = activated_ids[self.debug_recovery_reset_active[activated_ids]]
                 if activated_ids.numel() > 0:
@@ -3845,8 +4348,15 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
         local_offset = torch.zeros([self.num_envs, 3], dtype=torch.float, device=self.device)
         local_offset[:, 2] = self.mesh_aabb_extents[:, 2] * self.object_grasp_target_z_scale
         object_rot_mat = quaternion_to_matrix_ig(self._object_state[:, 3:7])
+        object_z_axis = object_rot_mat[:, :, 2]
+        flat_object_like = torch.abs(object_z_axis[:, 2]) <= self.flat_object_axis_z_abs_max
         rotated_offset = torch.matmul(object_rot_mat, local_offset.unsqueeze(-1)).squeeze(-1)
         object_grasp_target_pos += rotated_offset
+        object_grasp_target_pos = torch.where(
+            flat_object_like.unsqueeze(-1),
+            self.states["object_center_pos"],
+            object_grasp_target_pos,
+        )
         object_grasp_target_to_eef_world = object_grasp_target_pos - self._eef_state[:, :3]
         if self.teacher_use_eef_frame:
             eef_rot_mat = quaternion_to_matrix_ig(self._eef_state[:, 3:7])
@@ -3859,7 +4369,6 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
 
         eef_table_dist = (self._eef_state[:, 2] - self.table_surface_height).unsqueeze(-1)
         hand_z_axis = quaternion_to_matrix_ig(self._eef_state[:, 3:7])[:, :, 2]
-        object_z_axis = object_rot_mat[:, :, 2]
 
         # @ray not just update but also create new keys here
         # Binary grasp-side indicator for policy observation: 1=left, 0=right.
@@ -3994,11 +4503,16 @@ class FrankaLEAPMobileDistillationPickSide(FrankaLEAPMobileDistillation):
             self.flat_table_duration + 1,
             torch.zeros_like(self.flat_table_duration),
         )
-        self.flat_table_long_enough = self.flat_table_long_enough | (
-            self.flat_table_duration >= self.flat_table_reset_steps
-        )
+        knocked_down_long_enough = self.flat_table_duration >= self.flat_table_reset_steps  # CODEX
+        self.failure_recovery_mode_active = self.failure_recovery_mode_active | knocked_down_long_enough  # CODEX
         self.reset_buf[bad_state] = 1
-        self.reset_buf[self.flat_table_long_enough] = 1
+        if self.reset_on_flat_table:  # CODEX
+            self.flat_table_long_enough = self.flat_table_long_enough | knocked_down_long_enough
+            self.reset_buf[self.flat_table_long_enough] = 1
+        else:
+            # Flat objects are allowed to recover; failure is decided only when
+            # the episode eventually resets without success.
+            self.flat_table_long_enough.zero_()
         done_envs = self.reset_buf > 0
 
         if torch.any(done_envs):
