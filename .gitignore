@@ -44,3 +44,7 @@ presampled_envs/completed
 presampled_envs/scene_only
 presampled_envs/final/*archive*
 assets/franka_cmd/
+rl_ckpts/
+good_checkpoints/
+teacher_state_bank/
+teacher_state_bank_3/

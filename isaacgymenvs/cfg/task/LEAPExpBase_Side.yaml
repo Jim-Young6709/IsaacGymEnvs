@@ -2,7 +2,7 @@
 
 physics_engine: ${..physics_engine}
 
-# if given, will override the device setting in gym. 
+# if given, will override the device setting in gym.
 env:
   numEnvs: ${resolve_default:1024,${...num_envs}}
   envSpacing: 1.5
@@ -28,7 +28,8 @@ env:
     franka: 0.2 # joint angle
     arx: 0.2 # joint angle
 
-  grasp_guide_idx: 1 # 0: fist, 1: thumb is more curled horizontally, more enveloped grasp
+  grasp_guide_idx: 1 # 0: original curl, 1: current side-grasp curl, 2: sparse/open curl, 3: new side-grasp curl
+  grasp_mode: full # options: full, pinch2, pinch3
 
   controlType: joint_position  # options are {joint_position, osc}
   controlFrequencyInv: 1
@@ -38,34 +39,61 @@ env:
     assetFileNameFranka: "franka_hand/franka_leap.urdf"
 
   mesh:
-    mesh_dir: "./meshes_final/default"
+    mesh_dir: "./meshes_69_new"
     obj_list: ["all"]
+    variant_manifest_json: null # fixed dilated-variant manifest for distillation/data generation
+    variant_preload_count: 0 # if >0, exact number of dilated variant assets to preload
+    variant_preload_multiplier: 1 # used only when variant_preload_count is 0
+    variant_preload_max: 0 # if >0, caps multiplier-based variant preloading
 
   table_thickness: 0.05
 
   object_settings:
-    # default obj rest randomization vars for rl training
     xyz_range: [[0.35, -0.2, 0.2], [0.55, 0.2, 0.25]] # xy is center position, z is BOTTOM height
     scale_range: [1.0, 1.0] # @ray this should match the scale in the urdf
     mass_range: [0.5, 0.5]
     object_center_z_scale: 0.5 # @ray normally just 1/2, but might be lower for side grasps
+    apply_shape_offsets: False
+    contact_offset: 0.02 # if set, overrides only the object asset contact offset
+    rest_offset: 0.01 # if set, overrides only the object asset rest offset
 
   object_wrench:
     enable: True
     activation_dis: 0.15 # in meters (apply forces within this range / when object is lifted)
+    activation_prob: 1.0 # Bernoulli probability of activating a new wrench on each trigger window
     max_linear_force: 5.0 # in Newtons
     torsional_radius: 0.01 # in meters
     trigger_duration: 1.0 # seconds, this will time sim_dt to get the number of trigger steps
     curri_steps: 1 # curriculum steps, now default to 1 which is no curri
+    success_curriculum:
+      enable: True # if true, overrides curri_steps with success-gated force scaling
+      success_threshold: 0.85 # increment only while rolling episode success rate is above this
+      success_steps: 500 # consecutive sim steps above threshold before each increment
+      num_increments: 10 # force scale is stage / num_increments, from 0 to 1
+      start_stage: 1
+    horizontal_away_from_eef:
+      enable: False
+      force_range: [7.5, 12.5] # in Newtons, sampled in XY away from current EEF
+    vertical_downward:
+      enable: False
+      force_range: [7.5, 12.0] # in Newtons, sampled in -Z in addition to the random wrench
 
   object_teleport:
     enable: True
-    env_proportion: 0.3 # proportion of envs to apply teleportation
-    swap_freq: 3 # in episodes, how often to swap the environments that do teleport
-    curri_steps: 200000
+    env_proportion: 0.5 # proportion of envs to apply teleportation
+    mode: schedule # schedule | fixed_prob
+    per_env_prob: 0.003 # only used when mode=fixed_prob
+    curri_steps: 20000
+    swap_freq: 3 # resample the cached teleport env subset after this many teleport events
     n0: 10 # within n0 steps, don't teleport
     n1: 150 # until n1 steps, the probability of teleporting sum up to 0.5
-    n2: 300 # at n2 steps, the probability of teleporting is 1.0
+    n2: 100 # at n2 steps, the probability of teleporting is 1.0
+    success_curriculum:
+      enable: False # if true, overrides curri_steps with success-gated teleport scaling
+      success_threshold: 0.85
+      success_steps: 500
+      num_increments: 10
+      start_stage: 1
 
   distractor_settings:
     enable: False
@@ -73,7 +101,7 @@ env:
       skip_prob: 0.3 # probability to skip adding distractors for a local region (under/side/behind the table)
       full_prob: 0.2 # probability to spawn a single large box that fully occupies the local distractor region
       table_extend: 0.5 # extended dims along table edges for distractors at the side/back
-      free_space_distractor_max_height: 1.7 # max z_height for distractors in free space, note this is not the actual height
+      free_space_distractor_max_height: 1.0 # max z_height for distractors in free space, note this is not the actual height
       num_distractors_per_region_range: [1, 4] # low & high inclusive
       cuboid_size_range: [[0.1, 0.1, 0.4], [0.4, 0.4, 0.8]]
       cylinder_size_range: [[0.1, 0.4], [0.2, 0.8]] # radius & height of the cylinder
@@ -111,8 +139,8 @@ sim:
     num_threads: ${....num_threads}
     solver_type: ${....solver_type}
     use_gpu: ${contains:"cuda",${....sim_device}} # set to False to run on CPU
-    num_position_iterations: 8
-    num_velocity_iterations: 1
+    num_position_iterations: 32 #48 #16
+    num_velocity_iterations: 4 #1
     contact_offset: 0.005
     rest_offset: 0.0
     bounce_threshold_velocity: 0.2
@@ -124,7 +152,7 @@ sim:
 
 fabric:
   enable: False
-  gripper_pose_attractor: legacy # CODEX: dex_compare keeps older coupled/keypoint fabric behavior by default.
+  gripper_pose_attractor: legacy # CODEX: side-isolated dex_compare keeps legacy fabric behavior by default.
 
 reward:
   params:
@@ -133,6 +161,7 @@ reward:
     target_quat: [0.707, -0.707, 0.0, 0.0]
     matching_dis: 0.2
     curl_reaching_threshold: 0.15
+    include_palm_in_hand_obj: True
     success_timeout: 2.0
     lifting_timeout: 2.0
 
@@ -161,9 +190,8 @@ pcd_spec:
   num_object_points: 512
   num_distractor_points: 2048
   num_local_points: 512 # TODO: clean up later
-  simulate_sensor_pcd: False
+  simulate_depth_cam: True
   depth_pcd_ratio: 0.5 # 0.5 depth pcd ; 0.5 lidar pcd
-
 
 # Domain Randomization
 task:
@@ -172,14 +200,14 @@ task:
     frequency: 720   # Define how many simulation steps between generating new randomizations
     schedule_steps_default: 200000
     observations:
-      range: [0, .02] # range for the white noise
+      range: [0, .002] # range for the white noise
       range_correlated: [0, .001] # range for correlated noise, refreshed with freq `frequency`
       operation: "additive"
       distribution: "gaussian"
       schedule: "linear"   # "constant" is to turn on noise after `schedule_steps` num steps
       schedule_steps: ${..schedule_steps_default}
     actions:
-      range: [0., .1]
+      range: [0., .05]
       range_correlated: [0, .015] # range for correlated noise, refreshed with freq `frequency`
       operation: "additive"
       distribution: "gaussian"

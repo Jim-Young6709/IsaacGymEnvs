@@ -1,0 +1,34 @@
+# Base config for MobileBase+Franka+LEAP environment
+
+defaults:
+  - LEAPExpBase_Side # CODEX: keep isolated side distillation config stack separate from dex base configs.
+
+# if given, will override the device setting in gym.
+env:
+  episodeLength: 600
+  asset:
+    assetFileNameFranka: "glorbot/glorbot.urdf"
+  distractor_settings:
+    enable: True
+
+pcd_spec:
+  num_static_points: 10240
+  num_robot_points: 10240
+  num_object_points: 5120
+  num_distractor_points: 20480
+  # CODEX LIDAR MERGE: mobile DAgger uses merged depth/lidar pointclouds.
+  simulate_sensor_pcd: True
+  depth_pcd_ratio: 0.5 # fraction of local sensor points sampled from depth; remainder comes from lidar
+
+
+# Domain Randomization, decrease dr range for franka, otherwise current fabric tuning might not work
+task:
+  randomization_params:
+    actor_params:
+      franka:
+        # color: True
+        dof_properties:
+          damping:
+            range: [0.8, 1.2]
+          stiffness:
+            range: [0.8, 1.2]

@@ -1,0 +1,3814 @@
+"""
+Franka + LEAP Hand Env
+
+['base_x_joint', 'base_y_joint', 'base_rotation_joint',
+ 'panda_joint1', 'panda_joint2', 'panda_joint3', 'panda_joint4', 'panda_joint5', 'panda_joint6', 'panda_joint7',
+ 'finger_joint_1', 'finger_joint_0', 'finger_joint_2', 'finger_joint_3',
+ 'finger_joint_12', 'finger_joint_13', 'finger_joint_14', 'finger_joint_15',
+ 'finger_joint_5', 'finger_joint_4', 'finger_joint_6', 'finger_joint_7',
+ 'finger_joint_9', 'finger_joint_8', 'finger_joint_10', 'finger_joint_11',
+ 'x5_joint1', 'x5_joint2', 'x5_joint3', 'x5_joint4', 'x5_joint5', 'x5_joint6',
+
+TODO:
+1. setup fabric open loop + local policy distillation
+2. tune obstacle rand for the mobile base
+3. tune switching part
+"""
+
+import os
+import re
+import shutil
+import hashlib
+import time
+from datetime import datetime
+from pathlib import Path
+import json
+from abc import abstractmethod
+
+import cv2
+import imageio
+import trimesh
+import wandb
+import hydra
+import isaacgym
+import numpy as np
+import torch
+from isaacgym import gymapi, gymtorch
+from isaacgym.torch_utils import to_torch, tensor_clamp, quat_from_angle_axis, quat_mul, quat_apply
+from isaacgymenvs.tasks.base.vec_task import VecTask
+import isaacgymenvs.utils.eef_ctrl as eef_ctrl
+from isaacgymenvs.utils.reformat import omegaconf_to_dict
+from isaacgymenvs.utils.rotation_conversions import quaternion_to_matrix_ig, matrix_to_rotation_6d, se2_transform
+from isaacgymenvs.utils.pcd_utils import transform_pcds_to_world, compute_scene_oracle_pcd, FrankaLeapSampler, GlorbotSampler
+# CODEX LIDAR MERGE: optional lidar self-filter uses the same Glorbot sphere model as old_urdf.
+from isaacgymenvs.utils.glorbot_collision_checker import GlorbotCollisionChecker
+from isaacgymenvs.utils.viser_visualizer import ViserVisualizer
+from isaacgymenvs.utils.simulate_depth_cam import simulate_depth_cam_render_from_pose
+from omegaconf import DictConfig
+from tqdm import tqdm
+import random
+from scipy.spatial.transform import Rotation as R
+from curobo.types.math import Pose
+
+from fabrics_sim.fabrics.glorbot_vision_fabric import GlorbotVisionFabric
+from fabrics_sim.integrator.integrators import DisplacementIntegrator
+from fabrics_sim.worlds.world_mesh_model import WorldMeshesModel
+from fabrics_sim.utils.utils import initialize_warp
+
+
+
+class FrankaLEAPMobileDistillation(VecTask):
+    # class inits
+    def __init__(self, cfg, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render):
+        self.cfg = cfg
+        self.device = sim_device
+        self.rl_device = rl_device
+        self.graphics_device_id_cfg = graphics_device_id
+        # CODEX: WBCMultiExp can launch this env on only a subset of ranks, so bank slicing uses expert-local ranks.
+        multi_teacher_rank_cfg = self.cfg["env"].get("multi_teacher_rank", {})
+        self.local_rank = int(multi_teacher_rank_cfg.get("local_rank", os.getenv("LOCAL_RANK", "0")))
+        self.global_rank = int(multi_teacher_rank_cfg.get("global_rank", os.getenv("RANK", "0")))
+        self.world_size = int(multi_teacher_rank_cfg.get("world_size", os.getenv("WORLD_SIZE", "1")))
+        self.launcher_local_rank = int(multi_teacher_rank_cfg.get("launcher_local_rank", os.getenv("LOCAL_RANK", "0")))
+        self.launcher_global_rank = int(multi_teacher_rank_cfg.get("launcher_global_rank", os.getenv("RANK", "0")))
+        self.launcher_world_size = int(multi_teacher_rank_cfg.get("launcher_world_size", os.getenv("WORLD_SIZE", "1")))
+        self.max_episode_length = self.cfg["env"]["episodeLength"]
+        self.action_scale = self.cfg["env"]["actionScale"]
+        self.reset_noise_scale = self.cfg["env"]["resetNoiseScale"]
+        self.eef_actions = True if self.cfg["env"]["numActions"] == 22 else False
+        self.aggregate_mode = self.cfg["env"]["aggregateMode"]
+        self.mesh_args = self.cfg["env"]["mesh"]
+        self.object_center_z_scale = float(self.cfg["env"]["object_settings"]["object_center_z_scale"])
+        self.object_wrench_args = self.cfg["env"]["object_wrench"]
+        self.object_teleport_args = self.cfg["env"]["object_teleport"]
+        self._franka_mount_offset_from_mobile_base = torch.tensor([0.178, 0.0, 0.444775], dtype=torch.float32)
+        self.lock_mobile_base = bool(self.cfg["env"].get("robot_init", {}).get("lock_mobile_base", False))
+        self.teleport_boundary_chunk_size = 0
+        self.eef_init = self.cfg["env"]["eef_init"]
+        self.distractor_settings = self.cfg["env"]["distractor_settings"]
+        self.enable_fabric = self.cfg['fabric']['enable']
+        self.video_logging = self.cfg["env"]["video_logging"]
+        self.video_dir = os.path.join('videos', self.cfg["name"] + '_{date:%d-%H-%M-%S}'.format(date=datetime.now()))
+        os.makedirs(self.video_dir, exist_ok=True)
+        self.eval_video_active = False
+        self.eval_video_total_steps = 0
+        self.eval_video_step_idx = 0
+        self.train_video_active = False
+        self.train_video_total_steps = 0
+        self.train_video_step_idx = 0
+
+        # TODO @ray for debugging only
+        self.teacher_obs_action_frame = str(self.cfg["env"].get("teacher_obs_action_frame", "eef")).lower()
+        assert self.teacher_obs_action_frame in ["eef"], "teacher_obs_action_frame must be 'eef' or 'world'"
+        self.teacher_use_eef_frame = (self.teacher_obs_action_frame == "eef")
+
+        self.max_objects_per_env = 1
+
+        self.log_per_object_success = self.cfg["env"]["log_per_object_success"]["capture"]
+        self.log_per_object_success_freq = int(self.cfg["env"]["log_per_object_success"]["freq"])
+        run_name = None
+        if wandb.run is not None and wandb.run.name is not None:
+            run_name = str(wandb.run.name)
+        elif "experiment" in self.cfg:
+            run_name = str(self.cfg["experiment"])
+        else:
+            run_name = "run"
+        run_stamp = time.strftime("%m-%d-%H-%M-%S")
+        run_dir = f"{run_name}_{run_stamp}"
+        self.log_per_object_success_dir = None
+        self.log_per_object_success_artifact = None
+        if self.log_per_object_success:
+            self.log_per_object_success_dir = os.path.join("logs", "per_object_success", run_dir)
+            self.log_per_object_success_artifact = f"per_object_success_{run_dir}"
+            os.makedirs(self.log_per_object_success_dir, exist_ok=True)
+
+        self.randomize = self.cfg["task"]["randomize"]
+        self.randomization_params = self.cfg["task"]["randomization_params"]
+
+        # Controller type
+        self.control_type = self.cfg["env"]["controlType"]
+        assert self.control_type == "joint_position", "currently only support joint position control"
+        assert "numObservations" in self.cfg["env"], "numObservations must be specified in the config"
+        assert "numActions" in self.cfg["env"], "numActions must be specified in the config"
+
+        self.debug_viz = self.cfg["env"]["enableDebugVis"]
+        self.pcd_spec_dict = cfg['pcd_spec']
+
+        self.up_axis = "z"
+        self.up_axis_idx = 2
+
+        self._init_buffers()
+        self._init_cuRobo_ik_solver()
+
+        super().__init__(
+            config=self.cfg,
+            rl_device=rl_device,
+            sim_device=sim_device,
+            graphics_device_id=graphics_device_id,
+            headless=headless,
+            virtual_screen_capture=virtual_screen_capture,
+            force_render=force_render
+        )
+
+        self._post_init_buffers()
+        # Support both `enable_viser` and legacy/alias `enableDebugViser`.
+        env_cfg = self.cfg["env"]
+        enable_viser_cfg = env_cfg.get("enable_viser", env_cfg.get("enableDebugViser", False))
+        self.enable_viser = bool(enable_viser_cfg) and (not self.headless)
+        if self.enable_viser:
+            self._init_viser_visualizer()
+        self._build_joint_mapping()
+
+        # Reset all environments
+        self._refresh() # TODO: what is this for?
+        self.reset_idx(torch.arange(self.num_envs, device=self.device))
+        self.step_sim_multi(1, False)
+        self.compute_observations()
+
+        if self.enable_viser and self.debug_viz:
+            num_debug_samples = 512
+            if num_debug_samples > 0:
+                self.debug_plot_reset_pose_samples_viser(num_samples=num_debug_samples)
+
+        # Keep env episode starts synchronized only for debugging.
+        if self.debug_viz:
+            self.progress_buf = torch.zeros((self.num_envs,), dtype=self.progress_buf.dtype, device=self.device)
+        else:
+            self.progress_buf = torch.randint(0, self.max_episode_length, (self.num_envs,), device=self.device)
+
+    def  _init_buffers(self):
+        # Values to be filled in at runtime
+        self.states = {}                        # will be dict filled with relevant states to use for reward calculation
+        self.handles = {}                       # will be dict mapping names to relevant sim handles
+        self.num_dofs = None                    # Total number of DOFs per env
+        self._object_state = None               # Current state of object for the current env
+        self._object_center_init_state = None   # Initial state of object for the current env
+        self._object_id = None                  # Actor ID corresponding to object for a given env
+        self._add_on_obstacle_ids = []          # Actor ID corresponding to add on obstacles for a given env
+
+        # Tensor placeholders
+        self._root_state = None                 # State of root body        (n_envs, 13)
+        self._dof_state = None                  # State of all joints       (n_envs, n_dof)
+        self._q = None                          # Joint positions           (n_envs, n_dof)
+        self._qd = None                         # Joint velocities          (n_envs, n_dof)
+        self._rigid_body_state = None           # State of all rigid bodies (n_envs, n_bodies, 13)
+        self._contact_forces = None             # Contact forces in sim
+        self._eef_state = None                  # end effector state        (at grasping point)
+        self._eef_finger1_state = None          # End effector state (at finger 1)
+        self._eef_finger2_state = None          # End effector state (at finger 2)
+        self._eef_finger3_state = None          # End effector state (at finger 3)
+        self._eef_finger4_state = None          # End effector state (at finger 4)
+        self._j_eef = None                      # Jacobian for end effector
+        self._mm = None                         # Mass matrix
+        self._pos_control = None                # Position actions
+        self._effort_control = None             # Torque actions
+        self._robot_effort_limits = None        # Actuator effort limits for the robot (franka 7 + leap 4*4)
+        self._global_indices = None             # Unique indices corresponding to all envs in flattened array
+
+        self._q_prev = None                     # Previous joint positions (n_envs, n_dof)
+        self._qd_prev = None                    # Previous joint velocities (n_envs, n_dof)
+
+        # pcd
+        self.static_pcds = []
+        self.distractor_pcds = []
+        self.object_pcds = []
+        self.combined_pcds = []
+        self.static_scene_pcd_t0 = None
+        self.object_pcd_t0 = None
+        self.warp_device_selected = "disabled"
+
+        # init fabric
+        if self.enable_fabric:
+            self.obstacle_count = 0
+            self.max_objects_per_env = 20 # its like allocating a buffer? need to check inside create env and update
+            self.fabrics_world_dict = dict()
+
+            # Ensure Warp cache goes to a writable location when HOME is not writable.
+            os.environ.setdefault("WARP_CACHE_ROOT", "/tmp/warp_cache")
+
+            # Warp must be initialized on the same CUDA device as this rank.
+            # Hardcoding 0 causes illegal memory accesses under torchrun/DDP.
+            torch_device = torch.device(self.device)
+            if torch_device.type == "cuda":
+                device_int = torch_device.index
+                if device_int is None:
+                    device_int = torch.cuda.current_device()
+                torch.cuda.set_device(device_int)
+            else:
+                device_int = 0
+            initialize_warp(str(device_int))
+            if torch_device.type == "cuda":
+                try:
+                    import warp as wp
+
+                    warp_device = f"cuda:{device_int}"
+                    self.warp_device_selected = warp_device
+                    if hasattr(wp, "set_device"):
+                        wp.set_device(warp_device)
+                    wp.force_load(warp_device)
+                    print(f"[Warp] using device={warp_device}")
+                except Exception as exc:
+                    self.warp_device_selected = f"init_failed_cuda:{device_int}"
+                    print(f"[Warp] failed to select device cuda:{device_int}: {exc}")
+            else:
+                raise RuntimeError(f"Warp should run CUDA device, but got torch device {torch_device}")
+
+        torch_current_device = "cpu"
+        if torch.cuda.is_available():
+            torch_current_device = f"cuda:{torch.cuda.current_device()}"
+        print(
+            "[FrankaLEAPMobileDistillation/startup] "
+            f"global_rank={self.global_rank} "
+            f"local_rank={self.local_rank} "
+            f"world_size={self.world_size} "
+            f"sim_device={self.device} "
+            f"rl_device={self.rl_device} "
+            f"graphics_device_id={self.graphics_device_id_cfg} "
+            f"torch_current_device={torch_current_device} "
+            f"warp_device={self.warp_device_selected} "
+            f"fabric_enabled={self.enable_fabric}"
+        )
+
+    def _post_init_buffers(self):
+        if not hasattr(self, 'canonical_joint_config'):
+            base_init_pose = self._sample_mobile_base_init_pose(
+                torch.arange(self.num_envs, device=self.device, dtype=torch.long),
+                dtype=torch.float32,
+            )
+
+            self.canonical_joint_config = torch.tensor(
+                [
+                    [0.0, 0.0, 0.0] + \
+                    [0.0, -0.25*np.pi, 0.0, -0.75*np.pi, 0.0, 0.5*np.pi, 0.0] + \
+                    #[-0.3139714, -0.3170926, 0.7434113, 1.4458101, 0.53290576, 0.09931383, -0.9621437, 0.00721379, -0.03976187, -0.16713423, 1.1465181, 0.5430491, 0.9261909, 0.25269806, 0.4298584, -0.13728893] + \
+                    # [0.0, 0.0, 0.0, -0.5 * np.pi, 0.0, 0.5 * np.pi, 0.0] + \
+                    [0.0000,  0.0000,  0.0000,  0.0000,
+                    -0.0000,  0.0000,  1.0000,  0.5700,
+                    0.0000,  0.0000,  0.0000,  0.0000,
+                    0.0000,  0.0000,  0.0000,  0.0000] + \
+                    [0.0, 1.0, 2.0, -1.0, 0.0, 0.0]
+                ] * self.num_envs
+            ).to(self.device)
+            self.canonical_joint_config[:, :3] = base_init_pose
+
+        self.ik_regularization_config = self.canonical_joint_config[:, :10]
+        self.delta_joint_actions = torch.zeros((self.num_envs, self.num_robot_dofs), device=self.device, dtype=torch.float) # Current delta actions to be deployed
+        self.delta_eef_actions = torch.zeros((self.num_envs, self.num_robot_dofs-1), device=self.device, dtype=torch.float) # Current delta actions to be deployed at the end effector
+
+        # @ray per step success tracking
+        self.success_5cm_per_step = torch.zeros((self.num_envs,), dtype=torch.bool, device=self.device) # success within 5cm threshold
+        self.lifting_5cm_per_step = torch.zeros((self.num_envs,), dtype=torch.bool, device=self.device)
+        # @ray instantaneous success tracking, true if condition met at current step
+        self.success_flags_instant = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device) # 1 if success condition has been achieved at any step, 0 otherwise
+        self.lifting_flags_instant = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device)
+        # @ray time-based success tracking, true if condition met for a duration
+        # @ray note that lifting here checks not for collision, as random wrenches make this noisy, but for a 5cm lift above table
+        self.success_duration = torch.zeros((self.num_envs,), dtype=torch.int32, device=self.device) # step count in success region, resets to 0 if object drops
+        self.lifting_duration = torch.zeros((self.num_envs,), dtype=torch.int32, device=self.device) # step count in lifting region
+        self.success_long_enough = torch.zeros((self.num_envs,), dtype=torch.bool, device=self.device) # true if success duration > threshold in any part of an episode, note that this does not reset until episode end
+        self.lifting_long_enough = torch.zeros((self.num_envs,), dtype=torch.bool, device=self.device)
+        self.success_flags = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device) # 1 if success condition has been achieved during the episode, 0 otherwise
+        self.lifting_flags = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device)
+
+        # @ray
+        # per object success rate tracking
+        # need to be post init to get num_objects
+        self.per_object_episode_counts = torch.zeros((self.num_objects,), dtype=torch.int64, device=self.device)
+        self.per_object_success_counts = torch.zeros((self.num_objects,), dtype=torch.int64, device=self.device)
+        self.per_object_lifting_counts = torch.zeros((self.num_objects,), dtype=torch.int64, device=self.device)
+        self.per_object_episode_counts_interval = torch.zeros((self.num_objects,), dtype=torch.int64, device=self.device)
+        self.per_object_success_counts_interval = torch.zeros((self.num_objects,), dtype=torch.int64, device=self.device)
+        self.per_object_lifting_counts_interval = torch.zeros((self.num_objects,), dtype=torch.int64, device=self.device)
+
+        self.static_scene_pcd_t0 = self.static_pcds.clone()
+
+        # for distillation purposes
+        self.distillation_mode = False
+        self.distillation_steps = 0 # if use distillation mode, this should get tracked in the distillation script
+        self.abs_actions = torch.zeros(self.num_envs, 32, device=self.device)
+        self.teacher_actions_converted = torch.zeros(self.num_envs, 32, device=self.device)
+        # student policy actions space (should get overridden in the distillation class)
+        self.delta_franka_action = True
+        self.delta_leap_action = True
+        self.delta_arx_action = True
+
+        self.rigid_body_forces = torch.zeros((self.num_envs, self.num_bodies, 3), dtype=torch.float, device=self.device)
+        self.rigid_body_torques = torch.zeros_like(self.rigid_body_forces)
+        self.object_applied_forces = torch.zeros((self.num_envs, 3), dtype=torch.float, device=self.device)
+        self.object_applied_torques = torch.zeros_like(self.object_applied_forces)
+
+        self.sim_steps = 0.0 # keep track on the number of simulation steps
+
+        # teleport init
+        self.num_teleport_envs = int(round(self.object_teleport_args['env_proportion'] * self.num_envs))
+        tele_n0 = max(0, int(self.object_teleport_args['n0']))
+        tele_n1 = max(tele_n0, int(self.object_teleport_args['n1']))
+        tele_n2 = max(tele_n1, int(self.object_teleport_args['n2']))
+        schedule_len = max(tele_n2, 1)
+        self.teleport_probs = torch.zeros(schedule_len, dtype=torch.float32, device=self.device)
+
+        if tele_n2 == 0:
+            self.teleport_probs[:] = 1.0
+        else:
+            flat_prob = 0.0
+            if tele_n1 > tele_n0:
+                flat_prob = 0.5 / (tele_n1 - tele_n0)  # until n1 steps, the probability of teleporting sums to 0.5
+                self.teleport_probs[tele_n0:tele_n1] = flat_prob
+
+            if tele_n2 > tele_n1:
+                # From n1~n2 steps, increase the teleport probability quadratically up to 1.0.
+                indexing = torch.arange(tele_n1, tele_n2, dtype=torch.float32, device=self.device)
+                quad_b = tele_n1
+                quad_a = (1 - flat_prob) / ((tele_n2 - quad_b) ** 2)
+                self.teleport_probs[tele_n1:tele_n2] = quad_a * (indexing + 1 - quad_b) ** 2 + flat_prob
+            elif tele_n1 > 0:
+                self.teleport_probs[tele_n1 - 1:] = flat_prob
+
+        self.teleport_swap_frequency = max(1, int(self.object_teleport_args.get("swap_frequency", 1)))
+        self.teleport_cached_env_ids = torch.empty((0,), dtype=torch.long, device=self.device)
+        self.teleport_cached_step = -1
+        # Latched until consumed by distillation logic, so resets across chunked steps are preserved.
+        self.object_reset_mask = torch.zeros((self.num_envs,), dtype=torch.bool, device=self.device)
+        # Pending resets are promoted after one post-physics pass so downstream logic reads post-reset state.
+        self.object_reset_pending_mask = torch.zeros((self.num_envs,), dtype=torch.bool, device=self.device)
+        # Temporary debug hook: env ids teleported on the current step.
+        self.debug_last_teleport_env_ids = torch.empty((0,), dtype=torch.long, device=self.device)
+
+        self.goal_target_locked = torch.zeros((self.num_envs,), dtype=torch.bool, device=self.device)
+
+    def _sample_mobile_base_init_pose(self, env_ids, dtype=None):
+        env_ids = env_ids.to(device=self.device, dtype=torch.long)
+        if dtype is None:
+            dtype = torch.float32
+        base_init_range = torch.tensor(
+            self.cfg["env"]["robot_init"]["base_init_range"],
+            device=self.device,
+            dtype=dtype,
+        )
+        base_init_pose = (
+            torch.rand((env_ids.numel(), 3), device=self.device, dtype=dtype)
+            * (base_init_range[1] - base_init_range[0])
+            + base_init_range[0]
+        )
+        box_pos = getattr(self, "box_pos", None)
+        if box_pos is not None:
+            base_init_pose[:, 1] += box_pos[env_ids, 1].to(dtype=dtype)
+        return base_init_pose
+
+    def _build_joint_mapping(self):
+        env_ptr = self.envs[0]
+        robot_handle = self.robots[0]
+
+        isaacgym_dof_list = self.gym.get_actor_dof_names(env_ptr, robot_handle)
+        torch_urdf_dof_list = self.robot_pcd_sampler.robot.actuated_joint_names
+
+        assert len(isaacgym_dof_list) == len(torch_urdf_dof_list), \
+            f"Mismatch: IsaacGym({len(isaacgym_dof_list)} DOFs) vs TorchURDF({len(torch_urdf_dof_list)} DOFs)"
+
+        # Build mapping lists
+        self.torchurdf_to_isaac_idx = []
+        self.isaac_to_torchurdf_idx = []
+
+        for i, name in enumerate(torch_urdf_dof_list):
+            self.torchurdf_to_isaac_idx.append(isaacgym_dof_list.index(name))
+        for i, name in enumerate(isaacgym_dof_list):
+            self.isaac_to_torchurdf_idx.append(torch_urdf_dof_list.index(name))
+
+    def _load_teacher_bank_variation_assignment_json(
+        self,
+        assignment_json_path,
+        z_shift_range,
+        table_size_range,
+        num_objects,
+        object_mass_range,
+    ):
+        assignment_path = Path(assignment_json_path).expanduser()
+        if not assignment_path.is_absolute():
+            assignment_path = Path(os.getcwd()) / assignment_path
+        if not assignment_path.exists():
+            raise FileNotFoundError(
+                f"teacher_bank_variation_assignment_json not found: {assignment_path}"
+            )
+
+        with assignment_path.open("r") as f:
+            payload = json.load(f)
+
+        def _slice_global_entries(num_entries):
+            local_num_envs = int(self.num_envs)
+            if num_entries == local_num_envs:
+                return 0, local_num_envs, num_entries
+            expected_global_entries = local_num_envs * max(int(self.world_size), 1)
+            if num_entries == expected_global_entries:
+                start = int(self.global_rank) * local_num_envs
+                return start, start + local_num_envs, num_entries
+            # CODEX: allow reusing a variation file generated as N local shards even when this run uses fewer side ranks.
+            if num_entries > local_num_envs and num_entries % local_num_envs == 0:
+                num_shards = num_entries // local_num_envs
+                shard_rank = int(self.global_rank) % num_shards
+                start = shard_rank * local_num_envs
+                return start, start + local_num_envs, num_entries
+            raise ValueError(
+                "teacher_bank_variation_assignment_json has wrong length: "
+                f"expected local {local_num_envs}, global {expected_global_entries}, "
+                f"or a multiple of local num_envs, got {num_entries}"
+            )
+
+        object_id_values = None
+        variant_id_values = None
+        table_size_values = None
+        object_mass_values = None
+        num_entries_total = None
+        if isinstance(payload, dict) and "entries" in payload:
+            entries = payload["entries"]
+            if len(entries) > 0 and isinstance(entries[0], dict):
+                start_idx, end_idx, num_entries_total = _slice_global_entries(len(entries))
+                entries_local = entries[start_idx:end_idx]
+                z_shift_values = [entry["z_shift"] for entry in entries_local]
+                if "object_id" in entries_local[0]:
+                    object_id_values = [int(entry["object_id"]) for entry in entries_local]
+                if "variant_id" in entries_local[0]:
+                    variant_id_values = [int(entry["variant_id"]) for entry in entries_local]
+                if "table_size" in entries_local[0]:
+                    table_size_values = [entry["table_size"] for entry in entries_local]
+                if "object_mass" in entries_local[0]:
+                    object_mass_values = [entry["object_mass"] for entry in entries_local]
+            else:
+                raise ValueError(
+                    f"teacher_bank_variation_assignment_json entries must be objects: {assignment_path}"
+                )
+        elif isinstance(payload, dict) and "z_shift" in payload:
+            all_z_shift_values = payload["z_shift"]
+            start_idx, end_idx, num_entries_total = _slice_global_entries(len(all_z_shift_values))
+            z_shift_values = all_z_shift_values[start_idx:end_idx]
+            if "object_id" in payload:
+                object_id_values = [int(v) for v in payload["object_id"][start_idx:end_idx]]
+            if "variant_id" in payload:
+                variant_id_values = [int(v) for v in payload["variant_id"][start_idx:end_idx]]
+            if "table_size" in payload:
+                table_size_values = payload["table_size"][start_idx:end_idx]
+            if "object_mass" in payload:
+                object_mass_values = payload["object_mass"][start_idx:end_idx]
+        elif isinstance(payload, list) and len(payload) > 0 and isinstance(payload[0], dict):
+            start_idx, end_idx, num_entries_total = _slice_global_entries(len(payload))
+            entries_local = payload[start_idx:end_idx]
+            z_shift_values = [entry["z_shift"] for entry in entries_local]
+            if "object_id" in entries_local[0]:
+                object_id_values = [int(entry["object_id"]) for entry in entries_local]
+            if "variant_id" in entries_local[0]:
+                variant_id_values = [int(entry["variant_id"]) for entry in entries_local]
+            if "table_size" in entries_local[0]:
+                table_size_values = [entry["table_size"] for entry in entries_local]
+            if "object_mass" in entries_local[0]:
+                object_mass_values = [entry["object_mass"] for entry in entries_local]
+        elif isinstance(payload, list):
+            start_idx, end_idx, num_entries_total = _slice_global_entries(len(payload))
+            z_shift_values = payload[start_idx:end_idx]
+        else:
+            raise ValueError(
+                f"Unsupported teacher bank variation assignment JSON format: {assignment_path}"
+            )
+
+        z_shift = torch.tensor(z_shift_values, dtype=torch.float32, device=self.device)
+        z_min = float(z_shift_range[0])
+        z_max = float(z_shift_range[1])
+        if bool(torch.any((z_shift < z_min) | (z_shift > z_max))):
+            raise ValueError(
+                "teacher_bank_variation_assignment_json contains z_shift outside z_shift_range: "
+                f"path={assignment_path} range=[{z_min}, {z_max}]"
+            )
+
+        object_ids = None
+        if object_id_values is not None:
+            object_ids = torch.tensor(object_id_values, dtype=torch.long, device=self.device)
+            if num_objects <= 0:
+                raise ValueError(
+                    f"teacher_bank_variation_assignment_json provides object_id but num_objects={num_objects}"
+                )
+            if bool(torch.any((object_ids < 0) | (object_ids >= int(num_objects)))):
+                raise ValueError(
+                    "teacher_bank_variation_assignment_json contains object_id outside available range: "
+                    f"path={assignment_path} valid_ids=[0, {int(num_objects) - 1}]"
+                )
+
+        if variant_id_values is not None:
+            variation_ids = torch.tensor(variant_id_values, dtype=torch.long, device=self.device)
+        else:
+            if num_entries_total is None:
+                num_entries_total = int(self.num_envs)
+            if num_entries_total == int(self.num_envs) * max(int(self.world_size), 1):
+                variation_start = int(self.global_rank) * int(self.num_envs)
+                variation_ids = torch.arange(
+                    variation_start,
+                    variation_start + int(self.num_envs),
+                    dtype=torch.long,
+                    device=self.device,
+                )
+            else:
+                variation_ids = torch.arange(int(self.num_envs), dtype=torch.long, device=self.device)
+
+        if bool(torch.any(variation_ids < 0)):
+            raise ValueError(
+                f"teacher_bank_variation_assignment_json contains negative variant_id: {assignment_path}"
+            )
+        table_size = None
+        if table_size_values is not None:
+            table_size = torch.tensor(table_size_values, dtype=torch.float32, device=self.device)
+            if table_size.ndim != 2 or table_size.shape[1] != 3:
+                raise ValueError(
+                    f"teacher_bank_variation_assignment_json table_size must have shape [N, 3]: {assignment_path}"
+                )
+            table_size_min = torch.tensor(table_size_range[0], dtype=torch.float32, device=self.device)
+            table_size_max = torch.tensor(table_size_range[1], dtype=torch.float32, device=self.device)
+            if bool(torch.any((table_size < table_size_min) | (table_size > table_size_max))):
+                raise ValueError(
+                    "teacher_bank_variation_assignment_json contains table_size outside table_size_range: "
+                    f"path={assignment_path}"
+                )
+        object_mass = None
+        if object_mass_values is not None:
+            object_mass = torch.tensor(object_mass_values, dtype=torch.float32, device=self.device)
+            if object_mass.ndim != 1:
+                raise ValueError(
+                    f"teacher_bank_variation_assignment_json object_mass must have shape [N]: {assignment_path}"
+                )
+            if object_mass_range is not None:
+                mass_min = float(object_mass_range[0])
+                mass_max = float(object_mass_range[1])
+                if bool(torch.any((object_mass < mass_min) | (object_mass > mass_max))):
+                    raise ValueError(
+                        "teacher_bank_variation_assignment_json contains object_mass outside object_settings.mass_range: "
+                        f"path={assignment_path} range=[{mass_min}, {mass_max}]"
+                    )
+        num_variants_global = int(payload.get("num_variants", -1)) if isinstance(payload, dict) else -1
+        if num_variants_global <= 0:
+            num_variants_global = int(variation_ids.max().item()) + 1 if variation_ids.numel() > 0 else 0
+
+        self.teacher_bank_variation_assignment_json_path = str(assignment_path)
+        return z_shift, table_size, object_mass, object_ids, variation_ids, num_variants_global
+
+    def _init_cuRobo_ik_solver(self):
+        """
+        IK is solved with respect to Franka link "panda_link7"
+        """
+        from curobo.types.base import TensorDeviceType
+        from curobo.types.robot import RobotConfig
+        from curobo.util_file import get_robot_configs_path, join_path, load_yaml
+        from curobo.wrap.reacher.ik_solver import IKSolver, IKSolverConfig
+
+        tensor_args = TensorDeviceType(device=torch.device(self.device))
+        config_file = load_yaml(join_path(get_robot_configs_path(), "franka.yml"))
+        urdf_file = config_file["robot_cfg"]["kinematics"][
+            "urdf_path"
+        ]  # Send global path starting with "/"
+        base_link = config_file["robot_cfg"]["kinematics"]["base_link"]
+        ee_link = "panda_link7"
+        robot_cfg = RobotConfig.from_basic(urdf_file, base_link, ee_link, tensor_args)
+
+        ik_config = IKSolverConfig.load_from_robot_config(
+            robot_cfg,
+            None,
+            rotation_threshold=0.05,
+            position_threshold=0.005,
+            num_seeds=10,
+            self_collision_check=False,
+            self_collision_opt=False,
+            tensor_args=tensor_args,
+            use_cuda_graph=True,
+            regularization=True,
+            grad_iters=None
+        )
+        self.ik_solver = IKSolver(ik_config)
+
+    def create_sim(self):
+        self.sim_params.up_axis = gymapi.UP_AXIS_Z
+        self.sim_params.gravity.x = 0
+        self.sim_params.gravity.y = 0
+        self.sim_params.gravity.z = -9.81
+        self.sim = super().create_sim(
+            self.device_id, self.graphics_device_id, self.physics_engine, self.sim_params)
+        self._create_ground_plane()
+        self._create_envs(self.cfg["env"]['envSpacing'], int(np.sqrt(self.num_envs)))
+
+        # Domain randomization, apply once immediately on startup before the fist sim step
+        if self.randomize:
+            self.apply_randomizations(self.randomization_params)
+
+    def _create_ground_plane(self):
+        plane_params = gymapi.PlaneParams()
+        plane_params.normal = gymapi.Vec3(0.0, 0.0, 1.0)
+        plane_params.distance = 1.0
+        self.gym.add_ground(self.sim, plane_params)
+
+    def _create_franka_leap(self):
+        asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../assets")
+        robot_asset_file = "urdf/franka_hand/robots/franka_leap_right.urdf"
+        # robot_asset_file = "franka_hand/franka_leap.urdf"
+
+        if "asset" in self.cfg["env"]:
+            asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), self.cfg["env"]["asset"].get("assetRoot", asset_root))
+            robot_asset_file = self.cfg["env"]["asset"].get("assetFileNameFranka", robot_asset_file)
+
+        full_robot_asset_path = os.path.join(asset_root, robot_asset_file)
+        self.robot_pcd_sampler = GlorbotSampler(
+            urdf_path=full_robot_asset_path,
+            device=self.device,
+            num_points=self.pcd_spec_dict["num_robot_points"],
+        )
+        # CODEX LIDAR MERGE: only build the sphere model when merged depth/lidar pointclouds are requested.
+        if self.pcd_spec_dict.get("simulate_sensor_pcd", False):
+            self.robot_spherical_representation = GlorbotCollisionChecker(
+                urdf_path=full_robot_asset_path,
+                device=self.device,
+            )
+
+        # load FrankaLEAP asset
+        asset_options = gymapi.AssetOptions()
+        asset_options.flip_visual_attachments = False
+        asset_options.fix_base_link = True
+        asset_options.collapse_fixed_joints = False
+        asset_options.disable_gravity = True
+        asset_options.thickness = 0.001
+        asset_options.default_dof_drive_mode = gymapi.DOF_MODE_POS
+        # NOTE: setting it to False allows Leap hand to be black
+        asset_options.use_mesh_materials = False
+        # NOTE: convex decomposition: disable this for now due to penetration of meshes
+        asset_options.vhacd_enabled = False
+
+        robot_asset = self.gym.load_asset(self.sim, asset_root, robot_asset_file, asset_options)
+        self.robot_asset = robot_asset
+
+        # currently only support joint position control
+        robot_dof_stiffness = to_torch([800.0*100]*2 + [800.0*10] + [1000.0]*7 + [800.0]*16 + [800.0]*6, dtype=torch.float, device=self.device)
+        robot_dof_damping = to_torch([40.0*100]*2 + [40.0*10] + [50.0]*7 + [40.0]*16 + [40.0]*6, dtype=torch.float, device=self.device)
+
+        self.num_robot_bodies = self.gym.get_asset_rigid_body_count(robot_asset)
+        self.num_robot_dofs = self.gym.get_asset_dof_count(robot_asset)
+
+        print("num FrankaLEAP bodies: ", self.num_robot_bodies)
+        print("num FrankaLEAP dofs: ", self.num_robot_dofs)
+
+        # set FrankaLEAP dof properties
+        robot_dof_props = self.gym.get_asset_dof_properties(robot_asset)
+        self.robot_dof_lower_limits = []
+        self.robot_dof_upper_limits = []
+        self._robot_effort_limits = []
+        for i in range(self.num_robot_dofs):
+            if self.control_type == "joint_position":
+                robot_dof_props['driveMode'][i] = gymapi.DOF_MODE_POS
+            else:
+                robot_dof_props['driveMode'][i] = gymapi.DOF_MODE_POS if i > 6 else gymapi.DOF_MODE_EFFORT
+            if self.physics_engine == gymapi.SIM_PHYSX:
+                robot_dof_props['stiffness'][i] = robot_dof_stiffness[i]
+                robot_dof_props['damping'][i] = robot_dof_damping[i]
+            else:
+                robot_dof_props['stiffness'][i] = 7000.0
+                robot_dof_props['damping'][i] = 50.0
+
+            self.robot_dof_lower_limits.append(robot_dof_props['lower'][i])
+            self.robot_dof_upper_limits.append(robot_dof_props['upper'][i])
+            self._robot_effort_limits.append(robot_dof_props['effort'][i])
+
+        self.robot_dof_lower_limits = to_torch(self.robot_dof_lower_limits, device=self.device)
+        self.robot_dof_upper_limits = to_torch(self.robot_dof_upper_limits, device=self.device)
+
+        self._robot_effort_limits = to_torch(self._robot_effort_limits, device=self.device)
+        return robot_dof_props
+
+    def _get_decoupled_gripper_pose_attractor_override(self):
+        # CODEX: allow per-run selection instead of relying on the shared fabric params YAML.
+        mode = str(self.cfg.get("fabric", {}).get("gripper_pose_attractor", "default")).lower()
+        if mode in ("default", "yaml", "auto", "none"):
+            return None
+        if mode in ("legacy", "coupled", "old"):
+            return False
+        if mode in ("decoupled", "new"):
+            return True
+        raise ValueError(
+            "fabric.gripper_pose_attractor must be one of "
+            "default/yaml, legacy/coupled/old, or decoupled/new; "
+            f"got {mode}"
+        )
+
+    def _init_fabric(self):
+        self.fabrics_world_model = WorldMeshesModel(
+            batch_size=self.num_envs,
+            max_objects_per_env=self.max_objects_per_env,
+            device=self.device,
+            world_dict=self.fabrics_world_dict,
+        )
+        self.fabrics_object_ids, self.fabrics_object_indicator = self.fabrics_world_model.get_object_ids()
+
+        # Create franka fabric
+        self.franka_fabric = GlorbotVisionFabric(
+            self.num_envs,
+            self.device,
+            decoupled_gripper_pose_attractor=self._get_decoupled_gripper_pose_attractor_override(),
+        )
+
+        # Create integrator for the fabric dynamics.
+        self.franka_integrator = DisplacementIntegrator(self.franka_fabric)
+
+        cspace_dim = 3 + 7 + 6
+        self.fabric_q = torch.zeros((self.num_envs, cspace_dim), dtype=torch.float, device=self.device)
+        self.fabric_qd = torch.zeros((self.num_envs, cspace_dim), dtype=torch.float, device=self.device)
+        self.fabric_qdd = torch.zeros((self.num_envs, cspace_dim), dtype=torch.float, device=self.device)
+
+        self.fabric_switch_enable = torch.ones((self.num_envs,), dtype=torch.bool, device=self.device) # 0 -- disable ; 1 -- enable
+        self.switch_pos_offset = torch.tensor(self.cfg['env']['robot_init']['switch_pos_offset'], device=self.device)
+        self.switch_tol = self.cfg['env']['robot_init']['switch_tol']
+
+        # Initialize per-env switching target state via child implementation.
+        object_center_pos = self._object_state[:, :3].clone()
+        local_offset = torch.zeros([self.num_envs, 3], dtype=torch.float, device=self.device)
+        local_offset[:, 2] = self.mesh_aabb_extents[:, 2] * self.object_center_z_scale
+        object_rot_mat = quaternion_to_matrix_ig(self._object_state[:, 3:7])
+        rotated_offset = torch.matmul(object_rot_mat, local_offset.unsqueeze(-1)).squeeze(-1)
+        object_center_pos += rotated_offset
+        self._update_fabric_switching_target(object_center_pos)
+
+    def init_data(self, actor_num):
+        # Setup sim handles
+        env_ptr = self.envs[0]
+        robot_handle = 0
+        self.handles = {
+            # FrankaLEAP
+            "hand": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "palm_center"),
+            "finger1_tip": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "index_tip_head"),
+            "finger2_tip": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "middle_tip_head"),
+            "finger3_tip": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "ring_tip_head"),
+            "finger4_tip": self.gym.find_actor_rigid_body_handle(env_ptr, robot_handle, "thumb_tip_head"),
+        }
+
+        # Get total DOFs
+        self.num_dofs = self.gym.get_sim_dof_count(self.sim) // self.num_envs
+
+        # Setup tensor buffers
+        _net_contact_forces = self.gym.acquire_net_contact_force_tensor(self.sim)
+        self.contact_forces = gymtorch.wrap_tensor(_net_contact_forces).view(self.num_envs, -1, 3)
+        _actor_root_state_tensor = self.gym.acquire_actor_root_state_tensor(self.sim)
+        _dof_state_tensor = self.gym.acquire_dof_state_tensor(self.sim)
+        _rigid_body_state_tensor = self.gym.acquire_rigid_body_state_tensor(self.sim)
+        self._root_state = gymtorch.wrap_tensor(_actor_root_state_tensor).view(self.num_envs, -1, 13)
+        self._dof_state = gymtorch.wrap_tensor(_dof_state_tensor).view(self.num_envs, -1, 2)
+        self._rigid_body_state = gymtorch.wrap_tensor(_rigid_body_state_tensor).view(self.num_envs, -1, 13)
+        self.num_bodies = self._rigid_body_state.shape[1]
+        self._q = self._dof_state[..., 0]
+        self._qd = self._dof_state[..., 1]
+        self._eef_state = self._rigid_body_state[:, self.handles["hand"], :]
+        self._eef_finger1_state = self._rigid_body_state[:, self.handles["finger1_tip"], :]
+        self._eef_finger2_state = self._rigid_body_state[:, self.handles["finger2_tip"], :]
+        self._eef_finger3_state = self._rigid_body_state[:, self.handles["finger3_tip"], :]
+        self._eef_finger4_state = self._rigid_body_state[:, self.handles["finger4_tip"], :]
+        self._object_state = self._root_state[:, self._object_id, :]
+
+        _jacobian = self.gym.acquire_jacobian_tensor(self.sim, "franka")
+        jacobian = gymtorch.wrap_tensor(_jacobian)
+        hand_joint_index = self.gym.get_actor_joint_dict(env_ptr, robot_handle)['palm_center_joint']
+        self._j_eef = jacobian[:, hand_joint_index, :, :10]
+        _massmatrix = self.gym.acquire_mass_matrix_tensor(self.sim, "franka")
+        mm = gymtorch.wrap_tensor(_massmatrix)
+        self._mm = mm[:, 3:10, 3:10]
+
+        # Initialize actions
+        self._pos_control = torch.zeros((self.num_envs, self.num_dofs), dtype=torch.float, device=self.device)
+        self._effort_control = torch.zeros_like(self._pos_control)
+
+        # Initialize indices
+        self._global_indices = torch.arange(self.num_envs * actor_num, dtype=torch.int32,
+                                           device=self.device).view(self.num_envs, -1) # 3 actors, franka, table, table_stand
+
+        target_pos = to_torch(self.cfg["reward"]["params"]["target_pos"], device=self.device).unsqueeze(0).repeat(self.num_envs, 1)
+        target_lift_dis = to_torch(self.cfg["reward"]["params"]["target_lift_dis"], device=self.device)
+        target_quat = to_torch(self.cfg["reward"]["params"]["target_quat"], device=self.device).unsqueeze(0).repeat(self.num_envs, 1)
+        target_quat_norm = torch.norm(target_quat, dim=1, keepdim=True)  # normalize quaternion
+        target_quat = target_quat / (target_quat_norm + 1e-10)
+
+        # finger indexing: 0-3:index ; 4-7:thumb ; 8-11:middle ; 12-15:ring
+        # v0
+        # self.grasp_finger_dof_pos = torch.tensor([
+        #     1.0176, -0.8376,  0.9564,  0.9632,
+        #     1.5700,  0.0000,  0.3100,  1.2880,
+        #     1.0176,  0.0000,  0.9564,  0.9632,
+        #     1.0176,  0.8376,  0.9564,  0.9632
+        # ], device=self.device)
+
+        # v1
+        self.grasp_finger_dof_pos = torch.tensor([
+            0.65,  0.0,  0.65,  0.65,
+            1.57,  0.0,  0.10,  0.40,
+            0.65,  0.0,  0.65,  0.65,
+            0.65,  0.0,  0.65,  0.65,
+        ], device=self.device)
+
+        self.reward_settings = {
+            "target_pos": self.obj_pos_target,
+            "target_lift_dis": target_lift_dis,
+            "target_quat": target_quat,
+            "target_rot_6d": matrix_to_rotation_6d(quaternion_to_matrix_ig(target_quat)),
+
+            "curl_reaching_threshold": to_torch(self.cfg["reward"]["params"]["curl_reaching_threshold"], device=self.device),
+            "success_timeout": to_torch(self.cfg["reward"]["params"]["success_timeout"], device=self.device),
+            "lifting_timeout": to_torch(self.cfg["reward"]["params"]["lifting_timeout"], device=self.device),
+            "object_init_height": self.mesh_aabb_extents[:, 2] * self.object_center_z_scale + self.table_surface_height, # @ray default center is 1/2 z height
+            "grasp_finger_dof_pos": self.grasp_finger_dof_pos,
+
+            "beta_hand_object": to_torch(self.cfg["reward"]["exp"]["beta_hand_object"], device=self.device),
+            "beta_object_goal": to_torch(self.cfg["reward"]["exp"]["beta_object_goal"], device=self.device),
+            "beta_lift": to_torch(self.cfg["reward"]["exp"]["beta_lift"], device=self.device),
+            "beta_curl": to_torch(self.cfg["reward"]["exp"]["beta_curl"], device=self.device),
+
+            "w_hand_obj": to_torch(self.cfg["reward"]["weights"]["w_hand_obj"], device=self.device),
+            "w_obj_goal": to_torch(self.cfg["reward"]["weights"]["w_obj_goal"], device=self.device),
+            "w_lift": to_torch(self.cfg["reward"]["weights"]["w_lift"], device=self.device),
+            "w_colli": to_torch(self.cfg["reward"]["weights"]["w_colli"], device=self.device),
+            "w_curl": to_torch(self.cfg["reward"]["weights"]["w_curl"], device=self.device),
+            "w_actionreg": to_torch(self.cfg["reward"]["weights"]["w_actionreg"], device=self.device),
+
+            # @ray what rewards to use, for running ablations
+            "use_curl": to_torch(self.cfg["reward"]["usage"]["use_curl"], device=self.device),
+        }
+
+
+    # object spawning utils
+    def _create_cube(self, pos, size, quat=[0, 0, 0, 1]):
+        """
+        Args:
+            position (np.ndarray): (3,) xyz position of the cube center
+            size (np.ndarray): (3,) length along xyz direction of the cube
+            quat (np.ndarray): (4,), [x, y, z, w]
+        Returns:
+            asset (gymapi.Asset): asset handle of the cube
+            start_pose (gymapi.Transform): start pose of the cube
+        """
+        # Create cube asset
+        opts = gymapi.AssetOptions()
+        opts.fix_base_link = True
+        asset = self.gym.create_box(self.sim, *size, opts)
+        # Define start pose
+        start_pose = gymapi.Transform()
+        start_pose.p = gymapi.Vec3(*pos)
+        start_pose.r = gymapi.Quat(*quat)  # quat in xyzw order
+        self.cuboid_dims.append(size)
+        self.cuboid_pos.append(pos)
+        self.cuboid_quats.append(quat)
+        return asset, start_pose
+
+    def _create_sphere(self, pos, size):
+        """
+        Args:
+            position (np.ndarray): (3,) xyz position of the sphere center
+            size (float): radius of the sphere, scalar value
+        Returns:
+            asset (gymapi.Asset): asset handle of the sphere
+            start_pose (gymapi.Transform): start pose of the sphere
+        """
+        # Create cube asset
+        opts = gymapi.AssetOptions()
+        opts.fix_base_link = True
+        asset = self.gym.create_sphere(self.sim, size, opts)
+        # Define start pose
+        start_pose = gymapi.Transform()
+        start_pose.p = gymapi.Vec3(*pos)
+        self.sphere_radii.append(size)
+        self.sphere_pos.append(pos)
+        return asset, start_pose
+
+    def _create_capsule(self, pos, size):
+        """
+        Args:
+            position (np.ndarray): (3,) xyz position of the capsule center
+            size (np.ndarray): (2,) radius and length of the capsule
+                radius (float): radius of the sphere
+                length (float): semi-length of the cylindrical part
+        Returns:
+            asset (gymapi.Asset): asset handle of the capsule
+            start_pose (gymapi.Transform): start pose of the capsule
+        """
+        # Create cube asset
+        opts = gymapi.AssetOptions()
+        opts.fix_base_link = True
+        asset = self.gym.create_capsule(self.sim, size[0], size[1], opts)
+        # Define start pose
+        start_pose = gymapi.Transform()
+        start_pose.p = gymapi.Vec3(*pos)
+        start_pose.r = gymapi.Quat(*[0.0, -0.707, 0.0, 0.707])  # quat in xyzw order
+        self.capsule_dims.append(size)
+        self.capsule_pos.append(pos)
+        return asset, start_pose
+
+    def _create_mesh_urdf(self, mesh_path, scale=[1.0, 1.0, 1.0], mass=0.5):
+        mesh_dir = os.path.dirname(mesh_path)
+        mesh_filename = os.path.basename(mesh_path)
+        mesh_name, _ = os.path.splitext(mesh_filename)
+
+        urdf_rel = mesh_name + ".urdf"
+        if mass is None:
+            return urdf_rel, mesh_dir
+
+        # Create a temp cached copy of the mesh folder and patch URDF mass there.
+        mass_value = float(mass)
+        scale_vec = np.asarray(scale, dtype=np.float32).reshape(-1)
+        if scale_vec.shape[0] == 1:
+            scale_vec = np.repeat(scale_vec, 3)
+        assert scale_vec.shape[0] == 3, "URDF scale must be scalar or shape (3,)"
+        mass_tag = f"{mass_value:.8g}".replace(".", "p").replace("-", "m")
+        scale_tag = "_".join([f"{float(s):.6g}".replace(".", "p").replace("-", "m") for s in scale_vec])
+        mesh_dir_hash = hashlib.sha1(mesh_dir.encode("utf-8")).hexdigest()[:10]
+        # Prefer user-private cache, override with env var for cluster setups.
+        cache_root = os.environ.get(
+            "ISAACGYM_URDF_CACHE_ROOT",
+            os.environ.get("WARP_CACHE_ROOT", os.path.join(os.path.expanduser("~"), ".cache", "isaacgym_urdf_overrides")),
+        )
+        cache_mesh_dir = os.path.join(cache_root, f"{mesh_name}_{mesh_dir_hash}_mass_{mass_tag}_scale_{scale_tag}")
+        os.makedirs(cache_root, exist_ok=True)
+        cache_urdf_path = os.path.join(cache_mesh_dir, urdf_rel)
+        source_urdf_path = os.path.join(mesh_dir, urdf_rel)
+        lock_path = cache_mesh_dir + ".lock"
+        lock_fd = None
+        build_deadline = time.time() + 120.0
+
+        def _patch_urdf_mass_scale_and_origin(urdf_text, urdf_path_for_error):
+            patched_urdf_text, n_sub = re.subn(
+                r'(<mass\s+value\s*=\s*")[^"]+("\s*/?>)',
+                rf'\g<1>{mass_value:.8g}\2',
+                urdf_text,
+            )
+            if n_sub == 0:
+                raise ValueError(f"No <mass value=...> tag found in URDF: {urdf_path_for_error}")
+
+            scale_str = f"{float(scale_vec[0]):.8g} {float(scale_vec[1]):.8g} {float(scale_vec[2]):.8g}"
+            patched_urdf_text, n_scale_sub = re.subn(
+                r'(<mesh\b[^>]*\bscale\s*=\s*")[^"]+(")',
+                rf'\g<1>{scale_str}\2',
+                patched_urdf_text,
+            )
+            if n_scale_sub == 0:
+                raise ValueError(f"No <mesh ... scale=\"...\"> tag found in URDF: {urdf_path_for_error}")
+
+            def _scale_urdf_origin(match):
+                xyz = np.fromstring(match.group(2), sep=" ", dtype=np.float32)
+                if xyz.shape[0] != 3:
+                    raise ValueError(f"Expected origin xyz to have 3 values in URDF: {urdf_path_for_error}")
+                scaled_xyz = xyz * scale_vec
+                xyz_str = f"{float(scaled_xyz[0]):.8g} {float(scaled_xyz[1]):.8g} {float(scaled_xyz[2]):.8g}"
+                return match.group(1) + xyz_str + match.group(3)
+
+            # CODEX: match the side RL env. Anisotropic mesh scaling must also
+            # scale the inertial origin; otherwise the visual/collision mesh and
+            # COM no longer describe the same object.
+            patched_urdf_text, n_origin_sub = re.subn(
+                r'(<origin\b[^>]*\bxyz\s*=\s*")([^"]+)(")',
+                _scale_urdf_origin,
+                patched_urdf_text,
+            )
+            if n_origin_sub == 0:
+                raise ValueError(f"No <origin xyz=...> tag found in URDF: {urdf_path_for_error}")
+            return patched_urdf_text
+
+        while (not os.path.exists(cache_mesh_dir)) or (not os.path.exists(cache_urdf_path)):
+            try:
+                lock_fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_RDWR)
+            except FileExistsError:
+                if time.time() > build_deadline:
+                    raise TimeoutError(f"Timed out waiting for URDF cache lock: {lock_path}")
+                time.sleep(0.1)
+                continue
+
+            try:
+                if os.path.exists(cache_mesh_dir) and os.path.exists(cache_urdf_path):
+                    break
+
+                tmp_cache_mesh_dir = f"{cache_mesh_dir}.tmp_{os.getpid()}_{int(time.time() * 1e6)}"
+                if os.path.exists(tmp_cache_mesh_dir):
+                    shutil.rmtree(tmp_cache_mesh_dir)
+                shutil.copytree(mesh_dir, tmp_cache_mesh_dir)
+                tmp_cache_urdf_path = os.path.join(tmp_cache_mesh_dir, urdf_rel)
+
+                with open(tmp_cache_urdf_path, "r") as f:
+                    urdf_text = f.read()
+                patched_urdf_text = _patch_urdf_mass_scale_and_origin(urdf_text, tmp_cache_urdf_path)
+
+                if patched_urdf_text != urdf_text:
+                    with open(tmp_cache_urdf_path, "w") as f:
+                        f.write(patched_urdf_text)
+
+                if os.path.exists(cache_mesh_dir):
+                    shutil.rmtree(cache_mesh_dir)
+                os.rename(tmp_cache_mesh_dir, cache_mesh_dir)
+            finally:
+                if lock_fd is not None:
+                    os.close(lock_fd)
+                    lock_fd = None
+                    try:
+                        os.unlink(lock_path)
+                    except FileNotFoundError:
+                        pass
+
+        with open(source_urdf_path, "r") as f:
+            source_urdf_text = f.read()
+        patched_urdf_text = _patch_urdf_mass_scale_and_origin(source_urdf_text, source_urdf_path)
+        with open(cache_urdf_path, "r") as f:
+            cached_urdf_text = f.read()
+        if patched_urdf_text != cached_urdf_text:
+            with open(cache_urdf_path, "w") as f:
+                f.write(patched_urdf_text)
+        return urdf_rel, cache_mesh_dir
+
+        # TODO: change logic in the future, recreating urdf might not be a good idea
+        # urdf_path = os.path.join(mesh_dir, urdf_rel)
+
+        # mesh = trimesh.load(mesh_path)
+        # z_com = mesh.extents[2] * scale[2] / 2
+
+        # # URDF content
+        # urdf_str = f"""<?xml version="1.0" ?>
+        #     <robot name="mesh_object">
+        #     <link name="base">
+        #         <visual>
+        #             <geometry>
+        #                 <mesh filename="{mesh_filename}" scale="{scale[0]} {scale[1]} {scale[2]}"/>
+        #             </geometry>
+        #         </visual>
+        #         <collision>
+        #             <geometry>
+        #                 <mesh filename="{mesh_filename}" scale="{scale[0]} {scale[1]} {scale[2]}"/>
+        #             </geometry>
+        #         </collision>
+        #         <inertial>
+        #             <origin xyz="0 0 {z_com}" rpy="0 0 0"/>
+        #             <mass value="{mass}"/>
+        #             <inertia ixx="0.01" iyy="0.01" izz="0.01" ixy="0" ixz="0" iyz="0"/>
+        #         </inertial>
+        #     </link>
+        #     </robot>
+        # """
+
+        # # Save URDF
+        # with open(urdf_path, 'w') as f:
+        #     f.write(urdf_str)
+        return urdf_rel, mesh_dir
+
+    def _create_mesh(
+        self,
+        mesh_path,
+        pos,
+        scale,
+        quat=[0, 0, 0, 1],
+        fix_base_link=True,
+        obj_str2int=None,
+        asset_obj_id=None,
+        asset_mesh_id=None,
+    ):
+        """
+        Args:
+            position (np.ndarray): (3,) xyz position of the mesh center
+            scale (float): (1,) scale of the mesh
+            quat (np.ndarray): (4,), [x, y, z, w]
+        Returns:
+            asset (gymapi.Asset): asset handle of the mesh
+            start_pose (gymapi.Transform): start pose of the mesh
+        """
+        # convert .obj into .urdf file
+        if np.isscalar(scale):
+            mesh_scale = [float(scale), float(scale), float(scale)]
+        else:
+            mesh_scale_arr = np.asarray(scale, dtype=np.float32).reshape(-1)
+            assert mesh_scale_arr.shape[0] == 3, "Mesh scale must be scalar or shape (3,)"
+            mesh_scale = mesh_scale_arr.tolist()
+        mesh_mass_range = self.cfg["env"]["object_settings"]["mass_range"]
+        sampled_mesh_mass = None
+        if mesh_mass_range is not None:
+            mass_lo = float(mesh_mass_range[0])
+            mass_hi = float(mesh_mass_range[1])
+            sampled_mesh_mass = float(np.random.uniform(mass_lo, mass_hi))
+        urdf_path, asset_root = self._create_mesh_urdf(
+            mesh_path,
+            scale=mesh_scale,
+            mass=sampled_mesh_mass,
+        )  # CODEX
+
+
+        # @ray urdf format
+        # ├── apple_1
+        # │   ├── apple_1.glb
+        # │   ├── apple_1.json
+        # │   ├── apple_1.npy
+        # │   ├── apple_1.obj
+        # │   └── apple_1.urdf
+        # └── type_mapping.json
+        # object specs including id is in apple_1.json
+        # asset_specs_path = Path(mesh_path).with_suffix(".json")
+
+        if asset_mesh_id is None:
+            asset_mesh_id = Path(mesh_path).parts[-2]
+        if asset_obj_id is None:
+            asset_obj_id = int(obj_str2int[asset_mesh_id])
+
+        # Create mesh asset
+        opts = gymapi.AssetOptions()
+        opts.fix_base_link = fix_base_link
+        asset = self.gym.load_asset(self.sim, asset_root, urdf_path, opts) # TODO: this step seems to take a lot of time, try to optimize it
+        # Define start pose
+        start_pose = gymapi.Transform()
+        start_pose.p = gymapi.Vec3(*pos)
+        start_pose.r = gymapi.Quat(*quat)  # quat in xyzw order
+        return asset, start_pose, scale, asset_obj_id, asset_mesh_id
+
+    def _load_mesh_variant_manifest_entries(self, manifest_path):
+        manifest_path = os.path.expanduser(str(manifest_path))
+        if not os.path.isabs(manifest_path):
+            manifest_path = os.path.join(os.getcwd(), manifest_path)
+        if not os.path.isfile(manifest_path):
+            raise FileNotFoundError(f"mesh variant manifest not found: {manifest_path}")
+        with open(manifest_path, "r") as f:
+            payload = json.load(f)
+        if payload.get("format") != "teacher_bank_mesh_variant_manifest_v1":
+            raise ValueError(f"Unsupported mesh variant manifest format: {manifest_path}")
+        entries = payload.get("entries", [])
+        if len(entries) == 0:
+            raise ValueError(f"mesh variant manifest contains no entries: {manifest_path}")
+        mesh_dir = payload.get("mesh_dir", self.mesh_args["mesh_dir"])
+        if not os.path.isabs(mesh_dir):
+            mesh_dir = os.path.abspath(mesh_dir)
+
+        mesh_entries = []
+        for idx, entry in enumerate(entries):
+            mesh_path = entry["mesh_path"]
+            if not os.path.isabs(mesh_path):
+                mesh_path = os.path.join(mesh_dir, mesh_path)
+            relative_scale = np.asarray(entry["relative_scale"], dtype=np.float32).reshape(-1)
+            if relative_scale.shape[0] != 3:
+                raise ValueError(f"relative_scale must have three values in manifest entry {idx}: {manifest_path}")
+            mesh_entries.append(
+                {
+                    "mesh_path": mesh_path,
+                    "asset_obj_id": int(entry.get("asset_obj_id", idx + 1)),
+                    "asset_mesh_id": str(entry.get("asset_mesh_id", entry.get("display_name", f"variant_{idx}"))),
+                    "display_name": str(entry.get("display_name", f"variant_{idx}")),
+                    "fixed_scale": relative_scale,
+                }
+            )
+        self.mesh_variant_manifest_path = manifest_path
+        return mesh_entries
+
+    def _discover_variant_mesh_entries(self, mesh_dir, object_list):
+        manifest_path = self.mesh_args.get("variant_manifest_json", None)
+        if manifest_path:
+            return self._load_mesh_variant_manifest_entries(manifest_path)
+
+        type_mapping_path = os.path.join(mesh_dir, "type_mapping.json")
+        entries = []
+        if os.path.isfile(type_mapping_path):
+            with open(type_mapping_path, "r") as f:
+                obj_str2int = json.load(f)
+            if object_list == ["all"]:
+                object_list = [obj for obj in os.listdir(mesh_dir) if obj != "type_mapping.json"]
+            object_list = sorted(
+                object_list,
+                key=lambda obj: (0, obj_str2int[obj]) if obj in obj_str2int else (1, obj),
+            )
+            for obj in object_list:
+                obj_dir = os.path.join(mesh_dir, obj)
+                if not os.path.isdir(obj_dir):
+                    continue
+                for file in sorted(os.listdir(obj_dir)):
+                    if not file.endswith(".obj"):
+                        continue
+                    mesh_path = os.path.join(obj_dir, file)
+                    asset_mesh_id = Path(mesh_path).parts[-2]
+                    entries.append(
+                        {
+                            "mesh_path": mesh_path,
+                            "asset_obj_id": int(obj_str2int[asset_mesh_id]),
+                            "asset_mesh_id": asset_mesh_id,
+                            "display_name": asset_mesh_id,
+                        }
+                    )
+            return entries
+
+        if object_list == ["all"]:
+            selected_objects = None
+        else:
+            selected_objects = set(object_list)
+
+        variant_entries = []
+        for root, _, files in os.walk(mesh_dir):
+            obj_files = sorted([f for f in files if f.endswith(".obj")])
+            if not obj_files:
+                continue
+            rel_dir = os.path.relpath(root, mesh_dir)
+            parts = rel_dir.split(os.sep)
+            if len(parts) == 3:
+                category, object_name, variant = parts
+                mesh_rel_prefix = os.path.join(category, object_name, variant)
+            elif len(parts) == 2:
+                object_name, variant = parts
+                mesh_rel_prefix = os.path.join(object_name, variant)
+            else:
+                continue
+            if selected_objects is not None and object_name not in selected_objects:
+                continue
+            for obj_file in obj_files:
+                if not obj_file.startswith(f"{object_name}_{variant}"):
+                    continue
+                mesh_path = os.path.join(root, obj_file)
+                mesh_stem = os.path.splitext(obj_file)[0]
+                json_path = os.path.join(root, mesh_stem + ".json")
+                if not os.path.isfile(json_path):
+                    continue
+                with open(json_path, "r") as jf:
+                    meta = json.load(jf)
+                if meta.get("transform_model") != "dilation_only_v1":
+                    continue
+                variant_entries.append(
+                    (
+                        f"{object_name}_{variant}",
+                        mesh_path,
+                        os.path.join(mesh_rel_prefix, mesh_stem),
+                        meta["dilation_range"],
+                        self._get_baked_dilation_from_variant_meta(meta, json_path),
+                        self._get_baked_rotation_abs_from_variant_meta(meta),
+                    )
+                )
+
+        variant_entries = sorted(variant_entries, key=lambda x: (x[0], x[1]))
+        for idx, (
+            display_name,
+            mesh_path,
+            mesh_id_rel,
+            dilation_range,
+            baked_dilation,
+            baked_rotation_abs,
+        ) in enumerate(variant_entries):
+            entries.append(
+                {
+                    "mesh_path": mesh_path,
+                    "asset_obj_id": idx + 1,
+                    "asset_mesh_id": mesh_id_rel,
+                    "display_name": display_name,
+                    "dilation_range": dilation_range,
+                    "baked_dilation": baked_dilation,
+                    "baked_rotation_abs": baked_rotation_abs,
+                }
+            )
+        return entries
+
+    def _get_baked_dilation_from_variant_meta(self, meta, json_path):
+        transform = meta.get("transform", {})
+        keys = ("dilate_x", "dilate_y", "dilate_z")
+        if all(k in transform for k in keys):
+            return np.asarray([float(transform[k]) for k in keys], dtype=np.float32)
+
+        stats = meta.get("stats", {})
+        original_extents = np.asarray(stats.get("original", {}).get("bbox_extents", []), dtype=np.float32)
+        scaled_extents = np.asarray(stats.get("scaled", {}).get("bbox_extents", []), dtype=np.float32)
+        if original_extents.shape[0] == 3 and scaled_extents.shape[0] == 3:
+            if np.all(np.abs(original_extents) > 1.0e-8):
+                return scaled_extents / original_extents
+
+        dilation_range = meta.get("dilation_range", {})
+        try:
+            return np.asarray(
+                [
+                    0.5 * (float(dilation_range["x"]["min"]) + float(dilation_range["x"]["max"])),
+                    0.5 * (float(dilation_range["y"]["min"]) + float(dilation_range["y"]["max"])),
+                    0.5 * (float(dilation_range["z"]["min"]) + float(dilation_range["z"]["max"])),
+                ],
+                dtype=np.float32,
+            )
+        except KeyError as exc:
+            raise ValueError(f"Cannot infer baked dilation from variant metadata: {json_path}") from exc
+
+    def _get_baked_rotation_abs_from_variant_meta(self, meta):
+        transform = meta.get("transform", {})
+        rx = np.deg2rad(float(transform.get("rot_x", 0.0)))
+        ry = np.deg2rad(float(transform.get("rot_y", 0.0)))
+        rz = np.deg2rad(float(transform.get("rot_z", 0.0)))
+        cx, sx = np.cos(rx), np.sin(rx)
+        cy, sy = np.cos(ry), np.sin(ry)
+        cz, sz = np.cos(rz), np.sin(rz)
+        rot_x = np.asarray([[1.0, 0.0, 0.0], [0.0, cx, -sx], [0.0, sx, cx]], dtype=np.float32)
+        rot_y = np.asarray([[cy, 0.0, sy], [0.0, 1.0, 0.0], [-sy, 0.0, cy]], dtype=np.float32)
+        rot_z = np.asarray([[cz, -sz, 0.0], [sz, cz, 0.0], [0.0, 0.0, 1.0]], dtype=np.float32)
+        return np.abs(rot_z @ rot_y @ rot_x)
+
+    def _sample_variant_dilation_and_scale(self, entry):
+        dilation_range = entry["dilation_range"]
+        target_dilation = np.asarray(
+            [
+                np.random.uniform(float(dilation_range["x"]["min"]), float(dilation_range["x"]["max"])),
+                np.random.uniform(float(dilation_range["y"]["min"]), float(dilation_range["y"]["max"])),
+                np.random.uniform(float(dilation_range["z"]["min"]), float(dilation_range["z"]["max"])),
+            ],
+            dtype=np.float32,
+        )
+        baked_dilation = np.asarray(entry["baked_dilation"], dtype=np.float32)
+        if np.any(np.abs(baked_dilation) <= 1.0e-8):
+            raise ValueError(f"Invalid baked_dilation for {entry['mesh_path']}: {baked_dilation}")
+        raw_relative_scale = target_dilation / baked_dilation
+        relative_scale = np.asarray(entry["baked_rotation_abs"], dtype=np.float32) @ raw_relative_scale
+        return target_dilation, raw_relative_scale, relative_scale
+
+    def create_rand_mesh(self, fix_base_link=False):
+        # get randomly sampled mesh path
+        mesh_dir = self.mesh_args["mesh_dir"]
+        object_list = self.mesh_args["obj_list"]
+
+        if object_list == ["all"]:
+            object_list = [
+                obj
+                for obj in os.listdir(mesh_dir)
+                if obj != "type_mapping.json"
+            ]
+
+        mesh_files = [
+            os.path.join(mesh_dir, obj, file)
+            for obj in object_list
+            for file in os.listdir(os.path.join(mesh_dir, obj))
+            if file.endswith(".obj")
+        ]
+        mesh_sampler = lambda: random.choice(mesh_files)
+        sampled_mesh_path = mesh_sampler()
+
+        # sample random size, pos and ori
+        scale_range = self.cfg["env"]["object_settings"]["scale_range"]
+        pos_range = self.cfg["env"]["object_settings"]["xyz_range"]
+
+        mesh_scale = np.random.uniform(scale_range[0], scale_range[1])
+        mesh_pos = np.random.uniform(pos_range[0], pos_range[1])
+        mesh_quat = R.random().as_quat()  # [x, y, z, w]
+
+        return self._create_mesh(sampled_mesh_path, mesh_pos, mesh_scale, mesh_quat, fix_base_link)
+
+    def create_all_meshes(self, fix_base_link=False):
+        """
+        Create all meshes in the mesh directory.
+        Args:
+            fix_base_link (bool): whether to fix the base link of the mesh
+            on_table (bool): whether to place the mesh on the table surface
+        Returns:
+            meshes (list): list of tuples containing asset, start_pose, scale, asset_obj_id, asset_mesh_id
+        """
+        mesh_dir = self.mesh_args["mesh_dir"]
+        object_list = self.mesh_args["obj_list"]
+
+        mesh_entries = self._discover_variant_mesh_entries(mesh_dir, object_list)
+        if len(mesh_entries) == 0:
+            raise RuntimeError(
+                f"No mesh entries discovered under mesh_dir={mesh_dir} "
+                f"with obj_list={object_list}. Expected legacy type_mapping.json layout, "
+                "variant layout, or env.mesh.variant_manifest_json."
+            )
+
+        self.mesh_variant_mode = (
+            ("fixed_scale" in mesh_entries[0])
+            or ("dilation_range" in mesh_entries[0])
+        )
+        if self.mesh_variant_mode and "fixed_scale" not in mesh_entries[0]:
+            base_entries = mesh_entries
+            variant_count = len(base_entries)
+            explicit_preload_count = int(self.mesh_args.get("variant_preload_count", 0))
+            if explicit_preload_count > 0:
+                target_preload = explicit_preload_count
+            else:
+                preload_multiplier = int(self.mesh_args.get("variant_preload_multiplier", 1))
+                if preload_multiplier < 1:
+                    raise ValueError("env.mesh.variant_preload_multiplier must be >= 1")
+                target_preload = variant_count * preload_multiplier
+                max_preload = int(self.mesh_args.get("variant_preload_max", self.num_envs))
+                if max_preload > 0:
+                    target_preload = min(target_preload, max_preload)
+            target_preload = max(1, target_preload)
+            if target_preload < variant_count:
+                idx = np.random.choice(variant_count, size=target_preload, replace=False)
+            else:
+                idx = np.arange(target_preload, dtype=np.int64) % variant_count
+            np.random.shuffle(idx)
+            mesh_entries = [base_entries[int(i)] for i in idx.tolist()]
+            versions_per_variant = int(np.ceil(float(target_preload) / float(variant_count)))
+            print(
+                f"[mesh_variant_preload] variants={variant_count} preload={target_preload} "
+                f"versions_per_variant~={versions_per_variant}"
+            )
+
+        self.object_id_to_name = [entry["display_name"] for entry in mesh_entries]
+
+        meshes = []
+        for entry in tqdm(mesh_entries, desc="Preparing Meshes"):
+            # sample random size, pos and ori
+            scale_range = self.cfg["env"]["object_settings"]["scale_range"]
+            pos_range = self.cfg["env"]["object_settings"]["xyz_range"]
+
+            if "fixed_scale" in entry:
+                mesh_scale = np.asarray(entry["fixed_scale"], dtype=np.float32)
+            elif "dilation_range" in entry:
+                _, _, mesh_scale = self._sample_variant_dilation_and_scale(entry)
+            else:
+                mesh_scale = np.random.uniform(scale_range[0], scale_range[1])
+            mesh_pos = np.random.uniform(pos_range[0], pos_range[1])
+            mesh_quat = R.random().as_quat()
+            asset, start_pose, scale, asset_obj_id, asset_mesh_id = self._create_mesh(
+                entry["mesh_path"],
+                mesh_pos,
+                mesh_scale,
+                mesh_quat,
+                fix_base_link,
+                asset_obj_id=entry["asset_obj_id"],
+                asset_mesh_id=entry["asset_mesh_id"],
+            )
+            meshes.append((asset, start_pose, scale, asset_obj_id, asset_mesh_id))
+        return meshes
+
+    def _create_envs(self, spacing, num_per_row):
+        """
+        loading Franka + LEAP + a table in the environment, this is for debugging purposes only
+        """
+        lower = gymapi.Vec3(-spacing, -spacing, 0.0)
+        upper = gymapi.Vec3(spacing, spacing, spacing)
+
+        # setup params
+        self.table_pos = []
+
+        self.cuboid_dims = []  # xyz
+        self.cuboid_pos = []
+        self.cuboid_quats = [] # xyzw
+
+        self.mesh_aabb_extents = None  # xyz, axis-aligned bounding box full extents
+        self.table_surface_height = torch.zeros((self.num_envs,), device=self.device)
+
+        self.obj_pos_target = torch.zeros((self.num_envs, 3), device=self.device) # x, y, z
+
+        obj_xyz_range = self.cfg["env"]["object_settings"]["xyz_range"]
+        self.obj_pos_range = torch.zeros((self.num_envs, 4), device=self.device) # x-min, x-max, y-min, y-max
+        self.obj_pos_range[:, 0] = obj_xyz_range[0][0] # x-min
+        self.obj_pos_range[:, 1] = obj_xyz_range[1][0] # x-max
+        self.obj_pos_range[:, 2] = obj_xyz_range[0][1] # y-min
+        self.obj_pos_range[:, 3] = obj_xyz_range[1][1] # y-max
+
+        # setup robot (franka + leap)
+        robot_dof_props = self._create_franka_leap()
+        robot_asset = self.robot_asset
+        robot_start_pose = gymapi.Transform()
+        robot_start_pose.p = gymapi.Vec3(0.0, 0.0, 0.0) # make sure robot spawns at the origin, this matches the IK setting with cuRobo
+        robot_start_pose.r = gymapi.Quat(0.0, 0.0, 0.0, 1.0)
+
+        # compute aggregate size
+        num_robot_bodies = self.gym.get_asset_rigid_body_count(robot_asset)
+        num_robot_shapes = self.gym.get_asset_rigid_shape_count(robot_asset)
+        max_agg_bodies = num_robot_bodies + 1 + 1 # 1 for object, 1 for table
+        max_agg_shapes = num_robot_shapes + 1 + 1 # 1 for object, 1 for table
+
+        self.robots = []
+        self.tables = []
+        self.objects = []
+        self.add_on_obstacles = []
+        self.envs = []
+        self._object_center_init_state = torch.zeros((self.num_envs, 3), device=self.device)
+        self.object_mass = torch.zeros((self.num_envs,), dtype=torch.float32, device=self.device)
+
+        # load all meshes first
+        all_meshes_list = self.create_all_meshes()
+        # Keep the full object catalog available even for tiny-env debug runs so
+        # variation-assignment JSONs can reference arbitrary object ids.
+        self.num_objects = len(all_meshes_list)
+        self.env_object_ids = torch.zeros((self.num_envs,), dtype=torch.int64, device=self.device)
+
+        # @ray table height randomization
+        z_shift_range = self.cfg["env"]["scene"]["z_shift_range"] # this shifts the table height, not just the safety box
+        teacher_bank_variation_json = self.cfg["env"]["scene"].get("teacher_bank_variation_json", None)
+        teacher_bank_height_assignment_json = self.cfg["env"]["scene"].get("teacher_bank_height_assignment_json", None)
+        teacher_bank_height_bins = int(self.cfg["env"]["scene"].get("teacher_bank_height_bins", 0))
+        self.teacher_bank_variation_object_ids = None
+        self.teacher_bank_variation_ids = None
+        self.teacher_bank_variation_table_size = None
+        self.teacher_bank_variation_object_mass = None
+        self.teacher_bank_num_variants_global = int(self.num_envs)
+        table_size_range = torch.tensor(self.cfg["env"]["scene"]["table_size_range"], device=self.device)
+        object_mass_range_cfg = self.cfg["env"]["object_settings"].get("mass_range", None)
+        if (teacher_bank_variation_json or teacher_bank_height_assignment_json) and self.num_objects > 0:
+            variation_assignment_path = (
+                teacher_bank_variation_json
+                if teacher_bank_variation_json is not None
+                else teacher_bank_height_assignment_json
+            )
+            (
+                self.z_shift,
+                self.teacher_bank_variation_table_size,
+                self.teacher_bank_variation_object_mass,
+                self.teacher_bank_variation_object_ids,
+                self.teacher_bank_variation_ids,
+                self.teacher_bank_num_variants_global,
+            ) = self._load_teacher_bank_variation_assignment_json(
+                variation_assignment_path,
+                z_shift_range,
+                table_size_range,
+                self.num_objects,
+                object_mass_range_cfg,
+            )
+            self.teacher_bank_height_bin_idx = torch.arange(
+                self.num_envs, dtype=torch.long, device=self.device
+            )
+        elif teacher_bank_height_bins > 0 and self.num_objects > 0:
+            z_bins = torch.linspace(
+                float(z_shift_range[0]),
+                float(z_shift_range[1]),
+                steps=teacher_bank_height_bins,
+                device=self.device,
+            )
+            env_repeat_idx = torch.div(
+                torch.arange(self.num_envs, device=self.device, dtype=torch.long),
+                max(self.num_objects, 1),
+                rounding_mode="floor",
+            )
+            self.teacher_bank_height_bin_idx = env_repeat_idx % teacher_bank_height_bins
+            self.z_shift = z_bins[self.teacher_bank_height_bin_idx]
+        else:
+            self.teacher_bank_height_bin_idx = torch.zeros((self.num_envs,), dtype=torch.long, device=self.device)
+            self.z_shift = torch.rand(self.num_envs, device=self.device) * (z_shift_range[1] - z_shift_range[0]) + z_shift_range[0]
+            self.teacher_bank_variation_ids = torch.arange(
+                int(self.num_envs),
+                dtype=torch.long,
+                device=self.device,
+            )
+            self.teacher_bank_num_variants_global = int(self.num_envs)
+
+        if self.teacher_bank_variation_table_size is not None:
+            self.table_size = self.teacher_bank_variation_table_size.clone()
+        else:
+            self.table_size = torch.rand(self.num_envs, 3, device=self.device) * (table_size_range[1] - table_size_range[0]) + table_size_range[0]
+
+        # Create environments
+        for i in tqdm(range(self.num_envs), desc="Creating Envs"):
+            # grasp object
+            if self.teacher_bank_variation_object_ids is not None:
+                object_idx = int(self.teacher_bank_variation_object_ids[i].item())
+            else:
+                object_idx = i % len(all_meshes_list)
+            object_asset, object_start_pose, object_scale, object_id, mesh_id = all_meshes_list[object_idx]
+            self.env_object_ids[i] = object_idx
+
+            # create env instance
+            env_ptr = self.gym.create_env(self.sim, lower, upper, num_per_row)
+
+            # Create actors and define aggregate group appropriately depending on setting
+            # NOTE: franka should ALWAYS be loaded first in sim!
+            if self.aggregate_mode >= 3:
+                self.gym.begin_aggregate(env_ptr, max_agg_bodies, max_agg_shapes, True)
+
+            # Create robot (franka + leap)
+            robot_actor = self.gym.create_actor(
+                env_ptr, robot_asset, robot_start_pose, "franka", i, 0, 0
+            )
+            self.gym.set_actor_dof_properties(env_ptr, robot_actor, robot_dof_props)
+
+            if self.aggregate_mode == 2:
+                self.gym.begin_aggregate(env_ptr, max_agg_bodies, max_agg_shapes, True)
+
+
+            self.table_surface_height[i] = self.z_shift[i].item()
+
+            # Create table
+            # setup table
+            table_pos = [0.5, 0.0, -self.table_size[i, 2].item()/2+self.z_shift[i].item()]
+            table_size = self.table_size[i].cpu().numpy().tolist()
+            self.table_pos.append(table_pos)
+
+            table_asset, table_start_pose = self._create_cube(
+                pos=table_pos,
+                size=table_size,
+            )
+
+            if self.enable_fabric:
+                self._create_fabric_cube(
+                    pos=table_pos,
+                    size=table_size,
+                    quat=[0, 0, 0, 1],
+                    env_id=i,
+                )
+
+            table_actor = self.gym.create_actor(
+                env_ptr, table_asset, table_start_pose, "table", i, 1, 0
+            )
+
+            # Create object
+            self._object_id = self.gym.create_actor(
+                env_ptr, object_asset, object_start_pose, "object", i, 2, 0
+            )
+            object_settings = self.cfg["env"]["object_settings"]
+            # Keep distillation consistent with the RL envs by default: both use the
+            # global PhysX contact/rest offsets unless this explicit override is enabled.
+            if bool(object_settings.get("apply_shape_offsets", False)):
+                object_shape_props = self.gym.get_actor_rigid_shape_properties(env_ptr, self._object_id)
+                object_contact_offset = object_settings.get("contact_offset", None)
+                object_rest_offset = object_settings.get("rest_offset", None)
+                if object_contact_offset is not None or object_rest_offset is not None:
+                    for prop in object_shape_props:
+                        if object_contact_offset is not None:
+                            if not hasattr(prop, "contact_offset"):
+                                raise RuntimeError("This Isaac Gym build does not expose rigid-shape contact_offset properties.")
+                            prop.contact_offset = float(object_contact_offset)
+                        if object_rest_offset is not None:
+                            if not hasattr(prop, "rest_offset"):
+                                raise RuntimeError("This Isaac Gym build does not expose rigid-shape rest_offset properties.")
+                            prop.rest_offset = float(object_rest_offset)
+                    self.gym.set_actor_rigid_shape_properties(env_ptr, self._object_id, object_shape_props)
+            if self.teacher_bank_variation_object_mass is not None:
+                target_object_mass = float(self.teacher_bank_variation_object_mass[i].item())
+                object_body_props = self.gym.get_actor_rigid_body_properties(env_ptr, self._object_id)
+                for prop in object_body_props:
+                    prop.mass = target_object_mass
+                self.gym.set_actor_rigid_body_properties(
+                    env_ptr,
+                    self._object_id,
+                    object_body_props,
+                    True,
+                )
+            object_body_props = self.gym.get_actor_rigid_body_properties(env_ptr, self._object_id)
+            if len(object_body_props) <= 0:
+                raise RuntimeError(f"Object actor has no rigid bodies in env {i}")
+            self.object_mass[i] = float(object_body_props[0].mass)
+            self._object_center_init_state[i, :3] = torch.tensor([object_start_pose.p.x, object_start_pose.p.y, object_start_pose.p.z], device=self.device)
+
+            if self.aggregate_mode == 1:
+                self.gym.begin_aggregate(env_ptr, max_agg_bodies, max_agg_shapes, True)
+
+            if self.aggregate_mode > 0:
+                self.gym.end_aggregate(env_ptr)
+
+            # Store the created env pointers
+            self.envs.append(env_ptr)
+            self.robots.append(robot_actor)
+            self.tables.append(table_actor)
+            self.objects.append(self._object_id)
+            self.add_on_obstacles.append(self._add_on_obstacle_ids)
+
+            # object pcd
+            object_pcd_i = torch.from_numpy(compute_scene_oracle_pcd(
+                num_obstacle_points=self.pcd_spec_dict["num_object_points"],
+                mesh_position=np.array([[0.0, 0.0, 0.0]]),
+                mesh_scale=np.array([object_scale]),
+                mesh_quaternion=np.array([[0.0, 0.0, 0.0, 1.0]]),
+                obj_id=np.array([object_id]),
+                mesh_id=np.array([mesh_id]),
+                meshes_dir=self.mesh_args["mesh_dir"],
+            )).to(self.device)
+            self.object_pcds.append(object_pcd_i)
+
+        self.cuboid_dims = np.array(self.cuboid_dims).reshape(self.num_envs, -1, 3)
+        self.cuboid_pos = np.array(self.cuboid_pos).reshape(self.num_envs, -1, 3)
+        self.cuboid_quats = np.array(self.cuboid_quats).reshape(self.num_envs, -1, 4)
+
+        self.table_pos = torch.tensor(self.table_pos, device=self.device)
+
+        for i in range(self.num_envs):
+            # static pcd
+            static_pcd_i = torch.from_numpy(compute_scene_oracle_pcd(
+                num_obstacle_points=self.pcd_spec_dict["num_static_points"],
+                cuboid_dims=np.array(self.cuboid_dims[i]),
+                cuboid_centers=np.array(self.cuboid_pos[i]),
+                cuboid_quats=np.array(self.cuboid_quats[i]),
+            )).to(self.device)
+            self.static_pcds.append(static_pcd_i)
+
+        self.cuboid_dims = torch.from_numpy(self.cuboid_dims).to(self.device)
+        self.cuboid_pos = torch.from_numpy(self.cuboid_pos).to(self.device)
+        self.cuboid_quats = torch.from_numpy(self.cuboid_quats).to(self.device)
+
+        self.static_pcds = torch.stack(self.static_pcds, dim=0).to(self.device).to(torch.float32) # (num_envs, num_points, 3)
+        self.object_pcds = torch.stack(self.object_pcds, dim=0).to(self.device).to(torch.float32) * 0.9 # @ray scale down object pcd to match real world
+        self.combined_pcds = torch.cat([self.static_pcds, self.object_pcds], dim=1).to(self.device) # (num_envs, num_static_points + num_object_points, 3)
+        if self.distractor_settings["enable"]:
+            self._create_distractor_pcd()
+            self.combined_pcds = torch.cat([self.combined_pcds, self.distractor_pcds], dim=1).to(self.device) # (num_envs, num_static_points + num_object_points + num_distractor_points, 3)
+
+        # get mesh AABB (axis-aligned bounding box) extents
+        min_xyz = self.object_pcds.min(axis=1).values
+        max_xyz = self.object_pcds.max(axis=1).values
+        self.mesh_aabb_extents = max_xyz - min_xyz
+        self._object_center_init_state[:, 2] += self.mesh_aabb_extents[:, 2] * self.object_center_z_scale
+
+        # Setup data
+        actor_num = 1 + 1 + 1 # robot, table, object
+        self.init_data(actor_num=actor_num)
+
+        if self.enable_fabric:
+            self._init_fabric()
+
+    def _create_distractor_pcd(self):
+        """
+        create distractor objects under/behind/side the table to approximate real world setting
+        since the robot will never interact with these objects, we only create pcd for them rather than actually spawning them in sim
+        """
+
+        def _sample_random_distractors(pos_range):
+            """
+            sample random distractor objects within the given pos region
+
+            Args:
+                pos_range: List[[x_min, y_min, z_min], [x_max, y_max, z_max]], note this is the boundary range not the object center pos range
+            """
+            if pos_range[1][2] <= 0:
+                return
+
+            _params = self.distractor_settings["params"]
+            rand01 = np.random.uniform(0.0, 1.0)
+            if rand01 < _params["skip_prob"]:
+                return
+            elif rand01 < (_params["skip_prob"] + _params["full_prob"]):
+                _pos_range = np.array(pos_range)
+                _cuboid_dim = _pos_range[1] - _pos_range[0]
+                _cuboid_pos = (_pos_range[0] + _pos_range[1]) / 2
+                _cuboid_quat = np.array([0.0, 0.0, 0.0, 1.0])
+                cuboid_dims.append(_cuboid_dim)
+                cuboid_pos.append(_cuboid_pos)
+                cuboid_quats.append(_cuboid_quat)
+                return
+
+            _num_range = _params["num_distractors_per_region_range"]
+            _cuboid_size_range = _params["cuboid_size_range"]
+            _cylinder_size_range = _params["cylinder_size_range"]
+            _sphere_size_range = _params["sphere_size_range"]
+
+            _num = np.random.randint(_num_range[0], _num_range[1]+1)
+            for _ in range(_num):
+                _type = random.choice([0, 0, 0, 1, 1, 2]) # biased sampling
+                _pos_range = np.array(pos_range)
+                height_limit = _pos_range[1][2] - _pos_range[0][2]
+                if _type == 0: # cuboid
+                    _cuboid_dim = np.random.uniform(_cuboid_size_range[0], _cuboid_size_range[1])
+                    if _cuboid_dim[2] > height_limit:
+                        _cuboid_dim[2] = height_limit
+                    _pos_range[0] += _cuboid_dim / 2
+                    _pos_range[1] -= _cuboid_dim / 2
+                    _cuboid_pos = np.random.uniform(_pos_range[0], _pos_range[1])
+                    _cuboid_quat = np.array([0.0, 0.0, 0.0, 1.0])
+                    cuboid_dims.append(_cuboid_dim)
+                    cuboid_pos.append(_cuboid_pos)
+                    cuboid_quats.append(_cuboid_quat)
+                elif _type == 1: # cylinder
+                    _cylinder_dim = np.random.uniform(_cylinder_size_range[0], _cylinder_size_range[1])
+                    _cylinder_radius = _cylinder_dim[0]
+                    _cylinder_height = _cylinder_dim[1]
+                    if _cylinder_height > height_limit:
+                        _cylinder_height = height_limit
+                    _pos_range_offset = np.array([_cylinder_radius, _cylinder_radius, _cylinder_height / 2])
+                    _pos_range[0] += _pos_range_offset
+                    _pos_range[1] -= _pos_range_offset
+                    _cylinder_pos = np.random.uniform(_pos_range[0], _pos_range[1])
+                    _cylinder_quat = np.array([0.0, 0.0, 0.0, 1.0])
+                    cylinder_radii.append(_cylinder_radius)
+                    cylinder_heights.append(_cylinder_height)
+                    cylinder_pos.append(_cylinder_pos)
+                    cylinder_quats.append(_cylinder_quat)
+                elif _type == 2: # sphere
+                    _sphere_dim = np.random.uniform(_sphere_size_range[0], _sphere_size_range[1])
+                    _sphere_radius = _sphere_dim
+                    if _sphere_radius > height_limit / 2:
+                        _sphere_radius = height_limit / 2
+                    _pos_range[0] += _sphere_radius
+                    _pos_range[1] -= _sphere_radius
+                    _sphere_pos = np.random.uniform(_pos_range[0], _pos_range[1])
+                    sphere_radii.append(_sphere_radius)
+                    sphere_pos.append(_sphere_pos)
+
+        table_pos = self.table_pos.cpu().numpy()
+        table_size = self.table_size.cpu().numpy()
+        table_extend = self.distractor_settings["params"]["table_extend"]
+        max_z_height = self.distractor_settings["params"]["free_space_distractor_max_height"]
+        for i in range(self.num_envs):
+            # init lists
+            cuboid_dims = []  # xyz
+            cuboid_pos = []
+            cuboid_quats = [] # xyzw
+
+            cylinder_radii = []
+            cylinder_heights = []
+            cylinder_pos = []
+            cylinder_quats = []
+
+            sphere_radii = []
+            sphere_pos = []
+
+            # ground plane
+            cuboid_dims.append([2.0, 3.0, 0.001])
+            cuboid_pos.append([0.0, 0.0, -0.0005])
+            cuboid_quats.append([0.0, 0.0, 0.0, 1.0])
+
+            # adding distractor pos range when: side/under/behind the table
+            table_x_min = table_pos[i][0] - table_size[i][0] / 2
+            table_x_max = table_pos[i][0] + table_size[i][0] / 2
+            table_y_min = table_pos[i][1] - table_size[i][1] / 2
+            table_y_max = table_pos[i][1] + table_size[i][1] / 2
+            table_z_min = table_pos[i][2] - table_size[i][2] / 2
+
+            distractor_pos_range_list = [
+                [ # side 1
+                    [table_x_min, table_y_min - table_extend, 0.0],
+                    [table_x_max + table_extend, table_y_min, max_z_height],
+                ],
+                [ # side 2
+                    [table_x_min, table_y_max, 0.0],
+                    [table_x_max + table_extend, table_y_max + table_extend, max_z_height],
+                ],
+                [ # behind
+                    [table_x_max, table_y_min, 0.0],
+                    [table_x_max + table_extend, table_y_max, max_z_height],
+                ],
+                [ # under
+                    [table_x_min, table_y_min, 0.0],
+                    [table_x_min + table_extend, table_y_max, table_z_min], # bias towards the front part of the table
+                ],
+            ]
+
+            # under the table
+            for subregion_distractor_pos_range in distractor_pos_range_list:
+                _sample_random_distractors(subregion_distractor_pos_range)
+
+            # get distractor pcd
+            distractor_pcd_i = torch.from_numpy(compute_scene_oracle_pcd(
+                num_obstacle_points=self.pcd_spec_dict["num_distractor_points"],
+                cuboid_dims=np.array(cuboid_dims),
+                cuboid_centers=np.array(cuboid_pos),
+                cuboid_quats=np.array(cuboid_quats),
+                cylinder_radii=np.array(cylinder_radii),
+                cylinder_heights=np.array(cylinder_heights),
+                cylinder_centers=np.array(cylinder_pos),
+                cylinder_quats=np.array(cylinder_quats),
+                sphere_centers=np.array(sphere_pos),
+                sphere_radii=np.array(sphere_radii),
+            )).to(self.device)
+            self.distractor_pcds.append(distractor_pcd_i)
+
+        self.distractor_pcds = torch.stack(self.distractor_pcds, dim=0).to(self.device).to(torch.float32) # (num_envs, num_distractor_points, 3)
+
+    # fabric utils
+    def _create_fabric_cube(self, pos, size, quat, env_id):
+        """
+        Args:
+            pos  (list): (3,) xyz position of the cube center
+            size (list): (3,) length along xyz direction of the cube
+            quat (list): (4,) [x, y, z, w]
+            env_id (int): environment index
+        """
+        self.obstacle_count += 1
+
+        transform = list(pos) + list(quat)
+        self.fabrics_world_dict[f"cube_{self.obstacle_count}"] = {
+            "env_index": env_id,
+            "type": "box",
+            "scaling": " ".join(map(str, size)),
+            "transform": " ".join(map(str, transform)),
+        }
+        return
+
+    def _create_fabric_cylinder(self, pos, size, quat, env_id):
+        """
+        Args:
+            pos  (list): (3,) xyz position of the cube center
+            size (list): (2,) radius and height of the cylinder
+            quat (list): (4,) [x, y, z, w]
+            env_id (int): environment index
+        """
+        self.obstacle_count += 1
+
+        transform = list(pos) + list(quat)
+        self.fabrics_world_dict[f"cylinder_{self.obstacle_count}"] = {
+            "env_index": env_id,
+            "type": "cylinder",
+            "scaling": " ".join(map(str, [2*size[0], 2*size[0], size[1]])), # default is 0.5 for radius and 1 for height
+            "transform": " ".join(map(str, transform)),
+        }
+        return
+
+    def _create_fabric_sphere(self, pos, radius, quat, env_id):
+        """
+        Args:
+            pos  (list): (3,) xyz position of the cube center
+            radius (float): (scalar) radius of the sphere
+            quat (list): (4,) [x, y, z, w]
+            env_id (int): environment index
+        """
+        self.obstacle_count += 1
+
+        transform = list(pos) + list(quat)
+        self.fabrics_world_dict[f"sphere_{self.obstacle_count}"] = {
+            "env_index": env_id,
+            "type": "sphere", # cylinder
+            "scaling": " ".join(map(str, [radius, radius, radius])),
+            "transform": " ".join(map(str, transform)),
+        }
+        return
+
+    def _validate_fabric_tensor(self, name, tensor, expected_last_dim=None):
+        if tensor is None:
+            raise RuntimeError(f"Fabric input `{name}` is None.")
+        if expected_last_dim is not None and tensor.shape[-1] != expected_last_dim:
+            raise RuntimeError(
+                f"Fabric input `{name}` has wrong last dim. "
+                f"expected={expected_last_dim} actual={tensor.shape[-1]} shape={tuple(tensor.shape)}"
+            )
+        bad_mask = ~torch.isfinite(tensor)
+        if torch.any(bad_mask):
+            bad_idx = bad_mask.nonzero(as_tuple=False)[0]
+            env_idx = int(bad_idx[0].item()) if bad_idx.numel() > 0 else -1
+            feat_idx = int(bad_idx[1].item()) if bad_idx.numel() > 1 else -1
+            bad_value = tensor[tuple(bad_idx.tolist())].item()
+            raise RuntimeError(
+                f"Invalid fabric tensor `{name}` before Warp. "
+                f"env={env_idx} feature={feat_idx} value={bad_value} "
+                f"shape={tuple(tensor.shape)} rank={self.global_rank} device={self.device}"
+            )
+
+    def _prepare_and_validate_fabric_target(self, eef_target):
+        self._validate_fabric_tensor("eef_target_raw", eef_target, expected_last_dim=7)
+        eef_target = eef_target.clone()
+        quat = eef_target[:, 3:7]
+        quat_norm = torch.norm(quat, dim=-1, keepdim=True)
+        bad_quat = (~torch.isfinite(quat_norm.squeeze(-1))) | (quat_norm.squeeze(-1) < 1.0e-8)
+        if torch.any(bad_quat):
+            bad_env = int(bad_quat.nonzero(as_tuple=False)[0, 0].item())
+            raise RuntimeError(
+                f"Invalid fabric target quaternion before Warp. "
+                f"env={bad_env} quat={eef_target[bad_env, 3:7].detach().cpu().tolist()} "
+                f"rank={self.global_rank} device={self.device}"
+            )
+        eef_target[:, 3:7] = quat / quat_norm.clamp_min(1.0e-8)
+        self._validate_fabric_tensor("eef_target_normalized", eef_target, expected_last_dim=7)
+        return eef_target
+
+    def compute_fabric_action(self, eef_target):
+        # timestep: ideally 1/60 but something as low as 1/20 may work. The larger the dt, the more
+        # unstable fabric may become.
+        # speed_scalar: Anything over 3.5 seems to make the fabric unstable.
+        # Acceleration Limits in the Yaml: for the first 3 joints (base), can tune
+        # Go into GlorbotVisionFabric class. In the set_features function, tune parameters that
+        # determine how close the base gets to the table.
+        # damping_radius in forcing_base_position_attractor determines how close the base tends to stop in front
+        # of the target (||base_center - ee_target[0:2]||^2)
+
+        timestep = 1/30. # 1/60.
+
+        self.fabric_q[:, :10] = self.states['q'][:, :10].clone()
+        self.fabric_q[:, 10:] = self.states['q'][:, 26:].clone()
+
+        qd_delta = (self.states['q'] - self.states['q_prev']) / timestep
+        self.fabric_qd[:, :10] = qd_delta[:, :10].clone()
+        self.fabric_qd[:, 10:] = qd_delta[:, 26:].clone()
+
+        gaze_target = self.states['object_center_pos'].clone()
+        eef_target = self._prepare_and_validate_fabric_target(eef_target)
+        self._validate_fabric_tensor("fabric_q", self.fabric_q)
+        self._validate_fabric_tensor("fabric_qd", self.fabric_qd)
+        self._validate_fabric_tensor("gaze_target", gaze_target, expected_last_dim=3)
+
+        self.franka_fabric.set_features(
+            eef_target,
+            gaze_target,
+            self.fabric_q.detach(),
+            self.fabric_qd.detach(),
+            self.fabrics_object_ids,
+            self.fabrics_object_indicator,
+        )
+
+        self.fabric_q, self.fabric_qd, self.fabric_qdd = self.franka_integrator.step(
+            self.fabric_q.detach(), self.fabric_qd.detach(), timestep, speed_scalar=1.5,
+        )
+
+        return self.fabric_q
+
+    @abstractmethod
+    def _update_fabric_switching_target(self, object_center_pos):
+        self.switching_target_pos = ...
+        self.switching_target_quat = ...
+
+    # sim state update
+    def _refresh(self):
+        self._q_prev = self._q.clone()
+        self._qd_prev = self._qd.clone()
+
+        self.gym.refresh_actor_root_state_tensor(self.sim)
+        self.gym.refresh_dof_state_tensor(self.sim)
+        self.gym.refresh_rigid_body_state_tensor(self.sim)
+        self.gym.refresh_jacobian_tensors(self.sim)
+        self.gym.refresh_mass_matrix_tensors(self.sim)
+        self.gym.refresh_net_contact_force_tensor(self.sim)
+
+        # Refresh states
+        self.check_robot_collision()
+        self._update_states()
+        if self.enable_viser:
+            self._update_viser_visualizer()
+
+    def _update_states(self):
+        # update arm eef state
+        eef_rot_mat = quaternion_to_matrix_ig(self._eef_state[:, 3:7])
+        eef_rot_6d = matrix_to_rotation_6d(eef_rot_mat)
+        eef_rot_mat_t = eef_rot_mat.transpose(1, 2)
+
+        # update object state
+        object_center_pos = self._object_state[:, :3].clone()
+        local_offset = torch.zeros([self.num_envs, 3], dtype=torch.float, device=self.device)
+        local_offset[:, 2] = self.mesh_aabb_extents[:, 2] * self.object_center_z_scale
+        object_rot_mat = quaternion_to_matrix_ig(self._object_state[:, 3:7])
+        rotated_offset = torch.matmul(object_rot_mat, local_offset.unsqueeze(-1)).squeeze(-1)
+        object_center_pos += rotated_offset
+
+        object_rot_6d = matrix_to_rotation_6d(object_rot_mat)
+
+        object_rot_mat_in_eef_frame = torch.matmul(eef_rot_mat.transpose(1, 2), object_rot_mat)
+        object_to_eef_rot_6d = matrix_to_rotation_6d(object_rot_mat_in_eef_frame)
+
+        # update target state
+        target_rot_mat = quaternion_to_matrix_ig(self.reward_settings["target_quat"])
+        target_rot_mat_in_eef_frame = torch.matmul(eef_rot_mat.transpose(1, 2), target_rot_mat)
+        target_to_eef_rot_6d = matrix_to_rotation_6d(target_rot_mat_in_eef_frame)
+
+        # Position deltas converted from world axes to EEF-frame axes.
+        eef_pos = self._eef_state[:, :3]
+        finger1_rel_world = self._eef_finger1_state[:, :3] - eef_pos
+        finger2_rel_world = self._eef_finger2_state[:, :3] - eef_pos
+        finger3_rel_world = self._eef_finger3_state[:, :3] - eef_pos
+        finger4_rel_world = self._eef_finger4_state[:, :3] - eef_pos
+        object_to_eef_world = object_center_pos - eef_pos
+        target_to_eef_world = self.reward_settings["target_pos"] - eef_pos
+        if self.teacher_use_eef_frame:
+            finger1_rel_repr = torch.matmul(eef_rot_mat_t, finger1_rel_world.unsqueeze(-1)).squeeze(-1)
+            finger2_rel_repr = torch.matmul(eef_rot_mat_t, finger2_rel_world.unsqueeze(-1)).squeeze(-1)
+            finger3_rel_repr = torch.matmul(eef_rot_mat_t, finger3_rel_world.unsqueeze(-1)).squeeze(-1)
+            finger4_rel_repr = torch.matmul(eef_rot_mat_t, finger4_rel_world.unsqueeze(-1)).squeeze(-1)
+            object_to_eef = torch.matmul(eef_rot_mat_t, object_to_eef_world.unsqueeze(-1)).squeeze(-1)
+            target_to_eef = torch.matmul(eef_rot_mat_t, target_to_eef_world.unsqueeze(-1)).squeeze(-1)
+        else:
+            finger1_rel_repr = finger1_rel_world
+            finger2_rel_repr = finger2_rel_world
+            finger3_rel_repr = finger3_rel_world
+            finger4_rel_repr = finger4_rel_world
+            object_to_eef = object_to_eef_world
+            target_to_eef = target_to_eef_world
+        # @ray we don't need pos and rot error except for side grasp table
+        # probably should refactor to use separate update states later
+        point_matching_err_target = self._get_eef_point_matching_err(
+            curent_eef_pos7=self._eef_state[:, :7],
+            target_eef_pos7=torch.cat([self.reward_settings["target_pos"], self.reward_settings["target_quat"]], dim=-1),
+        )
+        hand_eef_pos7_rot = torch.cat([self._eef_state[:, :3], self.reward_settings["target_quat"]], dim=-1)
+        point_matching_err_hand = self._get_eef_point_matching_err(
+            curent_eef_pos7=self._eef_state[:, :7],
+            target_eef_pos7=hand_eef_pos7_rot,
+        )
+
+        if self.enable_fabric:
+            self._update_fabric_switching_target(object_center_pos)
+            # update fabric switching state
+            switching_matching_err = self._get_eef_point_matching_err(
+                curent_eef_pos7=self._eef_state[:, :7],
+                target_eef_pos7=torch.cat([self.switching_target_pos, self.switching_target_quat], dim=-1)
+            )
+            self.fabric_switch_enable[switching_matching_err < self.switch_tol] = False
+            self.fabric_switch_enable[self.progress_buf == 0] = True
+
+            # update camera pose and franka base pose
+            current_joint_pos_fabric = torch.zeros_like(self.fabric_q, device=self.device)
+            current_joint_pos_fabric[:, :10] = self._q[:, :10].clone()
+            current_joint_pos_fabric[:, 10:] = self._q[:, 26:].clone()
+            self._validate_fabric_tensor("current_joint_pos_fabric", current_joint_pos_fabric)
+            # CODEX LIDAR MERGE: include the lidar link in FK only for the opt-in lidar path.
+            if self.pcd_spec_dict.get("simulate_sensor_pcd", False):
+                glorbot_fk = self.franka_fabric.forward_kinematics(["camera_link", "lidar", "panda_link0"], current_joint_pos_fabric) # (num_envs, num_links, xyz+xyzw)
+            else:
+                glorbot_fk = self.franka_fabric.forward_kinematics(["camera_link", "panda_link0"], current_joint_pos_fabric) # (num_envs, num_links, xyz+xyzw)
+
+        # update point clouds
+        object_pcds_world = transform_pcds_to_world(self.object_pcds, self._object_state[:, :7])
+        self.combined_pcds[:, self.pcd_spec_dict["num_static_points"]: \
+            self.pcd_spec_dict["num_static_points"]+self.pcd_spec_dict["num_object_points"]] = object_pcds_world
+
+        if self.cfg["reward"]["actionreg_type"] == "delta_joint_action":
+            actionreg = self.delta_joint_actions
+        elif self.cfg["reward"]["actionreg_type"] == "delta_eef_action":
+            actionreg = self.delta_eef_actions
+        elif self.cfg["reward"]["actionreg_type"] == "delta_qd":
+            actionreg = self._qd - self._qd_prev
+        else:
+            actionreg = torch.zeros_like(self._qd)
+
+        lift_5cm = object_center_pos[:, 2] - self._object_center_init_state[:, 2] > 0.05
+
+        self.obj_pos_target[:, 2] = self.table_surface_height + self.reward_settings['target_lift_dis']
+        unlocked = ~self.goal_target_locked
+        self.obj_pos_target[unlocked, :2] = object_center_pos[unlocked, :2]
+        newly_locked = unlocked & lift_5cm
+        self.goal_target_locked[newly_locked] = True
+
+        # update states
+        self.states.update({
+            # Robot
+            "base": self._q[:, :3],
+            "q": self._q[:, :],
+            "q_prev": self._q_prev,
+            "q_hand": self._q[:, 10:26],
+            "qd": self._qd[:, :],
+            "eef_pos": self._eef_state[:, :3],
+            "eef_quat": self._eef_state[:, 3:7],
+            "eef_rot_6d": eef_rot_6d,
+            "eef_vel": self._eef_state[:, 7:],
+            "eef_finger1_pos": self._eef_finger1_state[:, :3],
+            "eef_finger2_pos": self._eef_finger2_state[:, :3],
+            "eef_finger3_pos": self._eef_finger3_state[:, :3],
+            "eef_finger4_pos": self._eef_finger4_state[:, :3],
+
+            # Fingertip positions relative to hand base (palm_center)
+            "eef_finger1_pos_relative": finger1_rel_repr,
+            "eef_finger2_pos_relative": finger2_rel_repr,
+            "eef_finger3_pos_relative": finger3_rel_repr,
+            "eef_finger4_pos_relative": finger4_rel_repr,
+
+            # Object
+            "object_quat": self._object_state[:, 3:7],
+            "object_rot_6d": object_rot_6d,
+            "object_center_pos": object_center_pos,
+            "object_pos": self._object_state[:, :3],
+
+            # Task related
+            "object_to_eef": object_to_eef,
+            "object_to_eef_rot_6d": object_to_eef_rot_6d,
+            "target_to_eef": target_to_eef,
+            "target_to_eef_rot_6d": target_to_eef_rot_6d,
+            "point_matching_err_target": point_matching_err_target,
+            "point_matching_err_hand": point_matching_err_hand, # @ray separates pos and rot error
+
+            # recorded actions
+            "actionreg": actionreg,
+
+            # check whether the object is lifted based on bottom board force contact info
+            "lift": lift_5cm,
+            "collision": self.scene_collision,
+        })
+
+        if self.enable_fabric:
+            # CODEX LIDAR MERGE: expose lidar_pose7 to the DAgger trainer when lidar simulation is enabled.
+            if self.pcd_spec_dict.get("simulate_sensor_pcd", False):
+                self.states.update({
+                    "camera_pose7": glorbot_fk[:, 0, :],  # camera_link, xyz + xyzw
+                    "lidar_pose7": glorbot_fk[:, 1, :],  # lidar, xyz + xyzw
+                    "franka_base_pose7": glorbot_fk[:, 2, :],  # panda_link0, xyz + xyzw
+                })
+            else:
+                self.states.update({
+                    "camera_pose7": glorbot_fk[:, 0, :],  # camera_link, xyz + xyzw
+                    "franka_base_pose7": glorbot_fk[:, 1, :],  # panda_link0, xyz + xyzw
+                })
+
+    def _get_eef_point_matching_err(self, curent_eef_pos7: torch.Tensor, target_eef_pos7: torch.Tensor):
+        """
+        Get the point matching error between current end effector position
+        and target end effector position. (based on 5 points on eef)
+
+        Args:
+            curent_eef_pos7: (B, 7) xyz + xyzw
+            target_eef_pos7: (B, 7) xyz + xyzw
+        """
+        B = curent_eef_pos7.shape[0]
+
+        pos_c = curent_eef_pos7[:, :3]  # (B, 3)
+        quat_c = curent_eef_pos7[:, 3:] # (B, 4)
+        pos_t = target_eef_pos7[:, :3]  # (B, 3)
+        quat_t = target_eef_pos7[:, 3:] # (B, 4)
+
+        local_pts = torch.tensor(
+            [[0.2, 0., 0.],
+            [-0.2, 0., 0.],
+            [0., 0., 0.],
+            [0., 0.2, 0.],
+            [0., -0.2, 0.]],
+            dtype=curent_eef_pos7.dtype,
+            device=curent_eef_pos7.device
+        )
+        P = local_pts.shape[0]
+
+        # Repeat points and quats for batch
+        pts_a_flat = local_pts.unsqueeze(0).expand(B, P, 3).reshape(B*P, 3)
+        pts_b_flat = local_pts.unsqueeze(0).expand(B, P, 3).reshape(B*P, 3)
+        qc_rep = quat_c.repeat_interleave(P, dim=0)
+        qt_rep = quat_t.repeat_interleave(P, dim=0)
+
+        # Rotate and translate to world frame
+        world_c = quat_apply(qc_rep, pts_a_flat).view(B, P, 3) + pos_c.unsqueeze(1)
+        world_t = quat_apply(qt_rep, pts_b_flat).view(B, P, 3) + pos_t.unsqueeze(1)
+
+        # Mean squared error per sample
+        avg_point_dis_error = torch.norm(world_c - world_t, dim=-1).mean(dim=-1)
+
+        return avg_point_dis_error
+
+    def check_robot_collision(self):
+        # TODO: figure out arm & hand collision
+        self.gym.refresh_net_contact_force_tensor(self.sim)
+        self.scene_collision = torch.where(
+            torch.norm(torch.sum(self.contact_forces[:, :58, :], dim=1), dim=1) > 1.0, 1.0, 0.0
+        )  # the first 58 elements belong to base + franka + leap + arx
+        self.collision = torch.where(
+            torch.sum(torch.norm(self.contact_forces[:, :58, :], dim=2), dim=1) > 1.0, 1.0, 0.0
+        )  # the first 58 elements belong to base + franka + leap + arx, this includes self collision
+        self.scene_collision = torch.any(self.contact_forces[:, 59:-1].view(self.num_envs, -1) != 0, dim=1)
+        self.table_collision = torch.any(self.contact_forces[:, 58].view(self.num_envs, -1) != 0, dim=1)
+
+
+    # robot kinematics related
+    def normalize_robot_joints(self, joint_angles: torch.Tensor, robot: bool, delta: bool = False) -> torch.Tensor:
+        """
+        Normalize joint angles to be within [-1, 1].
+        Args:
+            joint_angles (torch.Tensor): (num_envs, num_robot_dofs)
+        Returns:
+            joint_angles (torch.Tensor): (num_envs, num_robot_dofs)
+        """
+        if robot=="franka":
+            assert joint_angles.shape[-1] == 7
+            lower_limits, upper_limits = self.get_joint_limits_franka()
+        elif robot=="leap":
+            assert joint_angles.shape[-1] == 16
+            lower_limits, upper_limits = self.get_joint_limits_leap()
+        elif robot=="arx":
+            assert joint_angles.shape[-1] == 6
+            lower_limits, upper_limits = self.get_joint_limits_arx()
+        else:
+            raise ValueError("robot must be in ['franka', 'leap', 'arx']")
+
+        franka_limit_range = upper_limits - lower_limits
+
+        if delta:
+            normalized = joint_angles / franka_limit_range
+        else:
+            desired_lower_limits = -1 * torch.ones_like(joint_angles)
+            desired_upper_limits = 1 * torch.ones_like(joint_angles)
+            normalized = (joint_angles - lower_limits) / franka_limit_range * (
+                desired_upper_limits - desired_lower_limits
+            ) + desired_lower_limits
+        return normalized
+
+    def unnormalize_robot_joints(self, joint_angles: torch.Tensor, robot: bool, delta: bool = False) -> torch.Tensor:
+        """
+        Unnormalize joint angles.
+        Args:
+            joint_angles (torch.Tensor): (num_envs, num_robot_dofs)
+        Returns:
+            joint_angles (torch.Tensor): (num_envs, num_robot_dofs)
+        """
+        if robot=="franka":
+            assert joint_angles.shape[-1] == 7
+            lower_limits, upper_limits = self.get_joint_limits_franka()
+        elif robot=="leap":
+            assert joint_angles.shape[-1] == 16
+            lower_limits, upper_limits = self.get_joint_limits_leap()
+        elif robot=="arx":
+            assert joint_angles.shape[-1] == 6
+            lower_limits, upper_limits = self.get_joint_limits_arx()
+        else:
+            raise ValueError("robot must be in ['franka', 'leap', 'arx']")
+
+        franka_limit_range = upper_limits - lower_limits
+
+        if delta:
+            unnormalized = joint_angles * franka_limit_range
+        else:
+            desired_lower_limits = -1 * torch.ones_like(joint_angles)
+            desired_upper_limits = 1 * torch.ones_like(joint_angles)
+            unnormalized = (joint_angles - desired_lower_limits) * franka_limit_range / (
+                desired_upper_limits - desired_lower_limits
+            ) + lower_limits
+        return unnormalized
+
+    def get_joint_from_ee(self, eef_pose):
+        # TODO: update this
+        """
+        Get the joint angles from the end effector pose. This func is well tested
+        Args:
+            eef_pose (np.ndarray): 7D end effector pose. (B, xyz xyzw)
+        Returns:
+            joint_angles (np.ndarray): 7-dof joint angles.  (B, 7)
+        """
+        eef_pose = eef_pose.clone().contiguous()
+        eef_pos = eef_pose[:, :3]
+        eef_quat_xyzw = eef_pose[:, 3:]
+        eef_quat_wxyz = eef_quat_xyzw[:, [3, 0, 1, 2]]
+
+        B = eef_pose.shape[0]
+        B_pad = self.num_envs - B
+
+        if B_pad > 0:
+            eef_pos_dummy = torch.tensor([[0.3, 0.0, 0.3]]*B_pad, dtype=torch.float, device=self.device)
+            eef_quat_wxyz_dummy = torch.tensor([[1.0, 0.0, 0.0, 0.0]]*B_pad, dtype=torch.float, device=self.device)
+
+            eef_pos = torch.cat((eef_pos, eef_pos_dummy), dim=0)
+            eef_quat_wxyz = torch.cat((eef_quat_wxyz, eef_quat_wxyz_dummy), dim=0)
+
+        goal = Pose(eef_pos, eef_quat_wxyz) # Pose need quat in wxyz format
+        result = self.ik_solver.solve_batch(
+            goal_pose=goal,
+            retract_config=self.ik_regularization_config,
+        )
+        if torch.any(result.success[:B] == False):
+            print(f"IK solver failed for some environments: {sum(result.success)}/{result.success.shape[0]}")
+            # TODO: need to think a bit how to handle such cases
+
+        q_solution = result.solution[:B, 0]
+        return q_solution
+
+    def get_ee_from_joint(self, joint_angles):
+        # TODO: update this
+        """
+        Get the end effector pose from the joint angles. This func is well tested
+        Args:
+            joint_angles (torch.Tensor): 7-dof joint angles. (B, 7)
+        Returns:
+            ee_pose (torch.Tensor)): 7D end effector pose. xyz, xyzw
+        """
+        joint_angles = joint_angles.clone().contiguous()
+        kin_state = self.ik_solver.fk(joint_angles)
+        eef_pose = kin_state.ee_position
+        eef_wxyz = kin_state.ee_quaternion
+        eef_xyzw = eef_wxyz[:, [1, 2, 3, 0]]
+
+        return torch.cat((eef_pose, eef_xyzw), dim=-1)  # (B, 7) with xyz and xyzw
+
+    def _get_franka_base_pose7_from_mobile_base_pose(self, mobile_base_pose):
+        dtype = mobile_base_pose.dtype
+        device = mobile_base_pose.device
+
+        mobile_base_pos_world = torch.zeros((mobile_base_pose.shape[0], 3), dtype=dtype, device=device)
+        mobile_base_pos_world[:, :2] = mobile_base_pose[:, :2]
+        base_half_yaw = 0.5 * mobile_base_pose[:, 2]
+        mobile_quat = torch.zeros((mobile_base_pose.shape[0], 4), dtype=dtype, device=device)
+        mobile_quat[:, 2] = torch.sin(base_half_yaw)
+        mobile_quat[:, 3] = torch.cos(base_half_yaw)
+
+        mount_offset = self._franka_mount_offset_from_mobile_base.to(device=device, dtype=dtype)
+        mount_offset = mount_offset.unsqueeze(0).repeat(mobile_base_pose.shape[0], 1)
+        franka_base_pos_world = mobile_base_pos_world + quat_apply(mobile_quat, mount_offset)
+        return torch.cat((franka_base_pos_world, mobile_quat), dim=-1)
+
+    def _get_ee_world_from_joint_state(self, joint_state):
+        ee_pose_local = self.get_ee_from_joint(joint_state[:, 3:10])
+        franka_base_pose7 = self._get_franka_base_pose7_from_mobile_base_pose(joint_state[:, :3])
+        franka_base_pos_world = franka_base_pose7[:, :3]
+        franka_base_quat_world = franka_base_pose7[:, 3:7]
+
+        ee_pos_world = franka_base_pos_world + quat_apply(
+            franka_base_quat_world,
+            ee_pose_local[:, :3],
+        )
+        ee_quat_world = quat_mul(franka_base_quat_world, ee_pose_local[:, 3:7])
+        ee_quat_world = ee_quat_world / torch.norm(ee_quat_world, dim=-1, keepdim=True).clamp_min(1.0e-8)
+        return torch.cat((ee_pos_world, ee_quat_world), dim=-1)
+
+    def set_joint_pos_from_ee_pos(self, target_ee_pose): # TODO: implement
+        """
+        Set the joint angles from the end effector pose.
+        Args:
+            target_ee_pose (np.ndarray): 7D end effector pose.
+        """
+        raise NotImplementedError("not implemented yet")
+
+    def set_robot_joint_state(self, joint_state: torch.Tensor, joint_vel=None, env_ids=None):
+        """
+        Set the joint state of the robot. (set the dof state (pos/vel) of each joint,
+        joint_vel (torch.Tensor): (num_selected_envs, 7+4*4) joint velocity
+
+        Args:
+            joint_state (torch.Tensor): (num_selected_envs, 7)
+        """
+        if env_ids is None:
+            env_ids = np.arange(self.num_envs)
+        assert joint_state.shape[0] == len(env_ids)
+        assert joint_state.shape[1] == self.num_robot_dofs
+
+        state_tensor = joint_state.clone().unsqueeze(2)  # (num_selected_envs, self.num_robot_dofs, 1)
+        state_tensor = torch.cat((state_tensor, torch.zeros_like(state_tensor)), dim=2)
+
+        if joint_vel is not None:
+            state_tensor[:, :32, 1] = joint_vel
+
+        pos = state_tensor[:, :, 0].contiguous()
+        vel = state_tensor[:, :, 1].contiguous()
+
+        # Reset the internal obs accordingly
+        self._q[env_ids, :] = pos
+        self._qd[env_ids, :] = vel
+        self._dof_state[env_ids, :] = state_tensor
+        self._pos_control[env_ids, :] = pos
+
+        multi_env_ids_int32 = self._global_indices[env_ids, 0].flatten()
+        self.gym.set_dof_position_target_tensor_indexed(
+            self.sim,
+            gymtorch.unwrap_tensor(self._pos_control),
+            gymtorch.unwrap_tensor(multi_env_ids_int32),
+            len(multi_env_ids_int32),
+        )
+        self.gym.set_dof_actuation_force_tensor_indexed(
+            self.sim,
+            gymtorch.unwrap_tensor(self._effort_control),
+            gymtorch.unwrap_tensor(multi_env_ids_int32),
+            len(multi_env_ids_int32),
+        )
+        self.gym.set_dof_state_tensor_indexed(
+            self.sim,
+            gymtorch.unwrap_tensor(self._dof_state),
+            gymtorch.unwrap_tensor(multi_env_ids_int32),
+            len(multi_env_ids_int32),
+        )
+
+        if self.enable_fabric:
+            self.fabric_q[env_ids, :10] = joint_state[:, :10]
+            self.fabric_q[env_ids, 10:] = joint_state[:, 26:]
+            self.fabric_qd[env_ids, :] = torch.zeros_like(self.fabric_q[env_ids])
+            if joint_vel is not None:
+                self.fabric_qd[env_ids, :10] = joint_vel[:, :10]
+                self.fabric_qd[env_ids, 10:] = joint_vel[:, 26:]
+            self.fabric_qdd[env_ids, :] = torch.zeros_like(self.fabric_q[env_ids])
+
+    def get_joint_limits_franka(self):
+        """
+        Get the joint limits of the ARX hand. Base (3) + Franka (7) + LEAP (4*4) + ARX (6), 32 DOF in total
+
+        Returns:
+            lower_limits (torch.Tensor): (7,)
+            upper_limits (torch.Tensor): (7,)
+        """
+        lower_limits = self.robot_dof_lower_limits[3:10]
+        upper_limits = self.robot_dof_upper_limits[3:10]
+        return lower_limits, upper_limits
+
+    def get_joint_limits_leap(self):
+        """
+        Get the joint limits of the ARX hand. Base (3) + Franka (7) + LEAP (4*4) + ARX (6), 32 DOF in total
+
+        Returns:
+            lower_limits (torch.Tensor): (16,)
+            upper_limits (torch.Tensor): (16,)
+        """
+        lower_limits = self.robot_dof_lower_limits[10:26]
+        upper_limits = self.robot_dof_upper_limits[10:26]
+        return lower_limits, upper_limits
+
+    def get_joint_limits_arx(self):
+        """
+        Get the joint limits of the ARX hand. Base (3) + Franka (7) + LEAP (4*4) + ARX (6), 32 DOF in total
+
+        Returns:
+            lower_limits (torch.Tensor): (6,)
+            upper_limits (torch.Tensor): (6,)
+        """
+        lower_limits = self.robot_dof_lower_limits[26:]
+        upper_limits = self.robot_dof_upper_limits[26:]
+        return lower_limits, upper_limits
+
+    # sim basics
+    def _apply_object_wrench(self):
+        curriculum_factor = min(self.sim_steps / self.object_wrench_args["curri_steps"], 1)
+        max_linear_force = self.object_wrench_args["max_linear_force"] * curriculum_factor
+        linear_force_mag = max_linear_force * torch.rand(self.num_envs, 1, device=self.device)
+        torque_mag = (linear_force_mag * self.object_wrench_args["torsional_radius"])
+        rand_forces =\
+            linear_force_mag * torch.nn.functional.normalize(
+                torch.randn(self.num_envs, 3, device=self.device),
+                dim=-1
+            )
+        rand_torques =\
+            torque_mag * torch.nn.functional.normalize(
+                torch.randn(self.num_envs, 3, device=self.device),
+                dim=-1
+            )
+
+        horizontal_away_cfg = self.object_wrench_args.get("horizontal_away_from_eef", {})
+        horizontal_away_force = torch.zeros((self.num_envs, 3), device=self.device)
+        if bool(horizontal_away_cfg.get("enable", False)):
+            horizontal_force_mag = float(horizontal_away_cfg.get("force", 0.0)) * curriculum_factor
+            if horizontal_force_mag > 0.0:
+                away_xy = self.states["object_center_pos"][:, :2] - self.states["eef_pos"][:, :2]
+                away_xy = away_xy / torch.norm(away_xy, dim=-1, keepdim=True).clamp_min(1e-6)
+                horizontal_away_force[:, :2] = away_xy * horizontal_force_mag
+
+        num_trigger_steps = int(round(self.object_wrench_args["trigger_duration"] / self.dt))
+        activation_dis = self.object_wrench_args["activation_dis"]
+        apply_wrench = ( self.states["object_to_eef"].norm(dim=-1) < activation_dis ) | self.lifting_5cm_per_step
+
+        self.object_applied_forces = torch.where(
+            ((self.progress_buf % num_trigger_steps) == 0).unsqueeze(-1),
+            rand_forces + horizontal_away_force,
+            self.object_applied_forces
+        )
+
+        self.object_applied_forces = torch.where(
+            apply_wrench.unsqueeze(-1),
+            self.object_applied_forces,
+            torch.zeros_like(self.object_applied_forces)
+        )
+
+        self.object_applied_torques = torch.where(
+            ((self.progress_buf % num_trigger_steps) == 0).unsqueeze(-1),
+            rand_torques,
+            self.object_applied_torques
+        )
+
+        self.object_applied_torques = torch.where(
+            apply_wrench.unsqueeze(-1),
+            self.object_applied_torques,
+            torch.zeros_like(self.object_applied_torques)
+        )
+
+        # NOTE: this assumes object body is always the last rigid body in the env, which mean object actor must be created last in _create_envs
+        self.rigid_body_forces[:, -1, :] = self.object_applied_forces
+        self.rigid_body_torques[:, -1, :] = self.object_applied_torques
+
+        self.gym.apply_rigid_body_force_tensors(
+            self.sim,
+            gymtorch.unwrap_tensor(self.rigid_body_forces),
+            gymtorch.unwrap_tensor(self.rigid_body_torques),
+            gymapi.ENV_SPACE,  # ENV_SPACE (world) or LOCAL_SPACE
+        )
+
+    def _pre_physics_step_teacher(self, actions):
+        """
+        @ray
+        In the distillation training script, we always call teacher model for actions regardless of fabrics switch logic.
+        Given teacher model actions as input, the switch logic happens here:
+            1) if self.fabrics_switch_enable=True, use fabrics for motion planning and override teacher actions
+               else, convert teacher eef frame actions back to world frame and use ik to solve for joint angles to update robot
+        For the camera arm, always use fabrics to focus on the object center
+
+
+        Args:
+            actions (torch.Tensor): normalized delta joint angles (num_selected_envs, 7+4*4), actions from the teacher model
+        """
+        if self.eef_actions:
+            if self.teacher_use_eef_frame:
+                # CODEX
+                # Teacher actions are in EEF-local frame: rotate position deltas to world.
+                pos_actions_local = actions[:, 0:3] * self.action_scale["eef_pos"] * self.dt
+                eef_rot_mat = quaternion_to_matrix_ig(self.states["eef_quat"])
+                pos_actions_world = torch.matmul(eef_rot_mat, pos_actions_local.unsqueeze(-1)).squeeze(-1)
+                ctrl_target_eef_pos = self.states["eef_pos"] + pos_actions_world
+
+                # CODEX
+                # Rotation deltas are local to the current EEF.
+                rot_actions_local = actions[:, 3:6] * self.action_scale["eef_rot"] * self.dt
+                angle = torch.norm(rot_actions_local, p=2, dim=-1)
+                axis = rot_actions_local / angle.unsqueeze(-1).clamp_min(1.0e-8)
+                rot_actions_quat = quat_from_angle_axis(angle, axis)
+                rot_actions_quat = torch.where(
+                    angle.unsqueeze(-1).repeat(1, 4) > 1.0e-6,
+                    rot_actions_quat,
+                    torch.tensor([0.0, 0.0, 0.0, 1.0], device=self.device).repeat(self.num_envs, 1),
+                )
+                # Local-frame composition: q_target = q_current * q_delta_local. # CODEX
+                ctrl_target_eef_quat = quat_mul(self.states["eef_quat"], rot_actions_quat)
+            else:
+                # CODEX
+                # Legacy world-frame behavior for teacher EEF actions.
+                pos_actions_world = actions[:, 0:3] * self.action_scale["eef_pos"] * self.dt
+                ctrl_target_eef_pos = self.states["eef_pos"] + pos_actions_world
+                rot_actions_world = actions[:, 3:6] * self.action_scale["eef_rot"] * self.dt
+                angle = torch.norm(rot_actions_world, p=2, dim=-1)
+                axis = rot_actions_world / angle.unsqueeze(-1).clamp_min(1.0e-8)
+                rot_actions_quat = quat_from_angle_axis(angle, axis)
+                rot_actions_quat = torch.where(
+                    angle.unsqueeze(-1).repeat(1, 4) > 1.0e-6,
+                    rot_actions_quat,
+                    torch.tensor([0.0, 0.0, 0.0, 1.0], device=self.device).repeat(self.num_envs, 1),
+                )
+                # World-frame composition: q_target = q_delta_world * q_current. # CODEX
+                ctrl_target_eef_quat = quat_mul(rot_actions_quat, self.states["eef_quat"])
+
+            # @ray compute fabrics
+            if self.enable_fabric:
+                fabric_target_eef_pos = self.switching_target_pos
+                fabric_target_eef_quat = self.switching_target_quat
+                fabric_eef_target = torch.cat((fabric_target_eef_pos, fabric_target_eef_quat), dim=-1)
+                abs_full_joint_actions_fabric = self.compute_fabric_action(fabric_eef_target)
+
+            delta_arm_joint_actions_unnormalized = torch.zeros((self.num_envs, 10), device=self.device)
+            delta_arm_joint_actions_unnormalized[:, 3:10] = eef_ctrl.compute_dof_pos_delta(
+                arm_dof_pos=self.states['q'][:, 3:10],
+                current_eef_pos=self.states['eef_pos'],
+                current_eef_quat=self.states['eef_quat'],
+                jacobian=self._j_eef[:, :, 3:10],
+                ctrl_target_eef_pos=ctrl_target_eef_pos,
+                ctrl_target_eef_quat=ctrl_target_eef_quat,
+            )
+
+            hand_actions = actions[:, 6:] * self.action_scale["leap"] * self.dt
+            delta_hand_joint_actions_unnormalized = self.unnormalize_robot_joints(hand_actions, robot="leap", delta=True)
+        else:
+            # @ray shouldn't happen since we use eef control now for allt teachers
+            assert False
+            arm_actions = actions[:, 3:10] * self.action_scale["franka"] * self.dt
+            hand_actions = actions[:, 10:26] * self.action_scale["leap"] * self.dt
+            delta_arm_joint_actions_unnormalized = self.unnormalize_robot_joints(arm_actions, robot="franka", delta=True)
+            delta_hand_joint_actions_unnormalized = self.unnormalize_robot_joints(hand_actions, robot="leap", delta=True)
+
+        self.delta_joint_actions[:, :10] = delta_arm_joint_actions_unnormalized[:, :10]
+        self.delta_joint_actions[:, 10:26] = delta_hand_joint_actions_unnormalized
+
+        teacher_actions_abs = self.states['q'] + self.delta_joint_actions # need to really make sure states['q'] is always up to date
+        teacher_actions_abs = tensor_clamp(
+            teacher_actions_abs, self.robot_dof_lower_limits, self.robot_dof_upper_limits
+        )
+
+        if self.enable_fabric:
+            # @ray use fabrics actions to override teacher actions when switch enables
+            # CODEX: let fabric move the base before RL activates; freeze the
+            # base once control switches to the RL/teacher policy.
+            base_lock_mask = self._get_mobile_base_lock_mask()
+            teacher_actions_abs[base_lock_mask, :3] = self.states["q"][base_lock_mask, :3]
+            base_fabric_enable = ~base_lock_mask
+            teacher_actions_abs[base_fabric_enable, :3] = abs_full_joint_actions_fabric[base_fabric_enable, :3] # @ray activating the base fabric during teacher rl messes up the rl policy, need to tune fabric
+            teacher_actions_abs[self.fabric_switch_enable, 3:10] = abs_full_joint_actions_fabric[self.fabric_switch_enable, 3:10]
+            teacher_actions_abs[self.fabric_switch_enable, 10:26] = self.canonical_joint_config[self.fabric_switch_enable, 10:26]
+            teacher_actions_abs[:, 26:] = abs_full_joint_actions_fabric[:, 10:]
+
+        if self.distillation_mode:
+            # get teacher actions for student to regress on
+            delta_actions = teacher_actions_abs - self.states['q']
+
+            base_delta_actions_worldframe = delta_actions[:, :3]
+            base_delta_actions_baseframe = se2_transform(base_delta_actions_worldframe, -self.states['q'][:, 2])
+            base_actions_vel_baseframe = base_delta_actions_baseframe / self.dt # numerical difference for joint velocity
+
+            # NOTE: here we want to keep everything ranging in [-1, 1], only leap part is guaranteed, franka & arx is an empirical approximation cuz their actions are from eef_converted & fabrics
+            if self.delta_franka_action:
+                franka_actions_normalized = self.normalize_robot_joints(delta_actions[:, 3:10], robot="franka", delta=True) / self.action_scale["franka"] / self.dt
+            else:
+                franka_actions_normalized = self.normalize_robot_joints(teacher_actions_abs[:, 3:10], robot="franka", delta=False)
+
+            if self.delta_leap_action:
+                leap_actions_normalized = self.normalize_robot_joints(delta_actions[:, 10:26], robot="leap", delta=True) / self.action_scale["leap"] / self.dt
+            else:
+                leap_actions_normalized = self.normalize_robot_joints(teacher_actions_abs[:, 10:26], robot="leap", delta=False)
+
+            if self.delta_arx_action:
+                arx_actions_normalized = self.normalize_robot_joints(delta_actions[:, 26:], robot="arx", delta=True) / self.action_scale["arx"] / self.dt
+            else:
+                arx_actions_normalized = self.normalize_robot_joints(teacher_actions_abs[:, 26:], robot="arx", delta=False)
+
+            self.teacher_actions_converted[:, :3] = base_actions_vel_baseframe
+            self.teacher_actions_converted[:, 3:10] = franka_actions_normalized
+            self.teacher_actions_converted[:, 10:26] = leap_actions_normalized
+            self.teacher_actions_converted[:, 26:] = arx_actions_normalized
+        else:
+            # @ray shouldn't happen, this env is exclusively for distillation
+            assert False
+
+        return teacher_actions_abs
+
+    def _decode_student_actions_with_anchor(self, actions, anchor_q):
+        """
+        Decode student-space actions against an explicit chunk anchor state instead of
+        the current live robot state. Convert student space actions into absolute actions.
+
+        This is used by chunked distillation code when all action tokens in a chunk are
+        defined relative to the same chunk-start anchor.
+        """
+        abs_actions = actions.clone()
+        anchor_base_pos_world = anchor_q[:, :3]
+        base_action_baseframe = actions[:, :3] * self.dt
+        base_action_worldframe = se2_transform(base_action_baseframe, anchor_q[:, 2])
+        abs_actions[:, :3] = base_action_worldframe + anchor_base_pos_world
+
+        if self.delta_franka_action:
+            abs_actions[:, 3:10] = self.unnormalize_robot_joints(
+                actions[:, 3:10], robot="franka", delta=True
+            ) * self.action_scale["franka"] * self.dt + anchor_q[:, 3:10]
+        else:
+            abs_actions[:, 3:10] = self.unnormalize_robot_joints(
+                actions[:, 3:10], robot="franka", delta=False
+            )
+
+        if self.delta_leap_action:
+            abs_actions[:, 10:26] = self.unnormalize_robot_joints(
+                actions[:, 10:26], robot="leap", delta=True
+            ) * self.action_scale["leap"] * self.dt + anchor_q[:, 10:26]
+        else:
+            abs_actions[:, 10:26] = self.unnormalize_robot_joints(
+                actions[:, 10:26], robot="leap", delta=False
+            )
+
+        if self.delta_arx_action:
+            abs_actions[:, 26:] = self.unnormalize_robot_joints(
+                actions[:, 26:], robot="arx", delta=True
+            ) * self.action_scale["arx"] * self.dt + anchor_q[:, 26:]
+        else:
+            abs_actions[:, 26:] = self.unnormalize_robot_joints(
+                actions[:, 26:], robot="arx", delta=False
+            )
+
+        return abs_actions
+
+    def _encode_abs_targets_to_student_space(self, abs_actions, ref_q):
+        """
+        Encode absolute robot targets back into the student action space relative to the
+        provided robot reference state.
+        """
+        student_actions = torch.zeros_like(abs_actions)
+        base_delta_actions_worldframe = abs_actions[:, :3] - ref_q[:, :3]
+        base_delta_actions_baseframe = se2_transform(base_delta_actions_worldframe, -ref_q[:, 2])
+        student_actions[:, :3] = base_delta_actions_baseframe / self.dt
+
+        if self.delta_franka_action:
+            student_actions[:, 3:10] = self.normalize_robot_joints(
+                abs_actions[:, 3:10] - ref_q[:, 3:10], robot="franka", delta=True
+            ) / self.action_scale["franka"] / self.dt
+        else:
+            student_actions[:, 3:10] = self.normalize_robot_joints(
+                abs_actions[:, 3:10], robot="franka", delta=False
+            )
+
+        if self.delta_leap_action:
+            student_actions[:, 10:26] = self.normalize_robot_joints(
+                abs_actions[:, 10:26] - ref_q[:, 10:26], robot="leap", delta=True
+            ) / self.action_scale["leap"] / self.dt
+        else:
+            student_actions[:, 10:26] = self.normalize_robot_joints(
+                abs_actions[:, 10:26], robot="leap", delta=False
+            )
+
+        if self.delta_arx_action:
+            student_actions[:, 26:] = self.normalize_robot_joints(
+                abs_actions[:, 26:] - ref_q[:, 26:], robot="arx", delta=True
+            ) / self.action_scale["arx"] / self.dt
+        else:
+            student_actions[:, 26:] = self.normalize_robot_joints(
+                abs_actions[:, 26:], robot="arx", delta=False
+            )
+        return student_actions
+
+
+    def _pre_physics_step_student(self, actions):
+        """
+        Convert student policy outputs from student action space to absolute joint targets.
+
+        Student input semantics:
+            - `actions` are in the same mixed student action space as
+              `self.teacher_actions_converted`.
+            - `[:3]` is base-frame velocity.
+            - Joint blocks are normalized deltas if the corresponding `delta_*_action`
+              flag is enabled, otherwise normalized absolute joint targets.
+            - For delta-enabled joint blocks, values in `[-1, 1]` represent normalized
+              delta fractions of the full joint range before scaling by
+              `action_scale * dt`. In practice, the realized targets usually occupy
+              only a subset of that interval.
+
+        Return value:
+            - absolute joint targets to execute in simulation
+
+        Args:
+            actions (torch.Tensor): student actions (num_selected_envs, 3+7+4*4+6)
+        """
+        return self._decode_student_actions_with_anchor(actions, self.states['q'])
+        # student_actions_abs = actions.clone()
+
+        # # base abs action
+        # base_pos_worldframe = self.states['q'][:, :3]
+        # base_action_baseframe = actions[:, :3] * self.dt
+        # base_action_worldframe = se2_transform(base_action_baseframe, base_pos_worldframe[:, 2])
+        # student_actions_abs[:, :3] = base_action_worldframe + base_pos_worldframe  # base abs action
+
+        # if self.delta_franka_action:
+        #     student_actions_abs[:, 3:10] = self.unnormalize_robot_joints(student_actions_abs[:, 3:10], robot="franka", delta=True) * self.action_scale["franka"] * self.dt + self.states['q'][:, 3:10]
+        # else:
+        #     student_actions_abs[:, 3:10] = self.unnormalize_robot_joints(student_actions_abs[:, 3:10], robot="franka", delta=False)
+
+        # if self.delta_leap_action:
+        #     student_actions_abs[:, 10:26] = self.unnormalize_robot_joints(student_actions_abs[:, 10:26], robot="leap", delta=True) * self.action_scale["leap"] * self.dt + self.states['q'][:, 10:26]
+        # else:
+        #     student_actions_abs[:, 10:26] = self.unnormalize_robot_joints(student_actions_abs[:, 10:26], robot="leap", delta=False)
+
+        # if self.delta_arx_action:
+        #     student_actions_abs[:, 26:] = self.unnormalize_robot_joints(student_actions_abs[:, 26:], robot="arx", delta=True) * self.action_scale["arx"] * self.dt + self.states['q'][:, 26:]
+        # else:
+        #     student_actions_abs[:, 26:] = self.unnormalize_robot_joints(student_actions_abs[:, 26:], robot="arx", delta=False)
+
+        # return student_actions_abs
+
+    def _reset_object_state(
+        self,
+        object_reset_env_ids,
+        apply_teleport_env_ids=None,
+        robot_q_for_collision=None,
+        eef_xy_for_collision=None,
+    ):
+        if object_reset_env_ids is None:
+            env_ids = torch.arange(self.num_envs, device=self.device)
+        else:
+            env_ids = object_reset_env_ids.clone()
+
+        if apply_teleport_env_ids is None:
+            apply_teleport_env_ids = torch.empty((0,), dtype=torch.long, device=self.device)
+        teleport_local_mask = (
+            torch.isin(env_ids, apply_teleport_env_ids)
+            if apply_teleport_env_ids.numel() > 0
+            else torch.zeros((env_ids.numel(),), dtype=torch.bool, device=self.device)
+        )
+
+        if env_ids.numel() > 0:
+            self.object_reset_pending_mask[env_ids] = True
+
+        # Initialize buffer to hold sampled values
+        num_resets = len(env_ids)
+        sampled_object_state = torch.zeros(num_resets, 13, device=self.device)
+
+        # Sampling is "centered" around middle of table
+        reset_pos = torch.zeros(num_resets, 3, device=self.device)
+        xy_min = self.obj_pos_range[env_ids][:, [0, 2]]
+        xy_max = self.obj_pos_range[env_ids][:, [1, 3]]
+        xy_min, xy_max = self._adjust_object_reset_xy_bounds(env_ids, xy_min, xy_max)
+        if eef_xy_for_collision is None:
+            eef_xy = self._eef_state[env_ids, :2]  # CODEX
+        else:
+            eef_xy = eef_xy_for_collision
+        force_right_of_eef = bool(self.object_teleport_args["force_right_of_eef"])  # CODEX
+
+        # CODEX: base XY sampling (no EEF-side clipping).
+        def _sample_xy_for_rows(row_mask: torch.Tensor):
+            if not torch.any(row_mask):
+                return
+            row_idx = row_mask.nonzero(as_tuple=False).squeeze(-1)
+            n = int(row_idx.numel())
+            reset_pos[row_idx, 0] = (
+                torch.rand(n, device=self.device) * (xy_max[row_idx, 0] - xy_min[row_idx, 0]) + xy_min[row_idx, 0]
+            )
+            reset_pos[row_idx, 1] = (
+                torch.rand(n, device=self.device) * (xy_max[row_idx, 1] - xy_min[row_idx, 1]) + xy_min[row_idx, 1]
+            )
+
+        _sample_xy_for_rows(torch.ones(num_resets, dtype=torch.bool, device=self.device))  # CODEX
+        # Keep teleported/reset objects away from current EEF xy by a minimum radius.
+        min_xy_dist_to_eef = float(self.object_teleport_args["min_xy_dist_to_eef"])
+        min_xy_resample_rounds = int(self.object_teleport_args["min_xy_dist_resample_rounds"])
+        if min_xy_dist_to_eef > 0.0:
+            for _ in range(min_xy_resample_rounds):
+                too_close = torch.norm(reset_pos[:, :2] - eef_xy, dim=-1) < min_xy_dist_to_eef
+                if not torch.any(too_close):
+                    break
+                _sample_xy_for_rows(too_close)  # CODEX
+
+            too_close = torch.norm(reset_pos[:, :2] - eef_xy, dim=-1) < min_xy_dist_to_eef
+            if torch.any(too_close):
+                bad_ids = too_close.nonzero(as_tuple=False).squeeze(-1)
+                for local_i in bad_ids.tolist():
+                    x0, y0 = float(xy_min[local_i, 0].item()), float(xy_min[local_i, 1].item())
+                    x1, y1 = float(xy_max[local_i, 0].item()), float(xy_max[local_i, 1].item())
+                    ex, ey = float(eef_xy[local_i, 0].item()), float(eef_xy[local_i, 1].item())
+                    corners = torch.tensor(
+                        [[x0, y0], [x0, y1], [x1, y0], [x1, y1]],
+                        device=self.device,
+                        dtype=reset_pos.dtype,
+                    )
+                    if bool(teleport_local_mask[local_i].item()):
+                        filtered_corners = self._filter_directional_teleport_candidates(
+                            env_ids[local_i],
+                            corners,
+                            self._object_state[env_ids[local_i], 1].item(),
+                        )
+                        if filtered_corners.numel() > 0:
+                            corners = filtered_corners
+                        else:
+                            reset_pos[local_i, :2] = self._object_state[env_ids[local_i], :2]
+                            continue
+                    d = torch.norm(corners - torch.tensor([ex, ey], device=self.device, dtype=reset_pos.dtype), dim=-1)
+                    reset_pos[local_i, :2] = corners[torch.argmax(d)]
+
+        # Teleport-only directional motion can be task-specific; by default keep the
+        # legacy one-sided +y motion when force_right_of_eef is enabled.
+        if apply_teleport_env_ids.numel() > 0:
+            tele_mask = torch.isin(env_ids, apply_teleport_env_ids)
+            if torch.any(tele_mask):
+                local_idx = tele_mask.nonzero(as_tuple=False).squeeze(-1)
+                global_idx = env_ids[local_idx]
+                prev_xy = self._object_state[global_idx, :2].clone()
+                prev_y = prev_xy[:, 1]
+                directional_interval = self._compute_directional_teleport_y_interval(
+                    global_idx,
+                    xy_min[local_idx, 1],
+                    xy_max[local_idx, 1],
+                    prev_y,
+                )
+                if directional_interval is not None:
+                    y_lo, y_hi = directional_interval
+                elif force_right_of_eef:
+                    y_lo = torch.maximum(xy_min[local_idx, 1], prev_y + 1e-4)
+                    y_hi = xy_max[local_idx, 1]
+                else:
+                    y_lo = None
+                    y_hi = None
+                if y_lo is None or y_hi is None:
+                    can_move = torch.zeros_like(prev_y, dtype=torch.bool)
+                else:
+                    reset_pos[local_idx, 0] = prev_xy[:, 0]
+                    can_move = y_hi > y_lo
+
+                if torch.any(can_move):
+                    move_idx = local_idx[can_move]
+                    move_prev = prev_xy[can_move]
+                    move_y_lo = y_lo[can_move]
+                    move_y_hi = y_hi[can_move]
+                    reset_pos[move_idx, 0] = move_prev[:, 0]
+                    reset_pos[move_idx, 1] = (
+                        torch.rand(int(move_idx.numel()), device=self.device) * (move_y_hi - move_y_lo) + move_y_lo
+                    )
+                if torch.any(~can_move) and (directional_interval is not None or force_right_of_eef):
+                    stay_idx = local_idx[~can_move]
+                    stay_prev = prev_xy[~can_move]
+                    reset_pos[stay_idx, :2] = stay_prev
+        reset_pos[:, 2] = self.table_surface_height[env_ids]
+
+        # Reject reset/teleport poses whose expanded object bbox already contains robot points.
+        if robot_q_for_collision is None:
+            robot_q_collision = self._q[env_ids]
+        else:
+            robot_q_collision = robot_q_for_collision
+        robot_pcd_world = self.robot_pcd_sampler.sample(robot_q_collision, self.torchurdf_to_isaac_idx)
+        bbox_center = reset_pos.clone()
+        bbox_center[:, 2] += self.mesh_aabb_extents[env_ids, 2] * self.object_center_z_scale
+        bbox_half_extents = 0.5 * self.mesh_aabb_extents[env_ids]
+        bbox_half_extents = bbox_half_extents + 0.01  # small safety margin to reduce post-reset penetrations
+
+        def _robot_points_inside_bbox():
+            rel = torch.abs(robot_pcd_world - bbox_center.unsqueeze(1))
+            inside = torch.all(rel <= bbox_half_extents.unsqueeze(1), dim=-1)
+            return torch.any(inside, dim=1)
+
+        penetration_mask = _robot_points_inside_bbox()
+        if torch.any(penetration_mask):
+            for _ in range(min_xy_resample_rounds):
+                _sample_xy_for_rows(penetration_mask)
+                if apply_teleport_env_ids.numel() > 0:
+                    tele_mask = torch.isin(env_ids, apply_teleport_env_ids) & penetration_mask
+                    if torch.any(tele_mask):
+                        local_idx = tele_mask.nonzero(as_tuple=False).squeeze(-1)
+                        global_idx = env_ids[local_idx]
+                        prev_xy = self._object_state[global_idx, :2].clone()
+                        prev_y = prev_xy[:, 1]
+                        directional_interval = self._compute_directional_teleport_y_interval(
+                            global_idx,
+                            xy_min[local_idx, 1],
+                            xy_max[local_idx, 1],
+                            prev_y,
+                        )
+                        if directional_interval is not None:
+                            y_lo, y_hi = directional_interval
+                        elif force_right_of_eef:
+                            y_lo = torch.maximum(xy_min[local_idx, 1], prev_y + 1e-4)
+                            y_hi = xy_max[local_idx, 1]
+                        else:
+                            y_lo = None
+                            y_hi = None
+                        if y_lo is None or y_hi is None:
+                            can_move = torch.zeros_like(prev_y, dtype=torch.bool)
+                        else:
+                            reset_pos[local_idx, 0] = prev_xy[:, 0]
+                            can_move = y_hi > y_lo
+                        if torch.any(can_move):
+                            move_idx = local_idx[can_move]
+                            move_prev = prev_xy[can_move]
+                            move_y_lo = y_lo[can_move]
+                            move_y_hi = y_hi[can_move]
+                            reset_pos[move_idx, 0] = move_prev[:, 0]
+                            reset_pos[move_idx, 1] = (
+                                torch.rand(int(move_idx.numel()), device=self.device) * (move_y_hi - move_y_lo) + move_y_lo
+                            )
+                        if torch.any(~can_move) and (directional_interval is not None or force_right_of_eef):
+                            stay_idx = local_idx[~can_move]
+                            stay_prev = prev_xy[~can_move]
+                            reset_pos[stay_idx, :2] = stay_prev
+                bbox_center[:, :2] = reset_pos[:, :2]
+                penetration_mask = _robot_points_inside_bbox()
+                if not torch.any(penetration_mask):
+                    break
+
+            if torch.any(penetration_mask):
+                bad_ids = penetration_mask.nonzero(as_tuple=False).squeeze(-1)
+                for local_i in bad_ids.tolist():
+                    x0, y0 = float(xy_min[local_i, 0].item()), float(xy_min[local_i, 1].item())
+                    x1, y1 = float(xy_max[local_i, 0].item()), float(xy_max[local_i, 1].item())
+                    corners = torch.tensor(
+                        [[x0, y0], [x0, y1], [x1, y0], [x1, y1]],
+                        device=self.device,
+                        dtype=reset_pos.dtype,
+                    )
+                    if bool(teleport_local_mask[local_i].item()):
+                        filtered_corners = self._filter_directional_teleport_candidates(
+                            env_ids[local_i],
+                            corners,
+                            self._object_state[env_ids[local_i], 1].item(),
+                        )
+                        if filtered_corners.numel() > 0:
+                            corners = filtered_corners
+                        else:
+                            reset_pos[local_i, :2] = self._object_state[env_ids[local_i], :2]
+                            continue
+                    robot_xy = robot_pcd_world[local_i, :, :2]
+                    corner_score = torch.cdist(corners.unsqueeze(0), robot_xy.unsqueeze(0)).amin(dim=-1).squeeze(0)
+                    reset_pos[local_i, :2] = corners[torch.argmax(corner_score)]
+                bbox_center[:, :2] = reset_pos[:, :2]
+
+        sampled_object_state[:, 6] = 1.0
+        # theta = torch.rand(num_resets, device=self.device) * 2 * torch.pi  # random angle [0, 2π)
+        # # quat = [0.0, 0.0, torch.sin(theta/2), torch.cos(theta/2)]
+        # sampled_object_state[:, 5] = torch.sin(theta/2)
+        # sampled_object_state[:, 6] = torch.cos(theta/2)
+        sampled_object_state[:, :3] = reset_pos
+        self._object_state[env_ids] = sampled_object_state
+        self._object_center_init_state[env_ids] = reset_pos
+        self._object_center_init_state[env_ids, 2] += self.mesh_aabb_extents[env_ids, 2] * self.object_center_z_scale
+
+        multi_env_ids_obj_int32 = self._global_indices[env_ids, self._object_id].flatten()
+        self.gym.set_actor_root_state_tensor_indexed(
+            self.sim, gymtorch.unwrap_tensor(self._root_state),
+            gymtorch.unwrap_tensor(multi_env_ids_obj_int32), len(multi_env_ids_obj_int32),
+        )
+
+        # update initial frame pcd
+        object_pcds_world = transform_pcds_to_world(self.object_pcds, self._object_state[:, :7])
+        if self.object_pcd_t0 is None:
+            self.object_pcd_t0 = object_pcds_world.clone()
+        self.object_pcd_t0[env_ids] = object_pcds_world[env_ids].clone()
+
+    def _sample_step_teleport_env_ids(self):
+        if not self.object_teleport_args["enable"]:
+            return torch.empty((0,), dtype=torch.long, device=self.device)
+        if self.num_teleport_envs <= 0:
+            return torch.empty((0,), dtype=torch.long, device=self.device)
+
+        curri_steps = int(self.object_teleport_args["curri_steps"])
+        if curri_steps <= 0:
+            curri_factor = 1.0
+        else:
+            curri_factor = min(self.sim_steps / curri_steps, 1.0)
+
+        schedule_len = int(self.teleport_probs.shape[0])
+        if schedule_len <= 0:
+            return torch.empty((0,), dtype=torch.long, device=self.device)
+        event_idx = int(self.sim_steps) % schedule_len
+        event_prob = float(self.teleport_probs[event_idx].item()) * float(curri_factor)
+        if self.teleport_boundary_chunk_size > 1:  # CODEX NEW
+            # If teleport is only allowed once per chunk, convert the original
+            # per-step hazard into an equivalent chunk-boundary probability.
+            event_prob = 1.0 - (1.0 - event_prob) ** self.teleport_boundary_chunk_size
+        if event_prob <= 0.0 or torch.rand(1, device=self.device).item() >= event_prob:
+            return torch.empty((0,), dtype=torch.long, device=self.device)
+
+        eligible_ids = torch.where(self.reset_buf == 0)[0]
+        if eligible_ids.numel() == 0:
+            return torch.empty((0,), dtype=torch.long, device=self.device)
+
+        refresh_subset = (
+            self.teleport_cached_env_ids.numel() == 0
+            or self.teleport_cached_step < 0
+            or (int(self.sim_steps) - int(self.teleport_cached_step)) >= self.teleport_swap_frequency
+        )
+        if refresh_subset:
+            num_pick = min(int(self.num_teleport_envs), int(eligible_ids.numel()))
+            perm = torch.randperm(int(eligible_ids.numel()), device=self.device)[:num_pick]
+            self.teleport_cached_env_ids = eligible_ids[perm]
+            self.teleport_cached_step = int(self.sim_steps)
+
+        cached_mask = torch.isin(self.teleport_cached_env_ids, eligible_ids)
+        teleport_env_ids = self.teleport_cached_env_ids[cached_mask]
+        if teleport_env_ids.numel() > 0:
+            return teleport_env_ids
+
+        num_pick = min(int(self.num_teleport_envs), int(eligible_ids.numel()))
+        perm = torch.randperm(int(eligible_ids.numel()), device=self.device)[:num_pick]
+        self.teleport_cached_env_ids = eligible_ids[perm]
+        self.teleport_cached_step = int(self.sim_steps)
+        return self.teleport_cached_env_ids
+
+    def _adjust_object_reset_xy_bounds(self, env_ids, xy_min, xy_max):
+        return xy_min, xy_max
+
+    def _compute_directional_teleport_y_interval(self, global_env_ids, xy_min_y, xy_max_y, prev_y):
+        return None
+
+    def _filter_directional_teleport_candidates(self, global_env_ids, candidate_xy, prev_y):
+        if candidate_xy.numel() == 0:
+            return candidate_xy
+        if candidate_xy.ndim != 2 or candidate_xy.shape[1] != 2:
+            raise ValueError("candidate_xy must have shape (N, 2)")
+
+        if torch.is_tensor(global_env_ids):
+            global_env_ids = global_env_ids.to(device=self.device, dtype=torch.long).reshape(-1)
+        else:
+            global_env_ids = torch.tensor([int(global_env_ids)], device=self.device, dtype=torch.long)
+        if global_env_ids.numel() == 1:
+            global_env_ids = global_env_ids.repeat(candidate_xy.shape[0])
+        elif global_env_ids.numel() != candidate_xy.shape[0]:
+            raise ValueError("global_env_ids must be scalar or have one entry per candidate")
+
+        prev_y_tensor = torch.full(
+            (candidate_xy.shape[0],),
+            float(prev_y),
+            device=candidate_xy.device,
+            dtype=candidate_xy.dtype,
+        )
+        directional_interval = self._compute_directional_teleport_y_interval(
+            global_env_ids,
+            candidate_xy[:, 1],
+            candidate_xy[:, 1],
+            prev_y_tensor,
+        )
+        if directional_interval is None:
+            return candidate_xy
+        y_lo, y_hi = directional_interval
+        valid = y_hi >= y_lo
+        return candidate_xy[valid]
+
+    def _get_mobile_base_lock_mask(self):
+        lift_state = self.states.get(
+            "lift",
+            torch.zeros((self.num_envs,), dtype=torch.bool, device=self.device),
+        ).to(dtype=torch.bool)
+
+        if self.lock_mobile_base:
+            if self.enable_fabric:
+                # CODEX: fabric_switch_enable=True means fabric is still moving
+                # toward the RL activation pose. Lock only after RL activates.
+                return ~self.fabric_switch_enable.to(dtype=torch.bool)
+            return torch.ones((self.num_envs,), dtype=torch.bool, device=self.device)
+
+        if hasattr(self, "post_lift_target_active"):
+            return lift_state | self.post_lift_target_active.to(dtype=torch.bool)
+        return lift_state
+
+    def pre_physics_step(self, actions):
+        """
+        Args:
+            actions (torch.Tensor): if teacher action: normalized delta joint angles (num_selected_envs, 7+4*4)
+                                    if student action: (num_selected_envs, 3+7+4*4+6)
+        """
+        if self.distillation_mode:
+            self.abs_actions[:] = self._pre_physics_step_student(actions)
+        else:
+            self.abs_actions[:] = self._pre_physics_step_teacher(actions)
+
+        # CODEX: enforce base-lock invariant for both teacher-forced and student
+        # rollouts. Top-long locks once RL activates; legacy behavior without
+        # lock_mobile_base still locks after lift/post-lift.
+        base_lock_mask = self._get_mobile_base_lock_mask()
+        self.abs_actions[base_lock_mask, :3] = self.states["q"][base_lock_mask, :3]
+
+        self.gym.set_dof_position_target_tensor(self.sim, gymtorch.unwrap_tensor(self.abs_actions))
+
+        # Add F/T wrench to object
+        if self.object_wrench_args["enable"]:
+            self._apply_object_wrench()
+
+    def post_physics_step(self):
+        # Promote pending reset events one sim step later, matching when set_*_tensor_indexed changes are observed.
+        if torch.any(self.object_reset_pending_mask):
+            self.object_reset_mask |= self.object_reset_pending_mask
+            self.object_reset_pending_mask[:] = False
+
+        self.progress_buf += 1
+
+        teleport_env_ids = self._sample_step_teleport_env_ids()
+        self.debug_last_teleport_env_ids = teleport_env_ids.clone()
+        if teleport_env_ids.numel() > 0:
+            self._reset_object_state(teleport_env_ids, apply_teleport_env_ids=teleport_env_ids)
+
+        env_ids = self.reset_buf.nonzero(as_tuple=False).squeeze(-1)
+        self.reset_idx(env_ids)
+
+        self.compute_observations()
+        self.compute_reward()
+
+        # video logging
+        if self.video_logging["capture"]:
+            self.video_logger()
+        self.sim_steps += 1
+
+    def step(self, actions: torch.Tensor):
+        """Step the physics of the environment.
+
+        Args:
+            actions: actions to apply
+        Returns:
+            Observations, rewards, resets, info
+            Observations are dict of observations (currently only one member called 'obs')
+        """
+
+        # randomize actions
+        if self.dr_randomizations.get('actions', None):
+            actions[~self.fabric_switch_enable][:, :26] = self.dr_randomizations['actions']['noise_lambda'](actions)[~self.fabric_switch_enable][:, :26]
+
+        action_tensor = torch.clamp(actions, -self.clip_actions, self.clip_actions)
+        # apply actions
+        self.pre_physics_step(action_tensor)
+
+        # step physics and render each frame
+        for i in range(self.control_freq_inv):
+            if self.force_render:
+                self.render()
+            self.gym.simulate(self.sim)
+
+        # to fix!
+        if self.device == 'cpu':
+            self.gym.fetch_results(self.sim, True)
+
+        # compute observations, rewards, resets, ...
+        self.post_physics_step()
+
+        self.control_steps += 1
+
+        # fill time out buffer: set to 1 if we reached the max episode length AND the reset buffer is 1. Timeout == 1 makes sense only if the reset buffer is 1.
+        self.timeout_buf = (self.progress_buf >= self.max_episode_length - 1) & (self.reset_buf != 0)
+
+        # randomize observations
+        if self.dr_randomizations.get('observations', None):
+            self.obs_buf = self.dr_randomizations['observations']['noise_lambda'](self.obs_buf)
+
+
+        # self.obs_dict["obs"] = torch.clamp(self.obs_buf, -self.clip_obs, self.clip_obs).to(self.rl_device)
+
+        # asymmetric actor-critic
+        if self.num_states > 0:
+            self.obs_dict["states"] = self.get_state()
+
+        return self.obs_dict, self.rew_buf.to(self.rl_device), self.reset_buf.to(self.rl_device), self.extras
+
+    def reset_idx(self, env_ids=None):
+        # Domain randomization, can happen only at reset time since it can reset actor positions on GPU
+        if self.randomize:
+            self.apply_randomizations(self.randomization_params)
+
+        if env_ids is None:
+            env_ids = torch.arange(self.num_envs, device=self.device)
+
+        if env_ids.numel() == 0:
+            return
+
+        reset_noise = torch.rand((len(env_ids), 32), device=self.device) # [0, 1]
+        reset_noise = 2.0 * (reset_noise - 0.5) # [-1, 1]
+        reset_noise[:, :3] *= 0 # no base reset noise for now
+        reset_noise[:, 3:10] *= self.reset_noise_scale["franka"]
+
+        if self.reset_noise_scale["leap"] is None:
+            reset_noise[:, 10:26] = self.unnormalize_robot_joints(reset_noise[:, 10:26], robot="leap", delta=False)
+            reset_noise[:, 10:26] -= self.canonical_joint_config[env_ids, 10:26]
+        else:
+            reset_noise[:, 10:26] *= self.reset_noise_scale["leap"]
+
+        reset_noise[:, 26:32] *= self.reset_noise_scale["arx"]
+
+        reset_joint_config = tensor_clamp(
+            self.canonical_joint_config[env_ids] + reset_noise,
+            self.robot_dof_lower_limits,
+            self.robot_dof_upper_limits,
+        )
+        if bool(self.cfg["env"]["robot_init"].get("resample_base_each_reset", False)):
+            reset_joint_config[:, :3] = self._sample_mobile_base_init_pose(
+                env_ids,
+                dtype=reset_joint_config.dtype,
+            )
+
+        reset_eef_pose = self._get_ee_world_from_joint_state(reset_joint_config)
+        self._reset_object_state(
+            env_ids,
+            robot_q_for_collision=reset_joint_config,
+            eef_xy_for_collision=reset_eef_pose[:, :2],
+        ) # reset object state against the future reset robot pose
+
+        self.set_robot_joint_state(reset_joint_config, env_ids=env_ids)
+
+        if self.enable_fabric:
+            self.fabric_q[env_ids, :10] = reset_joint_config[:, :10]
+            self.fabric_q[env_ids, 10:] = reset_joint_config[:, 26:]
+            self.fabric_qd[env_ids, :] = torch.zeros_like(self.fabric_q[env_ids])
+            self.fabric_qdd[env_ids, :] = torch.zeros_like(self.fabric_q[env_ids])
+
+        self.success_flags_instant[env_ids] = 0
+        self.lifting_flags_instant[env_ids] = 0
+        # @ray have to update in reset_idx instead of compute_reward otherwise the duration will be overwritten to 0
+        self.success_flags[env_ids] = self.success_long_enough[env_ids].float()
+        self.lifting_flags[env_ids] = self.lifting_long_enough[env_ids].float()
+        self.success_duration[env_ids] = 0
+        self.lifting_duration[env_ids] = 0
+        self.success_long_enough[env_ids] = False
+        self.lifting_long_enough[env_ids] = False
+        self.progress_buf[env_ids] = 0
+        self.reset_buf[env_ids] = 0
+
+        self.goal_target_locked[env_ids] = False
+
+
+        if self.object_wrench_args["enable"]:
+            self.object_applied_forces[env_ids] = 0.0
+            self.object_applied_torques[env_ids] = 0.0
+            self.rigid_body_forces[env_ids] = 0
+            self.rigid_body_torques[env_ids] = 0
+
+    def finalize_episode_metrics_before_reset(self, env_ids, mark_success=False, mark_lifting=False):
+        """
+        Finalize per-episode counters for envs that will be force-reset by trainer before
+        post_physics_step() has a chance to account them in compute_reward().
+
+        Args:
+            env_ids: 1D tensor of env indices to finalize.
+            mark_success: if True, count these envs as successful episodes.
+            mark_lifting: if True, count these envs as lifting-success episodes.
+        """
+        if env_ids is None:
+            return
+        if env_ids.numel() == 0:
+            return
+
+        done_object_ids = self.env_object_ids[env_ids]
+        episode_increments = torch.bincount(done_object_ids, minlength=self.num_objects)
+        self.per_object_episode_counts += episode_increments
+        self.per_object_episode_counts_interval += episode_increments
+
+        if mark_success:
+            success_increments = torch.bincount(done_object_ids, minlength=self.num_objects)
+            self.per_object_success_counts += success_increments
+            self.per_object_success_counts_interval += success_increments
+
+        if mark_lifting:
+            lifting_increments = torch.bincount(done_object_ids, minlength=self.num_objects)
+            self.per_object_lifting_counts += lifting_increments
+            self.per_object_lifting_counts_interval += lifting_increments
+
+        # CODEX: keep windowed episode-history metrics consistent with forced-reset accounting.
+        if (
+            hasattr(self, "ep_hist_success")
+            and hasattr(self, "ep_hist_lifting")
+            and hasattr(self, "ep_hist_ptr")
+            and hasattr(self, "ep_hist_count")
+            and hasattr(self, "ep_hist_max")
+        ):
+            n_done = int(env_ids.numel())
+            if n_done > 0:
+                done_success_bits = torch.full(
+                    (n_done,), 1 if mark_success else 0, device=self.device, dtype=torch.int8
+                )
+                done_lifting_bits = torch.full(
+                    (n_done,), 1 if mark_lifting else 0, device=self.device, dtype=torch.int8
+                )
+                write_idx = (torch.arange(n_done, device=self.device) + self.ep_hist_ptr) % self.ep_hist_max
+                self.ep_hist_success[write_idx] = done_success_bits
+                self.ep_hist_lifting[write_idx] = done_lifting_bits
+                self.ep_hist_ptr = (self.ep_hist_ptr + n_done) % self.ep_hist_max
+                self.ep_hist_count = min(self.ep_hist_count + n_done, self.ep_hist_max)
+
+    def _get_video_camera_pose_for_env(self, env_id, pos, target):
+        # Match teacher framing offsets while anchoring to per-env table top z.
+        table_z = float(self.table_surface_height[env_id].item())
+        pos_z_offset = float(pos[2]) - 0.0 + 0.2
+        target_z_offset = float(target[2]) - 0.0
+        camera_position = gymapi.Vec3(float(pos[0]), float(pos[1]), table_z + pos_z_offset)
+        camera_target = gymapi.Vec3(float(target[0]), float(target[1]), table_z + target_z_offset)
+        return camera_position, camera_target
+
+
+    def _refresh_video_camera_locations(self, env_ids):
+        if not self.video_logging["capture"]:
+            return
+        if env_ids is None:
+            env_ids = torch.arange(self.num_envs, device=self.device)
+        if env_ids.numel() == 0:
+            return
+        if not hasattr(self, "camera_handles"):
+            return
+        if not hasattr(self, "video_camera_base_pos"):
+            return
+
+        max_video_envs = int(self.video_logging["envs"])
+        for env_id_t in env_ids:
+            env_id = int(env_id_t.item())
+            if env_id >= max_video_envs:
+                continue
+            if env_id >= len(self.camera_handles):
+                continue
+            if len(self.camera_handles[env_id]) == 0:
+                continue
+            camera_handle = self.camera_handles[env_id][0]
+            camera_position, camera_target = self._get_video_camera_pose_for_env(
+                env_id, self.video_camera_base_pos, self.video_camera_base_target
+            )
+            self.gym.set_camera_location(camera_handle, self.envs[env_id], camera_position, camera_target)
+
+    # visualization
+    def set_viewer(self, pos=[1.5, 0.0, 0.7], target=[0.5, 0.0, 0.1]):
+        """
+        Create the viewer.
+        """
+
+        self.enable_viewer_sync = True
+        self.viewer = None
+
+        # if running with a viewer, set up keyboard shortcuts and camera
+        if self.headless == False:
+            # subscribe to keyboard shortcuts
+            self.viewer = self.gym.create_viewer(self.sim, gymapi.CameraProperties())
+            self.gym.subscribe_viewer_keyboard_event(self.viewer, gymapi.KEY_ESCAPE, "QUIT")
+            self.gym.subscribe_viewer_keyboard_event(
+                self.viewer, gymapi.KEY_V, "toggle_viewer_sync"
+            )
+
+            # set the camera position based on up axis
+            centre = self.cfg["env"]['envSpacing'] + int(np.sqrt(self.num_envs))
+
+            # cam_pos = gymapi.Vec3(0, 0, 5)
+            # cam_target = gymapi.Vec3(centre, centre, 0)
+            # let camera look at env 0
+            cam_pos = gymapi.Vec3(pos[0], pos[1], pos[2])
+            cam_target = gymapi.Vec3(target[0], target[1], target[2])
+
+            self.gym.viewer_camera_look_at(self.viewer, None, cam_pos, cam_target)
+
+        if self.video_logging["capture"]:
+            assert self.video_logging["envs"] <= self.num_envs, "Number of environments for video logging exceeds total number of environments."
+            self.video_camera_base_pos = [float(pos[0]), float(pos[1]), float(pos[2])]
+            self.video_camera_base_target = [float(target[0]), float(target[1]), float(target[2])]
+            self.camera_handles = []
+            self.obs_camera_handles = []
+            camera_props = gymapi.CameraProperties()
+            camera_props.width = 640
+            camera_props.height = 480
+            camera_props.horizontal_fov = 90.0
+            camera_props.enable_tensors = False # disable gpu tensors, so cameras won't have automatic updates
+            for i in range(self.video_logging["envs"]):
+                self.camera_handles.append([])
+                self.obs_camera_handles.append([])
+                # global
+                camera_handle = self.gym.create_camera_sensor(
+                    self.envs[i], camera_props
+                )
+                if camera_handle == -1:
+                    print(f"Failed to create camera sensor for env {i}")
+                    continue  # Skip this camera if creation failed
+
+                camera_position, camera_target = self._get_video_camera_pose_for_env(
+                    i, self.video_camera_base_pos, self.video_camera_base_target
+                )
+                camera_target = gymapi.Vec3(target[0], target[1], target[2])
+                self.gym.set_camera_location(
+                    camera_handle, self.envs[i], camera_position, camera_target
+                )
+                self.camera_handles[i].append(camera_handle)
+
+    def get_camera_render(self):
+        """
+        Returns:
+            images: List[List[np.ndarray]], RGB images from all specified environments and cameras
+        """
+
+        assert self.video_logging["capture"], "Camera is not enabled."
+        env_ids = range(self.video_logging["envs"])
+
+        if self.device != "cpu":
+            self.gym.fetch_results(self.sim, True)
+        self.gym.step_graphics(self.sim)
+        self.gym.render_all_camera_sensors(self.sim)
+
+        images = []
+        for env_id in env_ids:
+            images.append([])
+
+            camera_handle = self.camera_handles[env_id][0]
+            camera_image = self.gym.get_camera_image(
+                self.sim, self.envs[env_id], camera_handle, gymapi.IMAGE_COLOR
+            )
+            shape = camera_image.shape
+            camera_image = camera_image.reshape(shape[0], -1, 4)
+            images[-1].append(camera_image)
+
+        return images
+
+    def video_logger(self):
+        mode = None
+        # If both flags are accidentally active, prioritize eval capture.
+        if self.eval_video_active:
+            mode = "eval"
+            step_idx = self.eval_video_step_idx
+            total_steps = self.eval_video_total_steps
+        elif self.train_video_active:
+            mode = "train"
+            step_idx = self.train_video_step_idx
+            total_steps = self.train_video_total_steps
+        else:
+            return
+
+        if step_idx == 0:
+            # Open one writer per env at eval start.
+            self.video_writers = []
+            self.video_step_start = int(self.sim_steps)
+            self.video_env_ids = list(range(self.video_logging["envs"]))
+            for env_idx in self.video_env_ids:
+                filename = os.path.join(
+                    self.video_dir,
+                    f"{mode}_step{self.video_step_start}_env{env_idx}.mp4"
+                )
+                try:
+                    writer = imageio.get_writer(filename, fps=60, format="ffmpeg")
+                except Exception as exc:
+                    print(f"[video_logger] ffmpeg writer unavailable, skipping video: {exc}")
+                    writer = None
+                self.video_writers.append(writer)
+
+        if step_idx < total_steps:
+            camera_renders = self.get_camera_render()
+            ims = np.array(camera_renders)[:, 0, :, :, :3]
+
+            for idx, env_idx in enumerate(self.video_env_ids):
+                writer = self.video_writers[idx]
+                if writer is None:
+                    continue
+                img = ims[env_idx].astype(np.uint8).copy()
+                overlay = img.copy()
+                cv2.rectangle(overlay, (10, 10), (260, 50), (128, 128, 128), -1)
+                alpha = 0.7
+                cv2.addWeighted(overlay, alpha, img, 1 - alpha, 0, img)
+                if mode == "eval":
+                    is_success = bool(self.success_long_enough[env_idx].item())
+                    status_text = "success" if is_success else "failure"
+                    text = f"Env: {env_idx}  eval {status_text} step: {step_idx}"
+                else:
+                    text = f"Env: {env_idx}  {mode} step: {step_idx}"
+                cv2.putText(
+                    img, text, (20, 35),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.65, (0, 0, 0), 2
+                )
+                writer.append_data(img)
+            step_idx += 1
+            if mode == "train":
+                self.train_video_step_idx = step_idx
+            else:
+                self.eval_video_step_idx = step_idx
+
+        if step_idx >= total_steps:
+            for writer in getattr(self, "video_writers", []):
+                if writer is not None:
+                    writer.close()
+            self.video_writers = []
+
+            if wandb.run is not None:
+                for idx, env_idx in enumerate(self.video_env_ids):
+                    path = os.path.join(
+                        self.video_dir,
+                        f"{mode}_step{self.video_step_start}_env{env_idx}.mp4"
+                    )
+                    wandb_key = f"visualization_{mode}/{mode}_video_env_{env_idx}"
+                    log_step = int(self.distillation_steps) if self.distillation_mode else None  # CODEX
+                    if self.distillation_mode and wandb.run.step is not None:  # CODEX
+                        # Keep video logs monotonic with any prior wandb logs in this process.
+                        log_step = max(log_step, int(wandb.run.step))  # CODEX
+                    if self.distillation_mode:
+                        wandb.log(
+                            {wandb_key: wandb.Video(path, format="mp4")},  # CODEX
+                            step=log_step,  # CODEX
+                            commit=(idx == len(self.video_env_ids) - 1),
+                        )
+                    else:
+                        wandb.log(
+                            {wandb_key: wandb.Video(path, format="mp4")},  # CODEX
+                            commit=(idx == len(self.video_env_ids) - 1),
+                        )
+            if mode == "train":
+                self.train_video_active = False
+            else:
+                self.eval_video_active = False
+
+    # debugging utils
+    def step_sim_multi(self, num_steps=1, render_pcd=True):
+        """
+        Step the simulation. (for debugging purposes)
+        """
+        for _ in range(num_steps):
+            self.gym.simulate(self.sim)
+            self._refresh()
+            if render_pcd:
+                self.vis_pcd()
+            self.render()
+
+    def render_multi(self, num_steps=1):
+        """
+        Render the simulation. (for debugging purposes)
+        """
+        for _ in range(num_steps):
+            self.render()
+
+    def vis_pcd(self):
+        self.gym.clear_lines(self.viewer)
+        for i in range(self.num_envs):
+            # draw point clouds
+            points = self.combined_pcds[i].cpu().numpy()
+
+            # Parameters
+            offset = np.array([0.005, 0.0, 0.0], dtype=np.float32)  # small x-direction offset for line
+            num_points = points.shape[0]
+
+            # Prepare flattened vertices list: [x1,y1,z1,x2,y2,z2,...]
+            verts_flat = []
+            for p in points:
+                p0 = p - offset
+                p1 = p + offset
+                verts_flat.extend([p0[0], p0[1], p0[2], p1[0], p1[1], p1[2]])
+
+            # Colors: same RGB for each line
+            color = [1.0, 0.0, 0.0]  # red
+            colors_flat = color * num_points  # repeat for each line
+
+            # Add lines to viewer
+            self.gym.add_lines(
+                self.viewer,
+                self.envs[i],
+                num_points,     # num_lines = num points
+                verts_flat,     # flat list of start/end points
+                colors_flat     # flat list of RGB triples
+            )
+
+    def debug_plot_reset_pose_samples_viser(self, num_samples: int = 512):
+        """
+        Sample robot reset joint configs using the same reset-noise logic as reset_idx
+        and visualize sampled EE positions in Viser.
+        This function does not modify simulator state.
+        """
+
+        num_samples = int(max(1, num_samples))
+        sample_env_ids = torch.randint(0, self.num_envs, (num_samples,), device=self.device)
+
+        reset_noise = torch.rand((num_samples, 32), device=self.device)
+        reset_noise = 2.0 * (reset_noise - 0.5)
+        reset_noise[:, :3] *= 0.0
+        reset_noise[:, 3:10] *= self.reset_noise_scale["franka"]
+
+        if self.reset_noise_scale["leap"] is None:
+            reset_noise[:, 10:26] = self.unnormalize_robot_joints(reset_noise[:, 10:26], robot="leap", delta=False)
+            reset_noise[:, 10:26] -= self.canonical_joint_config[sample_env_ids, 10:26]
+        else:
+            reset_noise[:, 10:26] *= self.reset_noise_scale["leap"]
+
+        reset_noise[:, 26:32] *= self.reset_noise_scale["arx"]
+
+        sampled_joint_config = tensor_clamp(
+            self.canonical_joint_config[sample_env_ids] + reset_noise,
+            self.robot_dof_lower_limits,
+            self.robot_dof_upper_limits,
+        )
+        if bool(self.cfg["env"]["robot_init"].get("resample_base_each_reset", False)):
+            sampled_joint_config[:, :3] = self._sample_mobile_base_init_pose(
+                sample_env_ids,
+                dtype=sampled_joint_config.dtype,
+            )
+
+        # FK on manipulator joints (panda_joint1..7) in robot-local frame.
+        ee_pose_local = self.get_ee_from_joint(sampled_joint_config[:, 3:10])
+        ee_pos_local = ee_pose_local[:, :3]
+
+        # Transform EE points to world using sampled base SE2 pose.
+        ee_pos_world = ee_pos_local.clone()
+        base_theta = sampled_joint_config[:, 2]
+        c = torch.cos(base_theta)
+        s = torch.sin(base_theta)
+        x_local = ee_pos_local[:, 0]
+        y_local = ee_pos_local[:, 1]
+        ee_pos_world[:, 0] = c * x_local - s * y_local
+        ee_pos_world[:, 1] = s * x_local + c * y_local
+        ee_pos_world[:, 0] += sampled_joint_config[:, 0]
+        ee_pos_world[:, 1] += sampled_joint_config[:, 1]
+
+        self.viser_visualizer.update_point_cloud(
+            point_cloud_type="local_point_t",
+            point_cloud=ee_pos_world.detach().cpu().numpy(),
+            colors=np.tile(np.array([[255, 80, 80]], dtype=np.uint8), (ee_pos_world.shape[0], 1)),
+            point_size=0.006,
+        )
+
+    def _init_viser_visualizer(self):
+        asset_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), self.cfg["env"]["asset"].get("assetRoot"))
+        robot_asset_file = self.cfg["env"]["asset"].get("assetFileNameFranka")
+
+        full_robot_asset_path = os.path.join(asset_root, robot_asset_file)
+        self.viser_visualizer = ViserVisualizer(
+            urdf_path=full_robot_asset_path,
+            num_envs=self.num_envs,
+        )
+
+    def _update_viser_visualizer(self):
+        # only render the selected environment
+        env_id = self.viser_visualizer.env_id
+        self.viser_visualizer.set_joint_positions(
+            self.states['q'][env_id].cpu().numpy(),
+        )
+        # (1, N, 3)
+        pcd_full_scene = self.combined_pcds[env_id:env_id+1]
+        # (1, M, 3)
+        robot_pcd_t = self.robot_pcd_sampler.sample(self.states['q'][env_id:env_id+1], self.torchurdf_to_isaac_idx)
+        pcd_full = torch.cat([pcd_full_scene, robot_pcd_t], dim=1)
+
+        self.viser_visualizer.update_point_cloud(
+            point_cloud_type="full_points",
+            point_cloud=pcd_full[0].cpu().numpy()
+        )
+        # (1, 7)
+        current_camera_pose = self.states["camera_pose7"][env_id:env_id+1]
+        sim_depth_pcd, logs = simulate_depth_cam_render_from_pose(
+            pcd=pcd_full,
+            camera_pose=current_camera_pose,
+            num_points=4096,
+        )
+        self.viser_visualizer.update_point_cloud(
+            point_cloud_type="rendered_points",
+            point_cloud=sim_depth_pcd[0].cpu().numpy()
+        )
+        self.viser_visualizer.update_point_cloud(
+            point_cloud_type="obj_point_t",
+            point_cloud=self.states['object_pos'][env_id].reshape(1, 3).cpu().numpy()
+        )
+        if self.object_pcd_t0 is not None:
+            self.viser_visualizer.update_point_cloud(
+                point_cloud_type="seg_static_object_t0",
+                point_cloud=self.object_pcd_t0[env_id].cpu().numpy()
+            )
+        if self.distractor_settings["enable"]:
+            self.viser_visualizer.update_point_cloud(
+                point_cloud_type="seg_distractor_t0",
+                point_cloud=self.distractor_pcds[env_id].cpu().numpy()
+            )
+
+    @abstractmethod
+    def compute_reward(self):
+        pass
+
+    @abstractmethod
+    def compute_observations(self):
+        self._refresh()
+        return self.obs_buf
+
+
+@hydra.main(config_name="config", config_path="../cfg/")
+def launch_test(cfg: DictConfig):
+    np.random.seed(0)
+    torch.manual_seed(0)
+    cfg_dict = omegaconf_to_dict(cfg)
+    cfg_task = cfg_dict["task"]
+    rl_device = cfg_dict["rl_device"]
+    sim_device = cfg_dict["sim_device"]
+    headless = cfg_dict["headless"]
+    graphics_device_id = 0
+    virtual_screen_capture = False
+    force_render = False
+    env = FrankaLEAPMobileDistillation(cfg_task, rl_device, sim_device, graphics_device_id, headless, virtual_screen_capture, force_render)
+    env.reset()
+
+    for i in tqdm(range(1000)):
+        t1 = time.time()
+        env.reset_idx()
+        import ipdb ; ipdb.set_trace()
+        t2 = time.time()
+        print(f"Reset time: {t2 - t1}")
+        env.render()
+
+
+if __name__ == "__main__":
+    launch_test()

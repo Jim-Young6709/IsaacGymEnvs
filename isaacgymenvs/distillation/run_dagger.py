@@ -27,6 +27,13 @@ def _maybe_set_resume_checkpoint(cfg: DictConfig) -> None:
     if not _RESUME_FROM_LATEST:
         return
 
+    explicit_ckpt = cfg.dagger.get("load_ckpt_path", None)
+    if explicit_ckpt:
+        print("-----------------------------------------------------------")
+        print(f"Using explicit checkpoint: {explicit_ckpt}")  # CODEX: preserve CLI-provided checkpoint instead of overriding with latest.pt.
+        print("-----------------------------------------------------------")
+        return
+
     latest_ckpt = _get_latest_checkpoint_path(cfg)
     if latest_ckpt.is_file():
         cfg.dagger.load_ckpt_path = str(latest_ckpt)
@@ -64,24 +71,5 @@ if __name__ == "__main__":
     import torch._dynamo
     torch._dynamo.config.disable = True
 
-    if os.environ.get(_RELAUNCH_ENV_KEY) == "1":
-        main()
-    else:
-        child_env = os.environ.copy()
-        child_env[_RELAUNCH_ENV_KEY] = "1"
-
-        for _ in range(_MAX_RETRY):
-            result = subprocess.run([sys.executable, *sys.argv], env=child_env)
-
-            if result.returncode == 0:
-                break
-
-            if result.returncode in (-2, 130):
-                print("Training stopped by user. Exiting launcher.")
-                break
-
-            print(
-                f"Training crashed with code {result.returncode}. "
-                f"Relaunching in {_RELAUNCH_DELAY_SECONDS}s..."
-            )
-            time.sleep(_RELAUNCH_DELAY_SECONDS)
+    # CODEX: fail fast for multi-teacher debugging instead of hiding the first traceback behind relaunches.
+    main()

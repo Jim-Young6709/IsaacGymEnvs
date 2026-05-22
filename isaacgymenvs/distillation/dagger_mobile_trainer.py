@@ -36,6 +36,9 @@ class DaggerMobile:
 
         # load configs
         self.multi_gpu = cfg.multi_gpu
+        self.local_rank = 0  # CODEX: keep rank fields available for optional env hooks in single-GPU runs.
+        self.global_rank = 0  # CODEX: verified-bank loading uses this shard rank when present.
+        self.world_size = 1  # CODEX
         if self.multi_gpu:
             dist.init_process_group(backend="nccl")
             self.local_rank = int(os.getenv("LOCAL_RANK", "0"))
@@ -100,6 +103,7 @@ class DaggerMobile:
             return envs
         self.env = create_isaacgym_env()
         self.env.reset() # Is called only once when environment starts to provide the first observations as place holder. Doesn't calculate the actual observations.
+        self._maybe_load_verified_teacher_bank()  # CODEX: env-owned optional reset-bank loading.
 
         # env cfg overrides
         self.env.distillation_mode = True
@@ -162,6 +166,7 @@ class DaggerMobile:
         os.makedirs(self.save_dir, exist_ok=True)
 
         self.eval_freq = self.cfg.dagger.eval_freq
+        self.teacher_eval_only = bool(self.cfg.dagger.get("teacher_eval_only", False))  # CODEX
         self.profile_timing = bool(self.cfg.dagger.get("profile_timing", True))
         self.profile_print_freq = int(self.cfg.dagger.get("profile_print_freq", 1))
         self.profile_cuda_sync = bool(self.cfg.dagger.get("profile_cuda_sync", True))
@@ -210,6 +215,10 @@ class DaggerMobile:
         self.aux_init_only = bool(self.cfg.dagger.get("aux_init_only", False)) and (not self.aux_feedback_to_policy) # if not feeding aux feedback to policy, then aux is effectively only used for initialization
         self.aux_switch_steps = int(self.cfg.dagger.get("aux_feedback_start_steps", 30000))
         self.aux_buffer = torch.zeros(self.env.num_envs, 1, 3, device=self.device)
+        self.aux_anchor_state = torch.zeros(self.env.num_envs, 3, device=self.device)  # CODEX: aux input in current base frame.
+        self.aux_anchor_base_pose7 = torch.zeros(self.env.num_envs, 7, device=self.device)  # CODEX
+        self.aux_anchor_base_pose7[:, 6] = 1.0  # CODEX: identity quaternion until first refresh.
+        self.last_aux_state_from_prev_step_world = torch.zeros(self.env.num_envs, 3, device=self.device)  # CODEX
 
     # teacher loading utils
     def load_param_dict(self, cfg_path) -> Dict:
@@ -284,6 +293,49 @@ class DaggerMobile:
             self.wandb_name = checkpoint["wandb_name"]
             self.wandb_project = checkpoint["wandb_project"]
         return checkpoint["train_success_rate_ep"]
+
+    def _maybe_load_verified_teacher_bank(self):
+        if not bool(getattr(self.env, "_verified_teacher_bank_enable", False)):
+            return False
+        if not hasattr(self.env, "load_verified_teacher_bank_hdf5"):
+            raise RuntimeError("Env enables verified_teacher_bank but does not implement load_verified_teacher_bank_hdf5")
+
+        loaded_verified_bank = self.env.load_verified_teacher_bank_hdf5(rank=self.global_rank, strict=False)
+        if (not self.multi_gpu) or (self.global_rank == 0):
+            shard_path = (
+                self.env._get_verified_teacher_bank_shard_path(rank=self.global_rank)
+                if hasattr(self.env, "_get_verified_teacher_bank_shard_path")
+                else "<unknown>"
+            )
+            print(
+                "[DaggerMobile/verified_teacher_bank] "
+                f"enable=True loaded={loaded_verified_bank} path={shard_path}"
+            )
+
+        if loaded_verified_bank:
+            # CODEX: after loading the env-owned bank, force one reset so the first rollout uses bank states.
+            all_env_ids = torch.arange(self.env.num_envs, device=self.device, dtype=torch.long)
+            self.env.reset_idx(all_env_ids)
+            self.env.compute_observations()
+            if hasattr(self.env, "abs_actions") and "q" in self.env.states:
+                self.env.abs_actions[:] = self.env.states["q"].clone()
+        return loaded_verified_bank
+
+    def _get_teacher_step_actions(self):
+        # CODEX: teacher-only eval uses the same teacher conversion path as DAgger supervision.
+        teacher_obs = self.env.obs_buf.clone()
+        batch_dict = {
+            "is_train": False,
+            "obs": teacher_obs,
+            "prev_actions": None,
+        }
+        with torch.no_grad():
+            res_dict = self.teacher_model(batch_dict)
+        teacher_actions = res_dict["mus"]
+        self.states = res_dict["rnn_states"]
+        teacher_actions = torch.clamp(teacher_actions, -self.env.clip_actions, self.env.clip_actions)
+        self.env._pre_physics_step_teacher(teacher_actions)
+        return self.env.teacher_actions_converted.clone()
 
     # profiling utils
     def _sync_for_timing(self):
@@ -400,18 +452,11 @@ class DaggerMobile:
             # get aux origin
             aux_crop_origin = eef_pos
             if "aux_object_state" in self.state_encoders_keys:
-                noisy_object_center_pos = self.env.states["object_center_pos"].clone()
-                # add noise (-0.05m ~ 0.05m)
-                noisy_object_center_pos = noisy_object_center_pos + 0.1 * ( torch.rand(self.env.num_envs, 3, device=self.device) - 0.5 )
-                if not self._use_aux_feedback():
-                    # TODO: now we are having two different randomization for aux pcd and aux input to the policy, this should be fixed
-                    aux_crop_origin = noisy_object_center_pos
-                else:
-                    aux_crop_origin = self.aux_buffer.clone()
-                    if aux_crop_origin.ndim == 3:
-                        aux_crop_origin = aux_crop_origin[:, 0, :]
-                    if hasattr(self.env, "object_reset_mask") and torch.any(self.env.object_reset_mask):
-                        aux_crop_origin[self.env.object_reset_mask] = noisy_object_center_pos[self.env.object_reset_mask]
+                # CODEX: crop around the same aux anchor passed to the policy, converted back to world frame.
+                aux_crop_origin = self._base_points_to_world_frame(
+                    self.aux_anchor_state.clone(),
+                    self.aux_anchor_base_pose7,
+                )
 
             for key in ['depth', 'lidar']:
                 if num_points_dict[key][1] > 0:
@@ -498,21 +543,30 @@ class DaggerMobile:
 
         return obs_student, wandb_logs
 
-    # Codex
-    def _get_object_center_pos_in_base_frame(self, use_initial_frame=False):
+    # CODEX: aux feedback is stored in world frame, then re-expressed in the current base frame.
+    def _world_points_to_base_frame(self, points_world, base_pose7):
+        base_pos = base_pose7[:, :3]
+        base_quat = base_pose7[:, 3:]
+        base_rot_mat = quaternion_to_matrix_ig(base_quat)
+        rot_global2base = base_rot_mat.transpose(1, 2)
+        point_shifted = (points_world - base_pos).unsqueeze(1)
+        point_base_frame = torch.bmm(point_shifted, rot_global2base)
+        return point_base_frame[:, 0, :]
+
+    def _base_points_to_world_frame(self, points_base, base_pose7):
+        base_pos = base_pose7[:, :3]
+        base_quat = base_pose7[:, 3:]
+        base_rot_mat = quaternion_to_matrix_ig(base_quat)
+        return torch.bmm(points_base.unsqueeze(1), base_rot_mat)[:, 0, :] + base_pos
+
+    def _get_object_center_pos_in_base_frame(self, use_initial_frame=False, base_pose7=None):
         if use_initial_frame:
             object_center_pos = self.env._object_center_init_state.clone()
         else:
             object_center_pos = self.env.states["object_center_pos"].clone()
-
-        franka_base_pos = self.env.states['franka_base_pose7'][:, :3] # (num_envs, 3)
-        franka_base_quat = self.env.states['franka_base_pose7'][:, 3:] # (num_envs, 4)
-        franka_base_rot_mat = quaternion_to_matrix_ig(franka_base_quat)
-        rot_global2base = franka_base_rot_mat.transpose(1, 2) # (num_envs, 3, 3)
-
-        point_shifted = (object_center_pos - franka_base_pos).unsqueeze(1) # (num_envs, 1, 3)
-        point_base_frame = torch.bmm(point_shifted, rot_global2base) # (num_envs, N, 3)
-        return point_base_frame[:, 0, :] # (num_envs, 3)
+        if base_pose7 is None:
+            base_pose7 = self.env.states['franka_base_pose7']
+        return self._world_points_to_base_frame(object_center_pos, base_pose7)
 
     def _aux_to_2d(self, aux_tensor):
         if aux_tensor.ndim == 3:
@@ -528,6 +582,34 @@ class DaggerMobile:
 
     def _use_aux_feedback(self):
         return self.has_aux_input and self.has_aux_prediction and self.aux_feedback_to_policy and (self.total_steps >= self.aux_switch_steps)
+
+    def _refresh_aux_anchor_state(self, add_noise, use_initial_frame=False):
+        if "aux_object_state" not in self.state_encoders_keys:
+            return
+        fallback_aux_base = self._get_object_center_pos_in_base_frame(
+            use_initial_frame=use_initial_frame,
+            base_pose7=self.aux_anchor_base_pose7,
+        )
+        if add_noise:
+            fallback_aux_base = fallback_aux_base + 0.1 * (
+                torch.rand(self.env.num_envs, 3, device=self.device) - 0.5
+            )
+
+        if not self._use_aux_feedback():
+            self.aux_anchor_state[:] = fallback_aux_base
+        else:
+            self.aux_anchor_state[:] = self._world_points_to_base_frame(
+                self.last_aux_state_from_prev_step_world,
+                self.aux_anchor_base_pose7,
+            )
+            if hasattr(self.env, "object_reset_mask") and torch.any(self.env.object_reset_mask):
+                reset_mask = self.env.object_reset_mask
+                self.aux_anchor_state[reset_mask] = fallback_aux_base[reset_mask]
+                self.last_aux_state_from_prev_step_world[reset_mask] = self._base_points_to_world_frame(
+                    fallback_aux_base[reset_mask],
+                    self.aux_anchor_base_pose7[reset_mask],
+                )
+        self.aux_buffer[:] = self.aux_anchor_state.unsqueeze(1)
 
     def _get_aux_target(self, object_center_pos, prev_abs_aux):
         prev_abs_aux_2d = self._aux_to_2d(prev_abs_aux)
@@ -546,8 +628,8 @@ class DaggerMobile:
         franka_base_quat = self.env.states['franka_base_pose7'][:, 3:]
         franka_base_rot_mat = quaternion_to_matrix_ig(franka_base_quat)
 
-        aux_base = self._aux_to_2d(self.aux_buffer)
-        aux_world = torch.bmm(aux_base.unsqueeze(1), franka_base_rot_mat)[:, 0, :] + franka_base_pos
+        # CODEX: draw the latest aux prediction in world frame; aux_buffer itself is tied to its anchor base frame.
+        aux_world = self.last_aux_state_from_prev_step_world.clone()
 
         aux_dims = self.env.mesh_aabb_extents
         aux_box_pos = aux_world.clone()
@@ -596,6 +678,8 @@ class DaggerMobile:
             # get obs t_a0 for student, q_hand, rel_pcd
             profile_start = self._profile_start()
             q_robot = self.env.states['q'].clone() # (num_envs, 32)
+            self.aux_anchor_base_pose7[:] = self.env.states['franka_base_pose7'].clone()  # CODEX
+            self._refresh_aux_anchor_state(add_noise=True, use_initial_frame=self.aux_init_only)  # CODEX
 
             if self.env.sim_steps == 0:
                 self.env.abs_actions[:] = q_robot
@@ -626,24 +710,8 @@ class DaggerMobile:
                 obs_input_a0["action_history"] = self.env.action_history_buf.clone()
 
             if "aux_object_state" in self.state_encoders_keys:
-                # Codex
-                noisy_object_center_pos = self._get_object_center_pos_in_base_frame(use_initial_frame=self.aux_init_only)
-                # add noise (-0.05m ~ 0.05m)
-                noisy_object_center_pos = noisy_object_center_pos + 0.1 * ( torch.rand(self.env.num_envs, 3, device=self.device) - 0.5 )
-
-                if not self._use_aux_feedback():
-                    obs_input_a0["aux_object_state"] = noisy_object_center_pos
-                else:
-                    aux_object_state = self.aux_buffer.clone()
-                    # Codex
-                    if hasattr(self.env, "object_reset_mask") and torch.any(self.env.object_reset_mask):
-                        if aux_object_state.ndim == 3:
-                            aux_object_state[self.env.object_reset_mask, 0, :] = noisy_object_center_pos[self.env.object_reset_mask]
-                        else:
-                            aux_object_state[self.env.object_reset_mask, :] = noisy_object_center_pos[self.env.object_reset_mask]
-                    obs_input_a0["aux_object_state"] = aux_object_state
-
-                # Codex
+                # CODEX: aux scalar input and aux local crop share the same current-base-frame anchor.
+                obs_input_a0["aux_object_state"] = self.aux_anchor_state.clone()
                 if hasattr(self.env, "object_reset_mask"):
                     self.env.object_reset_mask[:] = False
             self._profile_end(episode_profile_stats, "train/state_inputs", profile_start)
@@ -656,11 +724,16 @@ class DaggerMobile:
                     output = student_model(obs_input_a0)
                 student_actions_chunk = output["action"].float()
                 if self.has_aux_prediction:
-                    self.aux_buffer[:] = self._decode_aux_prediction(output["aux"], obs_input_a0["aux_object_state"])
+                    decoded_aux = self._decode_aux_prediction(output["aux"], obs_input_a0["aux_object_state"])  # CODEX
+                    self.aux_buffer[:] = decoded_aux[:, :1, :]  # CODEX
+                    self.last_aux_state_from_prev_step_world[:] = self._base_points_to_world_frame(  # CODEX
+                        self.aux_buffer[:, 0, :],
+                        self.aux_anchor_base_pose7,
+                    )
             self._profile_end(episode_profile_stats, "train/student_inference", profile_start)
 
             teacher_preds_buffer = []
-            aux_ref_state = obs_input_a0["aux_object_state"] if self.has_aux_prediction else None
+            aux_ref_state = self.aux_anchor_state.clone() if self.has_aux_prediction else None  # CODEX
 
             for action_idx in range(self.chunk_size):
                 # get teacher action
@@ -695,7 +768,9 @@ class DaggerMobile:
 
                 teacher_actions = self.env.teacher_actions_converted.clone()
                 if self.has_aux_prediction:
-                    object_center_pos = self._get_object_center_pos_in_base_frame()
+                    object_center_pos = self._get_object_center_pos_in_base_frame(  # CODEX
+                        base_pose7=self.aux_anchor_base_pose7,
+                    )
                     aux_target = self._get_aux_target(object_center_pos, aux_ref_state)
                     teacher_pred = torch.cat([teacher_actions, aux_target], dim=1) # add aux info, object_xyz_pos
                 else:
@@ -795,7 +870,9 @@ class DaggerMobile:
 
         return ave_loss, episode_profile_stats
 
-    def eval(self):
+    def eval(self, policy_source="student"):
+        if policy_source not in ("student", "teacher"):
+            raise ValueError(f"policy_source must be 'student' or 'teacher', got {policy_source}")
         self.env.reset_idx()
         self.env.compute_observations()
         self.env.abs_actions[:] = self.env.states['q'].clone()
@@ -803,8 +880,19 @@ class DaggerMobile:
         for _ in tqdm(range(self.steps_per_episode), desc="Evaluating", \
             ncols=None, dynamic_ncols=True, disable=(self.multi_gpu and self.global_rank != 0) ):
 
+            if policy_source == "teacher":
+                # CODEX: teacher-only eval should not depend on student inputs or student forward.
+                for _ in range(self.chunk_size):
+                    step_actions = self._get_teacher_step_actions()
+                    step_actions = torch.clamp(step_actions, -self.env.clip_actions, self.env.clip_actions)
+                    self.env.progress_buf[:] = 0
+                    self.env.step(step_actions)
+                continue
+
             # get obs t_a0 for student, q_hand, rel_pcd
             q_robot = self.env.states['q'].clone() # (num_envs, 32)
+            self.aux_anchor_base_pose7[:] = self.env.states['franka_base_pose7'].clone()  # CODEX
+            self._refresh_aux_anchor_state(add_noise=False, use_initial_frame=self.aux_init_only)  # CODEX
 
             full_scene_pcd_t = self.env.combined_pcds # scene pcd + object pcd
             robot_pcd_t = self.env.robot_pcd_sampler.sample(q_robot, self.env.torchurdf_to_isaac_idx)
@@ -830,18 +918,8 @@ class DaggerMobile:
                 obs_input_a0["action_history"] = self.env.action_history_buf.clone()
 
             if "aux_object_state" in self.state_encoders_keys:
-                gt_object_center_pos = self._get_object_center_pos_in_base_frame(use_initial_frame=self.aux_init_only)
-                if self._use_aux_feedback():
-                    aux_object_state = self.aux_buffer.clone()
-                    if hasattr(self.env, "object_reset_mask") and torch.any(self.env.object_reset_mask):
-                        if aux_object_state.ndim == 3:
-                            aux_object_state[self.env.object_reset_mask, 0, :] = gt_object_center_pos[self.env.object_reset_mask]
-                        else:
-                            aux_object_state[self.env.object_reset_mask, :] = gt_object_center_pos[self.env.object_reset_mask]
-                    obs_input_a0["aux_object_state"] = aux_object_state
-                else:
-                    obs_input_a0["aux_object_state"] = gt_object_center_pos
-
+                # CODEX: eval uses the same frame-consistent aux anchor, without training noise.
+                obs_input_a0["aux_object_state"] = self.aux_anchor_state.clone()
                 if hasattr(self.env, "object_reset_mask"):
                     self.env.object_reset_mask[:] = False
 
@@ -852,7 +930,12 @@ class DaggerMobile:
                     output = student_model(obs_input_a0)
                 student_actions_chunk = output["action"].float()
                 if self.has_aux_prediction:
-                    self.aux_buffer[:] = self._decode_aux_prediction(output["aux"], obs_input_a0["aux_object_state"])
+                    decoded_aux = self._decode_aux_prediction(output["aux"], obs_input_a0["aux_object_state"])  # CODEX
+                    self.aux_buffer[:] = decoded_aux[:, :1, :]  # CODEX
+                    self.last_aux_state_from_prev_step_world[:] = self._base_points_to_world_frame(  # CODEX
+                        self.aux_buffer[:, 0, :],
+                        self.aux_anchor_base_pose7,
+                    )
 
             # plot aux prediction in gui
             if not self.env.headless:
@@ -879,16 +962,43 @@ class DaggerMobile:
         )
         self.env.abs_actions[:] = self.env.states['q'].clone()
 
-        eval_wandb_logs = {
-            "metrics/eval_success_rate_5cm_final_step": self.env.extras["metrics/success_rate_5cm_per_step"],
-            "metrics/eval_success_rate_5cm_per_ep": self.env.extras["metrics/success_rate_5cm_per_ep"],
-            "metrics/eval_lifting_rate_5cm_final_step": self.env.extras["metrics/lifting_rate_5cm_per_step"],
-            "metrics/eval_lifting_rate_5cm_per_ep": self.env.extras["metrics/lifting_rate_5cm_per_ep"],
-        }
+        if policy_source == "student":
+            eval_wandb_logs = {
+                "metrics/eval_success_rate_5cm_final_step": self.env.extras["metrics/success_rate_5cm_per_step"],
+                "metrics/eval_success_rate_5cm_per_ep": self.env.extras["metrics/success_rate_5cm_per_ep"],
+                "metrics/eval_lifting_rate_5cm_final_step": self.env.extras["metrics/lifting_rate_5cm_per_step"],
+                "metrics/eval_lifting_rate_5cm_per_ep": self.env.extras["metrics/lifting_rate_5cm_per_ep"],
+            }
+        else:
+            eval_wandb_logs = {
+                "teacher_eval/success_rate_5cm_final_step": self.env.extras["metrics/success_rate_5cm_per_step"],
+                "teacher_eval/success_rate_5cm_per_ep": self.env.extras["metrics/success_rate_5cm_per_ep"],
+                "teacher_eval/lifting_rate_5cm_final_step": self.env.extras["metrics/lifting_rate_5cm_per_step"],
+                "teacher_eval/lifting_rate_5cm_per_ep": self.env.extras["metrics/lifting_rate_5cm_per_ep"],
+            }
+            for key, value in self.env.extras.items():
+                if key.startswith("metrics/verified_bank_"):
+                    eval_wandb_logs[f"teacher_eval/{key[len('metrics/') :]}"] = value  # CODEX
+            if (not self.multi_gpu) or (self.global_rank == 0):
+                print(
+                    "[teacher_eval] "
+                    f"episode={self.episode} "
+                    f"success_rate_5cm_per_ep={eval_wandb_logs['teacher_eval/success_rate_5cm_per_ep']:.4f} "
+                    f"lifting_rate_5cm_per_ep={eval_wandb_logs['teacher_eval/lifting_rate_5cm_per_ep']:.4f}"
+                )
 
         return eval_wandb_logs
 
     def train(self):
+        if self.teacher_eval_only:
+            while True:
+                eval_wandb_logs = self.eval(policy_source="teacher")  # CODEX
+                self.total_steps += int(self.env.max_episode_length)
+                if ((not self.multi_gpu) or (self.global_rank == 0)) and self.use_wandb:
+                    wandb.log(eval_wandb_logs, step=self.total_steps)
+                self.episode += 1
+            return
+
         while self.episode < self.total_episodes:
             metrics = {}
 

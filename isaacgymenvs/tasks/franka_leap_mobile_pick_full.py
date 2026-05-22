@@ -83,6 +83,9 @@ class FrankaLEAPMobilePickFull(FrankaLEAPMobile):
                 self.saved_mesh_indices.append(int(np.asarray(demo['mesh_idx']).reshape(-1)[0]))
             else:
                 self.saved_mesh_indices.append(None)
+        replay_mesh_indices = [idx for idx in self.saved_mesh_indices if idx is not None]
+        if replay_mesh_indices:
+            self.required_mesh_preload_count = max(replay_mesh_indices) + 1  # CODEX: small debug runs must still load replayed HDF5 mesh indices.
 
         self.compartments = torch.tensor(self.compartments, device=self.device) # (num_envs, 10), 10 = 3 (xyz dims) + 3 (xyz pos) + 4 (xyzw quat)
 
