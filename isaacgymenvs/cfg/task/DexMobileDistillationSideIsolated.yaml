@@ -15,6 +15,9 @@ env:
     teacher_bank_height_assignment_json: null
   teacher_obs_action_frame: "eef"
   rl_reference_table_surface_height: 0.175
+  mesh:
+    mesh_dir: "./meshes_long/default"
+    variant_manifest_json: "./teacher_state_bank_3/side_long_default_stable4_manifest_v2.json"
   object_settings:
     object_grasp_target_z_scale: 0.4 # CODEX: match the side RL teacher's object_grasp_target_to_eef observation.
     robot_side_x_margin: 0.1

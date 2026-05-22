@@ -513,7 +513,6 @@ class DaggerMobileMultiExp:
             "task.env.enable_viser",
             "task.env.teacher_obs_action_frame",
             "task.env.mesh.mesh_dir",
-            "task.env.mesh.variant_manifest_json",
             "task.env.grasp_guide_idx",
             "task.env.object_settings.mass_range",
             "task.env.object_teleport.enable",
@@ -529,7 +528,6 @@ class DaggerMobileMultiExp:
             "task.env.verified_teacher_bank.sampling_probs.afar",
             "task.env.verified_teacher_bank.sampling_probs.near_recovery",
             "task.env.verified_teacher_bank.sampling_probs.far_recovery",
-            "task.env.verified_teacher_bank.sampling_probs.failure_recovery",
         )
         return {path: self._get_cfg_path(cfg, path) for path in paths if self._has_cfg_path(cfg, path)}
 
