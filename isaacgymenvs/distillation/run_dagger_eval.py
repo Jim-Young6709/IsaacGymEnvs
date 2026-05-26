@@ -72,12 +72,15 @@ def _mean_logs(logs_per_episode):
 
 def _run_eval(trainer, num_episodes, include_env_extras):
     logs_per_episode = []
-    for _ in range(num_episodes):
+    table_rows = []
+    for episode in range(num_episodes):
         logs = {key: _scalar(value) for key, value in trainer.eval().items()}
         if include_env_extras:
             logs = {**{key: _scalar(value) for key, value in trainer.env.extras.items()}, **logs}
         logs_per_episode.append(logs)
-    return _mean_logs(logs_per_episode)
+        for row in getattr(trainer, "last_eval_rollout_table_rows", []):
+            table_rows.append({"episode": episode, **row})
+    return _mean_logs(logs_per_episode), table_rows
 
 
 def _save_eval_logs(cfg: DictConfig, ckpt_path: Path, eval_logs: dict) -> Path:
@@ -99,6 +102,28 @@ def _save_eval_logs(cfg: DictConfig, ckpt_path: Path, eval_logs: dict) -> Path:
     with open(metrics_path, "w") as f:
         json.dump(payload, f, indent=2, sort_keys=True)
     return metrics_path
+
+
+def _save_table_txt(cfg: DictConfig, table_rows: list, metrics_path: Path = None) -> Path:
+    if metrics_path is None:
+        exp_name = str(cfg.experiment or cfg.wandb_name)
+        exp_name = "".join(char if char.isalnum() or char in "-_." else "_" for char in exp_name)
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        txt_path = Path("logs") / "eval" / f"{exp_name}_{timestamp}_table.txt"
+    else:
+        txt_path = metrics_path.with_name(f"{metrics_path.stem}_table.txt")
+
+    txt_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(txt_path, "w") as f:
+        f.write("episode\tenv_id\ttable_height\tcompartment_dim_x\tcompartment_dim_y\tcompartment_dim_z\tsuccess\n")
+        for row in table_rows:
+            f.write(
+                f"{row['episode']}\t{row['env_id']}\t"
+                f"{row['table_height']:.6f}\t"
+                f"{row['compartment_dim_x']:.6f}\t{row['compartment_dim_y']:.6f}\t{row['compartment_dim_z']:.6f}\t"
+                f"{'yes' if row['success'] else 'no'}\n"
+            )
+    return txt_path
 
 
 def _print_eval_logs(eval_logs: dict) -> None:
@@ -125,15 +150,19 @@ def main(cfg: DictConfig):
         )
 
     trainer = DaggerMobile(cfg=cfg)
-    eval_logs = _run_eval(trainer, num_episodes, bool(_cfg(cfg.eval, "include_env_extras", True)))
+    eval_logs, table_rows = _run_eval(trainer, num_episodes, bool(_cfg(cfg.eval, "include_env_extras", True)))
 
     _print_eval_logs(eval_logs)
     if getattr(trainer, "use_wandb", False):
         wandb.log(eval_logs, step=trainer.total_steps)
 
+    metrics_path = None
     if bool(_cfg(cfg.eval, "save_metrics", True)):
         metrics_path = _save_eval_logs(cfg, ckpt_path, eval_logs)
         colorprint(f"Saved eval metrics to {metrics_path}", color="cyan")
+    if table_rows:
+        table_path = _save_table_txt(cfg, table_rows, metrics_path)
+        colorprint(f"Saved eval table log to {table_path}", color="cyan")
 
     if getattr(trainer, "use_wandb", False):
         wandb.finish()

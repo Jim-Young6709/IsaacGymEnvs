@@ -502,6 +502,17 @@ class DaggerMobileMultiExp:
         if "local_pcd_t" in self.pcd_encoders_keys:
             obs_student['local_pcd_t'] = obs['local_pcd_t']
 
+        if "gt_pcd_t" in self.pcd_encoders_keys:
+            base_gt_cylindrical_local_pcd_t, base_gt_cylindrical_crop_logs = crop_local_pcd(
+                pcd=obs['gt_pcd_t'],
+                local_range=1.5,
+                num_local_points=3072,
+                is_cylindrical=True,
+                crop_center=franka_base_pos,
+                log_name=f"base_gt_pcd_t",
+            ) # (num_envs, num_local_points, 3)
+            obs_student['gt_pcd_t'] = base_gt_cylindrical_local_pcd_t
+
         # convert all pcd to franka base frame
         profile_start = self._profile_start()
         for key in obs_student.keys():
