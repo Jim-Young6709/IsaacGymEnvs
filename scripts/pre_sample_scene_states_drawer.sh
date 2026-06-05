@@ -67,10 +67,10 @@ NUM_ENVS_LIST=(1250)
 
 BASE_INIT_RANGE="[[-1.0, -0.5, -1.5], [-0.2, 0.5, 1.5]]"
 SEED=11
-TASK_NAME="May16_drawer_newfabricnewcanoninewswitching_t0inview_part1"
+TASK_NAME="May21_drawer_t0inview_part3"
 TEACHER_CKPT="./rl_ckpts/exp_top_Apr9.pth"
 SCENE_DIR="./presampled_envs/scene_only"
-SCENE_HDF5="May13_drawer10k_part1_post.hdf5"
+SCENE_HDF5="May13_drawer10k_part3_post.hdf5"
 HEADLESS="True"
 SCENE_GEN_ONLY="False"
 OBJECT_T0="True"
