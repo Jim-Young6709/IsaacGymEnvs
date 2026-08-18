@@ -23,10 +23,10 @@ env:
     obj_reset_center_quat: [0.0, 0.0, 0.0, 1.0] # object reset orientation, in xyzw format
 
 pcd_spec:
-  num_static_points: 10240
-  num_robot_points: 10240
-  num_object_points: 5120
-  num_distractor_points: 20480
+  num_static_points: 1024
+  num_robot_points: 1024
+  num_object_points: 512
+  num_distractor_points: 2048
   simulate_sensor_pcd: True
 
 

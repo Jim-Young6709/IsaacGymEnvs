@@ -51,10 +51,10 @@ import random
 from scipy.spatial.transform import Rotation as R
 from curobo.types.math import Pose
 
-from fabrics_sim.fabrics.glorbot_vision_fabric import GlorbotVisionFabric
-from fabrics_sim.integrator.integrators import DisplacementIntegrator
-from fabrics_sim.worlds.world_mesh_model import WorldMeshesModel
-from fabrics_sim.utils.utils import initialize_warp
+# from fabrics_sim.fabrics.glorbot_vision_fabric import GlorbotVisionFabric
+# from fabrics_sim.integrator.integrators import DisplacementIntegrator
+# from fabrics_sim.worlds.world_mesh_model import WorldMeshesModel
+# from fabrics_sim.utils.utils import initialize_warp
 
 
 
@@ -1717,10 +1717,15 @@ class FrankaLEAPMobile(VecTask):
             hand_actions = actions[:, 6:] * self.action_scale["leap"] * self.dt
             delta_hand_joint_actions_unnormalized = self.unnormalize_robot_joints(hand_actions, robot="leap", delta=True)
         else:
+            base_actions = actions[:, :3] * 0.6 * self.dt
             arm_actions = actions[:, 3:10] * self.action_scale["franka"] * self.dt
             hand_actions = actions[:, 10:26] * self.action_scale["leap"] * self.dt
-            delta_arm_joint_actions_unnormalized = self.unnormalize_robot_joints(arm_actions, robot="franka", delta=True)
+            vision_arm_actions = actions[:, 26:32] * self.action_scale["arx"] * self.dt
+            delta_arm_joint_actions_unnormalized = torch.zeros((self.num_envs, 10), device=self.device)
+            delta_arm_joint_actions_unnormalized[:, :3] = base_actions
+            delta_arm_joint_actions_unnormalized[:, 3:10] = self.unnormalize_robot_joints(arm_actions, robot="franka", delta=True)
             delta_hand_joint_actions_unnormalized = self.unnormalize_robot_joints(hand_actions, robot="leap", delta=True)
+            self.delta_joint_actions[:, 26:32] = self.unnormalize_robot_joints(vision_arm_actions, robot="arx", delta=True)
 
         self.delta_joint_actions[:, :10] = delta_arm_joint_actions_unnormalized[:, :10]
         self.delta_joint_actions[:, 10:26] = delta_hand_joint_actions_unnormalized
@@ -1908,7 +1913,7 @@ class FrankaLEAPMobile(VecTask):
         """
 
         # randomize actions
-        if self.dr_randomizations.get('actions', None):
+        if self.dr_randomizations.get('actions', None) and self.enable_fabric:
             actions[~self.fabric_switch_enable][:, :26] = self.dr_randomizations['actions']['noise_lambda'](actions)[~self.fabric_switch_enable][:, :26] # might have minor bugs here according to codex?
 
         action_tensor = torch.clamp(actions, -self.clip_actions, self.clip_actions)

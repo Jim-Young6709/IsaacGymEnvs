@@ -10,7 +10,7 @@ cfg_override: "" # TopdownTable, TopdownConstrained, SideTable, SideConstrained
 # if given, will override the device setting in gym. 
 env:
   scene:
-    hdf5_path: "./static_scenes/2box100.hdf5"
+    hdf5_path: "./presampled_envs/final/May16_3xtop_sr_0.6531_num_12300.hdf5"
     batch_idx: 0
     safety_box_tol: 0.1 # in meters, when object is randomly sampled in the safety box region, keep it at certain distance from the region boundaries
 
@@ -30,15 +30,15 @@ env:
     franka: 0.2 # joint angle
     arx: 0.2 # joint angle
 
-  numObservations: 61 # 49, 61
-  numStates: 106 # 94, 106
-  numActions: 22 # delta eef actions 6 (xyz, rpy) + normalized hand joint actions 16
+  numObservations: 892 # 49, 61
+  numStates: 892 # 94, 106
+  numActions: 32 # delta eef actions 6 (xyz, rpy) + normalized hand joint actions 16
 
 pcd_spec:
-  num_static_points: 20480
-  num_robot_points: 10240
-  num_object_points: 5120
-  num_distractor_points: 20480
+  num_static_points: 256
+  num_robot_points: 1024
+  num_object_points: 512
+  num_distractor_points: 2048
   simulate_sensor_pcd: True
 
 fabric:
@@ -64,7 +64,7 @@ reward:
     w_obj_drag: 0.0
     w_lift: 2.0
     w_curl: 0.5
-    w_colli: -1.0
+    w_colli: -0.1
     w_actionreg: -0.001
 
   actionreg_type: "" # "delta_joint_action", "delta_eef_action", "delta_qd"

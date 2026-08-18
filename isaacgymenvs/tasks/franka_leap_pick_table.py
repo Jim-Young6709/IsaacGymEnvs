@@ -203,7 +203,7 @@ class FrankaLEAPPickTable(FrankaLEAP):
                              "object_to_eef", "object_to_eef_rot_6d",
                              "target_to_eef", "target_to_eef_rot_6d"]
 
-        obs_buf = torch.cat([self.states[ob] for ob in obs_components], dim=-1)
+        obs_buf = torch.cat([self.states[ob] for ob in states_components], dim=-1)
         states_buf = torch.cat([self.states[st] for st in states_components], dim=-1)
 
         obs_buf = torch.cat([obs_buf, self.mesh_aabb_extents], dim=-1)

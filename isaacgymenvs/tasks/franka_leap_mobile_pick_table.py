@@ -231,8 +231,9 @@ class FrankaLEAPMobilePickTable(FrankaLEAPMobile):
         self.obj_pos_target[~lift_5cm, :2] = self.states["object_center_pos"][~lift_5cm, :2]  # x, y
         self.obj_pos_target[:, 2] = self.table_surface_height + self.reward_settings['target_lift_dis']
 
-        self.switching_target_pos = self.states['object_center_pos'].clone()
-        self.switching_target_pos += self.switch_pos_offset
+        if self.enable_fabric:
+            self.switching_target_pos = self.states['object_center_pos'].clone()
+            self.switching_target_pos += self.switch_pos_offset
 
         self.states.update({
             # check whether the object is lifted based on bottom board force contact info
@@ -261,7 +262,7 @@ class FrankaLEAPMobilePickTable(FrankaLEAPMobile):
                              "object_to_eef", "object_to_eef_rot_6d",
                              "target_to_eef", "target_to_eef_rot_6d"]
 
-        obs_buf = torch.cat([self.states[ob] for ob in obs_components], dim=-1)
+        obs_buf = torch.cat([self.states[ob] for ob in states_components], dim=-1)
         states_buf = torch.cat([self.states[st] for st in states_components], dim=-1)
 
         # TODO： convert box to a local region

@@ -17,12 +17,12 @@ env:
     switch_pos_offset: [0.0, 0.0, 0.2]
     switch_tol: 0.2
 
-  numObservations: 49
-  numStates: 94
-  numActions: 22 # delta eef actions 6 (xyz, rpy) + normalized hand joint actions 16
+  numObservations: 112
+  numStates: 112
+  numActions: 32 # delta eef actions 6 (xyz, rpy) + normalized hand joint actions 16
 
 fabric:
-  enable: True
+  enable: False
 
 reward:
   params:

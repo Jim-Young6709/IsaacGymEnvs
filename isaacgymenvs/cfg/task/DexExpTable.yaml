@@ -7,9 +7,9 @@ name: FrankaLEAPPickTable
 
 # if given, will override the device setting in gym. 
 env:
-  numObservations: 49
+  numObservations: 94
   numStates: 94
-  numActions: 22 # delta eef actions 6 (xyz, rpy) + normalized hand joint actions 16
+  numActions: 23 # delta eef actions 6 (xyz, rpy) + normalized hand joint actions 16
 
 reward:
   params:

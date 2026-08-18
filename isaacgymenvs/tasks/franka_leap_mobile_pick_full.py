@@ -54,7 +54,7 @@ class FrankaLEAPMobilePickFull(FrankaLEAPMobile):
             cfg["env"]["numObservations"] = 61
             cfg["env"]["numStates"] = 106
             cfg["env"]["robot_init"]["switch_pos_offset"] = [-0.1,0.0,0.15] # TODO: the x offset should be along box_quat's x-axis, but now its the global x axis, update this later
-            cfg["env"]["robot_init"]["switch_tol"] = 0.2
+            cfg["env"]["robot_init"]["switch_tol"] = 0.4
             cfg["reward"]["params"]["target_quat"] = [0.5, -0.5, 0.5, -0.5]
 
         return cfg
@@ -104,12 +104,12 @@ class FrankaLEAPMobilePickFull(FrankaLEAPMobile):
         self.switching_target_pos = self._object_state[:, :3].clone()
         # self.switching_target_pos[:, 2] += self.mesh_aabb_extents[:, 2] / 2
         if self.cfg_override == "SideConstrained":
-            self.switching_target_pos[:, 0] = self.box_pos[:, 0] - self.box_dims[:, 0] / 2 # override x to be at the box edge
+            # self.switching_target_pos[:, 0] = self.box_pos[:, 0] - self.box_dims[:, 0] / 2 # override x to be at the box edge
             self._switching_target_quat_precomputed = torch.tensor([[0.5, -0.5, 0.5, -0.5]] * self.num_envs, device=self.device)
         else:
             self._switching_target_quat_precomputed = torch.tensor([[1.0, 0.0, 0.0, 0.0]] * self.num_envs, device=self.device)  # 180 degrees around local x-axis
-        self.switching_target_pos += self.switch_pos_offset
-        self.switching_target_quat = quat_mul(self.box_quats, self._switching_target_quat_precomputed)
+        # self.switching_target_pos += self.switch_pos_offset
+        self.switching_target_quat = torch.tensor([[1.0, 0.0, 0.0, 0.0]] * self.num_envs, device=self.device)#quat_mul(self.box_quats, self._switching_target_quat_precomputed)
 
     def _create_envs(self, spacing, num_per_row):
         """
@@ -458,14 +458,14 @@ class FrankaLEAPMobilePickFull(FrankaLEAPMobile):
 
         self.switching_target_pos = self.states['object_center_pos'].clone()
         self.switching_target_pos[:, 2] -= self.mesh_aabb_extents[:, 2] / 2
-        if self.cfg_override == "SideConstrained":
-            self.switching_target_pos[:, 0] = self.box_pos[:, 0] - self.box_dims[:, 0] / 2
-        self.switching_target_pos += self.switch_pos_offset
+        # if self.cfg_override == "SideConstrained":
+            # self.switching_target_pos[:, 0] = self.box_pos[:, 0] - self.box_dims[:, 0] / 2
+        # self.switching_target_pos += self.switch_pos_offset
         if self.viewer is not None:
             self.gym.clear_lines(self.viewer)
             for i in range(self.num_envs):
                 self.draw_box_lines(i, self.box_pos[i], self.box_quats[i], self.box_dims[i])
-            self.draw_switching_target_pose()
+            # self.draw_switching_target_pose()
 
         self.states.update({
             # Box region
@@ -488,6 +488,7 @@ class FrankaLEAPMobilePickFull(FrankaLEAPMobile):
     def compute_observations(self):
         self._refresh()
 
+        pcd_obs_input = self.static_pcds.view(self.num_envs, -1)
         if self.num_observations == 49:
             obs_components = ["q_hand",
                             "eef_finger1_pos_relative", "eef_finger2_pos_relative",
@@ -509,7 +510,7 @@ class FrankaLEAPMobilePickFull(FrankaLEAPMobile):
                                 "eef_finger3_pos_relative", "eef_finger4_pos_relative",
                                 "object_to_eef", "object_to_eef_rot_6d",
                                 "target_to_eef", "target_to_eef_rot_6d"]
-        elif self.num_states == 106:
+        elif self.num_states == 892:
             states_components = ["q", "qd",
                                 "eef_pos", "eef_rot_6d", "eef_vel",
                                 "eef_finger1_pos_relative", "eef_finger2_pos_relative",
@@ -518,11 +519,17 @@ class FrankaLEAPMobilePickFull(FrankaLEAPMobile):
                                 "object_to_eef", "object_to_eef_rot_6d",
                                 "target_to_eef", "target_to_eef_rot_6d"]
 
+        if self.num_observations == 892:
+            obs_components = states_components
+
         obs_buf = torch.cat([self.states[ob] for ob in obs_components], dim=-1)
         states_buf = torch.cat([self.states[st] for st in states_components], dim=-1)
 
         obs_buf = torch.cat([obs_buf, self.mesh_aabb_extents], dim=-1)
         states_buf = torch.cat([states_buf, self.mesh_aabb_extents], dim=-1)
+
+        obs_buf = torch.cat([obs_buf, pcd_obs_input], dim=-1)
+        states_buf = torch.cat([states_buf, pcd_obs_input], dim=-1)
 
         self.obs_buf = obs_buf
         self.states_buf = states_buf

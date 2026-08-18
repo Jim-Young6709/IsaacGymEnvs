@@ -42,7 +42,7 @@ class DaggerMobile:
             self.global_rank = int(os.getenv("RANK", "0"))
             self.world_size = int(os.getenv("WORLD_SIZE", "1"))   
 
-            cfg.task.env.scene.batch_idx = self.global_rank
+            # cfg.task.env.scene.batch_idx = self.global_rank
             cfg.sim_device = f"cuda:{self.local_rank}"
             cfg.rl_device = f"cuda:{self.local_rank}"
             torch.cuda.set_device(self.local_rank)
@@ -487,6 +487,17 @@ class DaggerMobile:
         if "local_pcd_t" in self.pcd_encoders_keys:
             obs_student['local_pcd_t'] = obs['local_pcd_t']
 
+        if "gt_pcd_t" in self.pcd_encoders_keys:
+            base_gt_cylindrical_local_pcd_t, base_gt_cylindrical_crop_logs = crop_local_pcd(
+                pcd=obs['gt_pcd_t'],
+                local_range=1.5,
+                num_local_points=3072,
+                is_cylindrical=True,
+                crop_center=franka_base_pos,
+                log_name=f"base_gt_pcd_t",
+            ) # (num_envs, num_local_points, 3)
+            obs_student['gt_pcd_t'] = base_gt_cylindrical_local_pcd_t
+
         # convert all pcd to franka base frame
         profile_start = self._profile_start()
         for key in obs_student.keys():
@@ -799,6 +810,21 @@ class DaggerMobile:
         self.env.reset_idx()
         self.env.compute_observations()
         self.env.abs_actions[:] = self.env.states['q'].clone()
+        reaching_collision_flags = torch.zeros(self.env.num_envs, device=self.device, dtype=torch.bool)
+        fabric_switch_flags = torch.zeros(self.env.num_envs, device=self.device, dtype=torch.bool)
+
+        def update_reaching_phase_collision():
+            collision_mask = self.env.env_collision.bool()
+            reaching_collision_flags.logical_or_(collision_mask & (~fabric_switch_flags))
+
+            if getattr(self.env, "enable_fabric", False):
+                switching_matching_err = self.env._get_eef_point_matching_err(
+                    curent_eef_pos7=self.env._eef_state[:, :7],
+                    target_eef_pos7=torch.cat([self.env.switching_target_pos, self.env.switching_target_quat], dim=-1),
+                )
+                fabric_switch_flags.logical_or_(switching_matching_err < self.env.switch_tol)
+
+        update_reaching_phase_collision()
 
         for _ in tqdm(range(self.steps_per_episode), desc="Evaluating", \
             ncols=None, dynamic_ncols=True, disable=(self.multi_gpu and self.global_rank != 0) ):
@@ -867,6 +893,23 @@ class DaggerMobile:
                 self.env.progress_buf[:] = 0 # since we are only evaling one episode, just disable env resets, it might mess up loggings a little bit
 
                 self.env.step(step_actions)
+                update_reaching_phase_collision()
+
+        eval_reaching_collision_rate = torch.mean(reaching_collision_flags.float()).item()
+        self.last_eval_rollout_table_rows = []
+        if hasattr(self.env, "table_surface_height") and hasattr(self.env, "box_dims") and hasattr(self.env, "lifting_flags"):
+            table_heights = self.env.table_surface_height.detach().cpu()
+            box_dims = self.env.box_dims.detach().cpu()
+            success_flags = self.env.success_flags.detach().cpu()
+            for env_id in range(self.env.num_envs):
+                self.last_eval_rollout_table_rows.append({
+                    "env_id": env_id,
+                    "table_height": float(table_heights[env_id]),
+                    "compartment_dim_x": float(box_dims[env_id, 0]),
+                    "compartment_dim_y": float(box_dims[env_id, 1]),
+                    "compartment_dim_z": float(box_dims[env_id, 2]),
+                    "success": bool(success_flags[env_id] > 0),
+                })
 
         # set env state back for training
         self.env.reset_idx()
@@ -884,6 +927,7 @@ class DaggerMobile:
             "metrics/eval_success_rate_5cm_per_ep": self.env.extras["metrics/success_rate_5cm_per_ep"],
             "metrics/eval_lifting_rate_5cm_final_step": self.env.extras["metrics/lifting_rate_5cm_per_step"],
             "metrics/eval_lifting_rate_5cm_per_ep": self.env.extras["metrics/lifting_rate_5cm_per_ep"],
+            "metrics/eval_reaching_collision_rate_before_switch_per_ep": eval_reaching_collision_rate,
         }
 
         return eval_wandb_logs
